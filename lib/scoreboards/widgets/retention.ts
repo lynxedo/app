@@ -41,13 +41,25 @@ function retentionTone(pct: number | null): Tone {
   return pct >= 90 ? 'good' : pct >= 80 ? 'warn' : 'bad'
 }
 
-/** Churn types, coloured by whether we could have done something about it. */
+/** Churn types, coloured by whether we could have done something about it.
+ *
+ * ⚠ Matched on a NORMALISED key, not the raw string. This function used to test
+ * 'Not-Churn' while the database stores 'Not Churn' (the CHECK constraint on
+ * churn_reasons.churn_type uses a space), so every not-churn row fell through to
+ * 'unknown' and rendered as "needs a reason" — a correct row looking like missing
+ * data. Same class of fault as the Sales report's lost reasons, where a hyphen and
+ * an em dash split the single largest loss reason in two. Comparing on
+ * letters-only means a hyphen, a space, or different casing can't do it again. */
+function churnTypeKey(type: string): string {
+  return type.toLowerCase().replace(/[^a-z]/g, '')
+}
+
 function churnTypeTone(type: string): Tone {
-  switch (type) {
-    case 'Controllable': return 'bad'          // the part worth fighting
-    case 'Uncontrollable': return 'neutral'    // moves, deaths — not operations
-    case 'Company-Initiated': return 'mixed'   // we ended it on purpose
-    case 'Not-Churn': return 'free'
+  switch (churnTypeKey(type)) {
+    case 'controllable': return 'bad'          // the part worth fighting
+    case 'uncontrollable': return 'neutral'    // moves, deaths — not operations
+    case 'companyinitiated': return 'mixed'    // we ended it on purpose
+    case 'notchurn': return 'free'
     default: return 'unknown'                  // Review — needs a reason tagged
   }
 }

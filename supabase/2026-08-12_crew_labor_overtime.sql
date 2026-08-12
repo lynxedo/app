@@ -1,0 +1,76 @@
+-- Overtime, and a stitch boundary set by a test punch. APPLIED 2026-08-12.
+--
+-- TWO DEFECTS in scoreboard_crew_labor's TIMECLOCK half (the payroll-backfill half
+-- was already correct, because Gusto had done the arithmetic for us).
+--
+-- (1) OVERTIME WAS IGNORED ENTIRELY. `time_entries.overtime_hours` exists and is
+--     DEAD: 0.00 on all 219 rows, with `regular_hours` identical to `total_hours`.
+--     The writer dumps everything into regular and writes zero to overtime, so any
+--     reader gets a guaranteed nil. Hours were therefore right and cost was low.
+--
+--     OT is now DERIVED: hours over 40 in a Monday-Sunday week. This is not a
+--     heuristic — it is the rule Gusto itself applies, verified against live payroll
+--     on 38 of 38 employee-weeks to the hundredth of an hour: 28 internal-consistency
+--     checks across the backfill (every OT week caps regular at exactly 40.000) and
+--     10 live-API comparisons inside the timeclock era, including near-misses at
+--     39.74 and 39.19 hours that correctly produced no overtime. The Monday boundary
+--     is confirmed three independent ways (payroll_periods spans, time_entries
+--     .pay_period_start on 211 of 212 rows, and the live Gusto pay schedule).
+--
+--     Priced as total_hours + 0.5 x ot_hours, because total already counts the OT
+--     hours once; only the premium is missing.
+--
+--     ⚠ A week cut by the window edge counts only its in-window hours, so it can
+--     under-report OT at the boundary. Deliberate — reaching outside the window
+--     would charge this period for work done in another.
+--
+--     ⚠ KNOWN, BOUNDED UNDERSTATEMENT: non-discretionary bonuses must be blended
+--     into the FLSA regular rate, which raises the premium. hours x rate cannot see
+--     a bonus at all, so a week carrying one is light by roughly $10-30. One-
+--     directional and small; fixing it needs bonus data the timeclock does not hold.
+--
+-- (2) THE STITCH BOUNDARY WAS SET BY A TEST PUNCH. `tc` took the earliest clocked
+--     day with hours > 0 across ALL employees, so a single 0.02-hour SALARIED punch
+--     pinned tc_first to 2026-05-29. That truncated the real payroll week of May
+--     25-31 to 4/7 and silently dropped ~3 days of genuine field wages. Now filtered
+--     to hourly field-labour staff, which moves tc_first to 2026-06-01 and
+--     backfill_until from 2026-05-28 to 2026-05-31.
+--
+-- Applied as a surgical replace against pg_get_functiondef with all three anchors
+-- asserted present first, so schema drift raises instead of silently patching
+-- nothing. ⚠ CREATE OR REPLACE re-grants EXECUTE to PUBLIC by Supabase default —
+-- re-revoked and verified anon=false, authenticated=true.
+--
+-- VERIFIED, Heroes:
+--   Jun 1 - Aug 11 (timeclock era only, isolates the OT fix)
+--     labour cost  $32,523.06 -> $33,451.32   (+$928.27, +2.85%)
+--     labour %          24.2% -> 24.9%
+--     hours           1,753.9  unchanged
+--     rev/labour-hour   $76.48  UNCHANGED  <-- the headline metric never moved:
+--                                              it divides by hours, and hours were
+--                                              always right. Only cost was low.
+--   Jan 1 - Aug 11 (adds the recovered payroll week)
+--     hours           4,823.2 -> 4,875.5     (+52.3)
+--     labour cost  $91,279.92 -> $93,183.01  (+$1,903.09 = $928.27 OT + $974.82 week)
+--     rev/labour-hour   $88.19 -> $87.25  ·  labour 21.5% -> 21.9%
+--
+-- 13 of 54 employee-weeks breach 40, carrying 100.44 OT hours. Three people account
+-- for 97.7% of the premium: Lucas Hernandez $387.75, Michael Cyplik $320.39,
+-- Josh Allen $198.88.
+--
+-- ⚠⚠ STILL OPEN — scoreboard_service_lines has the SAME flat-rate defect and is NOT
+-- fixed here. Its labour is split across service lines by each tech-day's completed
+-- visits, so applying an OT premium there needs a decision about how to attribute a
+-- weekly premium across daily line splits. It is also clamped to a different window,
+-- so the two reports already show different periods and will not be compared
+-- directly. Do it as its own increment.
+--
+-- ⚠ STILL OPEN — historical pay rates. There is no rate history anywhere in the
+-- schema: `employees.hourly_rate` is a single scalar with no effective date, so past
+-- weeks are priced at today's rate. Materially this bites ONE person: Michael Cyplik
+-- went 18.50 -> 19.50 effective the week of 2026-02-09, so his January weeks read
+-- ~5.4% high. Every other employee's historical rate equals their current one. The
+-- backfill can supply pre-June rates via labor_cost / (regular + 1.5 x overtime) —
+-- note the 1.5, since labor_cost already contains the premium and the naive
+-- labor_cost / total_hours reads high in any OT week. Nothing can supply them going
+-- forward without a rate-history table.

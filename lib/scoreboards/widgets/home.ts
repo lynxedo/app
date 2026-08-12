@@ -59,6 +59,9 @@ const salesReq = (win: WindowSpec) => ({
   source: 'sales_pipeline' as const,
   params: { start: win.start, end: win.end },
 })
+/* The look-ahead a card falls back to when it has no horizon of its own. */
+const DEFAULT_HORIZON_MONTHS = 6
+
 const pulseReq = (months: number) => ({
   source: 'home_pulse' as const,
   params: { months },
@@ -329,9 +332,12 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
     // there is nothing here to tune, and the settings panel is generated from this
     // schema — a knob that changes nothing would be worse than no knob.
     config: {},
-    sources: () => [pulseReq(6), arReq()],
+    // The horizon is irrelevant to this card — it reads only the point-in-time
+    // `attention` block, never `booked` — so it asks for the default and stays
+    // knob-free rather than offering a setting that changes nothing.
+    sources: () => [pulseReq(DEFAULT_HORIZON_MONTHS), arReq()],
     metric: bag => {
-      const p = one<HomePulseRow>(bag, pulseReq(6))
+      const p = one<HomePulseRow>(bag, pulseReq(DEFAULT_HORIZON_MONTHS))
       const ar = one<InvoiceArRow>(bag, arReq())
       const a = p?.attention
       const overdue = num(ar?.overdue_total)
@@ -449,22 +455,28 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'The Ten-Second Read',
     blurb: 'Plain-language summary of the whole business',
     defaultSpan: 12,
-    config: {},
-    sources: (_cfg, win) => [
+    // Same knob as the booked tiles: this card quotes the booked horizon in prose,
+    // so if they looked 12 months ahead and this one didn't, the page would
+    // contradict itself. The sentence names the horizon it actually got, so the two
+    // can differ without either being misleading.
+    config: {
+      months: { kind: 'number', label: 'Look ahead', def: 6, min: 1, max: 24, unit: 'months' },
+    },
+    sources: (cfg, win) => [
       ...bothWindows(invoiceReq, win),
       arReq(),
       clientsReq(win),
       salesReq(win),
-      pulseReq(6),
+      pulseReq(Number(cfg.months)),
     ],
-    metric: (bag, _cfg, win) => {
+    metric: (bag, cfg, win) => {
       const now = one<InvoiceWindowRow>(bag, invoiceReq(win))
       const prev = priorWindow(win)
       const then = one<InvoiceWindowRow>(bag, invoiceReq(prev))
       const ar = one<InvoiceArRow>(bag, arReq())
       const cl = one<ClientsRow>(bag, clientsReq(win))
       const sales = one<SalesRow>(bag, salesReq(win))
-      const p = one<HomePulseRow>(bag, pulseReq(6))
+      const p = one<HomePulseRow>(bag, pulseReq(Number(cfg.months)))
       const items: string[] = []
 
       const invoiced = num(now?.invoiced)
