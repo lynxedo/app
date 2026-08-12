@@ -1,0 +1,55 @@
+-- Customer geography for the Clients report. APPLIED 2026-08-12.
+--
+-- Ben asked for heat maps like Jobber's, which shade by ZIP. Two problems and one
+-- decision.
+--
+-- PROBLEM 1: latitude/longitude are NULL on all 1,345 properties, so there was
+-- nothing to draw. But `zip` is present on 1,343 of them across 44 distinct 5-digit
+-- codes — so the geography exists, just not as coordinates.
+--
+-- PROBLEM 2: geocoding 1,345 addresses is slow, costs money and is unnecessary for a
+-- ZIP-level map. Geocode the 44 ZIPS instead. The app's own geocoder (lib/geocode.ts,
+-- US Census first then Mapbox) takes street addresses, and the deployed
+-- NEXT_PUBLIC_MAPBOX_TOKEN turns out to be scoped to tiles only — the Geocoding API
+-- returns Forbidden with it. So centroids come from the authoritative free source:
+-- the US Census 2020 ZCTA gazetteer (INTPTLAT/INTPTLONG). All 44 matched.
+--
+-- DECISION: circles at ZIP centre points, not shaded ZIP polygons. Boundary data is
+-- a paid Mapbox entitlement and a large payload, and at a glance the two read the
+-- same. Ben approved.
+--
+-- new table zip_centroids
+--   Public reference data, NOT tenant data — there is deliberately no company_id,
+--   because every subscriber shares the same map of the country. RLS on, SELECT to
+--   authenticated only, anon revoked (this is public Census data, so the revoke is
+--   for consistency with the rest of the schema rather than secrecy).
+--   Populated for the ZIPs a tenant actually serves; a ZIP with no row simply cannot
+--   be drawn, and the widget SAYS how many customers that hides.
+--
+-- new function scoreboard_clients_geo(uuid, date, date)
+--   Per-ZIP revenue, recurring customers, one-off customers and total customers.
+--   SECURITY DEFINER, guarded by scoreboard_reports_allowed(), anon revoked.
+--   Jobber-native throughout — clients, properties, jobs, invoices — and deliberately
+--   NOT recurring_services, which is the stale imported board being retired.
+--
+--   ⚠ ZIPs normalised to their 5-digit prefix: the mirror holds ZIP+4 forms
+--     ('77354-4141', '77379-8455') that would otherwise split one ZIP into two dots.
+--   ⚠ A client with several properties counts ONCE, at their lowest ZIP, so per-ZIP
+--     customer counts still add up to the customer count.
+--   ⚠ Leads excluded, matching every other figure on the Clients report.
+--   ⚠ Drafts excluded from revenue, matching the Revenue report.
+--   ⚠ Recurring is POINT-IN-TIME (a live recurring job in Jobber now) while one-off
+--     is WINDOWED (bought a job in the period). Two different questions; each card
+--     states which, so the recurring map not responding to the date picker reads as
+--     intended rather than broken.
+--
+-- VERIFIED: per-ZIP revenue sums to $453,210.09 — the entire billed book for
+-- Jan 1 - Aug 11 2026, to the cent. 29 mappable ZIPs, 0 unmapped. 313 recurring and
+-- 360 one-off customers across 1,040 customers with a mappable ZIP.
+--
+-- ⚠ Note on `is_billing_address`: NOT used as a service/billing discriminator. It is
+-- true on 1,206 of 1,343 properties, so in this mirror it means "also the billing
+-- address" rather than "not a service address". Filtering on it would drop most of
+-- the map.
+--
+-- Full bodies as applied are in the migration history.

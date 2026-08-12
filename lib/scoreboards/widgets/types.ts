@@ -37,6 +37,7 @@ export type SourceKey =
   | 'crew_labor'
   | 'communications'
   | 'clients_overview'
+  | 'clients_geo'
   | 'service_lines'
   | 'sales_pipeline'
   | 'home_pulse'

@@ -21,7 +21,7 @@
  */
 
 import { formatCurrency } from '@/lib/format'
-import type { ClientsRow } from './sources'
+import type { ClientsRow, ClientsGeoRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
 
@@ -315,6 +315,122 @@ export const CLIENTS_WIDGETS: WidgetDef<WidgetPayload>[] = [
   },
 ]
 
+const geoReq = (win: WindowSpec) => ({
+  source: 'clients_geo' as const,
+  params: { start: win.start, end: win.end },
+})
+
+function geo(bag: SourceBag, win: WindowSpec): ClientsGeoRow | null {
+  return bag.get<ClientsGeoRow>(geoReq(win))[0] ?? null
+}
+
+/* What the map could not draw. A ZIP we hold customers in but have no centre point
+ * for is absent from the picture, and absent is indistinguishable from zero unless
+ * the card says so. */
+function geoNote(r: ClientsGeoRow | null, extra?: string): string | undefined {
+  const parts: string[] = []
+  if (extra) parts.push(extra)
+  if (r && r.unmapped_zips > 0) {
+    parts.push(
+      `${r.unmapped_zips} ZIP${r.unmapped_zips === 1 ? '' : 's'} ` +
+      `(${r.unmapped_clients} customer${r.unmapped_clients === 1 ? '' : 's'}) could not be placed on the map ` +
+      `and are not counted above.`,
+    )
+  }
+  return parts.length ? parts.join(' ') : undefined
+}
+
+export const CLIENTS_GEO_WIDGETS: WidgetDef<WidgetPayload>[] = [
+  {
+    type: 'geo_revenue_by_zip',
+    group: 'Clients',
+    title: 'Revenue by Area',
+    blurb: 'Which ZIPs bill the most',
+    defaultSpan: 6,
+    config: {},
+    sources: (_cfg, win) => [geoReq(win)],
+    metric: (bag, _cfg, win) => {
+      const r = geo(bag, win)
+      const pts = (r?.points ?? []).filter(x => num(x.revenue) > 0)
+      return {
+        kind: 'geo',
+        title: 'Revenue by Area',
+        sub: `Billed in ${win.phrase} · by property ZIP`,
+        format: 'currency',
+        points: pts.map(x => ({
+          id: x.zip,
+          lat: num(x.lat),
+          lng: num(x.lng),
+          value: num(x.revenue),
+          detail: `${num(x.total_clients)} customer${num(x.total_clients) === 1 ? '' : 's'}`,
+        })),
+        note: geoNote(r, 'Every billed dollar is on this map — the per-ZIP figures add up to the whole book.'),
+        empty: 'Nothing billed in this period',
+      }
+    },
+  },
+
+  {
+    type: 'geo_recurring_by_zip',
+    group: 'Clients',
+    title: 'Recurring Customers by Area',
+    blurb: 'Where the subscription book is',
+    defaultSpan: 6,
+    config: {},
+    sources: (_cfg, win) => [geoReq(win)],
+    metric: (bag, _cfg, win) => {
+      const r = geo(bag, win)
+      const pts = (r?.points ?? []).filter(x => num(x.recurring_clients) > 0)
+      return {
+        kind: 'geo',
+        title: 'Recurring Customers by Area',
+        sub: 'On the book today · ignores the date range',
+        format: 'number',
+        points: pts.map(x => ({
+          id: x.zip,
+          lat: num(x.lat),
+          lng: num(x.lng),
+          value: num(x.recurring_clients),
+          detail: `of ${num(x.total_clients)} customer${num(x.total_clients) === 1 ? '' : 's'} in this ZIP`,
+        })),
+        // Point-in-time, like AR: "who is on the book" has no window. Said on the
+        // card rather than letting it look like it ignored the picker above it.
+        note: geoNote(r, 'Counts customers with a live recurring job in Jobber right now, so this map does not change with the date range.'),
+        empty: 'No recurring customers on the book',
+      }
+    },
+  },
+
+  {
+    type: 'geo_oneoff_by_zip',
+    group: 'Clients',
+    title: 'One-off Customers by Area',
+    blurb: 'Where the job work comes from',
+    defaultSpan: 6,
+    config: {},
+    sources: (_cfg, win) => [geoReq(win)],
+    metric: (bag, _cfg, win) => {
+      const r = geo(bag, win)
+      const pts = (r?.points ?? []).filter(x => num(x.oneoff_clients) > 0)
+      return {
+        kind: 'geo',
+        title: 'One-off Customers by Area',
+        sub: `Bought a one-off job in ${win.phrase}`,
+        format: 'number',
+        points: pts.map(x => ({
+          id: x.zip,
+          lat: num(x.lat),
+          lng: num(x.lng),
+          value: num(x.oneoff_clients),
+          detail: `of ${num(x.total_clients)} customer${num(x.total_clients) === 1 ? '' : 's'} in this ZIP`,
+        })),
+        note: geoNote(r, 'A customer counts once per ZIP however many jobs they bought, so this is customers and not job volume.'),
+        empty: 'No one-off work in this period',
+      }
+    },
+  },
+]
+
 /** The arrangement Report §8.4 ships with. */
 export const CLIENTS_REPORT_PRESET: { type: string; span: number }[] = [
   { type: 'kpi_active_clients', span: 3 },
@@ -324,5 +440,8 @@ export const CLIENTS_REPORT_PRESET: { type: string; span: number }[] = [
   { type: 'clients_insights', span: 12 },
   { type: 'new_clients_by_month', span: 6 },
   { type: 'clients_by_city', span: 6 },
+  { type: 'geo_revenue_by_zip', span: 6 },
+  { type: 'geo_recurring_by_zip', span: 6 },
+  { type: 'geo_oneoff_by_zip', span: 6 },
   { type: 'top_clients_table', span: 12 },
 ]

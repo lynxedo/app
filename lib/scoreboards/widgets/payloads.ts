@@ -143,6 +143,35 @@ export type ListPayload = {
   drill?: DrillLink
 }
 
+/**
+ * A map of circles, one per area, sized and coloured by a single measure.
+ *
+ * Circles at ZIP centre points rather than shaded ZIP boundaries: boundary polygons
+ * are a paid Mapbox entitlement and a large data file, and at a glance the two read
+ * the same. `note` carries anything the map could NOT place, so an area we hold
+ * customers in but cannot draw is stated rather than silently missing.
+ */
+export type GeoPayload = {
+  kind: 'geo'
+  title: string
+  sub: string
+  /** How to render each point's value in the legend and tooltips. */
+  format?: 'currency' | 'number'
+  points: {
+    id: string
+    lat: number
+    lng: number
+    /** Drives circle size and colour. */
+    value: number
+    /** Shown in the tooltip, e.g. "12 customers". */
+    detail?: string
+  }[]
+  note?: string
+  empty?: string
+  /** Opens the full row list behind this map (see lib/reports/drilldowns.ts). */
+  drill?: DrillLink
+}
+
 export type WidgetPayload =
   | KpiPayload | BarsPayload | StackedPayload | DonutPayload | TablePayload | ListPayload
-  | AttentionPayload
+  | AttentionPayload | GeoPayload

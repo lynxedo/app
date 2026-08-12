@@ -16,7 +16,7 @@ import { RETENTION_WIDGETS, RETENTION_REPORT_PRESET } from './retention'
 import { REVENUE_WIDGETS, REVENUE_REPORT_PRESET } from './revenue'
 import { CREW_WIDGETS, CREW_REPORT_PRESET } from './crew'
 import { COMMS_WIDGETS, COMMS_REPORT_PRESET } from './comms'
-import { CLIENTS_WIDGETS, CLIENTS_REPORT_PRESET } from './clients'
+import { CLIENTS_WIDGETS, CLIENTS_GEO_WIDGETS, CLIENTS_REPORT_PRESET } from './clients'
 import { SERVICE_LINE_WIDGETS, SERVICE_LINE_REPORT_PRESET } from './servicelines'
 import { SALES_WIDGETS, SALES_REPORT_PRESET } from './sales'
 import { HOME_WIDGETS, HOME_REPORT_PRESET } from './home'
@@ -434,7 +434,7 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
 ]
 
 /** Every widget in the library. One array per subject area, concatenated here. */
-const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...HOME_WIDGETS]
+const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...CLIENTS_GEO_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...HOME_WIDGETS]
 
 const BY_TYPE = new Map(ALL_WIDGETS.map(w => [w.type, w]))
 

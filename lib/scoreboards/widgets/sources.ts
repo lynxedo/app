@@ -235,6 +235,22 @@ export type ClientsRow = {
   }[]
 }
 
+/** Where the customers and the money are, by ZIP. */
+export type ClientsGeoRow = {
+  /** ZIPs we hold customers in but cannot place on a map. Stated, never dropped. */
+  unmapped_zips: number
+  unmapped_clients: number
+  points: {
+    zip: string
+    lat: number
+    lng: number
+    revenue: number
+    recurring_clients: number
+    oneoff_clients: number
+    total_clients: number
+  }[]
+}
+
 /** One service line's revenue, allocated labor and what survives wages. */
 export type ServiceLine = {
   dept: string
@@ -486,6 +502,31 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`clients_overview: ${error.message}`)
     return data ? [data as ClientsRow] : []
+  },
+
+  /**
+   * Customer geography by ZIP — the three heat maps on Clients.
+   *
+   * Jobber-native (clients, properties, jobs, invoices), deliberately NOT
+   * recurring_services, which is the stale imported board.
+   *
+   * ⚠ ZIPs normalised to their 5-digit prefix: the mirror holds ZIP+4 forms that
+   * would otherwise split one ZIP into two dots on the map.
+   * ⚠ A client with several properties counts ONCE, so per-ZIP customer counts still
+   * add up to the customer count.
+   * ⚠ Recurring is point-in-time (who is on the book now), one-off is windowed (who
+   * bought in the period) — two different questions, and each card says which.
+   *
+   * Verified: per-ZIP revenue sums to the whole billed book to the cent.
+   */
+  clients_geo: async (ctx, params) => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_clients_geo', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`clients_geo: ${error.message}`)
+    return data ? [data as ClientsGeoRow] : []
   },
 
   /**

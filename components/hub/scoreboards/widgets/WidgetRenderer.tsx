@@ -1,9 +1,10 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import type {
-  AttentionPayload, BarsPayload, DonutPayload, DrillLink, KpiPayload, ListPayload, StackedPayload, TablePayload,
+  AttentionPayload, BarsPayload, DonutPayload, DrillLink, GeoPayload, KpiPayload, ListPayload, StackedPayload, TablePayload,
   WidgetPayload,
 } from '@/lib/scoreboards/widgets/payloads'
 import { formatValue, toneColor } from './tone'
@@ -14,6 +15,26 @@ import { formatValue, toneColor } from './tone'
  * Charts are SVG/CSS rather than Chart.js: these shapes are bars, stacks and one
  * donut, and hand-drawing them means no per-widget chart registration, no canvas
  * lifecycle inside a draggable card, and crisp text at any card size. */
+
+const WidgetGeoMap = dynamic(() => import('./WidgetGeoMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="mt-1 h-[320px] w-full animate-pulse rounded-xl border border-white/10 bg-white/[0.03]" />
+  ),
+})
+
+/* The map card. The canvas itself lives in its own dynamically-imported file — see
+ * the note at the top of WidgetGeoMap for why this one visual gets to be a canvas. */
+function Geo({ p }: { p: GeoPayload }) {
+  return (
+    <>
+      <Head title={p.title} sub={p.sub} />
+      <WidgetGeoMap p={p} />
+      {p.note ? <div className="mt-2 text-[10.5px] leading-snug text-gray-600">{p.note}</div> : null}
+      <DrillFooter drill={p.drill} className="mt-3" />
+    </>
+  )
+}
 
 function Head({ title, sub }: { title: string; sub?: string }) {
   return (
@@ -335,5 +356,6 @@ export function WidgetRenderer({ payload }: { payload: WidgetPayload }) {
     case 'table': return <Table p={payload} />
     case 'list': return <List p={payload} />
     case 'attention': return <Attention p={payload} />
+    case 'geo': return <Geo p={payload} />
   }
 }
