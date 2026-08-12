@@ -1207,52 +1207,329 @@ async function syncVisits(
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
 
-const INVOICES_QUERY = `
-  query SyncInvoices($cursor: String, $filter: InvoiceFilterAttributes) {
-    invoices(first: 40, after: $cursor, filter: $filter) {
+/**
+ * The invoice shape, in one place. Both the paged pull and reconcileOpenInvoices()
+ * select through this — if they diverged, the same invoice would mean different
+ * things depending on which path last touched it.
+ */
+const INVOICE_FIELDS_FRAGMENT = `
+  fragment InvoiceFields on Invoice {
+    id
+    invoiceNumber
+    invoiceStatus
+    invoiceNet
+    subject
+    jobberWebUri
+    amounts {
+      subtotal
+      total
+      invoiceBalance
+      taxAmount
+      discountAmount
+      paymentsTotal
+      depositAmount
+      tipsTotal
+    }
+    issuedDate
+    dueDate
+    receivedDate
+    createdAt
+    updatedAt
+    client { id }
+    salesperson { id }
+    jobs(first: 1) { nodes { id } }
+    customFields {
+      ${CUSTOM_FIELDS_FRAGMENT}
+    }
+    lineItems(first: 25) {
       nodes {
         id
-        invoiceNumber
-        invoiceStatus
-        invoiceNet
-        subject
-        jobberWebUri
-        amounts {
-          subtotal
-          total
-          invoiceBalance
-          taxAmount
-          discountAmount
-          paymentsTotal
-          depositAmount
-          tipsTotal
-        }
-        issuedDate
-        dueDate
-        receivedDate
-        createdAt
-        updatedAt
-        client { id }
-        salesperson { id }
-        jobs(first: 1) { nodes { id } }
-        customFields {
-          ${CUSTOM_FIELDS_FRAGMENT}
-        }
-        lineItems(first: 25) {
-          nodes {
-            id
-            name
-            description
-            quantity
-            unitPrice
-            totalPrice
-          }
-        }
+        name
+        description
+        quantity
+        unitPrice
+        totalPrice
       }
-      pageInfo { hasNextPage endCursor }
     }
   }
 `
+
+const INVOICES_QUERY = `
+  query SyncInvoices($cursor: String, $filter: InvoiceFilterAttributes) {
+    invoices(first: 40, after: $cursor, filter: $filter) {
+      nodes { ...InvoiceFields }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+  ${INVOICE_FIELDS_FRAGMENT}
+`
+
+/**
+ * One invoice node -> one mirror row. Shared by the paged pull and the open-balance
+ * reconcile below so a dollar written by either path means exactly the same thing.
+ */
+function mapInvoiceRow(
+  inv: InvoiceNode,
+  companyId: string,
+  invClientIds: Map<string, string>,
+  invJobIds: Map<string, string>,
+  nowIso: string,
+) {
+  const jobExternalId = inv.jobs?.nodes?.[0]?.id ?? null
+  const { raw: cfRaw } = parseCustomFields((inv.customFields ?? []) as RawCustomField[], null)
+  return {
+    company_id: companyId,
+    source: 'jobber',
+    external_id: inv.id,
+    client_id: invClientIds.get(inv.client?.id ?? '') ?? null,
+    client_external_id: inv.client?.id ?? null,
+    job_id: invJobIds.get(jobExternalId ?? '') ?? null,
+    job_external_id: jobExternalId,
+    invoice_number: inv.invoiceNumber ?? null,
+    subject: inv.subject ?? null,
+    jobber_web_uri: inv.jobberWebUri ?? null,
+    subtotal: inv.amounts?.subtotal ?? null,
+    total: inv.amounts?.total ?? null,
+    outstanding_balance: inv.amounts?.invoiceBalance ?? null,
+    tax_amount: inv.amounts?.taxAmount ?? null,
+    discount_amount: inv.amounts?.discountAmount ?? null,
+    payments_total: inv.amounts?.paymentsTotal ?? null,
+    deposit_amount: inv.amounts?.depositAmount ?? null,
+    tips_total: inv.amounts?.tipsTotal ?? null,
+    invoice_net_days: inv.invoiceNet ?? null,
+    salesperson_external_id: inv.salesperson?.id ?? null,
+    invoice_status: inv.invoiceStatus ?? null,
+    issued_date: inv.issuedDate ?? null,
+    due_date: inv.dueDate ?? null,
+    paid_at: inv.receivedDate ?? null,
+    custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
+    last_synced_at: nowIso,
+    external_created_at: inv.createdAt ?? null,
+    updated_at: nowIso,
+    deleted_at: null,
+  }
+}
+
+/** How many invoices we re-read per GraphQL round trip in the reconcile below. */
+const OPEN_INVOICE_BATCH = 20
+/** Refuse to run if the believed-open set is implausibly large (see below). */
+const OPEN_INVOICE_CEILING = 500
+
+/**
+ * Re-read every invoice we still believe is UNPAID, ignoring `updatedAt`.
+ *
+ * ⚠⚠ THIS EXISTS BECAUSE A JOBBER PAYMENT DOES NOT BUMP `invoice.updatedAt`.
+ * The delta pull filters on `updatedAt: { after: … }`, so the moment an invoice is
+ * paid it stops matching that filter and the mirror keeps its last-known balance
+ * FOREVER. Measured on the live book 2026-08-11: 23 of the 36 invoices showing any
+ * balance had not been re-read in 14+ days, carrying $13,146.49 of receivable that
+ * was already collected — reported AR read $11,441.56 past due where Jobber's own
+ * books said $2,399.80, a ~4x overstatement. One $3,600 row had been paid since June.
+ *
+ * Keyed off `invoice(id:)` rather than inferring: an invoice that drops out of
+ * Jobber's unpaid list could equally have been paid, voided or written off as bad
+ * debt, and guessing "paid" would write a collection that never happened. We ask
+ * for the row and take what Jobber says.
+ *
+ * Self-limiting by construction: the query only asks about invoices we think are
+ * open, and every settled one it finds leaves the set on the next run.
+ */
+async function reconcileOpenInvoices(userId: string, companyId: string): Promise<number> {
+  const admin = createAdminClient()
+
+  // Believed-open = anything carrying a balance, or parked in a pre-payment status.
+  // Both halves matter: the stale rows split between "awaiting_payment with a live
+  // balance" and "status says paid but the amounts never zeroed".
+  const { data: openRows, error: readErr } = await admin
+    .from('invoices')
+    .select('external_id')
+    .eq('company_id', companyId)
+    .eq('source', 'jobber')
+    .is('deleted_at', null)
+    .or('outstanding_balance.gt.0,invoice_status.in.(draft,awaiting_payment,past_due)')
+    .limit(OPEN_INVOICE_CEILING + 1)
+  if (readErr) throw new Error(`open invoice read: ${readErr.message}`)
+
+  const ids = (openRows ?? []).map(r => r.external_id).filter(Boolean) as string[]
+  if (!ids.length) return 0
+
+  // A set this large means something upstream is wrong (a failed backfill, a fresh
+  // tenant mid-import). Re-reading thousands of invoices every delta run would spend
+  // the Jobber budget the rest of the sync needs, so bail loudly instead.
+  if (ids.length > OPEN_INVOICE_CEILING) {
+    console.warn(
+      `[jobber-sync] invoice reconcile skipped: ${ids.length} open invoices exceeds ceiling ${OPEN_INVOICE_CEILING}`
+    )
+    return 0
+  }
+
+  let refreshed = 0
+  let tombstoned = 0
+
+  for (let i = 0; i < ids.length; i += OPEN_INVOICE_BATCH) {
+    const batch = ids.slice(i, i + OPEN_INVOICE_BATCH)
+
+    // Aliased single-invoice lookups. Ids travel as GraphQL VARIABLES, never
+    // interpolated into the document.
+    const varDecls = batch.map((_, n) => `$id${n}: EncodedId!`).join(', ')
+    const selections = batch
+      .map((_, n) => `i${n}: invoice(id: $id${n}) { ...InvoiceFields }`)
+      .join('\n      ')
+    const query = `
+      query ReconcileOpenInvoices(${varDecls}) {
+        ${selections}
+      }
+      ${INVOICE_FIELDS_FRAGMENT}
+    `
+    const vars: Record<string, string> = {}
+    batch.forEach((id, n) => { vars[`id${n}`] = id })
+
+    const resp = await withRateLimit(() =>
+      jobberGraphQLAdmin<{ data: Record<string, InvoiceNode | null> }>(userId, query, vars)
+    )
+
+    // ⚠ jobberGraphQLAdmin returns the FULL body — the payload is under .data.
+    const nodes = Object.values(resp.data ?? {}).filter((n): n is InvoiceNode => !!n?.id)
+
+    // A batch where NOTHING came back is treated as suspicious, not as twenty
+    // deletions: that is what a bad token or a changed query shape looks like, and
+    // it is the one case where tombstoning would destroy real receivables.
+    if (!nodes.length) {
+      console.warn(`[jobber-sync] invoice reconcile: whole batch of ${batch.length} returned nothing — skipped, not tombstoned`)
+      continue
+    }
+
+    const nowIso = new Date().toISOString()
+    const [invClientIds, invJobIds] = await Promise.all([
+      fetchIdMap(admin, 'clients', nodes.map(inv => inv.client?.id)),
+      fetchIdMap(admin, 'jobs', nodes.map(inv => inv.jobs?.nodes?.[0]?.id)),
+    ])
+
+    const rows = nodes.map(inv => mapInvoiceRow(inv, companyId, invClientIds, invJobIds, nowIso))
+    const { error } = await admin
+      .from('invoices')
+      .upsert(rows, { onConflict: 'external_id,source' })
+    if (error) throw new Error(`invoice reconcile upsert: ${error.message}`)
+
+    refreshed += rows.length
+
+    // An id Jobber will not return, in a batch that otherwise answered, no longer
+    // exists there — it was deleted. Left in place it is pure phantom receivable:
+    // 7 such rows carried $9,154.59, including all three "drafts" against Jobber's
+    // zero. Tombstoned rather than deleted, so `deleted_at = null` restores it.
+    const returned = new Set(nodes.map(n => n.id))
+    const gone = batch.filter(id => !returned.has(id))
+    if (gone.length) {
+      const { error: delErr } = await admin
+        .from('invoices')
+        .update({ deleted_at: new Date().toISOString(), updated_at: nowIso })
+        .eq('company_id', companyId)
+        .eq('source', 'jobber')
+        .in('external_id', gone)
+      if (delErr) throw new Error(`invoice tombstone: ${delErr.message}`)
+      tombstoned += gone.length
+      console.warn(`[jobber-sync] invoice reconcile: tombstoned ${gone.length} invoice(s) Jobber no longer has`)
+    }
+  }
+
+  console.log(`[jobber-sync] invoice reconcile: re-read ${refreshed} open invoice(s), tombstoned ${tombstoned}`)
+  return refreshed
+}
+
+/** How many job ids we hand Jobber's `filter.ids` per round trip. */
+const OPEN_JOB_BATCH = 40
+/** Refuse to run if the live book is implausibly large (see reconcileOpenInvoices). */
+const OPEN_JOB_CEILING = 5000
+
+/**
+ * Re-read every job that is not archived, ignoring `createdAt`.
+ *
+ * ⚠⚠ THE DELTA PULL CANNOT SEE A JOB STATUS CHANGE AT ALL. JobFilterAttributes has
+ * no `updatedAt` field, so syncJobs' delta filters on `createdAt` — it only ever
+ * picks up NEWLY CREATED jobs. The standing comment there says edits are "caught in
+ * real time by the Jobber webhook, so nothing is missed"; that assumption is what
+ * failed. Invoicing a job flips its status as a SIDE EFFECT of the invoice, and
+ * Jobber fires INVOICE_CREATE for that, not JOB_UPDATE — and the invoice branch of
+ * the webhook dispatch never touched the job. So an invoiced job kept
+ * `requires_invoicing` forever.
+ *
+ * Measured on the live book 2026-08-11: the mirror held 100 jobs in
+ * requires_invoicing worth $24,562.45; Jobber's own Jobs screen showed exactly ONE,
+ * for $459.90. Ben caught it by opening Jobber and counting.
+ *
+ * Re-reading by id rather than by status is the point: a status we no longer believe
+ * is precisely the thing we cannot filter on. Non-archived is the live book (~600
+ * rows, ~16 requests), and a job archived in Jobber flips on its next read, so the
+ * set drains itself.
+ */
+async function reconcileOpenJobs(userId: string, companyId: string): Promise<number> {
+  const admin = createAdminClient()
+
+  const { data: openRows, error: readErr } = await admin
+    .from('jobs')
+    .select('external_id')
+    .eq('company_id', companyId)
+    .eq('source', 'jobber')
+    .is('deleted_at', null)
+    .not('job_status', 'eq', 'archived')
+    .limit(OPEN_JOB_CEILING + 1)
+  if (readErr) throw new Error(`open job read: ${readErr.message}`)
+
+  const ids = (openRows ?? []).map(r => r.external_id).filter(Boolean) as string[]
+  if (!ids.length) return 0
+
+  if (ids.length > OPEN_JOB_CEILING) {
+    console.warn(
+      `[jobber-sync] job reconcile skipped: ${ids.length} live jobs exceeds ceiling ${OPEN_JOB_CEILING}`
+    )
+    return 0
+  }
+
+  let refreshed = 0
+  for (let i = 0; i < ids.length; i += OPEN_JOB_BATCH) {
+    // syncJobs already supports `filter.ids` and owns the row mapping, line items
+    // and pacing — this only decides WHICH jobs get re-read.
+    refreshed += await syncJobs(userId, companyId, undefined, ids.slice(i, i + OPEN_JOB_BATCH))
+  }
+
+  console.log(`[jobber-sync] job reconcile: re-read ${refreshed} live job(s)`)
+  return refreshed
+}
+
+/**
+ * Repair pass: re-read what we believe is still open, for a company.
+ *
+ * ⚠ DELIBERATELY NOT WIRED INTO THE NIGHTLY DELTA. Webhooks are the mechanism —
+ * measured 2026-08-11, every one of the 63 invoices that received a webhook since
+ * the durable queue went live was refreshed correctly, and 34 of the 36 phantom
+ * balances predate that queue. This is a repair tool for backlog and for whatever
+ * a dropped event leaves behind, not a scheduled crutch. Run it after an initial
+ * backfill, or when a figure is doubted.
+ */
+export async function reconcileJobberOpenRecords(
+  companyId: string,
+): Promise<{ invoices: number; jobs: number; errors: string[] }> {
+  const userId = await resolveJobberUserId(companyId)
+  if (!userId) return { invoices: 0, jobs: 0, errors: ['no Jobber connection for this company'] }
+
+  const errors: string[] = []
+  let invoices = 0
+  let jobs = 0
+
+  // Independent halves — one failing should not cost the other's repair.
+  try {
+    invoices = await reconcileOpenInvoices(userId, companyId)
+  } catch (e) {
+    errors.push(`invoices: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  try {
+    jobs = await reconcileOpenJobs(userId, companyId)
+  } catch (e) {
+    errors.push(`jobs: ${e instanceof Error ? e.message : String(e)}`)
+  }
+
+  return { invoices, jobs, errors }
+}
 
 async function syncInvoices(
   userId: string,
@@ -1287,41 +1564,9 @@ async function syncInvoices(
       fetchIdMap(admin, 'jobs', nodes.map(inv => inv.jobs?.nodes?.[0]?.id)),
     ])
 
-    const invoiceRows = nodes.map(inv => {
-      const jobExternalId = inv.jobs?.nodes?.[0]?.id ?? null
-      const { raw: cfRaw } = parseCustomFields((inv.customFields ?? []) as RawCustomField[], null)
-      return {
-        company_id: companyId,
-        source: 'jobber',
-        external_id: inv.id,
-        client_id: invClientIds.get(inv.client?.id ?? '') ?? null,
-        client_external_id: inv.client?.id ?? null,
-        job_id: invJobIds.get(jobExternalId ?? '') ?? null,
-        job_external_id: jobExternalId,
-        invoice_number: inv.invoiceNumber ?? null,
-        subject: inv.subject ?? null,
-        jobber_web_uri: inv.jobberWebUri ?? null,
-        subtotal: inv.amounts?.subtotal ?? null,
-        total: inv.amounts?.total ?? null,
-        outstanding_balance: inv.amounts?.invoiceBalance ?? null,
-        tax_amount: inv.amounts?.taxAmount ?? null,
-        discount_amount: inv.amounts?.discountAmount ?? null,
-        payments_total: inv.amounts?.paymentsTotal ?? null,
-        deposit_amount: inv.amounts?.depositAmount ?? null,
-        tips_total: inv.amounts?.tipsTotal ?? null,
-        invoice_net_days: inv.invoiceNet ?? null,
-        salesperson_external_id: inv.salesperson?.id ?? null,
-        invoice_status: inv.invoiceStatus ?? null,
-        issued_date: inv.issuedDate ?? null,
-        due_date: inv.dueDate ?? null,
-        paid_at: inv.receivedDate ?? null,
-        custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
-        last_synced_at: nowIso,
-        external_created_at: inv.createdAt ?? null,
-        updated_at: nowIso,
-        deleted_at: null,
-      }
-    })
+    const invoiceRows = nodes.map(inv =>
+      mapInvoiceRow(inv, companyId, invClientIds, invJobIds, nowIso)
+    )
 
     // Upsert all invoices and read their ids back in the same round-trip.
     const invoiceIdByExternal = new Map<string, string>()
@@ -1585,6 +1830,19 @@ export async function processJobberWebhookEvent(
   }
   if (topic in destroyTable) {
     const table = destroyTable[topic]
+    // Read the parent link BEFORE tombstoning — a deleted visit still changes the
+    // status and totals of the job it belonged to.
+    let jobBehind: string | null = null
+    if (topic === 'VISIT_DESTROY' || topic === 'INVOICE_DESTROY') {
+      const { data: row } = await admin
+        .from(table)
+        .select('job_external_id')
+        .eq('company_id', companyId)
+        .eq('external_id', itemId)
+        .maybeSingle()
+      jobBehind = (row as { job_external_id?: string } | null)?.job_external_id ?? null
+    }
+
     const { error } = await admin
       .from(table)
       .update({ deleted_at: new Date().toISOString() })
@@ -1593,6 +1851,35 @@ export async function processJobberWebhookEvent(
       .is('deleted_at', null)
     if (error) console.error(`[jobber-webhook] soft-delete ${table} ${itemId} failed:`, error.message)
     else console.log(`[jobber-webhook] soft-deleted ${table} ${itemId}`)
+
+    // ⚠ Deleting a JOB must take its visits with it. They are not addressed by any
+    // event of their own, so left behind they stay "scheduled" forever and keep
+    // counting toward booked work for a job that no longer exists.
+    if (topic === 'JOB_DESTROY') {
+      const { data: jobRow } = await admin
+        .from('jobs').select('id')
+        .eq('company_id', companyId).eq('external_id', itemId).maybeSingle()
+      if (jobRow?.id) {
+        const { error: vErr } = await admin
+          .from('visits')
+          .update({ deleted_at: new Date().toISOString() })
+          .eq('company_id', companyId).eq('job_id', jobRow.id).is('deleted_at', null)
+        if (vErr) console.error(`[jobber-webhook] cascade visit delete for job ${itemId} failed:`, vErr.message)
+      }
+    }
+
+    // The job's own status is derived from its visits and its invoice, so removing
+    // either moves it without any JOB_* event ever firing.
+    if (jobBehind) {
+      const userIdForJob = await resolveJobberUserId(companyId)
+      if (userIdForJob) {
+        try {
+          await syncJobs(userIdForJob, companyId, undefined, [jobBehind])
+        } catch (e) {
+          console.error(`[jobber-webhook] job refresh after ${topic} failed:`, e)
+        }
+      }
+    }
     return
   }
 
@@ -1629,8 +1916,12 @@ export async function processJobberWebhookEvent(
         break
       }
       case 'INVOICE_CREATE':
-      case 'INVOICE_UPDATE':
-        await syncInvoices(userId, companyId, since); break
+      case 'INVOICE_UPDATE': {
+        await syncInvoices(userId, companyId, since)
+        // Invoicing a job moves it OUT of requires_invoicing.
+        await refreshJobBehind(userId, companyId, 'invoices', itemId)
+        break
+      }
       case 'JOB_CREATE':
       case 'JOB_UPDATE':
         await syncJobs(userId, companyId, undefined, [itemId])
@@ -1650,9 +1941,19 @@ export async function processJobberWebhookEvent(
         break
       case 'VISIT_CREATE':
       case 'VISIT_UPDATE':
-        await syncVisits(userId, companyId, undefined, [itemId]); break
+        await syncVisits(userId, companyId, undefined, [itemId])
+        // Adding or rescheduling a visit moves the job between unscheduled /
+        // upcoming / today / late and changes its totals — all derived, none of
+        // which emits a JOB_* event.
+        await refreshJobBehind(userId, companyId, 'visits', itemId)
+        break
       case 'VISIT_COMPLETE': {
         await syncVisits(userId, companyId, undefined, [itemId])
+        // Completing the last visit moves the job INTO requires_invoicing — the
+        // mirror image of the invoice case, and the reason the mirror drifted in
+        // both directions at once (it read 60 jobs action-required where Jobber
+        // had 69, while reading 100 requires-invoicing where Jobber had 1).
+        await refreshJobBehind(userId, companyId, 'visits', itemId)
         // Session 9 — auto pesticide record on completion. Best-effort, deduped
         // on (company_id, jobber_visit_id); never clobbers a Daily Log V2 record.
         try {
@@ -1673,6 +1974,44 @@ export async function processJobberWebhookEvent(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error(`[jobber-webhook] ${topic} ${itemId} failed:`, msg)
+  }
+}
+
+/**
+ * Re-read the job that an invoice or visit belongs to.
+ *
+ * ⚠⚠ THE RULE THIS ENCODES: Jobber fires a webhook for the record you TOUCHED, not
+ * for records whose state changed as a consequence. A job's status is derived from
+ * its visits and its invoice, so it moves without ever emitting JOB_UPDATE —
+ * invoicing pushes it out of `requires_invoicing`, completing the last visit pushes
+ * it in. Neither was handled, and the mirror drifted both ways at once.
+ *
+ * Any future "webhooks keep X current" claim has to answer the same question: is X
+ * derived from something else? If so, the event names that other thing.
+ *
+ * Best-effort by design — the record the webhook was actually about is already
+ * saved, and a stale job status is the lesser harm. POST /api/jobber/repair
+ * clears whatever this misses.
+ */
+async function refreshJobBehind(
+  userId: string,
+  companyId: string,
+  table: 'invoices' | 'visits',
+  externalId: string,
+): Promise<void> {
+  try {
+    const admin = createAdminClient()
+    const { data: row } = await admin
+      .from(table)
+      .select('job_external_id')
+      .eq('company_id', companyId)
+      .eq('external_id', externalId)
+      .maybeSingle()
+    if (row?.job_external_id) {
+      await syncJobs(userId, companyId, undefined, [row.job_external_id])
+    }
+  } catch (e) {
+    console.error(`[jobber-webhook] job refresh behind ${table} ${externalId} failed:`, e)
   }
 }
 
