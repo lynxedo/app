@@ -4,8 +4,16 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { reconcileJobberOpenRecords } from '@/lib/jobber-sync'
 
 /**
- * Repair the Jobber mirror's OPEN records — invoices we still think are unpaid and
- * jobs we still think are live — by re-reading each one from Jobber by id.
+ * Repair the Jobber mirror's OPEN records — invoices we still think are unpaid,
+ * jobs we still think are live, and visits we still think are scheduled — by
+ * re-reading each one from Jobber by id.
+ *
+ * The visit pass differs from the other two: they re-read to refresh a value,
+ * it asks whether the record still EXISTS. A visit Jobber won't return by id was
+ * deleted upstream, and until this existed nothing ever tombstoned it — a
+ * reschedule (Jobber deletes the old visit, creates a new one) left a phantom that
+ * inflated both "visits not complete" and booked revenue. See reconcileDeletedVisits
+ * for the three guards that keep a bad probe from mass-deleting live work.
  *
  * ⚠ NOT /api/jobber/reconcile. Prod already has a different tool at that path
  * (reconcileDeletedJobs — dry-run-by-default job tombstoning). `develop` deleted
