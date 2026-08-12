@@ -53,7 +53,15 @@ jobs:
             echo "    aborts before the swap). A clean side dir also avoids the stale-manifest"
             echo "    bug that a wiped-then-rebuilt-in-place .next caused (/hub 500 2026-06-02)."
             rm -rf .next-build .next-old
-            NEXT_DIST_DIR=.next-build npm run build
+            # --max-old-space-size=4096: `next build` compiles fine and then OOMs
+            # inside its own "Running TypeScript" pass. Node caps a process near
+            # 2GB by default on this box no matter how much RAM is free, and that
+            # pass grows with the number of routes — so the ceiling is hit by
+            # ADDING ROUTES, with an error that names memory rather than the code.
+            # It reads like a broken commit and isn't: the separate `tsc --noEmit`
+            # above passes, and compilation succeeds before the crash.
+            # 7.7GB box, ~5.6GB free, PM2 workers resident — 4GB is comfortable.
+            NODE_OPTIONS=--max-old-space-size=4096 NEXT_DIST_DIR=.next-build npm run build
             echo "==> Atomic swap (sub-second): retire the live .next, promote the fresh build"
             mv .next .next-old 2>/dev/null || true
             mv .next-build .next
