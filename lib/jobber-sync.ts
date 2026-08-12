@@ -2144,7 +2144,7 @@ export async function processJobberWebhookEvent(
  * derived from something else? If so, the event names that other thing.
  *
  * Best-effort by design — the record the webhook was actually about is already
- * saved, and a stale job status is the lesser harm. POST /api/jobber/reconcile
+ * saved, and a stale job status is the lesser harm. POST /api/jobber/repair
  * clears whatever this misses.
  */
 async function refreshJobBehind(

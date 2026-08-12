@@ -7,6 +7,12 @@ import { reconcileJobberOpenRecords } from '@/lib/jobber-sync'
  * Repair the Jobber mirror's OPEN records — invoices we still think are unpaid and
  * jobs we still think are live — by re-reading each one from Jobber by id.
  *
+ * ⚠ NOT /api/jobber/reconcile. Prod already has a different tool at that path
+ * (reconcileDeletedJobs — dry-run-by-default job tombstoning). `develop` deleted
+ * it during the Reports work, so on this branch the name looks free; taking it
+ * would silently replace a live prod safety tool with something else. Two tools,
+ * two paths. That develop/main divergence is worth reconciling separately.
+ *
  * Why this is a route and not a cron line: webhooks are the mechanism. What this
  * fixes is the residue — records that changed before the durable webhook queue
  * existed, a subscriber's first backfill, or whatever a dropped event leaves
