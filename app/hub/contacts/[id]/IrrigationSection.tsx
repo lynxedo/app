@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IrrigationData } from '@/lib/irrigation'
 import IrrigationForm, { type FullInspection as FormInspection } from './IrrigationForm'
 
@@ -129,6 +129,26 @@ export default function IrrigationSection({ contactId }: { contactId: string }) 
   }, [contactId])
 
   useEffect(() => { void load() }, [load])
+
+  // Deep link from Jobber: /hub/contacts/<id>?irrigation=new opens the inspection
+  // form straight away, so a tech tapping the link on a job lands in the form
+  // instead of on the customer page hunting for this card.
+  //
+  // Reads window.location rather than useSearchParams() so the component keeps
+  // rendering without a Suspense boundary, and strips the parameter once used —
+  // otherwise a refresh or a Back would start a second inspection.
+  const autoStarted = useRef(false)
+  useEffect(() => {
+    if (autoStarted.current || formInsp) return
+    if (!state?.canEdit) return // no grant: leave them on the card, don't half-open a form
+    const q = new URLSearchParams(window.location.search)
+    if (q.get('irrigation') !== 'new') return
+    autoStarted.current = true
+    q.delete('irrigation')
+    const rest = q.toString()
+    window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : ''))
+    void startOrResume()
+  }, [state, formInsp])
 
   async function startOrResume() {
     if (busy) return

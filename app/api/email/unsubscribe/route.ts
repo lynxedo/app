@@ -24,8 +24,19 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ ok: true })
 }
 
-// Redirect bare API GETs to the friendly page.
+// Redirect bare API GETs to the friendly page. Some mail clients surface the
+// List-Unsubscribe header as a plain link and GET it instead of doing the
+// RFC-8058 one-click POST, so this path has to work.
+//
+// The Location is RELATIVE on purpose: behind the Cloudflare tunnel `request.url`
+// carries the internal origin, so building an absolute URL from it emitted
+// Location: https://localhost:3000/unsubscribe?token=... and the recipient landed
+// nowhere. A relative reference is resolved against the address the browser
+// actually requested.
 export async function GET(request: NextRequest) {
   const token = new URL(request.url).searchParams.get('token') || ''
-  return NextResponse.redirect(new URL(`/unsubscribe?token=${encodeURIComponent(token)}`, request.url))
+  return new NextResponse(null, {
+    status: 307,
+    headers: { Location: `/unsubscribe?token=${encodeURIComponent(token)}` },
+  })
 }
