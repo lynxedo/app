@@ -116,6 +116,7 @@ export default function HubShell({
   canAccessPricer,
   canAccessHub,
   scoreboardSlugs,
+  reportSlugs,
   companyId,
   dialerGlobalRing,
   myPresenceMode,
@@ -205,6 +206,9 @@ export default function HubShell({
   canAccessPricer?: boolean
   canAccessHub?: boolean
   scoreboardSlugs?: string[]
+  /** Reports this user may open. REQUIRED so a missing wire-up fails the
+   *  type-check rather than silently listing reports that bounce on click. */
+  reportSlugs: string[]
   companyId?: string
   /** Session 58.5: when true (default) AND canAccessDialer, the Twilio
    *  Device registers on every Hub page so IncomingCall pops anywhere. */
@@ -884,7 +888,7 @@ export default function HubShell({
       case 'scoreboards':
         return <ScoreboardsSidebar isAdmin={!!isAdmin} allowedSlugs={scoreboardSlugs} onClose={closeMobileDrawer} {...collapseProps} />
       case 'reports':
-        return <ReportsSidebar onClose={closeMobileDrawer} {...collapseProps} />
+        return <ReportsSidebar visibleSlugs={reportSlugs} onClose={closeMobileDrawer} {...collapseProps} />
       case 'tracker':
         return <TrackerSidebar isAdmin={!!isAdmin} onClose={closeMobileDrawer} {...collapseProps} />
       case 'marketing':

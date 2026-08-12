@@ -60,7 +60,11 @@ export default async function ReportsAdminPage() {
   const access: Record<string, string[]> = {}
   for (const r of (grants ?? [])) (access[r.user_id] ??= []).push(r.report_slug)
 
-  const reports = REPORTS.map(r => ({
+  // Call Coaching is excluded: it answers to `can_access_coaching` alone (Admin →
+  // People) and never reads report_access, so a toggle for it here would be a
+  // control that does nothing — the exact kind of lie in the UI this project keeps
+  // catching in self-review.
+  const reports = REPORTS.filter(r => r.gate !== 'coaching').map(r => ({
     slug: r.slug,
     title: r.title,
     section: r.section,

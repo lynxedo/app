@@ -14,8 +14,6 @@ export type ScoreboardPerms = {
   canAccessScoreboards: boolean
   /** Board slugs this user is explicitly granted. Ignored for admins (who see all). */
   allowedBoardSlugs?: string[]
-  /** Call Coaching board (slug '6') is gated on this flag ALONE — admins do NOT bypass. */
-  canAccessCoaching?: boolean
 }
 
 export type ScoreboardMeta = {
@@ -57,12 +55,6 @@ export const SCOREBOARDS: ScoreboardMeta[] = [
     badge: 'Office',
   },
   {
-    slug: '6',
-    title: 'Call Coaching',
-    subtitle: 'Call grades, weak spots, must-listen queue & rep performance',
-    badge: 'Coaching',
-  },
-  {
     slug: '7',
     title: 'Retention & Churn',
     subtitle: 'Recurring retention, churn by reason & type, monthly trend — 2026 book',
@@ -79,16 +71,16 @@ export const SCOREBOARDS: ScoreboardMeta[] = [
 /** Whether a user can see the Scoreboards section at all (i.e. has ≥1 visible board). */
 export function canSeeScoreboards(perms: ScoreboardPerms): boolean {
   if (perms.isAdmin) return true
-  if (perms.canAccessCoaching) return true
   if (!perms.canAccessScoreboards) return false
   return (perms.allowedBoardSlugs?.length ?? 0) > 0
 }
 
 /** Whether a user may open one specific board. */
 export function canSeeBoard(perms: ScoreboardPerms, slug: string): boolean {
-  // The Call Coaching board is rep-performance data — manager-only. It is gated
-  // on the can_access_coaching flag ALONE; admins do NOT bypass it.
-  if (slug === '6') return perms.canAccessCoaching === true
+  // Call Coaching used to live here as board '6', gated on can_access_coaching
+  // alone with no admin bypass. It moved to Reports (/hub/reports/coaching) and
+  // kept that gate exactly — see `canSeeReport` in lib/reports/registry.ts. Do
+  // not reintroduce a coaching case here.
   if (perms.isAdmin) return true
   if (!perms.canAccessScoreboards) return false
   return (perms.allowedBoardSlugs ?? []).includes(slug)

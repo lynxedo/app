@@ -37,6 +37,23 @@ export type ReportMeta = {
    * so every delta on the page would correctly, but uselessly, say "no comparison".
    */
   defaultRange?: 'ytd' | 'this_month' | 'last_month' | 'this_quarter' | 'last_12' | 'last_year'
+  /**
+   * A report that carries its OWN gate instead of the normal grant model.
+   *
+   * Only Call Coaching does this, and it is not a style choice: coaching is
+   * per-rep grade data gated on `can_access_coaching` ALONE, with **no admin
+   * bypass** — the only screen in the product like that. Routing it through
+   * `report_access` would have quietly given every admin a screen that has
+   * always excluded them.
+   */
+  gate?: 'coaching'
+  /**
+   * Renders its own component rather than a widget layout. Call Coaching only:
+   * §9.1.5 puts it permanently outside the widget library, because its metrics
+   * are individual grades and a composable board could put them in front of the
+   * wrong person. Moving it into Reports moves WHERE IT LIVES, not what it is.
+   */
+  legacyView?: boolean
 }
 
 export const REPORTS: ReportMeta[] = [
@@ -105,6 +122,16 @@ export const REPORTS: ReportMeta[] = [
     icon: '🔄',
     prd: '§8.5',
   },
+  {
+    slug: 'coaching',
+    title: 'Call Coaching',
+    subtitle: 'Call grades, weak spots, must-listen queue & rep performance',
+    section: 'People',
+    icon: '🎧',
+    prd: '§9.1.5',
+    gate: 'coaching',
+    legacyView: true,
+  },
 ]
 
 export function getReport(slug: string): ReportMeta | null {
@@ -128,11 +155,28 @@ export type ReportPerms = {
    * quietly handing them wage data.
    */
   allowedReportSlugs?: string[]
+  /**
+   * Call Coaching's own flag. ⚠ Admins do NOT bypass it — it is the one gate in
+   * the product that excludes them, because the screen shows individual reps'
+   * grades. Preserved exactly as it was when coaching lived in Scoreboards.
+   */
+  canAccessCoaching?: boolean
 }
 
 /** Whether the Reports section is visible at all. */
 export function canSeeReports(perms: ReportPerms): boolean {
   return perms.isAdmin || perms.canAccessReports
+}
+
+/**
+ * Whether the section should open for this user — i.e. is there anything inside.
+ *
+ * Distinct from `canSeeReports`: coaching carries its own flag, so someone can
+ * have a report to read without holding `can_access_reports` at all, and the
+ * section gate alone would bounce them off a page they have a row on.
+ */
+export function canOpenReportsSection(perms: ReportPerms): boolean {
+  return canSeeReports(perms) || reportsForUser(perms).length > 0
 }
 
 /**
@@ -143,6 +187,11 @@ export function canSeeReports(perms: ReportPerms): boolean {
  * after the section flag is revoked therefore grants nothing.
  */
 export function canSeeReport(perms: ReportPerms, slug: string): boolean {
+  // Call Coaching answers to its own flag and NOTHING else — not the section
+  // flag, not report_access, and explicitly not the admin bypass. Checked first
+  // so none of the rules below can widen it. Moving it out of Scoreboards must
+  // not change who can read it, and this line is what guarantees that.
+  if (getReport(slug)?.gate === 'coaching') return perms.canAccessCoaching === true
   if (!canSeeReports(perms)) return false
   if (perms.isAdmin) return true
   return (perms.allowedReportSlugs ?? []).includes(slug)

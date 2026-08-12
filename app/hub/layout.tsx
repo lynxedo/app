@@ -222,6 +222,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessPricer = isAdmin || (profileResult.data?.can_access_pricer ?? false)
   const rawCanAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
   const rawCanAccessReports = profileResult.data?.can_access_reports ?? false
+  const rawCanAccessCoaching = profileResult.data?.can_access_coaching ?? false
   const companyId = profileResult.data?.company_id ?? ''
   // A signed-in account with no company never auto-joined one (its email domain
   // didn't match a registered company in handle_new_user). Send it to a clean
@@ -256,13 +257,23 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   // admins see all, non-admins see only what they're granted, and the rail icon is
   // hidden entirely when they have none — an icon that opens an empty page is worse
   // than no icon. The query only runs for a non-admin who holds the section flag.
-  const reportSlugs: string[] = isAdmin
-    ? REPORTS.map(r => r.slug)
+  // ⚠ Admins see every report EXCEPT Call Coaching. It answers to
+  // can_access_coaching alone and is the one screen in the product an admin does
+  // NOT bypass, so it is excluded from the admin branch and added back only for a
+  // real flag-holder. The `!== 'coaching'` filter on granted rows is belt-and-
+  // braces: the admin UI can't create such a row, but a hand-inserted one must
+  // not become a side door into rep grades.
+  const grantedReportSlugs: string[] = isAdmin
+    ? REPORTS.filter(r => r.gate !== 'coaching').map(r => r.slug)
     : rawCanAccessReports
       ? ((await admin.from('report_access').select('report_slug').eq('user_id', user.id)).data ?? [])
           .map(r => r.report_slug as string)
+          .filter(slug => slug !== 'coaching')
       : []
-  const canAccessReports = isAdmin || (rawCanAccessReports && reportSlugs.length > 0)
+  const reportSlugs = rawCanAccessCoaching ? [...grantedReportSlugs, 'coaching'] : grantedReportSlugs
+  // Someone holding ONLY the coaching flag still needs the Reports icon — that is
+  // now their one report, and it lives here rather than in Scoreboards.
+  const canAccessReports = reportSlugs.length > 0
   // Track 5 (M3) — company-level module entitlements, applied in FRONT of the per-user
   // flags below when passing them to the shell. FAILS OPEN: a company with no gating-active
   // subscription (every existing tenant, incl. Heroes) yields entitled === null, so
@@ -432,6 +443,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessPricer={canAccessPricer && moduleOn('pricer')}
         canAccessHub={canAccessHub}
         scoreboardSlugs={scoreboardSlugs}
+        reportSlugs={reportSlugs}
         companyId={companyId}
         dialerGlobalRing={dialerGlobalRing}
         myPresenceMode={myPresenceMode}
