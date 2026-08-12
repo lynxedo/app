@@ -1501,6 +1501,7 @@ async function reconcileOpenInvoices(userId: string, companyId: string): Promise
   }
 
   let refreshed = 0
+  let tombstoned = 0
 
   for (let i = 0; i < ids.length; i += OPEN_INVOICE_BATCH) {
     const batch = ids.slice(i, i + OPEN_INVOICE_BATCH)
@@ -1526,7 +1527,14 @@ async function reconcileOpenInvoices(userId: string, companyId: string): Promise
 
     // ⚠ jobberGraphQLAdmin returns the FULL body — the payload is under .data.
     const nodes = Object.values(resp.data ?? {}).filter((n): n is InvoiceNode => !!n?.id)
-    if (!nodes.length) continue
+
+    // A batch where NOTHING came back is treated as suspicious, not as twenty
+    // deletions: that is what a bad token or a changed query shape looks like, and
+    // it is the one case where tombstoning would destroy real receivables.
+    if (!nodes.length) {
+      console.warn(`[jobber-sync] invoice reconcile: whole batch of ${batch.length} returned nothing — skipped, not tombstoned`)
+      continue
+    }
 
     const nowIso = new Date().toISOString()
     const [invClientIds, invJobIds] = await Promise.all([
@@ -1542,16 +1550,26 @@ async function reconcileOpenInvoices(userId: string, companyId: string): Promise
 
     refreshed += rows.length
 
-    // An id Jobber no longer answers for is deliberately LEFT ALONE. It is one
-    // ambiguous read away from deleting a real receivable, and a stale row is the
-    // lesser harm; the count is logged so it stays visible.
-    const missing = batch.length - nodes.length
-    if (missing > 0) {
-      console.warn(`[jobber-sync] invoice reconcile: ${missing} of ${batch.length} not returned by Jobber (left untouched)`)
+    // An id Jobber will not return, in a batch that otherwise answered, no longer
+    // exists there — it was deleted. Left in place it is pure phantom receivable:
+    // 7 such rows carried $9,154.59, including all three "drafts" against Jobber's
+    // zero. Tombstoned rather than deleted, so `deleted_at = null` restores it.
+    const returned = new Set(nodes.map(n => n.id))
+    const gone = batch.filter(id => !returned.has(id))
+    if (gone.length) {
+      const { error: delErr } = await admin
+        .from('invoices')
+        .update({ deleted_at: new Date().toISOString(), updated_at: nowIso })
+        .eq('company_id', companyId)
+        .eq('source', 'jobber')
+        .in('external_id', gone)
+      if (delErr) throw new Error(`invoice tombstone: ${delErr.message}`)
+      tombstoned += gone.length
+      console.warn(`[jobber-sync] invoice reconcile: tombstoned ${gone.length} invoice(s) Jobber no longer has`)
     }
   }
 
-  console.log(`[jobber-sync] invoice reconcile: re-read ${refreshed} open invoice(s)`)
+  console.log(`[jobber-sync] invoice reconcile: re-read ${refreshed} open invoice(s), tombstoned ${tombstoned}`)
   return refreshed
 }
 
@@ -1966,6 +1984,19 @@ export async function processJobberWebhookEvent(
   }
   if (topic in destroyTable) {
     const table = destroyTable[topic]
+    // Read the parent link BEFORE tombstoning — a deleted visit still changes the
+    // status and totals of the job it belonged to.
+    let jobBehind: string | null = null
+    if (topic === 'VISIT_DESTROY' || topic === 'INVOICE_DESTROY') {
+      const { data: row } = await admin
+        .from(table)
+        .select('job_external_id')
+        .eq('company_id', companyId)
+        .eq('external_id', itemId)
+        .maybeSingle()
+      jobBehind = (row as { job_external_id?: string } | null)?.job_external_id ?? null
+    }
+
     const { error } = await admin
       .from(table)
       .update({ deleted_at: new Date().toISOString() })
@@ -1974,6 +2005,35 @@ export async function processJobberWebhookEvent(
       .is('deleted_at', null)
     if (error) console.error(`[jobber-webhook] soft-delete ${table} ${itemId} failed:`, error.message)
     else console.log(`[jobber-webhook] soft-deleted ${table} ${itemId}`)
+
+    // ⚠ Deleting a JOB must take its visits with it. They are not addressed by any
+    // event of their own, so left behind they stay "scheduled" forever and keep
+    // counting toward booked work for a job that no longer exists.
+    if (topic === 'JOB_DESTROY') {
+      const { data: jobRow } = await admin
+        .from('jobs').select('id')
+        .eq('company_id', companyId).eq('external_id', itemId).maybeSingle()
+      if (jobRow?.id) {
+        const { error: vErr } = await admin
+          .from('visits')
+          .update({ deleted_at: new Date().toISOString() })
+          .eq('company_id', companyId).eq('job_id', jobRow.id).is('deleted_at', null)
+        if (vErr) console.error(`[jobber-webhook] cascade visit delete for job ${itemId} failed:`, vErr.message)
+      }
+    }
+
+    // The job's own status is derived from its visits and its invoice, so removing
+    // either moves it without any JOB_* event ever firing.
+    if (jobBehind) {
+      const userIdForJob = await resolveJobberUserId(companyId)
+      if (userIdForJob) {
+        try {
+          await syncJobs(userIdForJob, companyId, undefined, [jobBehind])
+        } catch (e) {
+          console.error(`[jobber-webhook] job refresh after ${topic} failed:`, e)
+        }
+      }
+    }
     return
   }
 
@@ -2035,7 +2095,12 @@ export async function processJobberWebhookEvent(
         break
       case 'VISIT_CREATE':
       case 'VISIT_UPDATE':
-        await syncVisits(userId, companyId, undefined, [itemId]); break
+        await syncVisits(userId, companyId, undefined, [itemId])
+        // Adding or rescheduling a visit moves the job between unscheduled /
+        // upcoming / today / late and changes its totals — all derived, none of
+        // which emits a JOB_* event.
+        await refreshJobBehind(userId, companyId, 'visits', itemId)
+        break
       case 'VISIT_COMPLETE': {
         await syncVisits(userId, companyId, undefined, [itemId])
         // Completing the last visit moves the job INTO requires_invoicing — the
