@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import type { Map as MapboxMap } from 'mapbox-gl'
 import type { GeoPayload } from '@/lib/scoreboards/widgets/payloads'
@@ -42,14 +43,39 @@ function stepFor(value: number, max: number): number {
 
 export default function WidgetGeoMap({ p }: { p: GeoPayload }) {
   const holder = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<MapboxMap | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
 
   const fmt = useMemo(
     () => (v: number) => (p.format === 'currency' ? formatCurrency(v) : v.toLocaleString()),
     [p.format],
   )
   const max = useMemo(() => p.points.reduce((m, x) => Math.max(m, x.value), 0), [p.points])
+
+  /* Expanded state is a PORTAL to document.body, not `position: fixed` on the card.
+   *
+   * A fixed element resolves against the nearest transformed ancestor rather than
+   * the viewport, and this codebase has already been bitten by that (a backdrop
+   * inside the transformed sidebar covered the sidebar instead of the page). The
+   * board has no transform today, but the widget editor drags cards with pointer
+   * transforms, so relying on that staying true is a bet. A portal cannot be
+   * trapped.
+   *
+   * Cost of the portal: React moves the subtree, so the map is rebuilt rather than
+   * resized. It refits to the same bounds, so the view is equivalent — a fresh fit
+   * is arguably better here than preserving a pan from a small card. */
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpanded(false) }
+    window.addEventListener('keydown', onKey)
+    // Stop the report scrolling behind a full-screen map.
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [expanded])
 
   useEffect(() => {
     if (!holder.current || !p.points.length) return
@@ -71,10 +97,9 @@ export default function WidgetGeoMap({ p }: { p: GeoPayload }) {
         container: holder.current,
         style: 'mapbox://styles/mapbox/streets-v12',
         bounds: [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-        fitBoundsOptions: { padding: 44 },
+        fitBoundsOptions: { padding: expanded ? 80 : 44 },
         attributionControl: false,
       })
-      mapRef.current = map
       map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
 
       // Biggest first, so a large faint circle can never bury a small dark one.
@@ -82,7 +107,8 @@ export default function WidgetGeoMap({ p }: { p: GeoPayload }) {
       for (const pt of ordered) {
         const step = stepFor(pt.value, max)
         const el = document.createElement('div')
-        const size = 16 + step * 8
+        // Bigger circles when expanded — at full size the small ones are hard to hit.
+        const size = (expanded ? 22 : 16) + step * (expanded ? 11 : 8)
         el.style.width = `${size}px`
         el.style.height = `${size}px`
         el.style.borderRadius = '50%'
@@ -113,9 +139,18 @@ export default function WidgetGeoMap({ p }: { p: GeoPayload }) {
       cancelled = true
       observer?.disconnect()
       map?.remove()
-      mapRef.current = null
     }
-  }, [p.points, max, fmt])
+  }, [p.points, max, fmt, expanded])
+
+  const legend = useCallback((className: string) => (
+    <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-gray-500 ${className}`}>
+      <span>Low</span>
+      {RAMP.map((c, i) => (
+        <span key={i} className="inline-block h-2.5 w-4 rounded-sm" style={{ background: c }} />
+      ))}
+      <span>High · up to {fmt(max)}</span>
+    </div>
+  ), [fmt, max])
 
   if (!p.points.length) {
     return <div className="py-6 text-center text-[12px] text-gray-500">{p.empty ?? 'Nothing to map yet'}</div>
@@ -124,15 +159,48 @@ export default function WidgetGeoMap({ p }: { p: GeoPayload }) {
     return <div className="py-6 text-center text-[12px] text-gray-500">Map unavailable — {failed}</div>
   }
 
+  const mapSurface = (
+    <div
+      ref={holder}
+      className={expanded
+        ? 'h-full w-full'
+        : 'mt-1 h-[320px] w-full overflow-hidden rounded-xl border border-white/10'}
+    />
+  )
+
+  if (expanded) {
+    return createPortal(
+      <div className="fixed inset-0 z-[60] flex flex-col bg-gray-950">
+        <div className="flex flex-none items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-[var(--t-heading)]">{p.title}</div>
+            <div className="truncate text-[11px] text-gray-500">{p.sub}</div>
+          </div>
+          <button
+            onClick={() => setExpanded(false)}
+            className="flex-none rounded-lg border border-white/15 px-3 py-1.5 text-[12px] font-semibold text-[var(--t-body)] hover:bg-white/[0.06]"
+          >
+            Close ✕
+          </button>
+        </div>
+        <div className="min-h-0 flex-1">{mapSurface}</div>
+        <div className="flex-none px-4 py-2">{legend('')}</div>
+      </div>,
+      document.body,
+    )
+  }
+
   return (
     <>
-      <div ref={holder} className="mt-1 h-[320px] w-full overflow-hidden rounded-xl border border-white/10" />
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-gray-500">
-        <span>Low</span>
-        {RAMP.map((c, i) => (
-          <span key={i} className="inline-block h-2.5 w-4 rounded-sm" style={{ background: c }} />
-        ))}
-        <span>High · up to {fmt(max)}</span>
+      {mapSurface}
+      <div className="mt-2 flex items-center justify-between gap-3">
+        {legend('')}
+        <button
+          onClick={() => setExpanded(true)}
+          className="flex-none text-[11px] font-semibold text-[var(--t-accent)] hover:underline"
+        >
+          Expand ⤢
+        </button>
       </div>
     </>
   )
