@@ -349,6 +349,7 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
           value: formatCurrency(unbilled),
           detail: `${num(a?.requires_invoicing_count)} jobs Jobber marks ready to invoice`,
           tone: unbilled > 0 ? 'bad' : 'good',
+          href: '/hub/reports/home/unbilled-work',
         },
         {
           key: 'overdue',
@@ -356,7 +357,9 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
           value: formatCurrency(overdue),
           detail: `${num(ar?.overdue_count)} invoices past their due date`,
           tone: overdue > 0 ? 'bad' : 'good',
-          href: '/hub/reports/revenue',
+          // The list of who owes what, not the Revenue page — the chip asks
+          // "who?", so it should land on the names, not on another summary.
+          href: '/hub/reports/home/open-invoices',
         },
         {
           key: 'late',
@@ -366,6 +369,7 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
             ? `Oldest scheduled ${prettyDate(a.oldest_late_visit)}`
             : 'Every scheduled visit is accounted for',
           tone: late > 0 ? 'warn' : 'good',
+          href: '/hub/reports/home/late-visits',
         },
         {
           key: 'at_risk',
@@ -375,9 +379,11 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
             ? `Active recurring, no visit scheduled · ${unmatched} more can't be checked`
             : 'Active recurring customers with no visit on the calendar',
           tone: risk > 0 ? 'warn' : 'good',
-          // No link on purpose. Retention explains churn RATES; it does not list
-          // these specific customers, so sending someone there would answer a
-          // different question than the one the chip raised.
+          // Now links to the customers themselves. It previously had NO link on
+          // purpose, because the only candidate was Retention — which explains
+          // churn RATES and would have answered a different question than the one
+          // the chip raises. This list is that question.
+          href: '/hub/reports/home/at-risk-recurring',
         },
         {
           key: 'action',

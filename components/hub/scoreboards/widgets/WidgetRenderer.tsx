@@ -275,6 +275,17 @@ function Table({ p }: { p: TablePayload }) {
           </div>
         )}
       {p.foot ? <div className="mt-3 text-[10.5px] leading-snug text-gray-600">{p.foot}</div> : null}
+      {/* A table card usually shows a top-N slice; this opens the whole list. */}
+      {p.drill ? (
+        <div className="mt-3">
+          <Link
+            href={p.drill.href}
+            className="text-[11px] font-semibold text-[var(--t-accent)] hover:underline"
+          >
+            {p.drill.label ?? 'See the rows'} →
+          </Link>
+        </div>
+      ) : null}
     </>
   )
 }

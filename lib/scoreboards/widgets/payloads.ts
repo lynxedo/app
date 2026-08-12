@@ -108,6 +108,21 @@ export type TablePayload = {
   }[]
   foot?: string
   empty?: string
+  /** Opens the full row list behind this card (see lib/reports/drilldowns.ts). */
+  drill?: DrillLink
+}
+
+/**
+ * A link from a figure to the records that make it up.
+ *
+ * Kept as a plain href rather than a drill key so the widget library stays
+ * independent of the Reports drill-down registry — Scoreboards use the same
+ * payloads and must not inherit a Reports-only concept.
+ */
+export type DrillLink = {
+  href: string
+  /** Defaults to "See the rows" where a widget doesn't set one. */
+  label?: string
 }
 
 export type ListPayload = {

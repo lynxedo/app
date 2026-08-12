@@ -366,10 +366,16 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
           { key: 'days', label: 'Days late', align: 'right', format: 'number', sortable: true, title: 'Days past the due date. 0 means not due yet.' },
         ],
         rows,
+        // ⚠ This note was the exact inverse until 2026-08-12. It said the list was
+        // built from the balance "not its status", and that the paid-but-owing rows
+        // were included because filtering by status would hide them. Re-reading
+        // every open invoice from Jobber showed the opposite: Jobber's own books
+        // treat those as settled, and counting them overstated receivables ~4x.
         foot: owing > 0
-          ? `This list is built from what each invoice still owes, not its status — ${owing} of these are marked paid in Jobber yet carry a balance (${formatCurrency(num(r?.paid_status_still_owing_value))} between them). Filtering by status would hide them.`
-          : 'Built from what each invoice still owes, not its status.',
+          ? `Built from what Jobber still considers open. ${owing} further ${owing === 1 ? 'invoice carries' : 'invoices carry'} a balance (${formatCurrency(num(r?.paid_status_still_owing_value))}) while marked paid — Jobber treats those as settled, so they are excluded here, but they are worth a look as a recording problem.`
+          : 'Built from what Jobber still considers open — drafts and settled invoices are excluded.',
         empty: 'Nothing to collect — every invoice is settled',
+        drill: { href: '/hub/reports/revenue/open-invoices', label: 'See every unpaid invoice' },
       }
     },
   },

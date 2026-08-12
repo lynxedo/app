@@ -19,6 +19,7 @@ import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
 import EmailInboxSidebar from './sidebars/EmailInboxSidebar'
 import DialerSidebar from './sidebars/DialerSidebar'
 import ScoreboardsSidebar from './sidebars/ScoreboardsSidebar'
+import ReportsSidebar from './sidebars/ReportsSidebar'
 import TrackerSidebar from './sidebars/TrackerSidebar'
 import MarketingSidebar from './sidebars/MarketingSidebar'
 import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
@@ -882,6 +883,8 @@ export default function HubShell({
         )
       case 'scoreboards':
         return <ScoreboardsSidebar isAdmin={!!isAdmin} allowedSlugs={scoreboardSlugs} onClose={closeMobileDrawer} {...collapseProps} />
+      case 'reports':
+        return <ReportsSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'tracker':
         return <TrackerSidebar isAdmin={!!isAdmin} onClose={closeMobileDrawer} {...collapseProps} />
       case 'marketing':
