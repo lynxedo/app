@@ -177,6 +177,57 @@ export async function loadOrSeedBoardLayout(
   return seedPresetLayout(companyId, slug)
 }
 
+/**
+ * Load a REPORT layout, keeping it in step with the preset in code.
+ *
+ * ⚠⚠ THE BUG THIS EXISTS TO FIX. `loadOrSeedBoardLayout` seeds once and thereafter
+ * only loads, so the stored rows are frozen at whatever the preset said the FIRST
+ * time anyone opened that report. Every widget added to a preset afterwards is
+ * invisible forever — no error, no empty card, just absent, which is
+ * indistinguishable from never having shipped. It bit immediately: report:clients
+ * was seeded with 8 cards, three maps were added to its preset, and the page kept
+ * rendering 8.
+ *
+ * This is safe for Reports and ONLY for Reports, for a specific reason: a Report is
+ * a locked arrangement — `app/api/hub/reports/widgets` has no PUT by design — so
+ * there are no user edits to overwrite, and the preset genuinely IS the source of
+ * truth. Scoreboards keep load-or-seed, because those are user-edited and resyncing
+ * them would silently discard someone's board.
+ *
+ * Normal case costs nothing: the comparison is on the in-memory list and only a
+ * genuine mismatch writes. A failed resync returns the STALE layout rather than an
+ * error — a report missing a new card beats a report that won't open.
+ */
+export async function loadReportLayoutInSync(
+  companyId: string,
+  slug: string,
+  userId: string,
+): Promise<BoardLayout | null> {
+  const layout = await loadOrSeedBoardLayout(companyId, slug, userId)
+  if (!layout) return null
+
+  const preset = PRESETS[slug]
+  if (!preset) return layout
+
+  const inStep =
+    layout.widgets.length === preset.widgets.length &&
+    layout.widgets.every((w, i) => w.type === preset.widgets[i].type && w.span === preset.widgets[i].span)
+  if (inStep) return layout
+
+  try {
+    await saveLayoutWidgets(
+      layout.id,
+      companyId,
+      preset.widgets.map(w => ({ type: w.type, span: w.span })),
+      userId,
+    )
+    return (await loadBoardLayout(companyId, slug, userId)) ?? layout
+  } catch (err) {
+    console.error(`[layouts] report preset resync failed for ${slug}:`, err)
+    return layout
+  }
+}
+
 export type SaveWidgetInput = { type: string; span: number; config?: unknown }
 
 /**

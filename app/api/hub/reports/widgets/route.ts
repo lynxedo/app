@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
-import { loadOrSeedBoardLayout } from '@/lib/scoreboards/widgets/layouts'
+import { loadReportLayoutInSync } from '@/lib/scoreboards/widgets/layouts'
 import { hasReportLayout, reportLayoutSlug, widgetCatalog } from '@/lib/scoreboards/widgets/registry'
 import { resolveBoard } from '@/lib/scoreboards/widgets/resolve'
 import { resolveWindow, RANGE_OPTIONS } from '@/lib/scoreboards/widgets/windows'
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 
   let layout
   try {
-    layout = await loadOrSeedBoardLayout(profile.company_id, reportLayoutSlug(slug), user.id)
+    layout = await loadReportLayoutInSync(profile.company_id, reportLayoutSlug(slug), user.id)
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Could not load this report' }, { status: 500 })
   }
