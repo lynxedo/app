@@ -194,6 +194,50 @@ const DRILLDOWNS: DrillSpec[] = [
   },
 
   {
+    key: 'jobs-needing-action',
+    title: 'Jobs needing action',
+    description:
+      'Jobs Jobber is holding for someone: "Action Required" means it wants a decision on the ' +
+      'job itself, and "Unscheduled" means the work is sold but has no visit on the calendar. ' +
+      'Both are shown together because both are jobs that stop moving until a person touches ' +
+      'them. Point-in-time — this is the state right now, not a total for the date range.',
+    reports: ['home'],
+    pointInTime: true,
+    // Mirrors scoreboard_home_pulse -> attention.action_required + .unscheduled_jobs,
+    // which are two separate counts off the same job_status grouping.
+    columns: [
+      { key: 'client', label: 'Customer' },
+      { key: 'job_number', label: 'Job #', format: 'number' },
+      { key: 'title', label: 'Job' },
+      { key: 'status', label: 'Why it is here' },
+      { key: 'value', label: 'Uninvoiced', format: 'currency' },
+      { key: 'created', label: 'Created', format: 'date' },
+    ],
+    run: async ({ supabase, companyId }) => {
+      const { data, error } = await supabase
+        .from('jobs')
+        .select('job_number, title, job_status, uninvoiced_total, created_at, clients(name)')
+        .eq('company_id', companyId)
+        .is('deleted_at', null)
+        .in('job_status', ['action_required', 'unscheduled'])
+        .order('created_at', { ascending: true })
+      if (error) throw new Error(error.message)
+      const LABEL: Record<string, string> = {
+        action_required: 'Action required',
+        unscheduled: 'Sold, never scheduled',
+      }
+      return (data ?? []).map(r => ({
+        client: (r.clients as { name?: string } | null)?.name ?? 'Unknown customer',
+        job_number: r.job_number as number | null,
+        title: (r.title as string | null)?.trim() || '—',
+        status: LABEL[r.job_status as string] ?? (r.job_status as string),
+        value: num(r.uninvoiced_total),
+        created: (r.created_at as string | null)?.slice(0, 10) ?? null,
+      }))
+    },
+  },
+
+  {
     key: 'at-risk-recurring',
     title: 'Recurring customers with nothing booked',
     description:

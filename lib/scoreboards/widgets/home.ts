@@ -391,6 +391,7 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
           value: num(a?.action_required).toLocaleString(),
           detail: `Plus ${num(a?.unscheduled_jobs)} sold but never scheduled`,
           tone: num(a?.action_required) > 0 ? 'warn' : 'good',
+          href: '/hub/reports/home/jobs-needing-action',
         },
       ]
 
