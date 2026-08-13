@@ -255,6 +255,17 @@ export default function HubShell({
     if (!activateTabByHref(pathname)) showRouteTab()
   }, [pathname, activateTabByHref, showRouteTab])
 
+  // Is the user in Txt right now? A thread opened as a Workspace Tab doesn't
+  // change the URL, and while a tab is active the route isn't rendered at all,
+  // so the tab is the answer when there is one and the URL is otherwise (which
+  // is exactly today's behavior off tabs). Without this the rail dot lit for the
+  // very thread on screen, and the "I've seen Txt" stamp never fired for tabs.
+  const onTxtSurface = tabsApi.activeTab
+    ? tabsApi.activeTab.catalogId === 'txt-thread'
+    : (pathname === '/hub/txt' || pathname.startsWith('/hub/txt/'))
+  const onTxtSurfaceRef = useRef(onTxtSurface)
+  onTxtSurfaceRef.current = onTxtSurface
+
   // Deep link from Settings → My Hub: /hub?customize=1 opens the layout editor.
   // Read on the client to avoid a Suspense requirement from useSearchParams.
   useEffect(() => {
@@ -588,8 +599,8 @@ export default function HubShell({
         // unassigned. Mirrors the Daily Log dot's recipient gating above so a
         // claimed thread never dots anyone but its owner + members.
         if (Array.isArray(p.recipient_ids) && !p.recipient_ids.includes(currentUserId)) return
-        const path = pathnameRef.current
-        if (path === '/hub/txt' || path.startsWith('/hub/txt/')) return
+        // Already looking at Txt (by route OR as a Workspace Tab) → no dot.
+        if (onTxtSurfaceRef.current) return
         setTxtUnread(true)
       },
       // #45 — when this user opens Txt2 on another device, clear the dot here too.
@@ -620,13 +631,14 @@ export default function HubShell({
 
   // Clear + stamp last-seen when the user opens Txt2. #45 — also stamp the
   // server-side timestamp + broadcast so this user's OTHER devices clear too.
+  // Fires on navigation AND on a tab switch, so opening a Txt thread as a tab
+  // clears the rail dot and stamps last-seen the same way navigating there does.
   useEffect(() => {
-    const onTxt = pathname === '/hub/txt' || pathname.startsWith('/hub/txt/')
-    if (!onTxt) return
+    if (!onTxtSurface) return
     setTxtUnread(false)
     try { localStorage.setItem(TXT_SEEN_KEY, new Date().toISOString()) } catch { /* ignore */ }
     fetch('/api/txt/seen', { method: 'POST' }).catch(() => {})
-  }, [pathname])
+  }, [pathname, onTxtSurface, tabsApi.activeTab])
 
   // ── Dialer missed-call dot ────────────────────────────────────────────────
   // Orange dot on the Dialer rail icon when there's a missed inbound call newer

@@ -194,6 +194,19 @@ export default function TxtV2Sidebar({
       return {}
     }
   })
+  /**
+   * The Txt thread on screen right now.
+   *
+   * Opening one as a Workspace Tab never touches the URL, and while a tab is
+   * active HubShell doesn't render the route at all — so the pathname is the
+   * wrong answer in tab mode, and a thread open as a tab kept its unread dot as
+   * new texts arrived. The tab wins when there is one; the URL answers
+   * otherwise, which is exactly today's behavior off tabs.
+   */
+  const viewingConvId: string | null = wsTabs.activeTab
+    ? (wsTabs.activeTab.catalogId === 'txt-thread' ? wsTabs.activeTab.instanceKey ?? null : null)
+    : (pathname.match(/^\/hub\/txt\/([0-9a-fA-F-]+)$/)?.[1] ?? null)
+
   const markRead = useCallback((id: string) => {
     setReads((prev) => {
       const next = { ...prev, [id]: new Date().toISOString() }
@@ -308,9 +321,8 @@ export default function TxtV2Sidebar({
   // list refresh, so a thread you're actively viewing stays read as new
   // inbounds arrive (no stale dot when you leave it).
   useEffect(() => {
-    const m = pathname.match(/^\/hub\/txt\/([0-9a-fA-F-]+)$/)
-    if (m) markRead(m[1])
-  }, [pathname, conversations, markRead])
+    if (viewingConvId) markRead(viewingConvId)
+  }, [viewingConvId, conversations, markRead])
 
   // A thread "belongs to me" when I own it (assigned_to) or I'm on it as a
   // member — the same owner-or-member set the "Mine" tab and the rail dot
@@ -337,7 +349,7 @@ export default function TxtV2Sidebar({
   function isUnread(c: Conversation) {
     if (c.status === 'archived') return false
     if (!isMine(c)) return false
-    if (pathname === `/hub/txt/${c.id}`) return false
+    if (viewingConvId === c.id) return false
     const inbound = canAccessUnifiedInbox
       ? c.last_inbound_activity_at ?? c.last_inbound_at
       : c.last_inbound_at
