@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useHubMessageInsert, type HubMessageEvent } from './HubMessagesProvider'
 import { isChimeEnabled, playChime, primeChimeAudio, claimChimeForMessage } from '@/lib/hub-chime'
+import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
 import { isHubMessagingDndNow, type DndSchedule } from '@/lib/dnd-schedule'
 
 type RoomLite = { id: string; name: string }
@@ -94,7 +95,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
 
     const supabase = createClient()
     let dlChannel: ReturnType<typeof supabase.channel> | null = null
-    let txtChannel: ReturnType<typeof supabase.channel> | null = null
+    let offTxt: (() => void) | null = null
     let convTimer: ReturnType<typeof setInterval> | null = null
     let cancelled = false
 
@@ -258,9 +259,10 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
       // like a DM (customer texts are never the user's own). De-dupe per
       // conversation across tabs via the shared claim window.
       if (companyId) {
-        txtChannel = supabase
-          .channel(`txt:${companyId}`)
-          .on('broadcast', { event: 'inbound' }, ({ payload }) => {
+        // Ref-counted: the Txt sidebar, rail dot and any open Txt thread share
+        // this topic, and Supabase hands them all one channel object.
+        offTxt = subscribeSharedBroadcast(`txt:${companyId}`, {
+          inbound: (payload) => {
             const p = (payload ?? {}) as { conversation_id?: string; recipient_ids?: string[] }
             if (!p.conversation_id) return
             // Only chime for this thread's owner + members (assigned) or the
@@ -275,15 +277,15 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
             if (now - lastPlayedRef.current < 1500) return
             lastPlayedRef.current = now
             playChime()
-          })
-          .subscribe()
+          },
+        })
       }
 
       if (cancelled) {
         if (convTimer) clearInterval(convTimer)
         messageHandlerRef.current = null
         if (dlChannel) supabase.removeChannel(dlChannel)
-        if (txtChannel) supabase.removeChannel(txtChannel)
+        offTxt?.()
       }
     })()
 
@@ -296,7 +298,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
       document.removeEventListener('visibilitychange', keepWarm)
       window.removeEventListener('focus', keepWarm)
       if (dlChannel) supabase.removeChannel(dlChannel)
-      if (txtChannel) supabase.removeChannel(txtChannel)
+      offTxt?.()
     }
   }, [currentUserId, companyId])
 

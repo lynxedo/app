@@ -233,6 +233,34 @@ export default function HubSidebar({
   // teardown/handshake is the single biggest source of sidebar nav lag.
   const pathnameRef = useRef(pathname)
   useEffect(() => { pathnameRef.current = pathname }, [pathname])
+  const activeTabRef = useRef(tabs.activeTab)
+  useEffect(() => { activeTabRef.current = tabs.activeTab }, [tabs.activeTab])
+
+  /**
+   * The room / DM the user is looking at RIGHT NOW, so we never dot a
+   * conversation that's already on screen.
+   *
+   * Opening a chat as a Workspace Tab doesn't touch the URL, and while a tab is
+   * active HubShell doesn't render the route at all — so the pathname alone is
+   * the wrong answer in tab mode. The active tab wins when there is one; the URL
+   * is the answer otherwise (mobile, non-beta, and plain navigation), which is
+   * exactly today's behavior.
+   */
+  const viewingNow = useCallback((): { roomId: string | null; convId: string | null } => {
+    const t = activeTabRef.current
+    if (t) {
+      const key = t.instanceKey && UUID_RE.test(t.instanceKey) ? t.instanceKey : null
+      return {
+        roomId: t.catalogId === 'room' ? key : null,
+        convId: t.catalogId === 'dm' ? key : null,
+      }
+    }
+    const path = pathnameRef.current
+    return {
+      roomId: path.match(/^\/hub\/([^/]+)$/)?.[1] ?? null,
+      convId: path.match(/^\/hub\/pm\/([^/]+)$/)?.[1] ?? null,
+    }
+  }, [])
 
   const loadConversations = useCallback(() => {
     fetch('/api/hub/conversations')
@@ -321,8 +349,13 @@ export default function HubSidebar({
         .then(r => r.json())
         .then(d => {
           if (cancelled) return
-          const roomIds = (d.unread_room_ids ?? []) as string[]
-          const convIds = (d.unread_conv_ids ?? []) as string[]
+          // Never dot the conversation that's on screen — same rule as the
+          // realtime reconcile below. Without it this poll would re-light the
+          // chat you're reading within a minute whenever a receipt write lost
+          // the race, which is what the reconcile filter is there to prevent.
+          const open = viewingNow()
+          const roomIds = ((d.unread_room_ids ?? []) as string[]).filter(id => id !== open.roomId)
+          const convIds = ((d.unread_conv_ids ?? []) as string[]).filter(id => id !== open.convId)
           setUnreadRoomIds(new Set(roomIds))
           setUnreadConvIds(new Set(convIds))
           saveUnreadState(currentUserId, roomIds, convIds)
@@ -332,7 +365,7 @@ export default function HubSidebar({
     tick()
     const id = setInterval(tick, 60_000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [currentUserId])
+  }, [currentUserId, viewingNow])
 
   // Realtime: mark rooms/convs unread when new messages arrive.
   // #26 — rides the shared HubMessagesProvider subscription (one whole-table
@@ -343,12 +376,10 @@ export default function HubSidebar({
     if (!msg.sender_id) return
     // Ignore thread replies and messages sent by this user
     if (msg.parent_id || msg.sender_id === currentUserId) return
-    const currentPath = pathnameRef.current
-    const activeRoomMatch = currentPath.match(/^\/hub\/([^/]+)$/)
-    const activePmMatch = currentPath.match(/^\/hub\/pm\/([^/]+)$/)
+    const viewing = viewingNow()
     if (msg.room_id) {
       // Don't mark unread if user is currently viewing this room
-      if (activeRoomMatch?.[1] === msg.room_id) return
+      if (viewing.roomId === msg.room_id) return
       // Only optimistically mark unread for rooms the user is a member of. The
       // broadcast fallback isn't RLS-scoped, so this gate stops a private-room
       // broadcast from slipping a non-member room id into the set. (A brand-new
@@ -357,7 +388,7 @@ export default function HubSidebar({
         setUnreadRoomIds(prev => new Set([...prev, msg.room_id!]))
       }
     } else if (msg.conversation_id) {
-      if (activePmMatch?.[1] === msg.conversation_id) return
+      if (viewing.convId === msg.conversation_id) return
       // Same membership gate for DMs — only a conversation the user is in.
       if (conversationsRef.current.some(c => c.id === msg.conversation_id)) {
         setUnreadConvIds(prev => new Set([...prev, msg.conversation_id!]))
@@ -373,8 +404,13 @@ export default function HubSidebar({
     fetch('/api/hub/read-receipts', { cache: 'no-store' })
       .then(r => r.json())
       .then(d => {
-        const roomIds = (d.unread_room_ids ?? []) as string[]
-        const convIds = (d.unread_conv_ids ?? []) as string[]
+        // The receipt for the conversation on screen is written by its own feed
+        // and may still be in flight, so the server can legitimately answer
+        // "unread" for the chat the user is staring at. Drop it, or the dot
+        // flickers on for whatever you're currently reading.
+        const open = viewingNow()
+        const roomIds = ((d.unread_room_ids ?? []) as string[]).filter(id => id !== open.roomId)
+        const convIds = ((d.unread_conv_ids ?? []) as string[]).filter(id => id !== open.convId)
         setUnreadRoomIds(new Set(roomIds))
         setUnreadConvIds(new Set(convIds))
         saveUnreadState(currentUserId, roomIds, convIds)

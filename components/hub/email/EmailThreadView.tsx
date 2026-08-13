@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
+import { useTabVisible } from '@/components/hub/workspace/WorkspaceTabInstance'
 import { Spinner, useToast } from '@/components/ui'
 import AssignMenu from './AssignMenu'
 import ShareMenu from './ShareMenu'
@@ -219,8 +221,13 @@ export default function EmailThreadView({
     load()
   }, [load])
 
-  // Mark read on open (per-device stamp shared with the sidebar dot).
+  // Mark read on open (per-device stamp shared with the sidebar dot). Skipped
+  // while this is a background Workspace Tab — it's mounted but invisible, so
+  // stamping here would clear the sidebar dot for mail nobody has looked at.
+  // Re-runs (and stamps) as soon as the tab is brought to the front.
+  const tabVisible = useTabVisible()
   useEffect(() => {
+    if (!tabVisible) return
     try {
       const key = 'email-conv-reads'
       const map = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, string>
@@ -229,29 +236,28 @@ export default function EmailThreadView({
     } catch {
       /* ignore */
     }
-  }, [threadId, detail?.messages.length])
+  }, [threadId, detail?.messages.length, tabVisible])
 
   // Realtime — refresh when the company inbox channel names this thread.
   useEffect(() => {
     if (!companyId) return
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`inbox:${companyId}`)
-      .on('broadcast', { event: 'update' }, ({ payload }) => {
+    // Ref-counted: the inbox sidebar subscribes to this same topic, and Supabase
+    // hands both of us ONE channel object. Removing it directly here (or there)
+    // killed the other's realtime — which left an Inbox thread open as a tab
+    // permanently stale, since this view has no fallback poll.
+    return subscribeSharedBroadcast(`inbox:${companyId}`, {
+      update: (payload) => {
         // A targeted change to THIS thread (someone claimed/assigned/closed/replied).
         // Refresh — but never while the user is composing (don't yank the draft).
         if ((payload as { thread_id?: string })?.thread_id === threadId && !composingRef.current) load()
-      })
-      .on('broadcast', { event: 'sync' }, () => {
+      },
+      sync: () => {
         // Generic 2-min poll nudge (no thread id). Quietly reconcile — only
         // re-renders if a message/status actually changed — and never while
         // composing. "New mail arrived" visibility is the sidebar list's job.
         if (!composingRef.current) load({ quiet: true })
-      })
-      .subscribe()
-    return () => {
-      supabase.removeChannel(channel)
-    }
+      },
+    })
   }, [threadId, companyId, load])
 
   // ─── Phase 3B: collision detection (who's here / who's replying) ──────────
