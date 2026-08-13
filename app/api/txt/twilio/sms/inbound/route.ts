@@ -16,6 +16,7 @@ import { parseLsaRelay } from '@/lib/lsa-relay'
 import { pauseEnrollmentsForInbound } from '@/lib/drip'
 import { maybeEnqueueAmberTurn } from '@/lib/amber-text'
 import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
+import { isNumberBlocked } from '@/lib/blocked-numbers'
 
 // Env-pinned fallback company (single-tenant default). Multi-tenant Track 3
 // resolves the real company per inbound `To` below; this only applies when the
@@ -163,6 +164,19 @@ export async function POST(req: NextRequest) {
   // fine — old/single-number setups still work via the env-default fallback in
   // sendSms.
   const toNumberId: string | null = resolved?.phoneNumberId || null
+
+  // Blocked sender → drop the message before a contact or conversation is
+  // created, so a blocked number can't keep surfacing in the inbox. Checked here
+  // and not only on the voice side: blocking someone's calls while their texts
+  // still land is not blocking them.
+  //
+  // FAILS OPEN (lib/blocked-numbers.ts) — an error lets the text through.
+  // Returning empty TwiML is the same "accepted, nothing to say" response the
+  // normal path uses, so Twilio never retries.
+  if (from && (await isNumberBlocked(companyId, from, 'text'))) {
+    console.log('[txt:inbound] blocked sender, dropping', { sid })
+    return twimlResponse()
+  }
 
   // Dedupe by twilio_sid (Twilio retries on 5xx)
   const { data: existing } = await supabase

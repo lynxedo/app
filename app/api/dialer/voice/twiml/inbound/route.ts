@@ -22,6 +22,7 @@ import { conferenceRoomName } from '@/lib/twilio-conference'
 import { connectInboundToAgentViaConference, isAgentDndNow } from '@/lib/dialer-conference-connect'
 import { findOrCreateTxtContact } from '@/lib/dialer-lookup'
 import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
+import { isNumberBlocked } from '@/lib/blocked-numbers'
 import type { ResponderMode } from '@/lib/responder'
 
 // Env-pinned fallback company (single-tenant default). Multi-tenant Track 3
@@ -78,6 +79,37 @@ export async function POST(request: NextRequest) {
     console.warn('[dialer:inbound] no company mapping for To — using env default', { toNumber })
   }
   const companyId = resolvedCompany?.companyId || HEROES_COMPANY_ID
+
+  // Blocked caller → refuse before anything else routes, rings, or wakes Amber.
+  // isNumberBlocked FAILS OPEN (see lib/blocked-numbers.ts): any error here lets
+  // the call through, because a dropped real call costs far more than a spam
+  // call getting one more ring.
+  //
+  // The call is still written to the log with status 'blocked'. That's the whole
+  // reason a mistaken block is recoverable — if blocked calls just vanished,
+  // nobody could tell a real customer had been silenced.
+  //
+  // <Reject reason="busy"> gives the caller a busy signal rather than a spoken
+  // "not accepting calls", which gives away less about why. Reject also never
+  // answers the call, so it isn't billed and no voicemail is recorded.
+  if (fromNumber && (await isNumberBlocked(companyId, fromNumber, 'call'))) {
+    try {
+      await createAdminClient().from('calls').insert({
+        company_id: companyId,
+        twilio_call_sid: callSid || null,
+        direction: 'inbound',
+        from_number: fromNumber,
+        to_number: toNumber || 'unknown',
+        status: 'blocked',
+        ended_at: new Date().toISOString(),
+      })
+    } catch (e) {
+      // Logging is best-effort; never let it turn a block into a 500 (which
+      // Twilio would answer with the fallback voicemail).
+      console.warn('[dialer:inbound] blocked-call log failed', e)
+    }
+    return twimlResponse('<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>')
+  }
 
   // Log the inbound call up front. Status updates land later via /voice/status
   // (Twilio's separate Status Callback on the parent call) and the voicemail

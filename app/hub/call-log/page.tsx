@@ -6,6 +6,7 @@ import { formatDurationSec, formatPhone } from '@/lib/format'
 import { isPlaceholderName, nameIsAiGuessed } from '@/lib/contact-name'
 import { CoachingPanel, coachingGradeColor, COACHING_CATEGORIES, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 import AddToTrackerModal from '@/components/hub/tracker/AddToTrackerModal'
+import BlockCallerButton from '@/components/hub/dialer/BlockCallerButton'
 
 // ---------------------------------------------------------------------------
 // Unified Call Log — merges TWO data sources into one interleaved, source-tagged
@@ -180,6 +181,7 @@ function statusLabel(call: DialerCall) {
   const s = call.status?.toLowerCase() || ''
   if (call.voicemail) return { label: '📬 Voicemail', color: 'text-blue-300 bg-blue-900/30' }
   if (s === 'no-answer' || s === 'missed') return { label: '↩ Missed', color: 'text-red-400 bg-red-900/30' }
+  if (s === 'blocked') return { label: '⊘ Blocked', color: 'text-red-300 bg-red-900/40' }
   if (s === 'busy') return { label: 'Busy', color: 'text-amber-400 bg-amber-900/30' }
   if (s === 'failed' || s === 'canceled') return { label: s, color: 'text-gray-400 bg-gray-800' }
   if (call.recording_storage_path) return { label: '● Recorded', color: 'text-green-400 bg-green-900/30' }
@@ -572,6 +574,7 @@ function DialerCallDetail({ call, canViewCoaching }: { call: DialerCall; canView
           ) : (
             <button onClick={() => setTrackerOpen(true)} title="Add this caller to the Lead Tracker" className="shrink-0 text-xs px-2.5 py-1 rounded-md bg-white/10 text-gray-200 hover:bg-white/20 whitespace-nowrap">+ Add to Lead Tracker</button>
           ))}
+          <BlockCallerButton phone={displayNumber} />
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
           <span className={`px-2 py-0.5 rounded text-xs font-medium ${dir.color}`}>{dir.label}</span>
