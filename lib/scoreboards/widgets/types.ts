@@ -40,6 +40,10 @@ export type SourceKey =
   | 'clients_geo'
   | 'service_lines'
   | 'sales_pipeline'
+  // Two quote sources, not one: the cohort obeys the date picker, the open book is
+  // point-in-time. See quotes.ts — the same split invoice_window/invoice_ar made.
+  | 'quotes_cohort'
+  | 'quotes_open'
   | 'home_pulse'
   | 'people'
   | 'goals'
