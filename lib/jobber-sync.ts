@@ -1946,12 +1946,250 @@ async function syncInvoices(
   return total
 }
 
+// ── Quotes ────────────────────────────────────────────────────────────────────
+
+/**
+ * The quote mirror behind the Sales report's quote widgets (§8.2).
+ *
+ * ⚠⚠ NO DOLLARS ARE READ OR STORED, deliberately. `Quote.amounts.total` counts only
+ * the NON-OPTIONAL line items, and Heroes quotes options constantly — on 2026-08-13
+ * quote #5659 reported total $0.00 while carrying $14,175 of line items, because the
+ * install choices were all optional. Mirroring that column would report the whole
+ * irrigation pipeline as zero; summing line items instead double-counts every option.
+ * Ben's call: count quotes, not dollars. See the migration for the long version.
+ *
+ * ⚠ Quotes are the ONLY entity whose Jobber filter exposes a real `updatedAt`
+ * (introspected 2026-08-13; jobs and visits do not). That is why this delta can be
+ * exact and light rather than a trailing-window re-pull like visits — a status change
+ * to approved/converted is visible to the nightly pull, so quote conversion counts
+ * cannot silently go stale the way job status did before the Aug-12 repair.
+ */
+const QUOTES_QUERY = `
+  query SyncQuotes($cursor: String, $filter: QuoteFilterAttributes) {
+    quotes(first: 40, after: $cursor, filter: $filter) {
+      nodes {
+        id
+        quoteNumber
+        title
+        quoteStatus
+        createdAt
+        updatedAt
+        sentAt
+        transitionedAt
+        clientHubViewedAt
+        jobberWebUri
+        lastTransitioned {
+          approvedAt
+          changesRequestedAt
+          convertedAt
+        }
+        client { id }
+        salesperson { id }
+        jobs(first: 20) { nodes { id } }
+        lineItems(first: 25) { nodes { name } }
+        customFields {
+          __typename
+          ... on CustomFieldText     { label valueText }
+          ... on CustomFieldNumeric  { label valueNumeric }
+          ... on CustomFieldDropdown { label valueDropdown }
+        }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`
+
+type QuoteNode = {
+  id: string
+  quoteNumber?: string | null
+  title?: string | null
+  quoteStatus?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  sentAt?: string | null
+  transitionedAt?: string | null
+  clientHubViewedAt?: string | null
+  jobberWebUri?: string | null
+  lastTransitioned?: {
+    approvedAt?: string | null
+    changesRequestedAt?: string | null
+    convertedAt?: string | null
+  } | null
+  client?: { id: string } | null
+  salesperson?: { id: string } | null
+  jobs?: { nodes?: Array<{ id: string }> } | null
+  lineItems?: { nodes?: Array<{ name?: string | null }> } | null
+  customFields?: unknown
+}
+
+/**
+ * Service-line codes for a quote, from its line-item names.
+ *
+ * ⚠ Grouping is by these and NEVER by `title`: Heroes has no quote-title protocol
+ * (the live book holds "Untitled", "Irrigation Install", "RRR", "Backflow options"
+ * for overlapping work), so a title chart would split one service line across four
+ * labels. Reuses `parseDeptPrefix`, the same helper §8.8 Service Lines groups by, so
+ * a quote and a completed job land under the same code.
+ */
+function quoteServiceCodes(q: QuoteNode): string[] {
+  const codes = new Set<string>()
+  for (const li of q.lineItems?.nodes ?? []) {
+    const code = parseDeptPrefix(li?.name)
+    if (code) codes.add(code)
+  }
+  return [...codes].sort()
+}
+
+function mapQuoteRow(
+  q: QuoteNode,
+  companyId: string,
+  clientIds: Map<string, string>,
+  nowIso: string,
+) {
+  const { raw: cfRaw } = parseCustomFields((q.customFields ?? []) as RawCustomField[], null)
+  return {
+    company_id: companyId,
+    source: 'jobber',
+    external_id: q.id,
+    client_id: q.client?.id ? clientIds.get(q.client.id) ?? null : null,
+    client_external_id: q.client?.id ?? null,
+    quote_number: q.quoteNumber ?? null,
+    title: q.title ?? null,
+    // Jobber returns this as an enum; lower-cased so it matches the status strings the
+    // report and the existing MCP tooling already use (draft, awaiting_response, …).
+    quote_status: q.quoteStatus ? String(q.quoteStatus).toLowerCase() : null,
+    salesperson_external_id: q.salesperson?.id ?? null,
+    sent_at: q.sentAt ?? null,
+    client_viewed_at: q.clientHubViewedAt ?? null,
+    approved_at: q.lastTransitioned?.approvedAt ?? null,
+    changes_requested_at: q.lastTransitioned?.changesRequestedAt ?? null,
+    converted_at: q.lastTransitioned?.convertedAt ?? null,
+    transitioned_at: q.transitionedAt ?? null,
+    converted_job_count: q.jobs?.nodes?.length ?? 0,
+    service_codes: quoteServiceCodes(q),
+    jobber_web_uri: q.jobberWebUri ?? null,
+    custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
+    last_synced_at: nowIso,
+    external_created_at: q.createdAt ?? null,
+    external_updated_at: q.updatedAt ?? null,
+    updated_at: nowIso,
+    deleted_at: null,
+  }
+}
+
+/**
+ * True when a Jobber error is the missing-scope one, rather than a real failure.
+ *
+ * ⚠ This is EXPECTED until each company reconnects Jobber. `read_quotes` was added to
+ * the requested scope in this same change, and a scope lives in the granted token —
+ * so every connection made before it must re-consent via Admin → Integrations →
+ * Reconnect. Distinguishing this from a genuine error is what lets the report say
+ * "reconnect Jobber" instead of showing a confident, empty zero.
+ */
+function isMissingQuoteScope(message: string): boolean {
+  const m = message.toLowerCase()
+  return m.includes('read_quotes')
+    || (m.includes('scope') && m.includes('quote'))
+    || m.includes('unauthorized')
+    || m.includes('not authorized')
+}
+
+async function syncQuotes(
+  userId: string,
+  companyId: string,
+  updatedSince?: Date,
+  opts?: PullOpts
+): Promise<number> {
+  const admin = createAdminClient()
+  let cursor: string | null = opts?.startCursor ?? null
+  let total = 0
+
+  while (true) {
+    const filter: Record<string, unknown> = {}
+    if (updatedSince) {
+      filter.updatedAt = { after: updatedSince.toISOString() }
+    } else {
+      filter.createdAt = { after: fullPullFloor(opts) }
+    }
+
+    const resp = await withRateLimit(() =>
+      jobberGraphQLAdmin<{ data: { quotes: { nodes: QuoteNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
+        userId, QUOTES_QUERY, { cursor, filter }
+      )
+    )
+
+    const { nodes, pageInfo } = resp.data.quotes
+    const nowIso = new Date().toISOString()
+
+    const clientIds = await fetchIdMap(admin, 'clients', nodes.map(q => q.client?.id))
+    const rows = nodes.map(q => mapQuoteRow(q, companyId, clientIds, nowIso))
+
+    if (rows.length) {
+      const { error } = await admin.from('jobber_quotes')
+        .upsert(rows, { onConflict: 'external_id,source' })
+      if (error) throw new Error(`quotes upsert: ${error.message}`)
+    }
+
+    total += nodes.length
+    console.log(`[jobber-sync] quotes: synced ${total} so far`)
+
+    if (opts?.onPage) {
+      const keepGoing = await opts.onPage(
+        pageInfo.hasNextPage ? pageInfo.endCursor : null,
+        nodes.length,
+        pageInfo.hasNextPage,
+      )
+      if (!keepGoing) break
+    }
+
+    if (!pageInfo.hasNextPage) break
+    cursor = pageInfo.endCursor
+    await throttleSleep(resp)
+  }
+
+  return total
+}
+
+/**
+ * Quotes must never be able to take the sync pipeline down.
+ *
+ * ⚠⚠ Same reasoning as `syncUsersSafe`, and here it is not hypothetical: until a
+ * company reconnects Jobber, every quote pull FAILS on the missing `read_quotes`
+ * scope. Left inline in the orchestrator's try block, that one predictable error
+ * would abort clients, jobs, visits and invoices for the whole night — trading a
+ * missing quote report for a total sync outage. A missing quote costs a count on one
+ * widget; a missing invoice costs money.
+ *
+ * Runs LAST for the same reason: quotes are the least important entity in the pull,
+ * and they resolve `client_id` against clients that must already be mirrored.
+ */
+async function syncQuotesSafe(
+  userId: string,
+  companyId: string,
+  summary: SyncSummary,
+  updatedSince?: Date,
+): Promise<void> {
+  try {
+    summary.quotes = await syncQuotes(userId, companyId, updatedSince)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (isMissingQuoteScope(msg)) {
+      // Not an error worth alerting on — it is the expected state before reconnect.
+      console.log('[jobber-sync] quotes skipped: Jobber needs reconnecting to grant read_quotes')
+      summary.errors.push('quotes: reconnect Jobber to grant read_quotes')
+      return
+    }
+    console.error('[jobber-sync] quotes failed:', msg)
+    summary.errors.push(`quotes: ${msg}`)
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /** The entity pulls a full backfill walks through, in dependency order.
  *  Users come first: nothing depends on them, they're a single cheap page, and a
  *  new tenant wants its roster present before visits start referencing tech ids. */
-export const PULL_ENTITIES = ['users', 'clients', 'properties', 'jobs', 'visits', 'invoices'] as const
+export const PULL_ENTITIES = ['users', 'clients', 'properties', 'jobs', 'visits', 'invoices', 'quotes'] as const
 export type PullEntity = (typeof PULL_ENTITIES)[number]
 
 /**
@@ -2010,6 +2248,19 @@ export async function pullJobberEntity(
     case 'jobs':       return syncJobs(userId, companyId, undefined, undefined, opts)
     case 'visits':     return syncVisits(userId, companyId, undefined, undefined, opts)
     case 'invoices':   return syncInvoices(userId, companyId, undefined, opts)
+    // Swallowed like users, and for a sharper reason: a new subscriber who has not
+    // granted `read_quotes` would otherwise have their whole resumable backfill wedge
+    // on its LAST entity, after hours of real work, with everything already written.
+    case 'quotes':
+      return syncQuotes(userId, companyId, undefined, opts).catch(e => {
+        const msg = e instanceof Error ? e.message : String(e)
+        console.error(
+          isMissingQuoteScope(msg)
+            ? '[jobber-sync] quote pull skipped: Jobber needs reconnecting to grant read_quotes'
+            : `[jobber-sync] quote pull failed (continuing): ${msg}`
+        )
+        return 0
+      })
   }
 }
 
@@ -2021,12 +2272,13 @@ export interface SyncSummary {
   jobs: number
   visits: number
   invoices: number
+  quotes: number
   errors: string[]
 }
 
 export async function runInitialJobberSync(companyId: string): Promise<SyncSummary> {
   const logId = await startSyncLog(companyId, 'initial_pull', null)
-  const summary: SyncSummary = { users: 0, clients: 0, properties: 0, jobs: 0, visits: 0, invoices: 0, errors: [] }
+  const summary: SyncSummary = { users: 0, clients: 0, properties: 0, jobs: 0, visits: 0, invoices: 0, quotes: 0, errors: [] }
 
   try {
     const userId = await getJobberUserId(companyId)
@@ -2038,6 +2290,9 @@ export async function runInitialJobberSync(companyId: string): Promise<SyncSumma
     summary.jobs       = await syncJobs(userId, companyId)
     summary.visits     = await syncVisits(userId, companyId)
     summary.invoices   = await syncInvoices(userId, companyId)
+    // Last, and guarded — see syncQuotesSafe. Before a company reconnects Jobber
+    // this fails on the missing read_quotes scope every single time.
+    await syncQuotesSafe(userId, companyId, summary)
 
     console.log('[jobber-sync] Initial pull complete:', summary)
     await completeSyncLog(logId, Object.values(summary).filter(v => typeof v === 'number').reduce((a, b) => a + (b as number), 0))
@@ -2055,7 +2310,7 @@ export async function runInitialJobberSync(companyId: string): Promise<SyncSumma
 export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary> {
   const admin = createAdminClient()
   const logId = await startSyncLog(companyId, 'daily_delta', null)
-  const summary: SyncSummary = { users: 0, clients: 0, properties: 0, jobs: 0, visits: 0, invoices: 0, errors: [] }
+  const summary: SyncSummary = { users: 0, clients: 0, properties: 0, jobs: 0, visits: 0, invoices: 0, quotes: 0, errors: [] }
 
   try {
     const { data: lastSync } = await admin
@@ -2087,6 +2342,10 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
     const visitsSince = new Date(Date.now() - VISIT_BACKFILL_DAYS * 24 * 60 * 60 * 1000)
     summary.visits     = await syncVisits(userId, companyId, visitsSince)
     summary.invoices   = await syncInvoices(userId, companyId, updatedSince)
+    // ⚠ Quotes are the one entity with a real `updatedAt` filter, so this delta is
+    // exact and cheap — no trailing window needed, and a status change to
+    // approved/converted IS visible here (unlike a job status change).
+    await syncQuotesSafe(userId, companyId, summary, updatedSince)
 
     console.log('[jobber-sync] Delta pull complete:', summary)
     await completeSyncLog(logId, Object.values(summary).filter(v => typeof v === 'number').reduce((a, b) => a + (b as number), 0))
