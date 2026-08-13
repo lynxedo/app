@@ -850,7 +850,11 @@ export default function HubShell({
           ? <ScoreboardBoardTab slug={t.instanceKey} />
           : <ScoreboardsIndexTab allowedSlugs={scoreboardSlugs ?? []} isAdmin={!!isAdmin} />
       case 'tracker':
-        return <TrackerLeadsTab currentUser={{ email: userEmail, name: currentUserDisplayName ?? userEmail.split('@')[0], isAdmin: !!isAdmin }} />
+        return <TrackerLeadsTab
+          currentUser={{ email: userEmail, name: currentUserDisplayName ?? userEmail.split('@')[0], isAdmin: !!isAdmin }}
+          canCall={!!isAdmin || !!canAccessDialer}
+          canText={!!isAdmin || !!canAccessTxt}
+        />
       case 'board':
         return t.instanceKey ? <BoardTab boardId={t.instanceKey} hubUsers={hubUsers} currentUserId={currentUserId} /> : null
       case 'daily-log-v2':
