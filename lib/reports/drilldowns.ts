@@ -4,6 +4,10 @@ import type { WindowSpec } from '@/lib/scoreboards/widgets/types'
 // reasons rather than domain ones — reused here instead of writing a fourth copy
 // of the same 1,000-row loop. That file imports only types, so this costs nothing.
 import { fetchAllRows } from '@/lib/email-contacts'
+// The click-through: a customer's name opens their file, where the Call and Text
+// buttons are. One helper owns the id mapping — see lib/customer-file.ts for why
+// that matters and why it never matches on email.
+import { customerFileHref, customerFilePath } from '@/lib/customer-file-href'
 
 /* Drill-downs: the rows behind a number.
  *
@@ -52,6 +56,15 @@ export type DrillColumn = {
   format?: DrillFormat
   /** Right-align numerics. Defaults from `format`. */
   align?: 'left' | 'right'
+  /**
+   * Renders this cell as a link to the record it names — the click-through from a
+   * report row to the customer file, where texting and calling them live (§8.3).
+   *
+   * The href sits in another key of the same row, which is deliberately NOT a
+   * column: it therefore never renders as a column of its own and never reaches
+   * the Excel export, which serialises `columns` only.
+   */
+  link?: { hrefKey: string; external?: boolean }
 }
 
 export type DrillRow = Record<string, string | number | null>
@@ -85,6 +98,29 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0
 }
 
+/**
+ * The Customer column, wired to open that customer's file.
+ *
+ * Declared once because every list that names a customer should behave the same
+ * way: a name is a link on all of them or it is confusing on all of them.
+ */
+const CUSTOMER_COLUMN: DrillColumn = {
+  key: 'client', label: 'Customer', link: { hrefKey: 'client_href' },
+}
+
+/** Nested-select shape for `clients(id, name)`; PostgREST may hand back an array. */
+type JoinedClient = { id?: string; name?: string } | { id?: string; name?: string }[] | null
+
+/** Customer name + the link to their file, from an embedded `clients(id, name)`. */
+function clientCell(joined: JoinedClient): { client: string; client_href: string | null } {
+  const c = Array.isArray(joined) ? joined[0] : joined
+  return {
+    client: c?.name?.trim() || 'Unknown customer',
+    // No id means no link rather than a link that resolves to nothing.
+    client_href: c?.id ? customerFileHref(c.id) : null,
+  }
+}
+
 /** Whole days between a date string and today; negative = still in the future. */
 function daysAgo(date: string | null): number | null {
   if (!date) return null
@@ -106,7 +142,7 @@ const DRILLDOWNS: DrillSpec[] = [
     // Mirrors scoreboard_home_pulse -> attention.requires_invoicing_*, which counts
     // jobs by job_status and sums uninvoiced_total. Same filter, no date bound.
     columns: [
-      { key: 'client', label: 'Customer' },
+      CUSTOMER_COLUMN,
       { key: 'job_number', label: 'Job #', format: 'number' },
       { key: 'title', label: 'Job' },
       { key: 'uninvoiced', label: 'Uninvoiced', format: 'currency' },
@@ -116,7 +152,7 @@ const DRILLDOWNS: DrillSpec[] = [
     run: async ({ supabase, companyId }) => {
       const { data, error } = await supabase
         .from('jobs')
-        .select('job_number, title, uninvoiced_total, created_at, clients(name)')
+        .select('job_number, title, uninvoiced_total, created_at, clients(id, name)')
         .eq('company_id', companyId)
         .is('deleted_at', null)
         .eq('job_status', 'requires_invoicing')
@@ -125,7 +161,7 @@ const DRILLDOWNS: DrillSpec[] = [
       return (data ?? []).map(r => {
         const created = (r.created_at as string | null)?.slice(0, 10) ?? null
         return {
-          client: (r.clients as { name?: string } | null)?.name ?? 'Unknown customer',
+          ...clientCell(r.clients as JoinedClient),
           job_number: r.job_number as number | null,
           title: (r.title as string | null)?.trim() || '—',
           uninvoiced: num(r.uninvoiced_total),
@@ -148,7 +184,7 @@ const DRILLDOWNS: DrillSpec[] = [
     pointInTime: true,
     // Mirrors scoreboard_invoice_ar: outstanding_balance > 0, status not draft, not paid.
     columns: [
-      { key: 'client', label: 'Customer' },
+      CUSTOMER_COLUMN,
       { key: 'invoice_number', label: 'Invoice #' },
       { key: 'balance', label: 'Owed', format: 'currency' },
       { key: 'due_date', label: 'Due', format: 'date' },
@@ -158,7 +194,7 @@ const DRILLDOWNS: DrillSpec[] = [
     run: async ({ supabase, companyId }) => {
       const { data, error } = await supabase
         .from('invoices')
-        .select('invoice_number, outstanding_balance, due_date, invoice_status, clients(name)')
+        .select('invoice_number, outstanding_balance, due_date, invoice_status, clients(id, name)')
         .eq('company_id', companyId)
         .is('deleted_at', null)
         .gt('outstanding_balance', 0)
@@ -169,7 +205,7 @@ const DRILLDOWNS: DrillSpec[] = [
         const due = r.due_date as string | null
         const late = daysAgo(due)
         return {
-          client: (r.clients as { name?: string } | null)?.name ?? 'Unknown customer',
+          ...clientCell(r.clients as JoinedClient),
           invoice_number: (r.invoice_number as string | null) ?? '—',
           balance: num(r.outstanding_balance),
           due_date: due,
@@ -193,7 +229,7 @@ const DRILLDOWNS: DrillSpec[] = [
     pointInTime: true,
     // Mirrors scoreboard_home_pulse -> attention.late_visits.
     columns: [
-      { key: 'client', label: 'Customer' },
+      CUSTOMER_COLUMN,
       { key: 'title', label: 'Visit' },
       { key: 'scheduled_date', label: 'Scheduled', format: 'date' },
       { key: 'days_late', label: 'Days late', format: 'days' },
@@ -202,7 +238,7 @@ const DRILLDOWNS: DrillSpec[] = [
       const today = new Date().toISOString().slice(0, 10)
       const { data, error } = await supabase
         .from('visits')
-        .select('title, scheduled_date, clients(name), jobs!inner(job_status, deleted_at)')
+        .select('title, scheduled_date, clients(id, name), jobs!inner(job_status, deleted_at)')
         .eq('company_id', companyId)
         .is('deleted_at', null)
         .is('completed_at', null)
@@ -216,7 +252,7 @@ const DRILLDOWNS: DrillSpec[] = [
           return !((r.title as string | null) ?? '').toUpperCase().includes('BILLING')
         })
         .map(r => ({
-          client: (r.clients as { name?: string } | null)?.name ?? 'Unknown customer',
+          ...clientCell(r.clients as JoinedClient),
           title: (r.title as string | null)?.trim() || '—',
           scheduled_date: r.scheduled_date as string | null,
           days_late: daysAgo(r.scheduled_date as string | null),
@@ -237,7 +273,7 @@ const DRILLDOWNS: DrillSpec[] = [
     // Mirrors scoreboard_home_pulse -> attention.action_required + .unscheduled_jobs,
     // which are two separate counts off the same job_status grouping.
     columns: [
-      { key: 'client', label: 'Customer' },
+      CUSTOMER_COLUMN,
       { key: 'job_number', label: 'Job #', format: 'number' },
       { key: 'title', label: 'Job' },
       { key: 'status', label: 'Why it is here' },
@@ -247,7 +283,7 @@ const DRILLDOWNS: DrillSpec[] = [
     run: async ({ supabase, companyId }) => {
       const { data, error } = await supabase
         .from('jobs')
-        .select('job_number, title, job_status, uninvoiced_total, created_at, clients(name)')
+        .select('job_number, title, job_status, uninvoiced_total, created_at, clients(id, name)')
         .eq('company_id', companyId)
         .is('deleted_at', null)
         .in('job_status', ['action_required', 'unscheduled'])
@@ -258,7 +294,7 @@ const DRILLDOWNS: DrillSpec[] = [
         unscheduled: 'Sold, never scheduled',
       }
       return (data ?? []).map(r => ({
-        client: (r.clients as { name?: string } | null)?.name ?? 'Unknown customer',
+        ...clientCell(r.clients as JoinedClient),
         job_number: r.job_number as number | null,
         title: (r.title as string | null)?.trim() || '—',
         status: LABEL[r.job_status as string] ?? (r.job_status as string),
@@ -284,7 +320,7 @@ const DRILLDOWNS: DrillSpec[] = [
     // Mirrors scoreboard_home_pulse -> attention.at_risk_clients. The email join and
     // the cancelled_status = 'Active' filter must stay identical to that RPC.
     columns: [
-      { key: 'client', label: 'Customer' },
+      CUSTOMER_COLUMN,
       { key: 'service', label: 'Service' },
       { key: 'annual_value', label: 'Annual value', format: 'currency' },
       { key: 'email', label: 'Email' },
@@ -361,6 +397,11 @@ const DRILLDOWNS: DrillSpec[] = [
         const svc = s.service
         rows.push({
           client: client.name,
+          // The whole point of this list is to chase these customers, so the name
+          // opens the file the Call and Text buttons live on. The id came from the
+          // Jobber mirror above, not from the email match, so the link is exact
+          // even though the row itself was found by email.
+          client_href: customerFileHref(client.id),
           service: Array.isArray(svc) ? svc.join(', ') : ((svc as string | null) ?? '—'),
           annual_value: num(s.annual_value),
           email: (s.email as string | null) ?? '—',
@@ -381,7 +422,7 @@ const DRILLDOWNS: DrillSpec[] = [
     reports: ['revenue'],
     // Mirrors scoreboard_invoice_window: issued_date within range, drafts excluded.
     columns: [
-      { key: 'client', label: 'Customer' },
+      CUSTOMER_COLUMN,
       { key: 'invoice_number', label: 'Invoice #' },
       { key: 'issued_date', label: 'Issued', format: 'date' },
       { key: 'total', label: 'Invoiced', format: 'currency' },
@@ -392,7 +433,7 @@ const DRILLDOWNS: DrillSpec[] = [
     run: async ({ supabase, companyId, win }) => {
       const rows = await fetchAllRows<Record<string, unknown>>(() => supabase
         .from('invoices')
-        .select('invoice_number, issued_date, total, outstanding_balance, invoice_status, clients(name)')
+        .select('invoice_number, issued_date, total, outstanding_balance, invoice_status, clients(id, name)')
         .eq('company_id', companyId)
         .is('deleted_at', null)
         .neq('invoice_status', 'draft')
@@ -403,7 +444,7 @@ const DRILLDOWNS: DrillSpec[] = [
         const total = num(r.total)
         const bal = num(r.outstanding_balance)
         return {
-          client: (r.clients as { name?: string } | null)?.name ?? 'Unknown customer',
+          ...clientCell(r.clients as JoinedClient),
           invoice_number: (r.invoice_number as string | null) ?? '—',
           issued_date: (r.issued_date as string | null),
           total,
@@ -426,7 +467,7 @@ const DRILLDOWNS: DrillSpec[] = [
     reports: ['revenue'],
     pointInTime: true,
     columns: [
-      { key: 'client', label: 'Customer' },
+      CUSTOMER_COLUMN,
       { key: 'invoice_number', label: 'Invoice #' },
       { key: 'total', label: 'Value', format: 'currency' },
       { key: 'issued_date', label: 'Issue date', format: 'date' },
@@ -434,14 +475,14 @@ const DRILLDOWNS: DrillSpec[] = [
     run: async ({ supabase, companyId }) => {
       const { data, error } = await supabase
         .from('invoices')
-        .select('invoice_number, total, issued_date, clients(name)')
+        .select('invoice_number, total, issued_date, clients(id, name)')
         .eq('company_id', companyId)
         .is('deleted_at', null)
         .eq('invoice_status', 'draft')
         .order('total', { ascending: false, nullsFirst: false })
       if (error) throw new Error(error.message)
       return (data ?? []).map(r => ({
-        client: (r.clients as { name?: string } | null)?.name ?? 'Unknown customer',
+        ...clientCell(r.clients as JoinedClient),
         invoice_number: (r.invoice_number as string | null) ?? '—',
         total: num(r.total),
         issued_date: (r.issued_date as string | null),
@@ -458,7 +499,7 @@ const DRILLDOWNS: DrillSpec[] = [
       'invoice records do, so anyone who joined earlier has paid more than this shows.',
     reports: ['clients'],
     columns: [
-      { key: 'client', label: 'Customer' },
+      CUSTOMER_COLUMN,
       { key: 'invoices', label: 'Invoices', format: 'number' },
       { key: 'billed', label: 'Billed', format: 'currency' },
       { key: 'collected', label: 'Collected', format: 'currency' },
@@ -468,7 +509,7 @@ const DRILLDOWNS: DrillSpec[] = [
     run: async ({ supabase, companyId, win }) => {
       const rows = await fetchAllRows<Record<string, unknown>>(() => supabase
         .from('invoices')
-        .select('total, outstanding_balance, issued_date, client_id, clients(name)')
+        .select('total, outstanding_balance, issued_date, client_id, clients(id, name)')
         .eq('company_id', companyId)
         .is('deleted_at', null)
         .neq('invoice_status', 'draft')
@@ -481,9 +522,9 @@ const DRILLDOWNS: DrillSpec[] = [
       const byClient = new Map<string, DrillRow>()
       for (const r of rows) {
         const id = (r.client_id as string | null) ?? 'unknown'
-        const name = (r.clients as { name?: string } | null)?.name ?? 'Unknown customer'
         const cur = byClient.get(id) ?? {
-          client: name, invoices: 0, billed: 0, collected: 0, owed: 0, last_invoice: null,
+          ...clientCell(r.clients as JoinedClient),
+          invoices: 0, billed: 0, collected: 0, owed: 0, last_invoice: null,
         }
         const total = num(r.total)
         const bal = num(r.outstanding_balance)
@@ -623,7 +664,11 @@ const DRILLDOWNS: DrillSpec[] = [
       'answered count as answered and are not here.',
     reports: ['communications'],
     columns: [
-      { key: 'from_number', label: 'From' },
+      // The NUMBER carries the link, not the Contact column: a missed call from
+      // someone not in the directory shows a blank contact, and a dash is a poor
+      // thing to ask anyone to click. Calling them back is the action, so the
+      // number is what a person reaches for.
+      { key: 'from_number', label: 'From', link: { hrefKey: 'contact_href' } },
       { key: 'contact', label: 'Contact' },
       { key: 'when', label: 'When', format: 'date' },
       { key: 'status', label: 'Outcome' },
@@ -641,25 +686,36 @@ const DRILLDOWNS: DrillSpec[] = [
 
       const ids = [...new Set(rows.map(r => r.contact_id as string | null).filter((v): v is string => !!v))]
       const nameById = new Map<string, string>()
+      // Which contacts still exist — a call keeps its contact_id after the record is
+      // deleted, so link only where the file can actually open.
+      const live = new Set<string>()
       for (let i = 0; i < ids.length; i += 100) {
         const { data: cs } = await supabase
           .from('txt_contacts')
           .select('id, name')
+          .is('deleted_at', null)
           .in('id', ids.slice(i, i + 100))
         for (const c of cs ?? []) {
+          live.add(c.id as string)
           const n = (c.name as string | null)?.trim()
           if (n) nameById.set(c.id as string, n)
         }
       }
 
-      return rows.map(r => ({
-        from_number: (r.from_number as string | null) ?? '—',
-        // Blank rather than "Unknown": an unnamed caller is a known gap in the
-        // directory, not a fact about the call.
-        contact: nameById.get((r.contact_id as string) ?? '') ?? '—',
-        when: (r.created_at as string | null)?.slice(0, 10) ?? null,
-        status: (r.status as string | null) ?? '—',
-      }))
+      return rows.map(r => {
+        const cid = (r.contact_id as string | null) ?? ''
+        return {
+          from_number: (r.from_number as string | null) ?? '—',
+          // Blank rather than "Unknown": an unnamed caller is a known gap in the
+          // directory, not a fact about the call.
+          contact: nameById.get(cid) ?? '—',
+          // Already a directory id, so it needs no resolving — /customer/<id> exists
+          // only because report rows carry Jobber's id for the customer, not ours.
+          contact_href: live.has(cid) ? customerFilePath(cid) : null,
+          when: (r.created_at as string | null)?.slice(0, 10) ?? null,
+          status: (r.status as string | null) ?? '—',
+        }
+      })
     },
   },
   {

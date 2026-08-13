@@ -20,6 +20,7 @@
  */
 
 import { formatCurrency } from '@/lib/format'
+import { customerFileHref } from '@/lib/customer-file-href'
 import type { InvoiceArRow, InvoiceWindowRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
@@ -346,6 +347,9 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
           key: inv.id,
           cells: {
             client: inv.client_name,
+            // Collecting a debt means talking to the customer, so their name opens
+            // the file the Call and Text buttons live on. Not rendered as a column.
+            client_href: inv.client_id ? customerFileHref(inv.client_id) : null,
             invoice: inv.invoice_number ? `#${inv.invoice_number}` : '—',
             issued: inv.issued_date ?? '—',
             days: num(inv.days_past_due) > 0 ? num(inv.days_past_due) : 0,
@@ -374,7 +378,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
          * a year late. Selection and default order have to agree; both stay
          * clickable so either question can be asked. */
         columns: [
-          { key: 'client', label: 'Customer', align: 'left' },
+          { key: 'client', label: 'Customer', align: 'left', link: { hrefKey: 'client_href' } },
           { key: 'invoice', label: 'Invoice', align: 'left' },
           { key: 'issued', label: 'Issued', align: 'left' },
           { key: 'balance', label: 'Balance', align: 'right', format: 'currency', sortable: true },

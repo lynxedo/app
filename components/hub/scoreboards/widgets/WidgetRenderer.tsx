@@ -1,11 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import type {
-  AttentionPayload, BarsPayload, DonutPayload, DrillLink, GeoPayload, KpiPayload, ListPayload, StackedPayload, TablePayload,
-  WidgetPayload,
+  AttentionPayload, BarsPayload, CellLink, DonutPayload, DrillLink, GeoPayload, KpiPayload, ListPayload, StackedPayload,
+  TablePayload, WidgetPayload,
 } from '@/lib/scoreboards/widgets/payloads'
 import { formatValue, toneColor } from './tone'
 
@@ -255,6 +255,42 @@ function Donut({ p }: { p: DonutPayload }) {
   )
 }
 
+/* A cell that opens the record it names — a customer's file, a quote in Jobber.
+ *
+ * Renders as plain text when the row has no href for it, which is the honest
+ * outcome for a row we cannot resolve (a Jobber customer with no directory record,
+ * a quote with no web address). A link that goes nowhere useful is worse than text.
+ */
+function CellText({ link, href, toned, children }: {
+  link?: CellLink
+  href: string | null
+  /** The cell already carries a meaning in its colour (late, overdue). */
+  toned?: boolean
+  children: ReactNode
+}) {
+  if (!link || !href) return <>{children}</>
+  // A toned cell keeps its own colour and shows it is clickable by the underline
+  // instead: recolouring it to the accent would throw away the amber/red that says
+  // how late the row is.
+  const cls = toned
+    ? 'underline decoration-dotted underline-offset-2 hover:decoration-solid'
+    : 'text-[var(--t-accent)] hover:underline'
+  return link.external
+    ? (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>
+        {children}<span aria-hidden="true"> ↗</span>
+      </a>
+    )
+    : <Link href={href} className={cls}>{children}</Link>
+}
+
+/** The href for a linked column, only when it is a usable one. */
+function cellHref(link: CellLink | undefined, cells: Record<string, string | number | null>): string | null {
+  if (!link) return null
+  const raw = cells[link.hrefKey]
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : null
+}
+
 function Table({ p }: { p: TablePayload }) {
   const sortable = p.columns.filter(c => c.sortable)
   const [sortKey, setSortKey] = useState<string>(sortable[0]?.key ?? '')
@@ -291,10 +327,13 @@ function Table({ p }: { p: TablePayload }) {
                     {p.columns.map((c, ci) => {
                       const tone = row.tones?.[c.key]
                       const value = formatValue(row.cells[c.key] ?? null, c.format)
+                      const href = cellHref(c.link, row.cells)
                       if (ci === 0) {
                         return (
                           <td key={c.key} className="max-w-[220px] px-2.5 py-2">
-                            <div className="truncate font-medium text-gray-200">{value}</div>
+                            <div className="truncate font-medium text-gray-200">
+                              <CellText link={c.link} href={href}>{value}</CellText>
+                            </div>
                             {row.meta ? (
                               <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
                                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: toneColor(row.meta.tone) }} />
@@ -310,7 +349,7 @@ function Table({ p }: { p: TablePayload }) {
                           className={`px-2.5 py-2 tabular-nums ${c.align === 'left' ? 'text-left' : 'text-right'} ${tone ? 'font-semibold' : 'text-gray-300'}`}
                           style={tone ? { color: toneColor(tone) } : undefined}
                         >
-                          {value}
+                          <CellText link={c.link} href={href} toned={!!tone}>{value}</CellText>
                         </td>
                       )
                     })}

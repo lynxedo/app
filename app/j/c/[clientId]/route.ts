@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { contactIdForJobberClient, customerFilePath, jobberEncodedClientId } from '@/lib/customer-file'
 
 // Resolver behind the "Lynxedo Customer File" link custom field in Jobber.
 //
@@ -18,12 +19,6 @@ import { createClient } from '@/lib/supabase/server'
 // who they are.
 
 export const dynamic = 'force-dynamic'
-
-// Rebuild Jobber's encoded id so the lookup stays an exact, indexed match on the
-// value the sync already stores, rather than decoding every row to compare.
-function encodedClientId(numeric: string): string {
-  return Buffer.from(`gid://Jobber/Client/${numeric}`).toString('base64')
-}
 
 export async function GET(
   request: Request,
@@ -57,15 +52,16 @@ export async function GET(
   if (!user) return to(`/login?next=${encodeURIComponent(`/j/c/${clientId}${suffix}`)}`)
 
   // RLS scopes this to the caller's own company, so a Jobber id belonging to
-  // another tenant simply doesn't resolve here.
-  const { data } = await supabase
-    .from('txt_contacts')
-    .select('id')
-    .eq('jobber_client_id', encodedClientId(clientId))
-    .maybeSingle()
+  // another tenant simply doesn't resolve here. The lookup itself is shared with
+  // the in-app resolver (/customer/[clientId]) so one file owns the id mapping —
+  // which also fixed a fault here: this used .maybeSingle(), and maybeSingle
+  // THROWS on two rows. Nothing stops two directory records carrying one Jobber
+  // client id (there is no unique index), so a single duplicate would have turned
+  // every tap of the Jobber custom field into an error page.
+  const contactId = await contactIdForJobberClient(supabase, jobberEncodedClientId(clientId))
 
   // Roughly 3% of Jobber clients have no directory record yet. Land those on the
   // directory rather than a dead end — the tech can search from there. No suffix
   // on that branch: there is no account to open an inspection against.
-  return to(data?.id ? `/hub/contacts/${data.id}${suffix}` : '/hub/contacts')
+  return to(contactId ? `${customerFilePath(contactId)}${suffix}` : '/hub/contacts')
 }

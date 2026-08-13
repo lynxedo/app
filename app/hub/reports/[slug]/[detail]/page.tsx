@@ -50,6 +50,33 @@ function isNumeric(col: DrillColumn): boolean {
   return col.format === 'currency' || col.format === 'number' || col.format === 'days'
 }
 
+/* One cell, as a link when the row carries somewhere to go.
+ *
+ * This is the "act on it" half of a report (§8.3): the list answers which records
+ * make up a number, and the customer's name opens the file where calling and
+ * texting them live. Rows we could not resolve render as plain text rather than as
+ * a link that lands nowhere useful.
+ */
+function Cell({ col, row }: { col: DrillColumn; row: DrillRow }) {
+  const text = fmtCell(col, row)
+  const raw = col.link ? row[col.link.hrefKey] : null
+  const href = typeof raw === 'string' && raw.trim() !== '' ? raw : null
+  if (!href) return <>{text}</>
+
+  return col.link?.external
+    ? (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[var(--t-accent)] hover:underline"
+      >
+        {text}<span aria-hidden="true"> ↗</span>
+      </a>
+    )
+    : <Link href={href} className="text-[var(--t-accent)] hover:underline">{text}</Link>
+}
+
 export default async function ReportDetailPage({
   params, searchParams,
 }: {
@@ -186,7 +213,7 @@ export default async function ReportDetailPage({
                               : 'text-left'
                           }`}
                         >
-                          {fmtCell(c, r)}
+                          <Cell col={c} row={r} />
                         </td>
                       ))}
                     </tr>

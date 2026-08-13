@@ -91,6 +91,25 @@ export type DonutPayload = {
   drill?: DrillLink
 }
 
+/**
+ * Turns a table cell into a link to the record it names.
+ *
+ * The href lives in a row cell rather than on the column, because it differs per
+ * row; the column only says WHICH cell holds it. That cell is not itself a column,
+ * so it never renders, never sorts, and never reaches the Excel export.
+ *
+ * Per-cell rather than per-row on purpose: one row can point at two different
+ * places — the customer's file for calling them, the quote in Jobber for resending
+ * it — and a whole-row hit area would have to pick one and would fire whenever
+ * somebody meant to select text.
+ */
+export type CellLink = {
+  /** Row cell key holding the href. */
+  hrefKey: string
+  /** Outside Lynxedo (Jobber). Opens in a new tab, marked with an arrow. */
+  external?: boolean
+}
+
 export type TableColumn = {
   key: string
   label: string
@@ -99,6 +118,8 @@ export type TableColumn = {
   /** Column the user may sort by; the resolver does the initial sort. */
   sortable?: boolean
   title?: string
+  /** Renders this cell as a link. See CellLink. */
+  link?: CellLink
 }
 
 export type TablePayload = {

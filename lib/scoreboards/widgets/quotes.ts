@@ -29,6 +29,7 @@
  * "as of today" on their face.
  */
 
+import { customerFileHref } from '@/lib/customer-file-href'
 import type { QuoteCohortRow, QuoteOpenRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
@@ -258,7 +259,13 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         cells: {
           days_out: num(q.days_out),
           quote: q.quote_number ? `#${q.quote_number}` : '—',
+          // The two hrefs are cells, not columns: they never render, never sort and
+          // never reach the Excel export. One row, two different jobs — resend the
+          // quote in Jobber, or ring the customer — so each gets its own cell link
+          // rather than one whole-row target that would have to pick a winner.
+          quote_href: q.jobber_uri,
           client: q.client,
+          client_href: q.client_id ? customerFileHref(q.client_id) : null,
           opened: q.viewed ? 'Opened it' : 'Never opened',
           service: serviceLabel(q.service),
           salesperson: q.salesperson,
@@ -273,17 +280,19 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: 'As of today, oldest first — the date range does not apply',
         columns: [
           { key: 'days_out', label: 'Days waiting', align: 'right', format: 'number', sortable: true },
-          { key: 'quote', label: 'Quote', align: 'left' },
-          { key: 'client', label: 'Customer', align: 'left', sortable: true },
+          { key: 'quote', label: 'Quote', align: 'left', link: { hrefKey: 'quote_href', external: true }, title: 'Opens this quote in Jobber, where it can be resent.' },
+          { key: 'client', label: 'Customer', align: 'left', sortable: true, link: { hrefKey: 'client_href' }, title: 'Opens their customer file, where you can call or text them.' },
           { key: 'opened', label: 'Customer opened it?', align: 'left', sortable: true },
           { key: 'service', label: 'Service', align: 'left', sortable: true },
           { key: 'salesperson', label: 'Salesperson', align: 'left', sortable: true },
         ],
         rows,
         // ⚠ A truncated list must never read as complete.
+        // Was "look up a quote by its number in Jobber" — a workaround for having no
+        // link. Both cells are now clickable, so the note says what they do instead.
         foot: total > cap
-          ? `Showing the ${cap} longest-waiting of ${total.toLocaleString()} open quotes.`
-          : 'Look up a quote by its number in Jobber to open or resend it.',
+          ? `Showing the ${cap} longest-waiting of ${total.toLocaleString()} open quotes. The quote number opens it in Jobber; the name opens their customer file.`
+          : 'The quote number opens it in Jobber to resend; the customer name opens their file, where you can call or text them.',
         empty: 'No quotes are waiting on a customer',
       }
     },
