@@ -24,6 +24,10 @@ import { HOME_WIDGETS, HOME_REPORT_PRESET } from './home'
 import { PEOPLE_WIDGETS, PEOPLE_REPORT_PRESET } from './people'
 import { GOALS_WIDGETS, GOALS_REPORT_PRESET } from './goals'
 import type { Tone, WidgetPayload } from './payloads'
+// Pure map + pure lookup. gating.ts pulls in lib/reports/registry, which is data
+// and pure functions only — safe in the browser bundle, and the picker wants the
+// report titles anyway to explain what a greyed-out widget needs.
+import { widgetReportSlugs } from './gating'
 
 const UNKNOWN_SOURCE = 'Other / Unknown'
 
@@ -466,6 +470,12 @@ export type WidgetCatalogEntry = {
   defaultSpan: number
   config: WidgetDef['config']
   requires?: string
+  /**
+   * Reports whose data this widget shows — the entitlement for putting it on a
+   * custom Scoreboard, and for seeing it on someone else's. Computed here rather
+   * than in the browser so the group→report map never ships to the client.
+   */
+  reports: string[]
 }
 
 export function widgetCatalog(): WidgetCatalogEntry[] {
@@ -477,7 +487,26 @@ export function widgetCatalog(): WidgetCatalogEntry[] {
     defaultSpan: w.defaultSpan,
     config: w.config,
     requires: w.requires,
+    reports: widgetReportSlugs(w.type, w.group, REPORT_PRESETS),
   }))
+}
+
+/** Every group present in the library, for the completeness assertion in ./layouts.ts. */
+export function widgetGroups(): string[] {
+  return [...new Set(ALL_WIDGETS.map(w => w.group))]
+}
+
+/**
+ * The reports one widget reads. Server-side helper for the save/resolve gate; the
+ * browser gets the same answer pre-computed on the catalog entry.
+ */
+export function reportsForWidget(type: string): string[] {
+  const def = BY_TYPE.get(type)
+  // Unknown type → no reports → `canUseWidget` refuses it. Failing closed is
+  // right: an orphaned widget from a renamed registry entry should not become
+  // placeable by everyone.
+  if (!def) return []
+  return widgetReportSlugs(def.type, def.group, REPORT_PRESETS)
 }
 
 /**

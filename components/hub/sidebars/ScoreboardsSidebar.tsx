@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import SidebarShell from './SidebarShell'
 import { SCOREBOARDS } from '@/lib/scoreboards/registry'
 import { useWorkspaceTabs } from '../workspace/WorkspaceTabsContext'
@@ -73,6 +74,25 @@ export default function ScoreboardsSidebar({
     ? SCOREBOARDS
     : SCOREBOARDS.filter(b => (allowedSlugs ?? []).includes(b.slug))
 
+  /* User-built boards, fetched here rather than threaded down from the layout.
+   *
+   * Two reasons. The list changes the moment somebody creates or is shared a
+   * board, and a server-rendered prop would need a router.refresh() to catch up —
+   * "my new scoreboard isn't in the sidebar" is precisely the kind of stale-prop
+   * confusion that has cost real time here. And an optional permission-shaped prop
+   * defaults to the LOCKED state when a wire-up is forgotten, which looks exactly
+   * like the feature never shipped (memory: lesson_optional_permission_prop_defaults_locked).
+   * A failed fetch simply renders no section — the standard boards are untouched. */
+  const [custom, setCustom] = useState<{ slug: string; title: string }[]>([])
+  useEffect(() => {
+    let live = true
+    fetch('/api/hub/scoreboards/custom')
+      .then(r => (r.ok ? r.json() : { boards: [] }))
+      .then(b => { if (live) setCustom((b.boards ?? []).map((x: { slug: string; title: string }) => ({ slug: x.slug, title: x.title }))) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
+
   return (
     <SidebarShell title="Scoreboards" onClose={onClose} onDesktopCollapse={onDesktopCollapse}>
       <div className="space-y-1">
@@ -107,6 +127,41 @@ export default function ScoreboardsSidebar({
           })}
         </div>
       </div>
+
+      {custom.length > 0 && (
+        <div>
+          <div className="px-2 mb-1">
+            <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">Custom</span>
+          </div>
+          <div className="space-y-1">
+            {/* Capped: an admin can see every custom board in the company, and a
+                sidebar is not a place to render two hundred rows. The rest are on
+                the index page, which the row below links to. */}
+            {custom.slice(0, 12).map(b => {
+              const href = `/hub/scoreboards/${b.slug}`
+              return (
+                <BoardRow
+                  key={b.slug}
+                  href={href}
+                  label={b.title}
+                  active={pathname === href}
+                  onClose={onClose}
+                  onOpen={tabs.enabled ? () => { onClose?.(); tabs.openTab({ catalogId: 'scoreboards', instanceKey: b.slug, label: b.title, href }) } : undefined}
+                />
+              )
+            })}
+            {custom.length > 12 && (
+              <Link
+                href="/hub/scoreboards"
+                onClick={() => onClose?.()}
+                className="block px-2 py-1.5 rounded-lg text-xs text-white/45 hover:bg-white/[0.06] hover:text-white transition-colors"
+              >
+                +{custom.length - 12} more…
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
 
       {isAdmin && (
         <div className="pt-2 mt-1 border-t border-white/[0.07]">
