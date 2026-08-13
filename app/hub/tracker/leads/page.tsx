@@ -9,7 +9,11 @@ export default async function HubLeadTrackerRoute() {
   if (!user) redirect('/login')
 
   const [profileRes, settingsRes, stagesRes, columnsRes] = await Promise.all([
-    supabase.from('user_profiles').select('role, tracker_column_layout').eq('id', user.id).single(),
+    supabase
+      .from('user_profiles')
+      .select('role, tracker_column_layout, can_access_dialer, can_access_txt')
+      .eq('id', user.id)
+      .single(),
     supabase.from('tracker_settings').select('*').single(),
     supabase.from('tracker_stages').select('*').order('sort_order', { ascending: true }),
     supabase.from('tracker_column_definitions').select('*').order('sort_order', { ascending: true }),
@@ -40,6 +44,11 @@ export default async function HubLeadTrackerRoute() {
       initialLeads={initialLeads}
       stages={stagesRes.data ?? []}
       customColumnDefs={columnsRes.data ?? []}
+      // Same gates as the dialer / Txt themselves, so the row buttons can never
+      // offer an action the destination screen would refuse. Admins bypass, as
+      // they do elsewhere.
+      canCall={currentUser.isAdmin || profileRes.data?.can_access_dialer === true}
+      canText={currentUser.isAdmin || profileRes.data?.can_access_txt === true}
     />
   )
 }

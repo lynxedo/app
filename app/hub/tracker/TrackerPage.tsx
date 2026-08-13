@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui'
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard'
 import { formatPhone, formatCurrency as fmtCurrency } from '@/lib/format'
 import type { LeadDrip, DripStatus } from '@/lib/tracker/leads'
+import LeadContactActions, { LeadContactPermsProvider } from '@/components/hub/tracker/LeadContactActions'
 import TableView from './leads/TableView'
 import BoardView from './leads/BoardView'
 import NeedsMeView from './leads/NeedsMeView'
@@ -336,6 +337,17 @@ const LEAD_COLUMNS: ColumnDef[] = [
     ),
   },
   {
+    // Sits beside Phone so the number and the two ways to use it read together.
+    // Not sortable (leadSortValue returns null for unknown ids, which is right).
+    id: 'contact_actions', label: 'Call / Text', defaultWidth: 76,
+    render: (lead) => (
+      <LeadContactActions
+        phone={lead.phone}
+        name={[lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || null}
+      />
+    ),
+  },
+  {
     id: 'email', label: 'Email', defaultWidth: 200,
     render: (lead, { lightMode, onUpdate }) => (
       <EditCell value={lead.email} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'email', v)} />
@@ -438,10 +450,16 @@ type ColumnEntry = { id: string; width: number; hidden?: boolean }
 
 function resolveColumns(
   layout: ColumnEntry[] | null,
-  customColumnDefs: CustomColumnDef[]
+  customColumnDefs: CustomColumnDef[],
+  opts: { showContactActions: boolean }
 ): Array<(ColumnDef | { id: string; label: string; defaultWidth: number; isCustom: true; colDef: CustomColumnDef }) & { width: number; hidden: boolean }> {
   type AnyCol = ColumnDef | { id: string; label: string; defaultWidth: number; isCustom: true; colDef: CustomColumnDef }
-  const builtinById = new Map(LEAD_COLUMNS.map(c => [c.id, c as AnyCol]))
+  // Call/Text is dropped outright for someone with neither permission — an
+  // always-empty 76px column would just be dead space. It comes back on its own
+  // if the permission is granted later, via the "not in the saved layout" path
+  // below.
+  const builtins = LEAD_COLUMNS.filter(c => c.id !== 'contact_actions' || opts.showContactActions)
+  const builtinById = new Map(builtins.map(c => [c.id, c as AnyCol]))
   const customById = new Map(customColumnDefs.map(c => [c.id, { id: c.id, label: c.name, defaultWidth: 128, isCustom: true as const, colDef: c } as AnyCol]))
   const allById = new Map([...builtinById, ...customById])
 
@@ -457,8 +475,19 @@ function resolveColumns(
       }
     }
   }
-  for (const def of LEAD_COLUMNS) {
-    if (!seen.has(def.id)) out.push({ ...def, width: def.defaultWidth, hidden: false })
+  // Built-ins the saved layout predates. Insert each next to the neighbour it
+  // sits beside in LEAD_COLUMNS instead of appending: on a table this wide,
+  // appending hides a new column behind a horizontal scroll, where it reads as
+  // never having shipped. Nothing already in the layout moves.
+  for (let i = 0; i < builtins.length; i++) {
+    const def = builtins[i]
+    if (seen.has(def.id)) continue
+    let at = out.length
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = out.findIndex(c => c.id === builtins[j].id)
+      if (prev !== -1) { at = prev + 1; break }
+    }
+    out.splice(at, 0, { ...def, width: def.defaultWidth, hidden: false })
     seen.add(def.id)
   }
   for (const c of customColumnDefs) {
@@ -1235,12 +1264,19 @@ function NewLeadForm({ opts, stages, currentUser, onClose, onCreated }: {
 // ── Main TrackerPage ──────────────────────────────
 export default function TrackerPage({
   settings, currentUser, initialColumnLayout, initialLeads, stages: initialStages, customColumnDefs: initialColumnDefs,
+  canCall, canText,
 }: {
   settings: TrackerSettings | null; currentUser: CurrentUser
   initialColumnLayout?: { id: string; width: number; hidden?: boolean }[] | null
   initialLeads?: Lead[] | null
   stages: Stage[]
   customColumnDefs: CustomColumnDef[]
+  // REQUIRED, not optional: an optional permission prop the caller forgets
+  // defaults to false, which is indistinguishable from "never shipped" — exactly
+  // how the Reports icon vanished for everyone in Aug 2026. Required means tsc
+  // catches a missed wiring instead of the feature silently disappearing.
+  canCall: boolean
+  canText: boolean
 }) {
   const toast = useToast()
   const [leads, setLeads] = useState<Lead[]>(initialLeads ?? [])
@@ -1263,7 +1299,9 @@ export default function TrackerPage({
 
   const [columnLayout, setColumnLayout] = useState<{ id: string; width: number; hidden?: boolean }[] | null>(initialColumnLayout ?? null)
   const [columnsMenuOpen, setColumnsMenuOpen] = useState(false)
-  const effectiveColumns = resolveColumns(columnLayout, customColumnDefs)
+  const effectiveColumns = resolveColumns(columnLayout, customColumnDefs, {
+    showContactActions: canCall || canText,
+  })
   const visibleColumns = effectiveColumns.filter(c => !c.hidden)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -1486,6 +1524,7 @@ export default function TrackerPage({
   const needsMeCount = leads.filter(l => l.drip?.status === 'replied').length
 
   return (
+    <LeadContactPermsProvider value={{ canCall, canText }}>
     <div className="flex flex-1 overflow-hidden">
       <style>{`
         .tracker-no-sb { scrollbar-width: none; -ms-overflow-style: none; }
@@ -1681,5 +1720,6 @@ export default function TrackerPage({
         </div>
       )}
     </div>
+    </LeadContactPermsProvider>
   )
 }

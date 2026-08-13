@@ -15,7 +15,18 @@ import TrackerPage, { type CurrentUser } from '@/app/hub/tracker/TrackerPage'
 
 type TrackerProps = ComponentProps<typeof TrackerPage>
 
-export default function TrackerLeadsTab({ currentUser }: { currentUser: CurrentUser }) {
+export default function TrackerLeadsTab({
+  currentUser,
+  canCall,
+  canText,
+}: {
+  currentUser: CurrentUser
+  // Passed down rather than re-derived: HubShell already holds these, and a twin
+  // that resolved permissions its own way would be free to drift from the real
+  // screen — which is precisely how a twin ends up silently missing a feature.
+  canCall: boolean
+  canText: boolean
+}) {
   const [ready, setReady] = useState(false)
   const [settings, setSettings] = useState<TrackerProps['settings']>(null)
   const [stages, setStages] = useState<TrackerProps['stages']>([])
@@ -47,6 +58,8 @@ export default function TrackerLeadsTab({ currentUser }: { currentUser: CurrentU
       customColumnDefs={columns}
       initialLeads={null}
       initialColumnLayout={null}
+      canCall={canCall}
+      canText={canText}
     />
   )
 }
