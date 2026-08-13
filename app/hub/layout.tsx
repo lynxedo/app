@@ -20,7 +20,7 @@ import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 import { resolveLayout, reconcileSeededApps } from '@/lib/hub-layout'
 import { getBetaFlags } from '@/lib/beta-flags'
 import type { RailPermissions } from '@/components/hub/railCatalog'
-import { REPORTS } from '@/lib/reports/registry'
+import { REPORTS, PEOPLE_TEAM_SLUG } from '@/lib/reports/registry'
 import { SCOREBOARDS } from '@/lib/scoreboards/registry'
 
 export const metadata: Metadata = {
@@ -268,16 +268,10 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     : rawCanAccessReports
       ? ((await admin.from('report_access').select('report_slug').eq('user_id', user.id)).data ?? [])
           .map(r => r.report_slug as string)
-          .filter(slug => slug !== 'coaching')
+          // ⚠ people:team is a GRANT, not a report — it must not become a rail entry.
+          .filter(slug => slug !== 'coaching' && slug !== PEOPLE_TEAM_SLUG)
       : []
-  const withCoaching = rawCanAccessCoaching ? [...grantedReportSlugs, 'coaching'] : grantedReportSlugs
-  // ⚠ People Performance is added for EVERYONE with Hub access, and that is the
-  // point of it: it is how a person sees their own numbers, and a technician
-  // holds no Reports access at all. The grant on this slug buys the TEAM view,
-  // not entry — see canSeeOthersPerformance. Consequence, stated because it is a
-  // visible change for every user: everyone now gets the Reports rail icon, with
-  // exactly one report inside unless they were granted more.
-  const reportSlugs = withCoaching.includes('people') ? withCoaching : [...withCoaching, 'people']
+  const reportSlugs = rawCanAccessCoaching ? [...grantedReportSlugs, 'coaching'] : grantedReportSlugs
   // Someone holding ONLY the coaching flag still needs the Reports icon — that is
   // now their one report, and it lives here rather than in Scoreboards.
   const canAccessReports = reportSlugs.length > 0

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { REPORTS } from '@/lib/reports/registry'
+import { REPORTS, PEOPLE_TEAM_SLUG } from '@/lib/reports/registry'
 import ReportAccessPanel from './ReportAccessPanel'
 
 export const metadata = { title: 'Reports Admin' }
@@ -73,7 +73,7 @@ export default async function ReportsAdminPage() {
 
   return (
     <div className="space-y-10">
-      <ReportAccessPanel reports={reports} users={users} initialAccess={access} />
+      <ReportAccessPanel reports={reports} users={users} initialAccess={access} teamSlug={PEOPLE_TEAM_SLUG} />
     </div>
   )
 }
