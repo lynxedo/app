@@ -9,6 +9,7 @@ import TemplatePicker, { filterTemplates, type PickerTemplate } from './Template
 import EmojiPicker from '@/components/hub/EmojiPicker'
 import MediaLightbox, { type LightboxItem } from '@/components/hub/MediaLightbox'
 import { createClient } from '@/lib/supabase/client'
+import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
 import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
 import { CallMarker, VoicemailMarker, type TimelineCallEvent } from './TimelineMarkers'
 import { formatPhone, initials } from '@/lib/format'
@@ -795,16 +796,17 @@ export default function TxtConversationView({
       setMembers(data.members || [])
     }
 
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`txt:${companyId}`)
-      .on('broadcast', { event: 'inbound' }, ({ payload }) => {
+    // Ref-counted: the Txt sidebar shares this topic, and its cleanup (which
+    // runs on any filter change, and on unmount when you switch to a non-Txt
+    // tab) used to tear the channel down under us.
+    const off = subscribeSharedBroadcast(`txt:${companyId}`, {
+      inbound: (payload) => {
         if ((payload as { conversation_id?: string })?.conversation_id === convId) refresh()
-      })
-      .on('broadcast', { event: 'status' }, ({ payload }) => {
+      },
+      status: (payload) => {
         if ((payload as { conversation_id?: string })?.conversation_id === convId) refresh()
-      })
-      .subscribe()
+      },
+    })
 
     // Safety-net reconcile (much slower than the old 8s churn).
     const t = setInterval(refresh, 30000)
@@ -812,7 +814,7 @@ export default function TxtConversationView({
     return () => {
       cancelled = true
       clearInterval(t)
-      supabase.removeChannel(channel)
+      off()
     }
   }, [conversation.id, companyId])
 

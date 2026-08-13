@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
-import { createClient } from '@/lib/supabase/client'
+import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
 import { Spinner, EmptyState, useToast } from '@/components/ui'
 import RulesPanel from '@/components/hub/email/RulesPanel'
 import FoldersPanel from '@/components/hub/email/FoldersPanel'
@@ -358,23 +358,20 @@ export default function EmailInboxSidebar({
   useEffect(() => {
     if (!companyId) return
     let cancelled = false
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`inbox:${companyId}`)
-      .on('broadcast', { event: 'update' }, () => {
-        if (!cancelled) load()
-      })
-      .on('broadcast', { event: 'sync' }, () => {
-        if (!cancelled) load()
-      })
-      .subscribe()
+    // Ref-counted — this effect re-runs whenever `load` changes identity (a
+    // filter switch), and tearing the shared channel down here also took out an
+    // open Inbox thread's realtime.
+    const off = subscribeSharedBroadcast(`inbox:${companyId}`, {
+      update: () => { if (!cancelled) load() },
+      sync: () => { if (!cancelled) load() },
+    })
     const t = setInterval(() => {
       if (!cancelled) load()
     }, 30000)
     return () => {
       cancelled = true
       clearInterval(t)
-      supabase.removeChannel(channel)
+      off()
     }
   }, [load, companyId])
 

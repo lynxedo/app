@@ -10,6 +10,7 @@ import MessageComposer from './MessageComposer'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
 import { useConfirm, useToast } from '@/components/ui'
+import { useTabVisible } from './workspace/WorkspaceTabInstance'
 import {
   saveMessages,
   getMessages,
@@ -699,6 +700,22 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const [feedReady, setFeedReady] = useState(false)
   const supabase = createClient()
 
+  // Is this feed on screen? False only when it's a Workspace Tab the user isn't
+  // looking at (a hidden tab stays mounted, so its effects keep running). True
+  // everywhere else — the normal route, mobile, anyone without the tabs beta.
+  const tabVisible = useTabVisible()
+  // Realtime handlers are bound once, so they read the flag through a ref rather
+  // than re-subscribing every time the user switches tabs. Written during render
+  // (same idiom as messagesRef below) so it can never lag behind a sibling
+  // effect — anything that reads it in an effect must see the current value.
+  const tabVisibleRef = useRef(tabVisible)
+  tabVisibleRef.current = tabVisible
+  // Previous visibility, owned solely by the replay effect below.
+  const wasVisibleRef = useRef(tabVisible)
+  // Set when a message lands while we're hidden and we therefore skipped the
+  // pin-to-bottom; replayed when the tab comes back into view.
+  const missedBottomPinRef = useRef(false)
+
   // Deep-link focus: the id we still need to scroll to, the id currently
   // flashing, and a guard so we skip the initial pin-to-bottom when we mounted
   // with a target to jump to (otherwise the pin fights our scroll).
@@ -844,8 +861,36 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       return
     }
     const el = scrollContainerRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    // A hidden Workspace Tab has no layout, so scrollHeight is 0 and this pin
+    // would park the feed at the very TOP. Switching back then showed old
+    // messages with the new ones off-screen below — which read as "new messages
+    // don't show up until I refresh" (refreshing remounts, which pins to the
+    // bottom again). Defer the pin instead and replay it when the tab is shown.
+    // Read the render value, not the ref — on a visible→hidden commit that also
+    // adds a message, a ref written by the sibling effect below would still say
+    // "visible", and we'd pin against the already-hidden (zero-height) box AND
+    // skip recording that we owe a pin, stranding the feed at the top.
+    if (!tabVisible) {
+      missedBottomPinRef.current = true
+      return
+    }
+    el.scrollTop = el.scrollHeight
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length])
+
+  // Replay a pin we deferred while hidden, the moment this tab becomes visible.
+  // Only when messages actually arrived — otherwise flipping tabs would yank the
+  // user off wherever they had scrolled to, which is the thing tabs exist to keep.
+  useLayoutEffect(() => {
+    const wasVisible = wasVisibleRef.current
+    wasVisibleRef.current = tabVisible
+    if (!tabVisible || wasVisible) return
+    if (!missedBottomPinRef.current) return
+    missedBottomPinRef.current = false
+    const el = scrollContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [tabVisible])
 
   // Keep latest messages reachable from the stable loadOlder closure.
   const messagesRef = useRef(messages)
@@ -1028,7 +1073,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           incrementReplyCount(payload.new.parent_id, payload.new.id)
           return
         }
-        if (payload.new.sender_id !== currentUserId) {
+        // Only claim "read" if this feed is actually on screen. A room/DM open as
+        // a background Workspace Tab is mounted but invisible — marking it read
+        // there would clear the unread dot for a message nobody has seen. The tab
+        // gets its receipt when the user switches to it (HubSidebar's activeTab
+        // effect), which is the moment it's genuinely been read.
+        if (payload.new.sender_id !== currentUserId && tabVisibleRef.current) {
           fetch('/api/hub/read-receipts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1086,7 +1136,8 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           incrementReplyCount(p.parent_id, p.id)
           return
         }
-        if (p.sender_id && p.sender_id !== currentUserId) {
+        // Same visibility gate as the postgres_changes path above.
+        if (p.sender_id && p.sender_id !== currentUserId && tabVisibleRef.current) {
           fetch('/api/hub/read-receipts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

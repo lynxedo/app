@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
-import { createClient } from '@/lib/supabase/client'
+import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
 import SidebarContactsList from './SidebarContactsList'
 import { Spinner, EmptyState, useToast, useConfirm } from '@/components/ui'
 import ContactModal from '@/components/hub/txt/ContactModal'
@@ -260,17 +260,19 @@ export default function TxtV2Sidebar({
   // background refreshes don't flash.
   useEffect(() => {
     let cancelled = false
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`txt:${companyId}`)
-      .on('broadcast', { event: 'inbound' }, () => { if (!cancelled) load() })
-      .on('broadcast', { event: 'status' }, () => { if (!cancelled) load() })
-      .subscribe()
+    // Ref-counted — several components share this topic and Supabase hands them
+    // all one channel. This effect re-runs on every scope/filter change, and
+    // removing the channel outright used to kill realtime for the rail dot, the
+    // chime, and any Txt thread open as a Workspace Tab.
+    const off = subscribeSharedBroadcast(`txt:${companyId}`, {
+      inbound: () => { if (!cancelled) load() },
+      status: () => { if (!cancelled) load() },
+    })
     const t = setInterval(() => { if (!cancelled) load() }, 30000)
     return () => {
       cancelled = true
       clearInterval(t)
-      supabase.removeChannel(channel)
+      off()
     }
   }, [load, companyId])
 

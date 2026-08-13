@@ -34,6 +34,8 @@ import OnCallPresenceProvider from './OnCallPresenceProvider'
 import { WorkspaceTabsProvider, useWorkspaceTabsState, type WorkspaceTab, type TabCatalogId } from './workspace/WorkspaceTabsContext'
 import WorkspaceTabStrip from './workspace/WorkspaceTabStrip'
 import WorkspaceTabErrorBoundary from './workspace/WorkspaceTabErrorBoundary'
+import { WorkspaceTabInstanceProvider } from './workspace/WorkspaceTabInstance'
+import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
 import { isDesktopEnvironment } from '@/lib/is-desktop'
 import dynamic from 'next/dynamic'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
@@ -576,10 +578,10 @@ export default function HubShell({
   // webhook fires; the daily-log dot uses this exact two-subscriber pattern).
   useEffect(() => {
     if (!canAccessTxt || !companyId) return
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`txt:${companyId}`)
-      .on('broadcast', { event: 'inbound' }, ({ payload }) => {
+    // Ref-counted — several components share this topic and Supabase gives them
+    // all one channel, so whoever unmounts first must not tear it down.
+    return subscribeSharedBroadcast(`txt:${companyId}`, {
+      inbound: (payload) => {
         const p = (payload ?? {}) as { recipient_ids?: string[] }
         // Only light the rail dot for users this inbound is actually for —
         // owner + members of an assigned thread, or the Queue audience while
@@ -589,16 +591,15 @@ export default function HubShell({
         const path = pathnameRef.current
         if (path === '/hub/txt' || path.startsWith('/hub/txt/')) return
         setTxtUnread(true)
-      })
+      },
       // #45 — when this user opens Txt2 on another device, clear the dot here too.
-      .on('broadcast', { event: 'seen' }, ({ payload }) => {
+      seen: (payload) => {
         const p = (payload ?? {}) as { user_id?: string; seen_at?: string }
         if (p.user_id !== currentUserId) return
         if (p.seen_at) { try { localStorage.setItem(TXT_SEEN_KEY, p.seen_at) } catch { /* ignore */ } }
         setTxtUnread(false)
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+      },
+    })
   }, [canAccessTxt, companyId, currentUserId])
 
   // Refresh the Txt2 dot when the tab/app regains focus — the realtime inbound
@@ -1131,9 +1132,15 @@ export default function HubShell({
               className="flex-1 min-h-0 flex-col"
               style={{ display: t.id === tabsApi.activeTabId ? 'flex' : 'none' }}
             >
-              <WorkspaceTabErrorBoundary label={t.label} resetKey={t.id}>
-                {renderTabContent(t)}
-              </WorkspaceTabErrorBoundary>
+              {/* Tells this tab's subtree whether the user can actually see it.
+                  A hidden tab is still mounted and still runs its effects, so
+                  without this its conversation marks itself read and pins its
+                  feed against a zero-height (invisible) scroll box. */}
+              <WorkspaceTabInstanceProvider tabId={t.id} isActive={t.id === tabsApi.activeTabId}>
+                <WorkspaceTabErrorBoundary label={t.label} resetKey={t.id}>
+                  {renderTabContent(t)}
+                </WorkspaceTabErrorBoundary>
+              </WorkspaceTabInstanceProvider>
             </div>
           ))}
           {/* The underlying Next route — mounted ONLY when no tab is active. We

@@ -15,7 +15,7 @@
 // persisted), matching the in-page view's safety net.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
 
 type Message = {
   id: string
@@ -97,23 +97,22 @@ export default function PopoutTxtConversation({ id, companyId }: { id: string; c
       })
       .catch(() => { if (!cancelled) setLoading(false) })
 
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`txt:${companyId}`)
-      .on('broadcast', { event: 'inbound' }, ({ payload }) => {
+    // Ref-counted — shared with the Txt sidebar, rail dot and chime.
+    const off = subscribeSharedBroadcast(`txt:${companyId}`, {
+      inbound: (payload) => {
         if ((payload as { conversation_id?: string })?.conversation_id === id && !cancelled) refresh()
-      })
-      .on('broadcast', { event: 'status' }, ({ payload }) => {
+      },
+      status: (payload) => {
         if ((payload as { conversation_id?: string })?.conversation_id === id && !cancelled) refresh()
-      })
-      .subscribe()
+      },
+    })
 
     const t = setInterval(() => { if (!cancelled) refresh() }, 20000)
 
     return () => {
       cancelled = true
       clearInterval(t)
-      supabase.removeChannel(channel)
+      off()
     }
   }, [id, companyId, refresh])
 
