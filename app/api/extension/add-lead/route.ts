@@ -2,6 +2,7 @@ import { after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/twilio'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
+import { leadStageIsClosed } from '@/lib/tracker/lead-stage'
 import {
   authenticateExtensionRequest,
   enforceRateLimit,
@@ -67,15 +68,23 @@ export async function POST(request: Request) {
   // doesn't spawn duplicate lead cards. Phone-only dedup is skipped (leads.phone
   // is free-text with variable formatting) — the client also disables the button
   // after a successful add.
-  if (email) {
+  //
+  // ⚠ Aug 13 2026: this used to match on email ALONE, forever — so a past
+  // customer could never be added as a new lead from the extension. Now only an
+  // OPEN lead short-circuits; once the earlier one is closed, the same person is
+  // a genuine new lead. `force` lets an updated extension override even that.
+  if (email && body.force !== true) {
     const { data: dup } = await admin
       .from('leads')
-      .select('id')
+      .select('id, stage')
       .eq('company_id', companyId)
       .ilike('email', email)
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-    if (dup) return json({ lead_id: dup.id, created: false, existing: true })
+    if (dup && !leadStageIsClosed((dup as { stage: string | null }).stage)) {
+      return json({ lead_id: dup.id, created: false, existing: true })
+    }
   }
 
   const { data: lead, error } = await admin
