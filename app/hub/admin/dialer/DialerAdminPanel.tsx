@@ -5,6 +5,7 @@ import IvrEditor, { type IvrConfig } from './IvrEditor'
 import { pickIvrTree } from '@/lib/ivr-routing'
 import ExtensionsPanel, { type ExtensionRow } from './ExtensionsPanel'
 import RingGroupsPanel, { type RingGroup } from './RingGroupsPanel'
+import BlockedNumbersPanel from './BlockedNumbersPanel'
 import { DEFAULT_DISPOSITIONS } from '@/lib/dialer-dispositions'
 import { useConfirm } from '@/components/ui'
 
@@ -275,7 +276,7 @@ export default function DialerAdminPanel({
       </div>
 
       {/* ── INBOUND & IVR ── */}
-      {dtab === 'inbound' && (
+      {dtab === 'inbound' && (<>
       <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
         <header>
           <h2 className="font-semibold">Inbound routing</h2>
@@ -364,7 +365,8 @@ export default function DialerAdminPanel({
           </div>
         )}
       </section>
-      )}
+      <BlockedNumbersPanel />
+      </>)}
 
       {/* ── VOICEMAIL ── */}
       {dtab === 'voicemail' && (<>

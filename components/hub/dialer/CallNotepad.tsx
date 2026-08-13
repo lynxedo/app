@@ -148,8 +148,11 @@ export default function CallNotepad({
     <div className="space-y-1.5">
       {saved && (
         <div
+          // Capped and scrollable. ActiveCall has no scroll container of its
+          // own, so anything unbounded here pushes Hang up below the fold on a
+          // short screen — the one control that must never be hard to reach.
           className={`rounded-md bg-black/20 border border-white/10 px-2.5 py-1.5 text-[11px] text-white/70 whitespace-pre-wrap overflow-y-auto ${
-            compact ? 'max-h-16' : 'max-h-28'
+            compact ? 'max-h-14' : 'max-h-24'
           }`}
         >
           {saved}
@@ -158,7 +161,9 @@ export default function CallNotepad({
       <textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        rows={compact ? 3 : 6}
+        // 4 rows, not more: double the old box, but ActiveCall doesn't scroll,
+        // so height here comes straight out of the call controls' space.
+        rows={compact ? 3 : 4}
         placeholder="Notes for this call…"
         // 16px stops iOS zooming the whole panel on focus mid-call.
         style={{ fontSize: 16 }}
