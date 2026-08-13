@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
 import { getDrilldown, type DrillColumn, type DrillRow } from '@/lib/reports/drilldowns'
@@ -95,7 +96,7 @@ export default async function ReportDetailPage({
   let rows: DrillRow[] = []
   let loadError: string | null = null
   try {
-    rows = await drill.run({ supabase, companyId: profile.company_id, win })
+    rows = await drill.run({ supabase, rpcClient: createAdminClient(), companyId: profile.company_id, win })
   } catch (e) {
     loadError = e instanceof Error ? e.message : 'Could not load these rows'
   }

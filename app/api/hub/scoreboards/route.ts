@@ -1,8 +1,31 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
+
+/* Service-role client, used ONLY for the `scoreboard_*` RPCs below.
+ *
+ * ⚠⚠ Those functions are no longer executable by `authenticated`. Until
+ * 2026-08-12 they were, and the only check inside them was "can you see
+ * Reports or Scoreboards at all" — so a technician granted boards 1 and 2
+ * could POST to /rest/v1/rpc and read every other board's data and every
+ * report's, including per-person hours and labour cost. Proven live by
+ * impersonating a technician in SQL. The per-board grant was enforced here in
+ * the route and nowhere else.
+ *
+ * ⚠ So this route's `getGrantedBoardSlugs` check is now the ONLY gate on this
+ * data. It must stay above every builder call. Table reads keep using the
+ * caller's own client so RLS still scopes them.
+ *
+ * Lazily created: `createAdminClient()` reads env at call time, and evaluating
+ * it at module scope would run during the build.
+ */
+let _rpcClient: ReturnType<typeof createAdminClient> | null = null
+function rpcClient() {
+  return (_rpcClient ??= createAdminClient())
+}
 
 // GET /api/hub/scoreboards?board=1
 // Returns the full payload for a scoreboard. All data is sourced from the Hub's
@@ -143,8 +166,8 @@ async function buildMainBoard(supabase: Awaited<ReturnType<typeof createClient>>
 
   // ── 1+2+3: visit revenue (monthly YTD + weekly trailing-6) ──
   const [monthlyRes, weeklyRes] = await Promise.all([
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
   ])
   if (monthlyRes.error) return NextResponse.json({ error: monthlyRes.error.message }, { status: 500 })
   if (weeklyRes.error) return NextResponse.json({ error: weeklyRes.error.message }, { status: 500 })
@@ -338,7 +361,7 @@ async function fetchJobberRecurringBook(
   supabase: Awaited<ReturnType<typeof createClient>>,
   company: string
 ): Promise<RecurringJobBook[] | { error: string }> {
-  const { data, error } = await supabase.rpc('scoreboard_recurring_book', { p_company_id: company })
+  const { data, error } = await rpcClient().rpc('scoreboard_recurring_book', { p_company_id: company })
   if (error) return { error: error.message }
   return ((data ?? []) as RecurringBookRow[]).map(r => ({
     clientId: r.client_id,
@@ -382,10 +405,10 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   // ── Fetch everything in parallel ──
   const bookPromise = fetchJobberRecurringBook(supabase, company)
   const [wfWeekRes, wfMonthRes, wfYtdRes, techRes, leadsRes] = await Promise.all([
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
-    supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '2' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
+    rpcClient().rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '2' }),
     supabase.from('leads').select('salesperson, stage, annual_value, sold_date').eq('company_id', company),
   ])
   if (wfWeekRes.error) return NextResponse.json({ error: wfWeekRes.error.message }, { status: 500 })
@@ -434,9 +457,9 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const wfTechExtIds = techRows.map(t => t.jobber_external_id).filter((x): x is string => !!x)
   const [wfRevRes, wfHoursRes] = await Promise.all([
     wfTechExtIds.length
-      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_ids: wfTechExtIds })
+      ? rpcClient().rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_ids: wfTechExtIds })
       : Promise.resolve({ data: [], error: null }),
-    supabase.rpc('scoreboard_techs_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_ids: techRows.map(t => t.employee_id) }),
+    rpcClient().rpc('scoreboard_techs_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_ids: techRows.map(t => t.employee_id) }),
   ])
   const wfRevByTech = groupRevByTech((wfRevRes.data ?? []) as TechRevRow[])
   const wfHoursByEmp = new Map<string, number>()
@@ -545,12 +568,12 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 
   const bookPromise = fetchJobberRecurringBook(supabase, company)
   const [techRes, leadsRes, repairRes, irWeekRes, irMonthRes, irYtdRes] = await Promise.all([
-    supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '3' }),
+    rpcClient().rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '3' }),
     supabase.from('leads').select('service, base_program_sold, stage, sold_date').eq('company_id', company),
-    supabase.rpc('scoreboard_ir_repair_ticket', { p_company_id: company, p_start: yearAgoStr, p_end: todayStr }),
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
+    rpcClient().rpc('scoreboard_ir_repair_ticket', { p_company_id: company, p_start: yearAgoStr, p_end: todayStr }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
   ])
   if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
   if (leadsRes.error) return NextResponse.json({ error: leadsRes.error.message }, { status: 500 })
@@ -596,12 +619,12 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const irTechExtIds = techRows.map(t => t.jobber_external_id).filter((x): x is string => !!x)
   const [irWeekByTechRes, irMonthByTechRes, irHoursRes] = await Promise.all([
     irTechExtIds.length
-      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_ids: irTechExtIds })
+      ? rpcClient().rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_ids: irTechExtIds })
       : Promise.resolve({ data: [], error: null }),
     irTechExtIds.length
-      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_ids: irTechExtIds })
+      ? rpcClient().rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_ids: irTechExtIds })
       : Promise.resolve({ data: [], error: null }),
-    supabase.rpc('scoreboard_techs_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_ids: techRows.map(t => t.employee_id) }),
+    rpcClient().rpc('scoreboard_techs_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_ids: techRows.map(t => t.employee_id) }),
   ])
   const irWeekByTech = groupRevByTech((irWeekByTechRes.data ?? []) as TechRevRow[])
   const irMonthByTech = groupRevByTech((irMonthByTechRes.data ?? []) as TechRevRow[])
@@ -711,10 +734,10 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 
   const bookPromise = fetchJobberRecurringBook(supabase, company)
   const [techRes, pwWeekRes, pwMonthRes, pwYtdRes] = await Promise.all([
-    supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '4' }),
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
-    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
+    rpcClient().rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '4' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
+    rpcClient().rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
   ])
   if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
   if (pwWeekRes.error) return NextResponse.json({ error: pwWeekRes.error.message }, { status: 500 })
@@ -763,12 +786,12 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const pwTechExtIds = techRows.map(t => t.jobber_external_id).filter((x): x is string => !!x)
   const [pwWeekByTechRes, pwMonthByTechRes, pwHoursRes] = await Promise.all([
     pwTechExtIds.length
-      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_ids: pwTechExtIds })
+      ? rpcClient().rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_ids: pwTechExtIds })
       : Promise.resolve({ data: [], error: null }),
     pwTechExtIds.length
-      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_ids: pwTechExtIds })
+      ? rpcClient().rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_ids: pwTechExtIds })
       : Promise.resolve({ data: [], error: null }),
-    supabase.rpc('scoreboard_techs_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_ids: techRows.map(t => t.employee_id) }),
+    rpcClient().rpc('scoreboard_techs_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_ids: techRows.map(t => t.employee_id) }),
   ])
   const pwWeekByTech = groupRevByTech((pwWeekByTechRes.data ?? []) as TechRevRow[])
   const pwMonthByTech = groupRevByTech((pwMonthByTechRes.data ?? []) as TechRevRow[])
@@ -1029,8 +1052,8 @@ type ChurnSummary = {
 async function buildRetentionBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
   const year = new Date().getFullYear()
   const [{ data: cur, error }, { data: prev, error: prevErr }] = await Promise.all([
-    supabase.rpc('scoreboard_churn_summary', { p_company_id: company, p_year: year }),
-    supabase.rpc('scoreboard_churn_summary', { p_company_id: company, p_year: year - 1 }),
+    rpcClient().rpc('scoreboard_churn_summary', { p_company_id: company, p_year: year }),
+    rpcClient().rpc('scoreboard_churn_summary', { p_company_id: company, p_year: year - 1 }),
   ])
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (prevErr) return NextResponse.json({ error: prevErr.message }, { status: 500 })
@@ -1090,7 +1113,7 @@ type ScorecardRow = {
 async function buildLeadSourceBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
   const year = new Date().getFullYear()
   const [{ data: rows, error }, { data: leadRows, error: leadsError }] = await Promise.all([
-    supabase.rpc('scoreboard_source_scorecard', { p_company_id: company, p_year: year }),
+    rpcClient().rpc('scoreboard_source_scorecard', { p_company_id: company, p_year: year }),
     supabase
       .from('leads')
       .select('lead_source, stage')
