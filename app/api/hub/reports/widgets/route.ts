@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
 import { loadReportLayoutInSync } from '@/lib/scoreboards/widgets/layouts'
@@ -67,7 +68,13 @@ export async function GET(request: Request) {
   }
   if (!layout) return NextResponse.json({ error: 'This report has no layout yet' }, { status: 404 })
 
-  const resolved = await resolveBoard({ supabase, companyId: profile.company_id }, layout, win)
+  // Service-role for the scoreboard_* RPCs — users can no longer call them
+  // directly. The grant check above is the only gate, so it must stay above this.
+  const resolved = await resolveBoard(
+    { supabase, rpcClient: createAdminClient(), companyId: profile.company_id },
+    layout,
+    win,
+  )
 
   const res = NextResponse.json({
     migrated: true,

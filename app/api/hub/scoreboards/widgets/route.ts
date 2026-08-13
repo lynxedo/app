@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
 import { getScoreboard } from '@/lib/scoreboards/registry'
 import { loadOrSeedBoardLayout, saveLayoutWidgets, hasPreset } from '@/lib/scoreboards/widgets/layouts'
@@ -101,7 +102,7 @@ export async function GET(request: Request) {
   if (!layout) return NextResponse.json({ migrated: false }, { status: 200 })
 
   const supabase = await createClient()
-  const resolvedBoard = await resolveBoard({ supabase, companyId: caller.companyId }, layout, win)
+  const resolvedBoard = await resolveBoard({ supabase, rpcClient: createAdminClient(), companyId: caller.companyId }, layout, win)
 
   const res = NextResponse.json({
     migrated: true,
@@ -164,7 +165,7 @@ export async function PUT(request: Request) {
   const fresh = await loadOrSeedBoardLayout(caller.companyId, slug, caller.userId)
   const supabase = await createClient()
   const resolvedBoard = fresh
-    ? await resolveBoard({ supabase, companyId: caller.companyId }, fresh, win)
+    ? await resolveBoard({ supabase, rpcClient: createAdminClient(), companyId: caller.companyId }, fresh, win)
     : { data: {}, errors: {}, stats: { requested: 0, executed: 0, ms: 0 } }
 
   const res = NextResponse.json({ migrated: true, layout: fresh, ...resolvedBoard })

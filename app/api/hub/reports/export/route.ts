@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
 import { getDrilldown } from '@/lib/reports/drilldowns'
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
 
   let rows
   try {
-    rows = await drill.run({ supabase, companyId: profile.company_id, win })
+    rows = await drill.run({ supabase, rpcClient: createAdminClient(), companyId: profile.company_id, win })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Could not build this export' },

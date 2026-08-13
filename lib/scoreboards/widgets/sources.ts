@@ -8,15 +8,42 @@
  * Every executor scopes by company_id itself. Some run through gated
  * SECURITY DEFINER RPCs whose grants were tightened in July 2026 — do not widen
  * them here (see supabase/2026-07-05_security_revoke_anon_access.sql).
+ *
+ * ⚠⚠ TWO CLIENTS, AND THE DIFFERENCE IS THE SECURITY BOUNDARY.
+ *
+ * `ctx.supabase` is the signed-in user's client: RLS applies, so a plain table
+ * read can only ever return their own company's rows. Use it for table queries.
+ *
+ * `ctx.rpcClient` is service-role and used ONLY to call `scoreboard_*` RPCs.
+ * Those functions used to be callable by any signed-in user, and the only
+ * check inside them was "can you see Reports or Scoreboards *at all*" — so a
+ * technician granted two boards could POST to /rest/v1/rpc and read every
+ * report's data, including per-person hours and labour cost (proven live on
+ * 2026-08-12 by impersonating a technician in SQL). Per-report and per-board
+ * grants were enforced in the app only.
+ *
+ * The fix was to revoke EXECUTE from `authenticated` on every scoreboard_*
+ * function, leaving the API routes as the single door — they already check the
+ * grants correctly. That is why these calls need service-role: users can no
+ * longer make them directly, by design.
+ *
+ * ⚠ THE RULE THIS CREATES: a route that resolves widgets MUST check the
+ * caller's report/board grant before calling. There is no second net below it.
+ * `companyId` must come from the session's profile, never from the request.
  */
 
 import type { createClient } from '@/lib/supabase/server'
+import type { createAdminClient } from '@/lib/supabase/admin'
 import type { SourceKey, SourceParams } from './types'
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>
+type ServiceClient = ReturnType<typeof createAdminClient>
 
 export type SourceContext = {
+  /** The signed-in user's client — RLS applies. Table reads only. */
   supabase: ServerClient
+  /** Service-role, for `scoreboard_*` RPCs only. See the warning above. */
+  rpcClient: ServiceClient
   companyId: string
 }
 
@@ -359,7 +386,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * range ever gets slow, that's where to look first.
    */
   source_scorecard: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_source_scorecard_range', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_source_scorecard_range', {
       p_company_id: ctx.companyId,
       p_start: String(params.start),
       p_end: String(params.end),
@@ -387,7 +414,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * "sources return rows" contract.
    */
   churn_summary: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_churn_summary', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_churn_summary', {
       p_company_id: ctx.companyId,
       p_year: Number(params.year),
     })
@@ -409,7 +436,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * migration header (supabase/2026-08-11_scoreboard_invoice_reports.sql).
    */
   invoice_window: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_invoice_window', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_invoice_window', {
       p_company_id: ctx.companyId,
       p_start: String(params.start),
       p_end: String(params.end),
@@ -431,7 +458,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * paid still owe $3,044 between them, one of them 118 days late.
    */
   invoice_ar: async ctx => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_invoice_ar', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_invoice_ar', {
       p_company_id: ctx.companyId,
     })
     if (error) throw new Error(`invoice_ar: ${error.message}`)
@@ -451,7 +478,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * the same thing here as on the technician boards.
    */
   crew_labor: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_crew_labor', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_crew_labor', {
       p_company_id: ctx.companyId,
       p_start: String(params.start),
       p_end: String(params.end),
@@ -472,7 +499,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * emptier. The earliest dates come back so a widget can say so.
    */
   communications: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_communications', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_communications', {
       p_company_id: ctx.companyId,
       p_start: String(params.start),
       p_end: String(params.end),
@@ -495,7 +522,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * wrong.
    */
   clients_overview: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_clients', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_clients', {
       p_company_id: ctx.companyId,
       p_start: String(params.start),
       p_end: String(params.end),
@@ -520,7 +547,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * Verified: per-ZIP revenue sums to the whole billed book to the cent.
    */
   clients_geo: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_clients_geo', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_clients_geo', {
       p_company_id: ctx.companyId,
       p_start: String(params.start),
       p_end: String(params.end),
@@ -546,7 +573,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * LABOUR, not margin.
    */
   service_lines: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_service_lines', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_service_lines', {
       p_company_id: ctx.companyId,
       p_start: String(params.start),
       p_end: String(params.end),
@@ -567,7 +594,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * decisions before that floor went in.
    */
   sales_pipeline: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_sales', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_sales', {
       p_company_id: ctx.companyId,
       p_start: String(params.start),
       p_end: String(params.end),
@@ -595,7 +622,7 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * it is a floor: 250 of 1,910 scheduled visits carry no line item to price.
    */
   home_pulse: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_home_pulse', {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_home_pulse', {
       p_company_id: ctx.companyId,
       p_months: Number(params.months) || 6,
     })

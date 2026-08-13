@@ -66,7 +66,18 @@ export type DrillSpec = {
   columns: DrillColumn[]
   /** True when the figure ignores the date picker (point-in-time, like AR). */
   pointInTime?: boolean
-  run: (ctx: { supabase: SupabaseClient; companyId: string; win: WindowSpec }) => Promise<DrillRow[]>
+  /**
+   * ⚠ `supabase` is the CALLER'S client so RLS scopes every table read.
+   * `rpcClient` is service-role and is ONLY for `scoreboard_*` RPCs, which are
+   * no longer executable by `authenticated` (2026-08-12). The caller's report
+   * grant is checked by the route before run() — that check is the only gate.
+   */
+  run: (ctx: {
+    supabase: SupabaseClient
+    rpcClient: SupabaseClient
+    companyId: string
+    win: WindowSpec
+  }) => Promise<DrillRow[]>
 }
 
 const num = (v: unknown): number => {
@@ -671,8 +682,8 @@ const DRILLDOWNS: DrillSpec[] = [
     ],
     // Mirrors scoreboard_service_lines' "Other" bucket. The RPC exists precisely so
     // the precedence is not re-implemented here and cannot drift from the tile.
-    run: async ({ supabase, companyId, win }) => {
-      const { data, error } = await supabase.rpc('scoreboard_service_lines_unclassified', {
+    run: async ({ rpcClient, companyId, win }) => {
+      const { data, error } = await rpcClient.rpc('scoreboard_service_lines_unclassified', {
         p_company_id: companyId, p_start: win.start, p_end: win.end,
       })
       if (error) throw new Error(`unclassified-work: ${error.message}`)
