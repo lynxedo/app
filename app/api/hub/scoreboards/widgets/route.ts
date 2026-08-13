@@ -102,7 +102,18 @@ export async function GET(request: Request) {
   if (!layout) return NextResponse.json({ migrated: false }, { status: 200 })
 
   const supabase = await createClient()
-  const resolvedBoard = await resolveBoard({ supabase, rpcClient: createAdminClient(), companyId: caller.companyId }, layout, win)
+  const resolvedBoard = await resolveBoard({
+      supabase,
+      rpcClient: createAdminClient(),
+      companyId: caller.companyId,
+      viewerUserId: caller.userId,
+      // ⚠ Always false here, deliberately. The widget library is shared with
+      // Scoreboards, so a People widget could be placed on a board — and a
+      // board carries no per-report grant. Fail closed: on a scoreboard you
+      // see your own row and nobody else's. Team-wide performance is the
+      // report's job, where the grant is actually checked.
+      canSeeOthersPerformance: false,
+    }, layout, win)
 
   const res = NextResponse.json({
     migrated: true,
@@ -165,7 +176,18 @@ export async function PUT(request: Request) {
   const fresh = await loadOrSeedBoardLayout(caller.companyId, slug, caller.userId)
   const supabase = await createClient()
   const resolvedBoard = fresh
-    ? await resolveBoard({ supabase, rpcClient: createAdminClient(), companyId: caller.companyId }, fresh, win)
+    ? await resolveBoard({
+      supabase,
+      rpcClient: createAdminClient(),
+      companyId: caller.companyId,
+      viewerUserId: caller.userId,
+      // ⚠ Always false here, deliberately. The widget library is shared with
+      // Scoreboards, so a People widget could be placed on a board — and a
+      // board carries no per-report grant. Fail closed: on a scoreboard you
+      // see your own row and nobody else's. Team-wide performance is the
+      // report's job, where the grant is actually checked.
+      canSeeOthersPerformance: false,
+    }, fresh, win)
     : { data: {}, errors: {}, stats: { requested: 0, executed: 0, ms: 0 } }
 
   const res = NextResponse.json({ migrated: true, layout: fresh, ...resolvedBoard })

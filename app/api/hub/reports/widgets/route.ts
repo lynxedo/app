@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getGrantedReportSlugs } from '@/lib/reports/access'
-import { canSeeReport, getReport } from '@/lib/reports/registry'
+import { canSeeReport, canSeeOthersPerformance, getReport } from '@/lib/reports/registry'
 import { loadReportLayoutInSync } from '@/lib/scoreboards/widgets/layouts'
 import { hasReportLayout, reportLayoutSlug, widgetCatalog } from '@/lib/scoreboards/widgets/registry'
 import { resolveBoard } from '@/lib/scoreboards/widgets/resolve'
@@ -71,7 +71,14 @@ export async function GET(request: Request) {
   // Service-role for the scoreboard_* RPCs — users can no longer call them
   // directly. The grant check above is the only gate, so it must stay above this.
   const resolved = await resolveBoard(
-    { supabase, rpcClient: createAdminClient(), companyId: profile.company_id },
+    {
+      supabase,
+      rpcClient: createAdminClient(),
+      companyId: profile.company_id,
+      viewerUserId: user.id,
+      // People Performance narrows to the viewer's own row on this answer.
+      canSeeOthersPerformance: canSeeOthersPerformance(perms),
+    },
     layout,
     win,
   )

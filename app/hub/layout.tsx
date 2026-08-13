@@ -270,7 +270,14 @@ export default async function HubLayout({ children }: { children: React.ReactNod
           .map(r => r.report_slug as string)
           .filter(slug => slug !== 'coaching')
       : []
-  const reportSlugs = rawCanAccessCoaching ? [...grantedReportSlugs, 'coaching'] : grantedReportSlugs
+  const withCoaching = rawCanAccessCoaching ? [...grantedReportSlugs, 'coaching'] : grantedReportSlugs
+  // ⚠ People Performance is added for EVERYONE with Hub access, and that is the
+  // point of it: it is how a person sees their own numbers, and a technician
+  // holds no Reports access at all. The grant on this slug buys the TEAM view,
+  // not entry — see canSeeOthersPerformance. Consequence, stated because it is a
+  // visible change for every user: everyone now gets the Reports rail icon, with
+  // exactly one report inside unless they were granted more.
+  const reportSlugs = withCoaching.includes('people') ? withCoaching : [...withCoaching, 'people']
   // Someone holding ONLY the coaching flag still needs the Reports icon — that is
   // now their one report, and it lives here rather than in Scoreboards.
   const canAccessReports = reportSlugs.length > 0
