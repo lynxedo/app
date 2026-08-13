@@ -399,6 +399,34 @@ export type ClientsGeoRow = {
 }
 
 /** One service line's revenue, allocated labor and what survives wages. */
+/**
+ * Visit revenue bucketed by month or week, split three ways (company / service
+ * line / technician). Populated by `scoreboard_visit_revenue_trend`.
+ *
+ * ⚠ `lines` sums exactly to `periods`; `techs` does NOT when tech_credit is
+ * 'each' — a visit with two technicians credits both, so the per-tech series
+ * overshoots by `shared_overlap`. That is reported rather than hidden so a
+ * stacked chart can say why. See the RPC's header comment for the measurement.
+ */
+export type RevenueTrendRow = {
+  grain: 'month' | 'week'
+  tech_credit: 'each' | 'split'
+  start: string
+  end: string
+  total: number
+  periods: { b: string; total: number; visits: number }[]
+  /** One row per (bucket, service line). */
+  lines: { b: string; k: string; total: number }[]
+  /** One row per (bucket, technician). `k` is the Jobber user id. */
+  techs: { b: string; k: string; name: string; total: number }[]
+  shared_visits: number
+  /** Dollars the per-tech series counts more than once. 0 when credit is 'split'. */
+  shared_overlap: number
+  /** Revenue on visits with nobody assigned — invisible to the per-tech series. */
+  unattributed_revenue: number
+  unattributed_visits: number
+}
+
 export type ServiceLine = {
   dept: string
   revenue: number
@@ -759,6 +787,31 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`service_lines: ${error.message}`)
     return data ? [data as ServiceLinesRow] : []
+  },
+
+  /**
+   * Visit revenue over time — what the crews produced, month by month or week by
+   * week, split by service line and by technician (§8.8 / §8.6 companion).
+   *
+   * ⚠ This is VISIT revenue (Jobber line items on completed visits), NOT invoiced
+   * money. The Revenue report's "Invoiced vs Collected by Month" measures a
+   * different thing and the two will not tie — every widget built on this says so.
+   *
+   * ⚠ Deliberately NOT clamped to timeclock coverage, unlike `service_lines` and
+   * `crew_labor`. Those clamp because they divide revenue by labour hours; this
+   * reports revenue alone, and clamping would silently start a year-to-date chart
+   * in late May.
+   */
+  visit_revenue_trend: async (ctx, params) => {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_visit_revenue_trend', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+      p_grain: String(params.grain ?? 'month'),
+      p_tech_credit: String(params.tech_credit ?? 'each'),
+    })
+    if (error) throw new Error(`visit_revenue_trend: ${error.message}`)
+    return data ? [data as RevenueTrendRow] : []
   },
 
   /**

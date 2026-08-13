@@ -2502,6 +2502,21 @@ function ScoreboardsTab() {
         <p className="mt-2 text-gray-400">If someone can&apos;t open Scoreboards at all, the Share panel says so too — sharing with them does nothing until an admin turns the section on for them in Admin → People.</p>
       </Section>
 
+      <Section title="Visit Revenue Over Time">
+        <p>Three cards show what the crews actually produced, as a trend you can slice three ways:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Visit Revenue by Period</strong> — the company total, one bar per month or week.</li>
+          <li><strong className="text-white">Visit Revenue by Service Line</strong> — the same money stacked by department (WF, IR, PW, MO…), so you see the seasonal shape and the mix at once.</li>
+          <li><strong className="text-white">Visit Revenue by Technician</strong> — stacked by person.</li>
+        </ul>
+        <p className="mt-2">Each has a <strong className="text-white">Bucket by</strong> setting (Month or Week) and a <strong className="text-white">Period shown</strong> setting. Leave the second on <em>Follow the page range</em> and the card obeys the date picker at the top — pick Year to date and you get a bar per month. Switch it to <em>Trailing periods</em> and set <em>How many</em> to 6 with Week, and the card is pinned to the last six weeks no matter what the picker says. The card always prints the period it actually measured.</p>
+
+        <p className="mt-3"><strong className="text-white">⚠ This is visit revenue, not invoiced money — the two will not match.</strong> These cards count the work completed (the line items on completed visits, priced as Jobber has them). The Revenue &amp; Invoicing report&apos;s &ldquo;Invoiced vs Collected by Month&rdquo; counts money billed and money received. Work done in July and invoiced in August lands in different months on the two charts, and that is correct, not a bug.</p>
+
+        <p className="mt-3"><strong className="text-white">One thing to know about the technician chart.</strong> When two techs work the same visit, both are credited in full — the same way the WF/IR/PW boards and Crew &amp; Labor have always counted it. That means the bars add up to slightly more than company revenue, and the card says by how much rather than leaving you to spot it. If you would rather the columns add up exactly, open the card&apos;s ⚙ settings and set <em>Visits with two techs</em> to <em>Split between them</em> — the trade is that a tech&apos;s number then stops matching the other boards.</p>
+        <p className="mt-2 text-gray-400">The service-line chart has no such caveat: it is worked out per visit, so those bars always add up to the company total exactly.</p>
+      </Section>
+
       <Section title="Access — Who Sees What">
         <p>There are two gates for the standard boards:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">

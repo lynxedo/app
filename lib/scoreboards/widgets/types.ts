@@ -47,6 +47,10 @@ export type SourceKey =
   | 'home_pulse'
   | 'people'
   | 'goals'
+  // Visit revenue bucketed over time. Takes `grain` (month|week) and
+  // `tech_credit` as params, so the same source backs the monthly and weekly
+  // views without a second query shape.
+  | 'visit_revenue_trend'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 
