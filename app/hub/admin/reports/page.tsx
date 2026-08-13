@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { REPORTS, PEOPLE_TEAM_SLUG } from '@/lib/reports/registry'
 import ReportAccessPanel from './ReportAccessPanel'
+import GoalsAdminPanel from './GoalsAdminPanel'
+import { GOAL_METRICS } from '@/lib/reports/goals'
 
 export const metadata = { title: 'Reports Admin' }
 
@@ -71,9 +73,30 @@ export default async function ReportsAdminPage() {
     sensitive: PAY_SENSITIVE.has(r.slug),
   }))
 
+  // Targets live on this screen too (Ben, 2026-08-13: "can't we just roll the
+  // goals admin into the reports admin"). Two jobs, one page: who may READ a
+  // report, and what the business is AIMING at on one of them.
+  const { data: goalRows } = await admin
+    .from('report_goals')
+    .select('id, metric, grain, period_start, period_end, target')
+    .eq('company_id', company)
+    .order('period_start', { ascending: false })
+    .limit(200)
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-14">
       <ReportAccessPanel reports={reports} users={users} initialAccess={access} teamSlug={PEOPLE_TEAM_SLUG} />
+      <GoalsAdminPanel
+        metrics={GOAL_METRICS.map(m => ({ key: m.key, label: m.label, format: m.format, help: m.help }))}
+        goals={(goalRows ?? []).map(g => ({
+          id: g.id as string,
+          metric: g.metric as string,
+          grain: g.grain as 'month' | 'quarter' | 'year',
+          period_start: g.period_start as string,
+          period_end: g.period_end as string,
+          target: Number(g.target),
+        }))}
+      />
     </div>
   )
 }

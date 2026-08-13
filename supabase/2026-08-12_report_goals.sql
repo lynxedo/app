@@ -4,3 +4,10 @@
 --
 -- See lib/reports/goals.ts for the metric catalog and why `cumulative` decides
 -- whether a target gets a pace figure at all.
+
+-- 2026-08-13: scoreboard_goals_fix_rate_status_2026_08_13
+-- A rate metric mid-period reported 'open', which renders as "Not started".
+-- Found by Ben's first real target ($100/hr for 2026, actual $87.15, 61% of the
+-- year gone, card said "Not started"). One status value was doing two jobs.
+-- 'open' now means only "the period has not begun"; a rate compares straight to
+-- its target and reports 'under'.

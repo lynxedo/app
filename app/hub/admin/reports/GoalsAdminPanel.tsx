@@ -89,7 +89,7 @@ export default function GoalsAdminPanel({ metrics, goals }: { metrics: Metric[];
       <div>
         <h1 className="text-xl font-semibold">Goals &amp; targets</h1>
         <p className="text-gray-500 text-sm mt-1">
-          What the business is aiming at. Each target is measured against its own period on the
+          What the business is aiming at, for the <strong className="text-gray-300">Goals &amp; Targets</strong> report. Each target is measured against its own period on the
           <strong className="text-gray-300"> Goals &amp; Targets</strong> report, using the same numbers the other
           reports show &mdash; so a goal can never disagree with the report it is judged against. Setting a target for
           a period that already has one replaces it.
