@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IrrigationData, IrrigationZone } from '@/lib/irrigation'
-import { emptyIrrigationZone } from '@/lib/irrigation'
+import {
+  emptyIrrigationZone, mergeDictatedZones, confirmZoneMarks, reindexZoneMarks,
+  ZONE_WATERS, ZONE_HEADS, ZONE_SUN, ZONE_SLOPE,
+} from '@/lib/irrigation'
+import ZoneDictation from './ZoneDictation'
 
 export type FullInspection = {
   id: string
@@ -17,10 +21,13 @@ const SOURCES = ['Municipal / City', 'Well', 'Reclaimed (purple pipe)', 'Pond / 
 const ACCESSORIES = ['Rain sensor', 'Freeze sensor', 'Soil moisture', 'Weather / ET', 'Flow sensor']
 const BF_TYPES = ['PVB', 'RPZ / RP', 'DCV / DC', 'AVB', 'None visible']
 const UPGRADES = ['Smart controller', 'MP Rotators', 'Drip conversion', 'Pressure regulation', 'Rain / weather sensor', 'Head replacement']
-const WATERS = ['Turf', 'Shrub beds', 'Flower beds', 'Trees', 'Garden', 'Mixed']
-const HEADS = ['Spray', 'Rotor', 'MP Rotator', 'Drip', 'Bubbler', 'Micro', 'Mixed']
-const SUN = ['Full sun', 'Part sun', 'Shade']
-const SLOPE = ['Flat', 'Slight', 'Steep']
+// The zone vocabularies live in lib/irrigation.ts because the dictation endpoint
+// validates against the same lists — a spoken value can only become something a
+// tech could have picked here.
+const WATERS = ZONE_WATERS
+const HEADS = ZONE_HEADS
+const SUN = ZONE_SUN
+const SLOPE = ZONE_SLOPE
 
 const inpStyle = { fontSize: 16 } as const
 const inp = 'w-full px-3 py-2.5 rounded-md bg-white/5 border border-white/10 text-white placeholder-white/30 min-h-[44px]'
@@ -29,26 +36,36 @@ function Lbl({ children }: { children: React.ReactNode }) {
   return <span className="block text-[11px] uppercase tracking-wide text-white/45 font-medium mb-1">{children}</span>
 }
 
-function TextField({ label, value, onChange, placeholder, inputMode }: {
+// A field carrying a dictated value the tech hasn't looked at yet. Amber is the
+// whole point of the feature: it turns "re-read 140 fields" into "check the
+// handful that came from the microphone".
+const aiRing = 'border-amber-500/70 bg-amber-500/10'
+
+function TextField({ label, value, onChange, placeholder, inputMode, ai, onConfirm }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string
   inputMode?: 'text' | 'numeric' | 'tel'
+  ai?: boolean; onConfirm?: () => void
 }) {
   return (
     <label className="block">
-      <Lbl>{label}</Lbl>
-      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        inputMode={inputMode} className={inp} style={inpStyle} />
+      <Lbl>{label}{ai && <span className="ml-1 text-amber-400 normal-case tracking-normal">• from notes</span>}</Lbl>
+      <input value={value} onChange={e => { onChange(e.target.value); onConfirm?.() }} placeholder={placeholder}
+        onFocus={() => onConfirm?.()}
+        inputMode={inputMode} className={`${inp} ${ai ? aiRing : ''}`} style={inpStyle} />
     </label>
   )
 }
 
-function SelectField({ label, value, onChange, options }: {
-  label: string; value: string; onChange: (v: string) => void; options: string[]
+function SelectField({ label, value, onChange, options, ai, onConfirm }: {
+  label: string; value: string; onChange: (v: string) => void; options: readonly string[]
+  ai?: boolean; onConfirm?: () => void
 }) {
   return (
     <label className="block">
-      <Lbl>{label}</Lbl>
-      <select value={value} onChange={e => onChange(e.target.value)} className={inp} style={inpStyle}>
+      <Lbl>{label}{ai && <span className="ml-1 text-amber-400 normal-case tracking-normal">• from notes</span>}</Lbl>
+      <select value={value} onChange={e => { onChange(e.target.value); onConfirm?.() }}
+        onFocus={() => onConfirm?.()}
+        className={`${inp} ${ai ? aiRing : ''}`} style={inpStyle}>
         <option value=""></option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
@@ -153,7 +170,51 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
     scheduleSave()
   }, [])
   const addZone = useCallback(() => setData(d => ({ ...d, zones: [...(d.zones ?? []), emptyIrrigationZone()] })), [])
-  const removeZone = useCallback((i: number) => { setData(d => ({ ...d, zones: (d.zones ?? []).filter((_, j) => j !== i) })); scheduleSave() }, [])
+  const removeZone = useCallback((i: number) => {
+    setData(d => ({
+      ...d,
+      zones: (d.zones ?? []).filter((_, j) => j !== i),
+      // Marks are positional — re-key them or the amber highlight slides onto
+      // whichever zone happens to shift up into the deleted row's place.
+      aiFilled: reindexZoneMarks(d.aiFilled ?? [], i),
+    }))
+    scheduleSave()
+  }, [])
+
+  // ── Dictation ──────────────────────────────────────────────────────────────
+  const [dictateNote, setDictateNote] = useState('')
+
+  const applyDictation = useCallback((dictated: Partial<IrrigationZone>[]) => {
+    // Merged off the ref, not inside the setData updater — an updater must be
+    // pure (React runs it twice in dev StrictMode), so the summary message is
+    // computed here and set alongside rather than as a side effect within it.
+    const d = dataRef.current
+    const merged = mergeDictatedZones(d.zones ?? [], dictated, d.aiFilled ?? [])
+    const untouched = dictated.length - merged.touched.length
+    setDictateNote(
+      merged.fieldsWritten === 0
+        ? 'Nothing new — you’d already filled those in'
+        : `Filled ${merged.fieldsWritten} field${merged.fieldsWritten === 1 ? '' : 's'} across `
+          + `${merged.touched.length} zone${merged.touched.length === 1 ? '' : 's'}`
+          + (untouched > 0 ? ` · ${untouched} left alone (already filled in)` : ''),
+    )
+    setData(prev => ({ ...prev, zones: merged.zones, aiFilled: merged.aiFilled }))
+    scheduleSave()
+  }, [])
+
+  const marks = data.aiFilled ?? []
+  const isAi = useCallback((i: number, field: keyof IrrigationZone) => marks.includes(`${i}:${field}`), [marks])
+  const clearMark = useCallback((i: number, field: keyof IrrigationZone) => {
+    setData(d => {
+      const key = `${i}:${field}`
+      if (!(d.aiFilled ?? []).includes(key)) return d
+      return { ...d, aiFilled: (d.aiFilled ?? []).filter(k => k !== key) }
+    })
+  }, [])
+  const confirmZone = useCallback((i: number) => {
+    setData(d => ({ ...d, aiFilled: confirmZoneMarks(d.aiFilled ?? [], i) }))
+    scheduleSave()
+  }, [])
 
   // ── Sketch canvas ──────────────────────────────────────────────────────────
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -346,29 +407,46 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
         <div className="mt-3"><TextField label="Valves per box / wiring notes" value={data.vbNotes ?? ''} onChange={v => set('vbNotes', v)} /></div>
 
         <SectionHead n={7} title="Zones" />
+        <ZoneDictation contactId={contactId} inspectionId={inspection.id} onZones={applyDictation} />
+        {dictateNote && (
+          <div className="mb-3 text-[12px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-md px-3 py-2">
+            {dictateNote}
+          </div>
+        )}
         <div className="flex flex-col gap-3">
-          {zones.map((z, i) => (
-            <div key={i} className="border border-white/10 rounded-lg bg-white/[0.03]">
+          {zones.map((z, i) => {
+            const zoneMarked = marks.some(k => k.startsWith(`${i}:`))
+            return (
+            <div key={i} className={`border rounded-lg bg-white/[0.03] ${zoneMarked ? 'border-amber-500/40' : 'border-white/10'}`}>
               <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
                 <span className="text-[13px] font-semibold text-sky-300">Zone</span>
-                <input value={z.zone} onChange={e => setZone(i, { zone: e.target.value })} placeholder={`${i + 1}`}
-                  inputMode="numeric" className="w-14 px-2 py-1 rounded bg-white/5 border border-white/10 text-center text-white" style={inpStyle} />
+                <input value={z.zone} onChange={e => { setZone(i, { zone: e.target.value }); clearMark(i, 'zone') }} placeholder={`${i + 1}`}
+                  onFocus={() => clearMark(i, 'zone')}
+                  inputMode="numeric" className={`w-14 px-2 py-1 rounded bg-white/5 border text-center text-white ${isAi(i, 'zone') ? aiRing : 'border-white/10'}`} style={inpStyle} />
                 <button type="button" onClick={() => removeZone(i)} className="ml-auto text-white/40 hover:text-red-400 w-8 h-8 rounded" aria-label="Remove zone">✕</button>
               </div>
+              {zoneMarked && (
+                <button type="button" onClick={() => confirmZone(i)}
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 text-[12px] text-amber-300 hover:bg-amber-500/20 min-h-[40px]">
+                  <span className="flex-1 text-left">From your notes — check the highlighted fields</span>
+                  <span className="font-medium">Looks right ✓</span>
+                </button>
+              )}
               <div className="p-3 grid grid-cols-2 gap-3">
-                <div className="col-span-2"><TextField label="Area served" value={z.area} onChange={v => setZone(i, { area: v })} placeholder="Front lawn, back beds…" /></div>
-                <SelectField label="Waters" value={z.waters} onChange={v => setZone(i, { waters: v })} options={WATERS} />
-                <SelectField label="Head type" value={z.head} onChange={v => setZone(i, { head: v })} options={HEADS} />
-                <TextField label="# of heads" value={z.count} onChange={v => setZone(i, { count: v })} inputMode="numeric" />
-                <TextField label="Nozzle / brand" value={z.nozzle} onChange={v => setZone(i, { nozzle: v })} />
-                <SelectField label="Sun" value={z.sun} onChange={v => setZone(i, { sun: v })} options={SUN} />
-                <SelectField label="Slope" value={z.slope} onChange={v => setZone(i, { slope: v })} options={SLOPE} />
-                <TextField label="Valve box loc." value={z.valve} onChange={v => setZone(i, { valve: v })} />
-                <TextField label="Run time (min)" value={z.runtime} onChange={v => setZone(i, { runtime: v })} inputMode="numeric" />
-                <div className="col-span-2"><TextField label="Condition / issues" value={z.issues} onChange={v => setZone(i, { issues: v })} placeholder="Broken heads, coverage gaps, leaks" /></div>
+                <div className="col-span-2"><TextField label="Area served" value={z.area} onChange={v => setZone(i, { area: v })} placeholder="Front lawn, back beds…" ai={isAi(i, 'area')} onConfirm={() => clearMark(i, 'area')} /></div>
+                <SelectField label="Waters" value={z.waters} onChange={v => setZone(i, { waters: v })} options={WATERS} ai={isAi(i, 'waters')} onConfirm={() => clearMark(i, 'waters')} />
+                <SelectField label="Head type" value={z.head} onChange={v => setZone(i, { head: v })} options={HEADS} ai={isAi(i, 'head')} onConfirm={() => clearMark(i, 'head')} />
+                <TextField label="# of heads" value={z.count} onChange={v => setZone(i, { count: v })} inputMode="numeric" ai={isAi(i, 'count')} onConfirm={() => clearMark(i, 'count')} />
+                <TextField label="Nozzle / brand" value={z.nozzle} onChange={v => setZone(i, { nozzle: v })} ai={isAi(i, 'nozzle')} onConfirm={() => clearMark(i, 'nozzle')} />
+                <SelectField label="Sun" value={z.sun} onChange={v => setZone(i, { sun: v })} options={SUN} ai={isAi(i, 'sun')} onConfirm={() => clearMark(i, 'sun')} />
+                <SelectField label="Slope" value={z.slope} onChange={v => setZone(i, { slope: v })} options={SLOPE} ai={isAi(i, 'slope')} onConfirm={() => clearMark(i, 'slope')} />
+                <TextField label="Valve box loc." value={z.valve} onChange={v => setZone(i, { valve: v })} ai={isAi(i, 'valve')} onConfirm={() => clearMark(i, 'valve')} />
+                <TextField label="Run time (min)" value={z.runtime} onChange={v => setZone(i, { runtime: v })} inputMode="numeric" ai={isAi(i, 'runtime')} onConfirm={() => clearMark(i, 'runtime')} />
+                <div className="col-span-2"><TextField label="Condition / issues" value={z.issues} onChange={v => setZone(i, { issues: v })} placeholder="Broken heads, coverage gaps, leaks" ai={isAi(i, 'issues')} onConfirm={() => clearMark(i, 'issues')} /></div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
         <button type="button" onClick={addZone} className="mt-3 px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-sm">+ Add zone</button>
 
