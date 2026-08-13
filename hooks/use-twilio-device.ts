@@ -180,6 +180,8 @@ export type UseTwilioDevice = {
   // while a warm transfer is mid-consult (customer on hold, target being talked
   // to). `transfer` drives all modes against /conference/transfer.
   conferenceActive: boolean
+  /** The live conference room name, so a caller can act on THIS call by id. */
+  conferenceRoom: string | null
   consulting: boolean
   transfer: (mode: TransferMode, to?: string) => Promise<{ ok: boolean; error?: string }>
   sendDigit: (digit: string) => void
@@ -1549,6 +1551,10 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     audioRoutesAvailable,
     setAudioRoute,
     conferenceActive: !!conferenceRoom,
+    // Exposed (not just the derived boolean) so the notepad can file a note
+    // against THIS call. Without it the server falls back to "most recent call
+    // in 6 hours", which is the wrong call once another one comes in.
+    conferenceRoom,
     consulting,
     transfer,
     sendDigit,
