@@ -1552,6 +1552,12 @@ function DialerTab() {
         <p>To turn off cross-page ringing — for example, if you don&apos;t want your browser holding an open phone connection while you&apos;re heads-down on something else — open <strong className="text-white">Settings → Account → Communications</strong> and uncheck <em>Ring me on every Hub page</em>. With the toggle off, calls only ring you while you&apos;re on the Dialer page itself.</p>
       </Section>
 
+      <Section title="Notes during a call">
+        <p>While you&apos;re on a call, the customer card on the call screen has a <strong className="text-white">notepad</strong> open and ready — type as you talk. What you type is <strong className="text-white">kept as you go</strong>, so if the call drops, you close the panel, or you switch tabs mid-sentence, your words are still there when you come back (and still there if you call that person straight back).</p>
+        <p>Tap <strong className="text-white">Save note</strong> to file it against the call. Notes <em>add up</em> rather than replacing each other — a long call can have several, each stamped with the time — and they show at the top of that call in the <Link href="/hub/call-log" className="text-sky-400 hover:underline">Call Log</Link>. If the caller is a matched Jobber customer, the note is also posted to their Jobber client record.</p>
+        <p className="text-xs text-white/40">On the small pop-out dialer the notepad is behind the <strong className="text-white">Note</strong> button rather than open by default, to save room.</p>
+      </Section>
+
       <Section title="Call dispositions (after-call prompt)">
         <p>When a connected call ends, a small <strong className="text-white">&quot;how did it go?&quot;</strong> prompt pops up with quick outcome buttons — <em>Scheduled, Voicemail, Callback, Wrong number, Other</em> by default. Tap one to log the outcome on the call (it shows in the Call Log); ignore it and it disappears on its own after 30 seconds.</p>
         <p>Admins can edit the button list — or <strong className="text-white">turn the prompt off entirely</strong> — in <strong className="text-white">Admin → Dialer → Call dispositions</strong>. Flip the switch off and the after-call prompt never appears for anyone in the company; flip it back on to resume. It&apos;s on by default.</p>

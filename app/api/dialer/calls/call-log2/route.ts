@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
   let q = admin
     .from('calls')
     .select(
-      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, action_items, coaching_grade, coaching_must_listen, coaching_json, handled_by, initiated_by, transferred_to_user_id, handled_by_ai, contact:txt_contacts!contact_id(id, name, name_source, phone)'
+      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, action_items, coaching_grade, coaching_must_listen, coaching_json, agent_notes, handled_by, initiated_by, transferred_to_user_id, handled_by_ai, contact:txt_contacts!contact_id(id, name, name_source, phone)'
     )
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })

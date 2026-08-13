@@ -102,6 +102,7 @@ type DialerCall = {
   coaching_grade: string | null
   coaching_must_listen: boolean | null
   coaching_json: CoachingData | null
+  agent_notes: string | null
   review: CoachingReview | null
   contact: { id: string; name: string; name_source?: string | null; phone: string } | null
   ai_results: AiResult[]
@@ -593,6 +594,16 @@ function DialerCallDetail({ call, canViewCoaching }: { call: DialerCall; canView
           onClose={() => setTrackerOpen(false)}
           onLinked={(id) => { setTrackerLeadId(id); setTrackerOpen(false) }}
         />
+      )}
+
+      {/* Notes the rep typed on the call. These were written to the DB from the
+          dialer for months but never displayed anywhere - so a note taken during
+          a call was, in practice, thrown away. */}
+      {call.agent_notes && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Notes</h3>
+          <p className="text-sm text-gray-200 whitespace-pre-wrap">{call.agent_notes}</p>
+        </div>
       )}
 
       {/* Call recording audio */}

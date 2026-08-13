@@ -13,6 +13,8 @@ import { useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import type { DialerLookupMatch } from '@/lib/dialer-lookup'
 import { StatusPill, CallerIdPill } from './IncomingCall'
+import CallNotepad from './CallNotepad'
+import { useDialerContext } from './DialerProvider'
 
 const ETA_OPTIONS = [10, 15, 20, 30, 45]
 
@@ -26,8 +28,12 @@ export default function CallContactCard({
   compact?: boolean
 }) {
   const router = useRouter()
-  const [panel, setPanel] = useState<'none' | 'note' | 'eta'>('none')
-  const [note, setNote] = useState('')
+  const dialer = useDialerContext()
+  // On the full call screen the notepad is open by default — it's the thing
+  // you're most likely to want mid-call, and hiding it behind a chip is what
+  // made the old one go unnoticed. The PiP is too small for that, so there it
+  // stays a toggle.
+  const [panel, setPanel] = useState<'none' | 'note' | 'eta'>(compact ? 'none' : 'note')
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -92,33 +98,6 @@ export default function CallContactCard({
         body: JSON.stringify({ body: text }),
       })
       flash(res.ok ? `On-my-way text sent (${eta} min)` : 'Could not send text')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleSaveNote() {
-    const text = note.trim()
-    if (!text || busy) return
-    setBusy(true)
-    try {
-      const res = await fetch('/api/dialer/calls/note', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          note: text,
-          toJobber: !!contact?.jobberClientId,
-          jobberClientId: contact?.jobberClientId || undefined,
-        }),
-      })
-      const body = await res.json().catch(() => null)
-      if (res.ok) {
-        setNote('')
-        setPanel('none')
-        flash(body?.jobberPosted ? 'Note saved + added to Jobber' : 'Note saved')
-      } else {
-        flash('Could not save note')
-      }
     } finally {
       setBusy(false)
     }
@@ -202,29 +181,15 @@ export default function CallContactCard({
         </div>
       )}
 
-      {/* Note box */}
+      {/* Notepad */}
       {panel === 'note' && (
-        <div className="space-y-1.5 pt-1">
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={2}
-            placeholder="Note for this call…"
-            className="w-full rounded-md bg-white/5 border border-white/10 px-2.5 py-1.5 text-sm text-white placeholder-white/30 resize-none focus:outline-none focus:ring-1 focus:ring-sky-500"
+        <div className="pt-1">
+          <CallNotepad
+            number={targetPhone}
+            room={dialer?.conferenceRoom ?? null}
+            jobberClientId={contact?.jobberClientId}
+            compact={compact}
           />
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-white/40">
-              {contact?.jobberClientId ? 'Saves to the call + the Jobber client' : 'Saves to the call record'}
-            </span>
-            <button
-              type="button"
-              onClick={handleSaveNote}
-              disabled={busy || !note.trim()}
-              className="px-3 py-1 rounded-md text-xs bg-emerald-600 hover:bg-emerald-500 text-[#fff] disabled:opacity-50"
-            >
-              Save
-            </button>
-          </div>
         </div>
       )}
 
