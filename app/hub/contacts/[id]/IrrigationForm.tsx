@@ -6,7 +6,9 @@ import {
   emptyIrrigationZone, mergeDictatedZones, confirmZoneMarks, reindexZoneMarks,
   ZONE_WATERS, ZONE_HEADS, ZONE_SUN, ZONE_SLOPE,
 } from '@/lib/irrigation'
+import { fieldMark } from '@/lib/irrigation-fields'
 import ZoneDictation from './ZoneDictation'
+import PhotoFill from './PhotoFill'
 
 export type FullInspection = {
   id: string
@@ -41,14 +43,14 @@ function Lbl({ children }: { children: React.ReactNode }) {
 // handful that came from the microphone".
 const aiRing = 'border-amber-500/70 bg-amber-500/10'
 
-function TextField({ label, value, onChange, placeholder, inputMode, ai, onConfirm }: {
+function TextField({ label, value, onChange, placeholder, inputMode, ai, onConfirm, aiFrom }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string
   inputMode?: 'text' | 'numeric' | 'tel'
-  ai?: boolean; onConfirm?: () => void
+  ai?: boolean; onConfirm?: () => void; aiFrom?: 'notes' | 'photo'
 }) {
   return (
     <label className="block">
-      <Lbl>{label}{ai && <span className="ml-1 text-amber-400 normal-case tracking-normal">• from notes</span>}</Lbl>
+      <Lbl>{label}{ai && <span className="ml-1 text-amber-400 normal-case tracking-normal">• from {aiFrom ?? 'notes'}</span>}</Lbl>
       <input value={value} onChange={e => { onChange(e.target.value); onConfirm?.() }} placeholder={placeholder}
         onFocus={() => onConfirm?.()}
         inputMode={inputMode} className={`${inp} ${ai ? aiRing : ''}`} style={inpStyle} />
@@ -56,13 +58,13 @@ function TextField({ label, value, onChange, placeholder, inputMode, ai, onConfi
   )
 }
 
-function SelectField({ label, value, onChange, options, ai, onConfirm }: {
+function SelectField({ label, value, onChange, options, ai, onConfirm, aiFrom }: {
   label: string; value: string; onChange: (v: string) => void; options: readonly string[]
-  ai?: boolean; onConfirm?: () => void
+  ai?: boolean; onConfirm?: () => void; aiFrom?: 'notes' | 'photo'
 }) {
   return (
     <label className="block">
-      <Lbl>{label}{ai && <span className="ml-1 text-amber-400 normal-case tracking-normal">• from notes</span>}</Lbl>
+      <Lbl>{label}{ai && <span className="ml-1 text-amber-400 normal-case tracking-normal">• from {aiFrom ?? 'notes'}</span>}</Lbl>
       <select value={value} onChange={e => { onChange(e.target.value); onConfirm?.() }}
         onFocus={() => onConfirm?.()}
         className={`${inp} ${ai ? aiRing : ''}`} style={inpStyle}>
@@ -73,12 +75,14 @@ function SelectField({ label, value, onChange, options, ai, onConfirm }: {
   )
 }
 
-function Chips({ label, options, selected, onToggle, single }: {
+function Chips({ label, options, selected, onToggle, single, ai, onConfirm }: {
   label: string; options: string[]; selected: string[]; onToggle: (v: string) => void; single?: boolean
+  ai?: boolean; onConfirm?: () => void
 }) {
   return (
-    <div>
-      <Lbl>{label}</Lbl>
+    <div className={ai ? 'rounded-md border border-amber-500/70 bg-amber-500/10 p-2 -m-2' : undefined}
+      onPointerDown={ai ? () => onConfirm?.() : undefined}>
+      <Lbl>{label}{ai && <span className="ml-1 text-amber-400 normal-case tracking-normal">• from photo</span>}</Lbl>
       <div className="flex flex-wrap gap-1.5">
         {options.map(o => {
           const on = selected.includes(o)
@@ -214,6 +218,49 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
   const confirmZone = useCallback((i: number) => {
     setData(d => ({ ...d, aiFilled: confirmZoneMarks(d.aiFilled ?? [], i) }))
     scheduleSave()
+  }, [])
+
+  // ── Photo fill ─────────────────────────────────────────────────────────────
+  // Same rule as dictation: a read value may fill a blank, or correct a value
+  // the camera itself put there that nobody has confirmed — never something the
+  // tech entered.
+  const applyPhoto = useCallback((
+    patch: Partial<IrrigationData>, fields: string[], photoKey: string | null, previewUrl: string,
+  ) => {
+    const d = dataRef.current
+    const nextMarks = new Set(d.aiFilled ?? [])
+    const write: Record<string, unknown> = {}
+    let written = 0
+
+    for (const name of fields) {
+      const value = (patch as Record<string, unknown>)[name]
+      if (value == null) continue
+      const current = (d as unknown as Record<string, unknown>)[name]
+      const currentEmpty = Array.isArray(current)
+        ? current.length === 0
+        : !String(current ?? '').trim()
+      const key = fieldMark(name)
+      if (!currentEmpty && !nextMarks.has(key)) continue
+      write[name] = value
+      nextMarks.add(key)
+      written++
+    }
+
+    if (written > 0) setData(prev => ({ ...prev, ...write, aiFilled: Array.from(nextMarks) }))
+    // The photo is kept even when nothing was readable — the tech took it, and
+    // a picture of the controller is worth having on the record either way.
+    if (photoKey) setPhotos(p => [...p, { key: photoKey, url: previewUrl }])
+    if (written > 0 || photoKey) scheduleSave()
+    return { written, skipped: fields.length - written }
+  }, [])
+
+  const isField = useCallback((name: string) => (data.aiFilled ?? []).includes(fieldMark(name)), [data.aiFilled])
+  const clearField = useCallback((name: string) => {
+    setData(d => {
+      const key = fieldMark(name)
+      if (!(d.aiFilled ?? []).includes(key)) return d
+      return { ...d, aiFilled: (d.aiFilled ?? []).filter(k => k !== key) }
+    })
   }, [])
 
   // ── Sketch canvas ──────────────────────────────────────────────────────────
@@ -354,24 +401,29 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
         </div>
 
         <SectionHead n={2} title="Water source & supply" />
-        <Chips label="Water source" options={SOURCES} selected={data.source ?? []} onToggle={v => toggleIn('source', v)} />
+        <PhotoFill contactId={contactId} inspectionId={inspection.id} section="supply" onFields={applyPhoto} />
+        <div className="mt-3">
+          <Chips label="Water source" options={SOURCES} selected={data.source ?? []} onToggle={v => toggleIn('source', v)}
+            ai={isField('source')} onConfirm={() => clearField('source')} />
+        </div>
         <div className="grid grid-cols-2 gap-3 mt-3">
-          <TextField label="Static pressure (PSI)" value={data.psi ?? ''} onChange={v => set('psi', v)} inputMode="numeric" />
+          <TextField label="Static pressure (PSI)" value={data.psi ?? ''} onChange={v => set('psi', v)} inputMode="numeric" ai={isField('psi')} onConfirm={() => clearField('psi')} aiFrom="photo" />
           <TextField label="Flow (GPM)" value={data.gpm ?? ''} onChange={v => set('gpm', v)} inputMode="numeric" />
-          <SelectField label="Meter / service size" value={data.meterSize ?? ''} onChange={v => set('meterSize', v)} options={['3/4"', '1"', '1-1/4"', '1-1/2"', '2"', 'Unknown']} />
-          <SelectField label="Pressure regulator (PRV)?" value={data.prv ?? ''} onChange={v => set('prv', v)} options={['Yes — present', 'No', 'Needed']} />
+          <SelectField label="Meter / service size" value={data.meterSize ?? ''} onChange={v => set('meterSize', v)} options={['3/4"', '1"', '1-1/4"', '1-1/2"', '2"', 'Unknown']} ai={isField('meterSize')} onConfirm={() => clearField('meterSize')} aiFrom="photo" />
+          <SelectField label="Pressure regulator (PRV)?" value={data.prv ?? ''} onChange={v => set('prv', v)} options={['Yes — present', 'No', 'Needed']} ai={isField('prv')} onConfirm={() => clearField('prv')} aiFrom="photo" />
         </div>
         <div className="mt-3"><TextField label="Point of connection" value={data.poc ?? ''} onChange={v => set('poc', v)} placeholder="Where the system taps the supply" /></div>
         <div className="mt-3"><TextField label="Pump (well / booster)" value={data.pump ?? ''} onChange={v => set('pump', v)} placeholder="HP, tank, location" /></div>
 
         <SectionHead n={3} title="Controller / timer" />
-        <TextField label="Location" value={data.ctrlLoc ?? ''} onChange={v => set('ctrlLoc', v)} placeholder="Garage wall, exterior…" />
+        <PhotoFill contactId={contactId} inspectionId={inspection.id} section="controller" onFields={applyPhoto} />
+        <div className="mt-3"><TextField label="Location" value={data.ctrlLoc ?? ''} onChange={v => set('ctrlLoc', v)} placeholder="Garage wall, exterior…" /></div>
         <div className="grid grid-cols-2 gap-3 mt-3">
-          <TextField label="Brand" value={data.ctrlBrand ?? ''} onChange={v => set('ctrlBrand', v)} placeholder="Rain Bird, Hunter…" />
-          <TextField label="Model" value={data.ctrlModel ?? ''} onChange={v => set('ctrlModel', v)} />
-          <TextField label="Stations — total" value={data.stationsTotal ?? ''} onChange={v => set('stationsTotal', v)} inputMode="numeric" />
+          <TextField label="Brand" value={data.ctrlBrand ?? ''} onChange={v => set('ctrlBrand', v)} placeholder="Rain Bird, Hunter…" ai={isField('ctrlBrand')} onConfirm={() => clearField('ctrlBrand')} aiFrom="photo" />
+          <TextField label="Model" value={data.ctrlModel ?? ''} onChange={v => set('ctrlModel', v)} ai={isField('ctrlModel')} onConfirm={() => clearField('ctrlModel')} aiFrom="photo" />
+          <TextField label="Stations — total" value={data.stationsTotal ?? ''} onChange={v => set('stationsTotal', v)} inputMode="numeric" ai={isField('stationsTotal')} onConfirm={() => clearField('stationsTotal')} aiFrom="photo" />
           <TextField label="Stations — in use" value={data.stationsUsed ?? ''} onChange={v => set('stationsUsed', v)} inputMode="numeric" />
-          <SelectField label="Type" value={data.ctrlType ?? ''} onChange={v => set('ctrlType', v)} options={['Conventional', 'Smart / Wi-Fi']} />
+          <SelectField label="Type" value={data.ctrlType ?? ''} onChange={v => set('ctrlType', v)} options={['Conventional', 'Smart / Wi-Fi']} ai={isField('ctrlType')} onConfirm={() => clearField('ctrlType')} aiFrom="photo" />
           <SelectField label="Wi-Fi connected?" value={data.ctrlWifi ?? ''} onChange={v => set('ctrlWifi', v)} options={['Yes', 'No', 'N/A']} />
           <SelectField label="Battery backup?" value={data.ctrlBatt ?? ''} onChange={v => set('ctrlBatt', v)} options={['Yes — OK', 'Yes — dead', 'None']} />
           <SelectField label="Master valve / pump relay?" value={data.ctrlMv ?? ''} onChange={v => set('ctrlMv', v)} options={['Master valve', 'Pump start relay', 'None']} />
@@ -383,11 +435,15 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
         </div>
 
         <SectionHead n={4} title="Backflow preventer" />
-        <Chips label="Type" options={BF_TYPES} selected={data.bfType ? [data.bfType] : []} onToggle={v => set('bfType', data.bfType === v ? '' : v)} single />
+        <PhotoFill contactId={contactId} inspectionId={inspection.id} section="backflow" onFields={applyPhoto} />
+        <div className="mt-3">
+          <Chips label="Type" options={BF_TYPES} selected={data.bfType ? [data.bfType] : []} onToggle={v => set('bfType', data.bfType === v ? '' : v)} single
+            ai={isField('bfType')} onConfirm={() => clearField('bfType')} />
+        </div>
         <div className="mt-3"><TextField label="Location" value={data.bfLoc ?? ''} onChange={v => set('bfLoc', v)} /></div>
         <div className="grid grid-cols-2 gap-3 mt-3">
-          <SelectField label="Above / below grade" value={data.bfGrade ?? ''} onChange={v => set('bfGrade', v)} options={['Above grade', 'Below grade / box']} />
-          <SelectField label="Insulated / protected?" value={data.bfInsul ?? ''} onChange={v => set('bfInsul', v)} options={['Yes', 'No']} />
+          <SelectField label="Above / below grade" value={data.bfGrade ?? ''} onChange={v => set('bfGrade', v)} options={['Above grade', 'Below grade / box']} ai={isField('bfGrade')} onConfirm={() => clearField('bfGrade')} aiFrom="photo" />
+          <SelectField label="Insulated / protected?" value={data.bfInsul ?? ''} onChange={v => set('bfInsul', v)} options={['Yes', 'No']} ai={isField('bfInsul')} onConfirm={() => clearField('bfInsul')} aiFrom="photo" />
         </div>
         <div className="mt-3">
           <Seg label="Condition" value={data.bfCond ?? ''} onChange={v => set('bfCond', v)}
