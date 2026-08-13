@@ -131,6 +131,14 @@ export const REPORTS: ReportMeta[] = [
     prd: '§8.9',
   },
   {
+    slug: 'goals',
+    title: 'Goals & Targets',
+    subtitle: 'What you aimed for, where you actually are, and whether you are on pace',
+    section: 'Overview',
+    icon: '🎯',
+    prd: '§8.11',
+  },
+  {
     slug: 'people',
     title: 'People Performance',
     subtitle: 'Your own scorecard — what you sold, what you produced, and how your department is doing',
