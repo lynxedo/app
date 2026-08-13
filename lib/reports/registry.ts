@@ -46,14 +46,7 @@ export type ReportMeta = {
    * `report_access` would have quietly given every admin a screen that has
    * always excluded them.
    */
-  /**
-   * `'self'` — openable by ANYONE with Hub access, because it is how a person
-   * sees their own numbers. Seeing OTHER people needs the grant; see
-   * `canSeeOthersPerformance`. This is the only report not behind
-   * `can_access_reports`, and it is deliberate: a technician has no Reports
-   * access and must still be able to read their own scorecard.
-   */
-  gate?: 'coaching' | 'self'
+  gate?: 'coaching'
   /**
    * Renders its own component rather than a widget layout. Call Coaching only:
    * §9.1.5 puts it permanently outside the widget library, because its metrics
@@ -136,7 +129,6 @@ export const REPORTS: ReportMeta[] = [
     section: 'People',
     icon: '🧑\u200d🔧',
     prd: '§8.7',
-    gate: 'self',
   },
   {
     slug: 'coaching',
@@ -208,26 +200,33 @@ export function canSeeReport(perms: ReportPerms, slug: string): boolean {
   // so none of the rules below can widen it. Moving it out of Scoreboards must
   // not change who can read it, and this line is what guarantees that.
   if (getReport(slug)?.gate === 'coaching') return perms.canAccessCoaching === true
-  // People Performance is a person's own scorecard, so the section flag cannot
-  // be the gate — a technician has none. What the grant buys here is seeing
-  // OTHER people, which `canSeeOthersPerformance` answers and the source
-  // enforces by stripping colleagues' rows before any payload is built.
-  if (getReport(slug)?.gate === 'self') return true
   if (!canSeeReports(perms)) return false
   if (perms.isAdmin) return true
   return (perms.allowedReportSlugs ?? []).includes(slug)
 }
 
 /**
+ * The grant that upgrades People Performance from "your own card" to "everyone".
+ *
+ * Held as a SECOND grant row rather than a flag on the first, so the two are
+ * independently toggleable in Admin → Reports: `people` opens the report on your
+ * own numbers, `people:team` adds everyone else's rows. Not a report in its own
+ * right, so it never appears in REPORTS or on the index.
+ */
+export const PEOPLE_TEAM_SLUG = 'people:team'
+
+/**
  * Whether this user may see OTHER people on People Performance.
  *
  * ⚠ Not a display concern. The source narrows the row set server-side on this
  * answer, so a wrong `false` costs a manager the team view and a wrong `true`
- * shows one employee another's numbers.
+ * shows one employee another's numbers. Requires the report itself first: a
+ * team-view row without access to the report grants nothing.
  */
 export function canSeeOthersPerformance(perms: ReportPerms): boolean {
+  if (!canSeeReport(perms, 'people')) return false
   if (perms.isAdmin) return true
-  return canSeeReports(perms) && (perms.allowedReportSlugs ?? []).includes('people')
+  return (perms.allowedReportSlugs ?? []).includes(PEOPLE_TEAM_SLUG)
 }
 
 export function reportsForUser(perms: ReportPerms): ReportMeta[] {

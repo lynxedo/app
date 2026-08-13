@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { REPORTS } from '@/lib/reports/registry'
+import { REPORTS, PEOPLE_TEAM_SLUG } from '@/lib/reports/registry'
 
 // Admin-only: grant/revoke which REPORTS a user may open (Admin → Reports).
 // Layer 2 of the §12 access model; `can_access_reports` (Admin → People) is layer 1
@@ -23,7 +23,10 @@ async function getAdminCompany(): Promise<string | null> {
   return profile.company_id as string
 }
 
-const VALID_SLUGS = new Set(REPORTS.map(r => r.slug))
+// PEOPLE_TEAM_SLUG is a grant, not a report: it upgrades People Performance
+// from the holder's own card to everyone's rows. It is not in REPORTS (it must
+// never appear on the index) so it is allowed explicitly here.
+const VALID_SLUGS = new Set([...REPORTS.map(r => r.slug), PEOPLE_TEAM_SLUG])
 
 export async function POST(request: Request) {
   const company = await getAdminCompany()
