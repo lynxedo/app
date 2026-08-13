@@ -1,8 +1,8 @@
 'use client'
 
 /**
- * Workspace Tabs — shell-level tab state (desktop, behind the `workspace_tabs`
- * beta flag). Holds the ordered set of open Hub tabs + which one is active, and
+ * Workspace Tabs — shell-level tab state (desktop only; graduated out of beta
+ * Aug 13 2026). Holds the ordered set of open Hub tabs + which one is active, and
  * KEEPS EACH ONE MOUNTED so flipping between tabs never loses scroll / filters /
  * an open drawer / a half-typed input. See Hub/HUB_WORKSPACE_TABS_PRD.md.
  *

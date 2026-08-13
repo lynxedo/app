@@ -51,7 +51,7 @@ export type CatalogEntry = {
   /** Permission gate; if false the icon is hidden */
   requires?: keyof RailPermissions
   /**
-   * Workspace Tabs (desktop, behind the `workspace_tabs` beta flag): when true,
+   * Workspace Tabs (desktop): when true,
    * clicking this app opens it as a kept-alive TAB in the Hub content area
    * instead of a full route change, so its scroll/filters/open-record survive
    * flipping to another tab. Only Tier-1 (self-contained, main-pane, drill-in

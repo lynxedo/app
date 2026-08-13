@@ -619,6 +619,20 @@ function HubTab() {
         <p>If someone sends a message to an archived DM, or if you start a new DM with that person, it automatically jumps back to your active list. You never have to think about whether archiving was the right call — new activity always wins.</p>
       </Section>
 
+      <Section title="Tabs — keep several screens open at once">
+        <p>On a computer, Hub works like a browser: opening a screen puts it in a <strong className="text-white">tab</strong> across the top of the page, and you can keep up to <strong className="text-white">8</strong> open at once. Flipping between them is instant and — this is the point — <strong className="text-white">nothing loses its place</strong>. Your scroll position, the filters you set, the record you had open, even a half-typed message are all still there when you come back.</p>
+        <p>So you can leave a customer&apos;s text thread open next to the Lead Tracker, jump to Contacts to look something up, and come straight back without rebuilding anything.</p>
+        <p className="font-medium text-white mt-3">Opening and closing</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li>Click an app in the left rail or the app drawer to open it as a tab. If it&apos;s <strong className="text-white">already open</strong>, you jump to that tab instead of getting a second copy.</li>
+          <li>Conversations open one tab each — three DMs means three tabs, like browser tabs.</li>
+          <li>Close a tab with its <strong className="text-white">✕</strong>, or by <strong className="text-white">middle-clicking</strong> it.</li>
+          <li><strong className="text-white">Ctrl/⌘ + 1</strong> through <strong className="text-white">8</strong> jumps straight to that tab.</li>
+          <li>Opening a 9th tab closes the one you haven&apos;t touched in the longest — you&apos;ll get a small notice when that happens.</li>
+        </ul>
+        <Note>Tabs are a <strong className="text-white">computer</strong> feature — on a phone or tablet the Hub works exactly as it always has, with the rail and the slide-out menu. Tabs aren&apos;t remembered between sessions: close Hub or reload the page and you start fresh. The <Link href="/hub/dialer" className="text-sky-400 hover:underline">Dialer</Link> and Fleet map are never tabs on purpose — the Dialer holds a live phone line, so it stays global and always available.</Note>
+      </Section>
+
       <Section title="Pop out a conversation">
         <p>Every room/channel and DM has a <strong className="text-white">⧉ pop-out</strong> button in its header. Tap it to float that conversation in its own always-on-top window — the same way the <Link href="/hub/dialer" className="text-sky-400 hover:underline">Dialer</Link> pops out. Keep it in the corner of your screen while you work in another part of Hub, or in another app entirely, and reply without switching back and forth. Close it and the conversation returns to the normal in-page view.</p>
         <p>The pop-out is a <strong className="text-white">trimmed</strong> view — the running messages plus a box to type a reply. Threads/replies, reactions, file uploads, and message actions stay on the full in-page conversation.</p>
