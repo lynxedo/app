@@ -236,12 +236,15 @@ export default function HubShell({
   const [manualRail, setManualRail] = useState<ManualRail>(null)
   useEffect(() => { setManualRail(null) }, [pathname])
 
-  // ── Workspace Tabs (desktop only, behind the `workspace_tabs` beta flag) ────
+  // ── Workspace Tabs (desktop only) ───────────────────────────────────────────
+  // Graduated out of beta Aug 13 2026 — on for every desktop user, no opt-in.
+  // Desktop-only is a DESIGN decision, not a rollout gate: the field/mobile Hub
+  // keeps its rail + drawer, so `isDesktopEnvironment()` stays.
   // Resolved on the client (navigator UA) via an effect so SSR + first paint
   // agree (feature off) and nothing hydration-mismatches; the strip only renders
   // once a tab is opened, so the Hub is byte-identical until then.
   const [tabsFeature, setTabsFeature] = useState(false)
-  useEffect(() => { setTabsFeature(!!betaFlags['workspace_tabs'] && isDesktopEnvironment()) }, [betaFlags])
+  useEffect(() => { setTabsFeature(isDesktopEnvironment()) }, [])
   const tabsApi = useWorkspaceTabsState(tabsFeature)
   const { showRoute: showRouteTab, activateByHref: activateTabByHref } = tabsApi
   // On a real route navigation, if that destination is already open as a
