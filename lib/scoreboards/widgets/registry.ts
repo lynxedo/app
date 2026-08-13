@@ -499,6 +499,27 @@ export function hasWidgetLayout(slug: string): boolean {
  * Scoreboard is customizable). Keyed by the layout slug, namespaced `report:` so a
  * report can never collide with a board slug ('1'…'8') in scoreboard_layouts.
  */
+/**
+ * §8.9 Marketing & Lead Source, as a preset Report.
+ *
+ * ⚠ Cost per lead / CAC / ROAS are absent on purpose: §8.9 lists them, but they
+ * need ad spend, which nothing in the product captures yet. A cost-per-lead
+ * computed without spend would be a made-up number wearing a real label.
+ */
+export const MARKETING_REPORT_PRESET: { type: string; span: number; config?: WidgetConfig }[] = [
+  { type: 'kpi_new_customers', span: 3 },
+  { type: 'kpi_best_source', span: 3 },
+  { type: 'kpi_paid_share', span: 3 },
+  { type: 'kpi_source_coverage', span: 3 },
+  { type: 'source_insights', span: 12 },
+  { type: 'source_scorecard_table', span: 12 },
+  { type: 'new_by_source', span: 4 },
+  { type: 'close_rate_by_source', span: 4 },
+  { type: 'retention_by_source', span: 4 },
+  { type: 'paid_free_mix', span: 12 },
+  { type: 'geo_revenue_by_zip', span: 12 },
+]
+
 export const REPORT_PRESETS: Record<string, { title: string; widgets: { type: string; span: number; config?: WidgetConfig }[] }> = {
   'report:retention': { title: 'Retention & Churn', widgets: RETENTION_REPORT_PRESET },
   'report:revenue': { title: 'Revenue & Invoicing', widgets: REVENUE_REPORT_PRESET },
@@ -509,6 +530,17 @@ export const REPORT_PRESETS: Record<string, { title: string; widgets: { type: st
   'report:sales': { title: 'Sales & Pipeline', widgets: SALES_REPORT_PRESET },
   'report:home': { title: 'Home', widgets: HOME_REPORT_PRESET },
   'report:people': { title: 'People Performance', widgets: PEOPLE_REPORT_PRESET },
+  /*
+   * §8.9 — the same widget library Board 8 renders, arranged as a Report.
+   *
+   * Deliberately NOT a new set of widgets. `source_scorecard` has run through
+   * `scoreboard_source_scorecard_range` since Aug 10, so every one of these
+   * already honours the date picker — the Report needs no new query and cannot
+   * disagree with the board it shares its widgets with. The scorecard leads
+   * because it is the page's whole argument; the three comparison charts follow
+   * it, and the ZIP map answers "where" from the Clients source.
+   */
+  'report:marketing': { title: 'Marketing & Lead Source', widgets: MARKETING_REPORT_PRESET },
 }
 
 export function reportLayoutSlug(reportSlug: string): string {

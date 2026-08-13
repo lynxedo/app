@@ -123,6 +123,14 @@ export const REPORTS: ReportMeta[] = [
     prd: '§8.5',
   },
   {
+    slug: 'marketing',
+    title: 'Marketing & Lead Source',
+    subtitle: 'Where customers come from, which sources keep them, and what each one is worth',
+    section: 'Sales',
+    icon: '📣',
+    prd: '§8.9',
+  },
+  {
     slug: 'people',
     title: 'People Performance',
     subtitle: 'Your own scorecard — what you sold, what you produced, and how your department is doing',
