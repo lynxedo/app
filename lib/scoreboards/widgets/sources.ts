@@ -461,6 +461,63 @@ export type SalesRow = {
   open_by_stage: { stage: string; count: number }[]
 }
 
+/**
+ * Jobber quotes SENT in the window (§8.2's quote half).
+ *
+ * ⚠ No dollar fields, deliberately — Jobber's quote total counts only non-optional
+ * line items and Heroes quotes options constantly, so a total is meaningless here.
+ * ⚠ Won keys off the STATUS, not approved_at: 28 of 113 converted quotes have no
+ * approval timestamp because they were sold in person.
+ */
+export type QuoteCohortRow = {
+  sent: number
+  won: number
+  lost: number
+  decided: number
+  still_open: number
+  /** Converted without ever being sent — counted, and named on the card. */
+  sold_on_the_spot: number
+  viewed: number
+  never_viewed: number
+  no_salesperson: number
+  /** Minimum decided quotes before a win rate is shown at all. */
+  rate_min_sample: number
+  win_rate: number | null
+  median_days_to_win: number | null
+  win_time_sample: number
+  by_month: { month: string; sent: number; won: number; decided: number; win_rate: number | null }[]
+  by_salesperson: { rep_id: string; name: string; sent: number; won: number; decided: number; win_rate: number | null }[]
+  by_service: { code: string; sent: number; won: number; decided: number; win_rate: number | null }[]
+}
+
+/**
+ * Quotes unanswered RIGHT NOW. No window, for the same reason invoice_ar has none:
+ * a quote sent in June that nobody answered belongs in today's chase list and would
+ * vanish from an August window — and the stale ones are the ones worth chasing.
+ */
+export type QuoteOpenRow = {
+  as_of: string
+  open_total: number
+  /** ⚠ Requires a real sent_at — a quote sold on the spot was never sent to anyone. */
+  never_opened: number
+  opened_no_reply: number
+  oldest_days: number | null
+  /** Watchdog: customer approved and it never became a job. 0 is the healthy answer. */
+  approved_not_converted: number
+  aging: { d0_7: number; d8_14: number; d15_30: number; d31: number }
+  list_cap: number
+  list_total: number
+  list: {
+    quote_number: string | null
+    client: string
+    days_out: number
+    viewed: boolean
+    service: string
+    salesperson: string
+    jobber_uri: string | null
+  }[]
+}
+
 /** What needs doing right now, plus the work already on the calendar. No window. */
 export type HomePulseRow = {
   as_of: string
@@ -721,6 +778,40 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`sales_pipeline: ${error.message}`)
     return data ? [data as SalesRow] : []
+  },
+
+  /**
+   * Jobber quotes sent in the window — the quote half of Report §8.2.
+   *
+   * ⚠ Counts only. Jobber's `amounts.total` excludes optional line items and Heroes
+   * quotes options constantly (a $14,175 quote reporting $0.00), so no dollar figure
+   * on a quote can be trusted; Ben's call is to count quotes instead.
+   * ⚠ A quote is won by its STATUS, never by having an approval timestamp — 28 of 113
+   * converted quotes carry none because they were sold in person and converted straight
+   * to a job. Timestamps here only ever measure timing.
+   */
+  quotes_cohort: async (ctx, params) => {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_quotes', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`quotes_cohort: ${error.message}`)
+    return data ? [data as QuoteCohortRow] : []
+  },
+
+  /**
+   * Quotes unanswered as of today. Takes NO date window, for the same reason
+   * `invoice_ar` doesn't: an unanswered quote sent in June belongs in today's chase
+   * list and would disappear from an August window, and the stale ones are precisely
+   * the ones worth chasing. Every card built on this says "as of today" on its face.
+   */
+  quotes_open: async (ctx) => {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_quotes_open', {
+      p_company_id: ctx.companyId,
+    })
+    if (error) throw new Error(`quotes_open: ${error.message}`)
+    return data ? [data as QuoteOpenRow] : []
   },
 
   /**
