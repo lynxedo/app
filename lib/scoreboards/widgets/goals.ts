@@ -53,6 +53,9 @@ const STATUS_TEXT: Record<GoalRow['status'], string> = {
   missed: 'Missed',
   on_track: 'On track',
   behind: 'Behind',
+  // A rate is judged against the target itself, so it is "under", not "behind" —
+  // behind implies a pace it does not have.
+  under: 'Under target',
   open: 'Not started',
   unknown: 'No data',
 }
@@ -62,6 +65,7 @@ const STATUS_TONE: Record<GoalRow['status'], Tone> = {
   missed: 'bad',
   on_track: 'good',
   behind: 'warn',
+  under: 'warn',
   open: 'neutral',
   unknown: 'unknown',
 }
@@ -170,7 +174,7 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
           { key: 'status', label: 'Status', align: 'left' },
         ],
         rows,
-        empty: 'No targets set yet. An admin can add them in Admin → Goals.',
+        empty: 'No targets set yet. An admin can add them in Admin → Reports.',
         foot: truncated
           // Never let a capped list read as the whole list.
           ? `Showing ${r!.shown} of ${r!.total_in_window} targets in this range.`
@@ -228,7 +232,7 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         '"Should be at" prorates the target to today. It is blank for close rate and revenue per hour: a rate does not accumulate through a period, so there is no honest half-way figure.',
       ]
       if (r && r.total_in_window === 0) {
-        items.unshift('No targets are set for this range yet. An admin adds them in Admin → Goals.')
+        items.unshift('No targets are set for this range yet. An admin adds them at the bottom of Admin → Reports.')
       }
       return {
         kind: 'list',

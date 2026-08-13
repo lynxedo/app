@@ -105,7 +105,13 @@ export type GoalRow = {
   expected_by_now: number | null
   cumulative: boolean
   closed: boolean
-  status: 'hit' | 'missed' | 'on_track' | 'behind' | 'open' | 'unknown'
+  /**
+   * ⚠ 'under' is the RATE equivalent of 'behind'. A rate has no pace to fall
+   * behind, so it is compared straight to the target. 'open' means only that
+   * the period has not begun — it used to also catch rates mid-period, which
+   * made a live target read "Not started".
+   */
+  status: 'hit' | 'missed' | 'on_track' | 'behind' | 'under' | 'open' | 'unknown'
 }
 
 export type GoalsRow = {
