@@ -261,16 +261,25 @@ export function confirmZoneMarks(aiFilled: string[], zoneIndex: number): string[
 }
 
 /**
- * Re-key review marks after a zone row is removed — marks are positional, so a
- * deletion above them would otherwise leave the amber highlight sitting on some
- * other zone's fields.
+ * Re-key review marks after a zone row is removed — zone marks are positional,
+ * so a deletion above them would otherwise leave the amber highlight sitting on
+ * some other zone's fields.
+ *
+ * Top-level marks (`f:ctrlBrand`, written by the photo reader) are not
+ * positional and pass through untouched. Dropping them here would silently
+ * un-flag photo-read values the moment an unrelated zone row was deleted —
+ * exactly the "looks confirmed but nobody checked it" state the marks exist to
+ * prevent.
  */
 export function reindexZoneMarks(aiFilled: string[], removedIndex: number): string[] {
   const out: string[] = []
   for (const key of aiFilled) {
     const sep = key.indexOf(':')
-    const idx = Number(key.slice(0, sep))
-    if (Number.isNaN(idx) || idx === removedIndex) continue
+    if (sep < 0) continue
+    const head = key.slice(0, sep)
+    if (!/^\d+$/.test(head)) { out.push(key); continue }
+    const idx = Number(head)
+    if (idx === removedIndex) continue
     out.push(idx > removedIndex ? `${idx - 1}:${key.slice(sep + 1)}` : key)
   }
   return out
