@@ -49,7 +49,15 @@ export async function GET() {
     client_id: JOBBER_CLIENT_ID,
     redirect_uri: `${APP_URL}/api/auth/jobber/callback`,
     state,
-    scope: 'read_clients write_clients read_jobs write_jobs read_visits write_visits read_users',
+    // ⚠⚠ A SCOPE LIVES IN THE GRANTED TOKEN, SO ADDING ONE IS NOT RETROACTIVE.
+    // `read_quotes` was added 2026-08-13 for the Sales report's quote widgets; every
+    // connection made before that date holds a token WITHOUT it, and no amount of
+    // deploying changes that — the company must re-consent via Admin → Integrations →
+    // Reconnect. Until they do, the quote pull fails on scope every time, which is
+    // why `syncQuotesSafe` treats that specific error as an expected state rather
+    // than a failure (a quote sync must never abort clients/jobs/visits/invoices).
+    // Read-only: we mirror quotes for reporting and never write them from Lynxedo.
+    scope: 'read_clients write_clients read_jobs write_jobs read_visits write_visits read_users read_quotes',
   })
 
   return NextResponse.redirect(`${JOBBER_AUTH_URL}?${params}`)
