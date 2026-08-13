@@ -182,6 +182,19 @@ export default function AdminSidebar({
         />
       )}
       {isSuperAdmin && (
+        <AdminRow
+          href="/hub/admin/goals"
+          icon={
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <circle cx="12" cy="12" r="8" />
+              <circle cx="12" cy="12" r="3.2" />
+            </svg>
+          }
+          label="Goals"
+          onClose={onClose}
+        />
+      )}
+      {isSuperAdmin && (
         <AdminRow href="/hub/admin/scoreboards" iconId="scoreboards" label="Scoreboards" onClose={onClose} />
       )}
       {isSuperAdmin && (

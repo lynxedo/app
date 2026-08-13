@@ -1,0 +1,6 @@
+-- Applied to the shared DB on 2026-08-12 as migrations
+--   report_goals_2026_08_12  and  scoreboard_goals_2026_08_12
+-- Recorded here so the schema history lives in the repo alongside the code.
+--
+-- See lib/reports/goals.ts for the metric catalog and why `cumulative` decides
+-- whether a target gets a pace figure at all.

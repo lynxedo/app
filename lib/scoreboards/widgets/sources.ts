@@ -85,6 +85,37 @@ export type DecidedLeadRow = {
   stage: string | null
 }
 
+/** One target and how it is tracking. ⚠ `expected_by_now` is null for rate metrics. */
+export type GoalRow = {
+  id: string
+  metric: string
+  grain: 'month' | 'quarter' | 'year'
+  period_start: string
+  period_end: string
+  target: number
+  /** Null when the metric key is unknown or the period has no data. */
+  actual: number | null
+  attainment_pct: number | null
+  elapsed_pct: number
+  /**
+   * The prorated target for today. ⚠ NULL for a rate metric, deliberately —
+   * a close rate does not accumulate, so "you should be at 48% of your close
+   * rate by now" would be nonsense. See lib/reports/goals.ts.
+   */
+  expected_by_now: number | null
+  cumulative: boolean
+  closed: boolean
+  status: 'hit' | 'missed' | 'on_track' | 'behind' | 'open' | 'unknown'
+}
+
+export type GoalsRow = {
+  as_of: string
+  goals: GoalRow[]
+  /** Everything overlapping the window, so a truncated list can say so. */
+  total_in_window: number
+  shown: number
+}
+
 /** One person's own scorecard. ⚠ Carries no pay — see scoreboard_people. */
 export type Person = {
   user_id: string | null
@@ -748,6 +779,16 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
       // manages the board, not something to show a technician their own card.
       unmatched_sales: [],
     } as PeopleRow]
+  },
+
+  goals: async (ctx, params) => {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_goals', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`goals: ${error.message}`)
+    return data ? [data as GoalsRow] : []
   },
 
   leads_decided: async (ctx, params) => {

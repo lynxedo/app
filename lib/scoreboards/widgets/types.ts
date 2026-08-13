@@ -42,6 +42,7 @@ export type SourceKey =
   | 'sales_pipeline'
   | 'home_pulse'
   | 'people'
+  | 'goals'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 
