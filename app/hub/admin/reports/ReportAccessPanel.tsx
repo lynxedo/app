@@ -58,6 +58,11 @@ export default function ReportAccessPanel({
           Admin&nbsp;&rarr;&nbsp;People to appear here, then sees only the reports you turn on below — nothing until
           granted. Admins always see every report. Changes save automatically.
         </p>
+        <p className="text-sky-300/80 text-sm mt-2">
+          <strong>People Performance</strong> works differently on purpose: everyone in the Hub can always open it to
+          see their <em>own</em> numbers, whether or not they appear in this list. Turning it on here grants the
+          <strong> team view</strong> &mdash; everyone else&rsquo;s rows &mdash; not entry to the report.
+        </p>
         <p className="text-amber-300/80 text-sm mt-2">
           Two of these show pay information: <strong>Crew &amp; Labor Efficiency</strong> lists what each person earns
           per labour hour, and <strong>Service Line Profitability</strong> shows wage totals by service line. Grant
@@ -93,7 +98,15 @@ export default function ReportAccessPanel({
                             : 'bg-sky-600 border-sky-500 text-[#fff]'
                           : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600'
                       } ${savingKey === key ? 'opacity-60' : ''}`}
-                      title={on ? `Click to hide ${r.title}` : `Click to show ${r.title}`}
+                      title={
+                        r.slug === 'people'
+                          ? on
+                            ? `Click to remove ${r.title} team view (they keep their own card)`
+                            : `Click to grant ${r.title} team view`
+                          : on
+                            ? `Click to hide ${r.title}`
+                            : `Click to show ${r.title}`
+                      }
                     >
                       {r.title}
                       {r.sensitive && <span className="ml-1.5 opacity-80">$</span>}

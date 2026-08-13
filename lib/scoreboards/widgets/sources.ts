@@ -45,6 +45,17 @@ export type SourceContext = {
   /** Service-role, for `scoreboard_*` RPCs only. See the warning above. */
   rpcClient: ServiceClient
   companyId: string
+  /** Who is looking. Sources that return per-person data mark their row. */
+  viewerUserId: string
+  /**
+   * Whether this viewer may see OTHER people's performance.
+   *
+   * ⚠ People Performance is the one report anyone with Hub access can open,
+   * because it is how a person sees their own numbers. Everything about a
+   * colleague is withheld unless this is true. The narrowing happens in the
+   * source, server-side, before any payload is built — never in the component.
+   */
+  canSeeOthersPerformance: boolean
 }
 
 export type SourceExecutor = (ctx: SourceContext, params: SourceParams) => Promise<unknown[]>
@@ -72,6 +83,78 @@ export type ScorecardRow = {
 export type DecidedLeadRow = {
   lead_source: string | null
   stage: string | null
+}
+
+/** One person's own scorecard. ⚠ Carries no pay — see scoreboard_people. */
+export type Person = {
+  user_id: string | null
+  employee_id: string
+  name: string
+  department: string | null
+  is_active: boolean
+  is_field_labor: boolean
+  /** True on the row belonging to whoever is looking at the report. */
+  is_viewer: boolean
+  sales: {
+    leads: number
+    won: number
+    decided: number
+    /** Null below the fair-rating floor — see `rate_min_sample`. */
+    close_rate: number | null
+    sold_value: number
+    avg_deal: number | null
+  }
+  field: {
+    hours: number
+    revenue: number | null
+    rev_per_hour: number | null
+    /** False for salaried staff and anyone under an hour. */
+    rankable: boolean
+    /** False when nobody in Jobber matches them, so no work can be credited. */
+    attributable: boolean
+  }
+  phone: {
+    /** A fact. ⚠ There is deliberately no personal answer RATE — see below. */
+    calls_answered: number
+    calls_placed: number
+    median_answer_sec: number | null
+    texts_sent: number
+  }
+}
+
+/**
+ * People Performance (§8.7) — one row per person, plus the context that makes a
+ * personal number fair to read.
+ *
+ * ⚠ `people` is narrowed to the viewer alone unless they hold the report grant.
+ * ⚠ The office block exists because the answer RATE is an office outcome, not a
+ *   personal one: `calls.handled_by` is a routing stamp written before the call
+ *   is offered, so "answered ÷ routed" would libel whoever the line points at.
+ */
+export type PeopleRow = {
+  scope: 'self' | 'team'
+  coverage: CrewLaborRow['coverage']
+  /** Minimum decided leads before a close rate is shown at all. */
+  rate_min_sample: number
+  people: Person[]
+  departments: {
+    department: string
+    people: number
+    hours: number
+    revenue: number
+    rev_per_hour: number | null
+  }[]
+  office: {
+    inbound_calls: number
+    missed: number
+    missed_pct: number | null
+    median_answer_sec: number | null
+    texts_in: number
+    texts_out: number
+    median_reply_sec: number | null
+  }
+  /** Salesperson names that matched nobody, or matched more than one person. */
+  unmatched_sales: { name: string; leads: number; won: number; sold_value: number }[]
 }
 
 /** One row per year — the whole retention picture for that year's book. */
@@ -628,6 +711,43 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`home_pulse: ${error.message}`)
     return data ? [data as HomePulseRow] : []
+  },
+
+  /**
+   * ⚠⚠ THE NARROWING BELOW IS THE PERMISSION BOUNDARY FOR THIS REPORT.
+   *
+   * People Performance is openable by anyone with Hub access, so that a person
+   * can see their own numbers. Everyone else's row is stripped HERE — in the
+   * source, before any payload exists — rather than hidden in a component,
+   * where it would still have been sent to the browser.
+   */
+  people: async (ctx, params) => {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_people', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`people: ${error.message}`)
+    if (!data) return []
+
+    const row = data as Omit<PeopleRow, 'scope'> & { people: Omit<Person, 'is_viewer'>[] }
+    const mark = (p: Omit<Person, 'is_viewer'>): Person => ({
+      ...p,
+      is_viewer: p.user_id != null && p.user_id === ctx.viewerUserId,
+    })
+    const people = (row.people ?? []).map(mark)
+
+    if (ctx.canSeeOthersPerformance) {
+      return [{ ...row, scope: 'team', people } as PeopleRow]
+    }
+    return [{
+      ...row,
+      scope: 'self',
+      people: people.filter(p => p.is_viewer),
+      // Which names failed to match a person is an attribution gap for whoever
+      // manages the board, not something to show a technician their own card.
+      unmatched_sales: [],
+    } as PeopleRow]
   },
 
   leads_decided: async (ctx, params) => {
