@@ -2184,6 +2184,49 @@ async function syncQuotesSafe(
   }
 }
 
+/**
+ * One-time FULL quote pull, ignoring `updatedAt`.
+ *
+ * ⚠⚠ THE NIGHTLY DELTA CANNOT POPULATE A NEWLY ADDED ENTITY. It filters on
+ * "updated since the last completed sync", so on the day quotes were added to the
+ * mirror it would fetch only quotes touched after that moment — every quote sent in
+ * the preceding months would silently never arrive, and the Sales report would draw a
+ * thin recent-only picture with nothing on screen saying why. That is the same failure
+ * as `jobber_users` being write-once for two months: absent data looks exactly like a
+ * business with no history.
+ *
+ * So adding an entity to the mirror needs an explicit first full pull. Kept as its own
+ * callable rather than folded into the delta because it is also the right tool for a
+ * new subscriber, and for re-reading the book if quotes ever drift.
+ *
+ * Bounded by the company's history floor and paged, so it is minutes at worst — quote
+ * volume is a fraction of visits or invoices.
+ */
+export async function runJobberQuoteBackfill(
+  companyId: string,
+): Promise<{ quotes: number; error?: string }> {
+  let userId: string
+  try {
+    userId = await resolveJobberUserId(companyId) ?? ''
+    if (!userId) return { quotes: 0, error: 'no Jobber connection for this company' }
+  } catch (e) {
+    return { quotes: 0, error: e instanceof Error ? e.message : String(e) }
+  }
+
+  try {
+    const quotes = await syncQuotes(userId, companyId)
+    return { quotes }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return {
+      quotes: 0,
+      error: isMissingQuoteScope(msg)
+        ? 'Jobber needs reconnecting to grant read_quotes'
+        : msg,
+    }
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /** The entity pulls a full backfill walks through, in dependency order.
