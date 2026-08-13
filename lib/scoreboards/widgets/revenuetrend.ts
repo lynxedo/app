@@ -18,6 +18,9 @@
 import type { RevenueTrendRow } from './sources'
 import type { SourceBag, SourceRequest, WidgetConfig, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
+// Same code→name map the Service Line report uses, so "MO" never appears on one
+// screen while "Mosquito" appears on another.
+import { lineName } from './servicelines'
 
 /* ── window maths ────────────────────────────────────────────────────────────
  *
@@ -268,8 +271,8 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
         // the cent. That is why this one carries no caveat and the tech one does.
         sub: `${windowPhrase(w, cfg, periods.length)} · adds up to total visit revenue`,
         scale: 'magnitude',
-        rows: stackRows(periods, lines, keys, k => k, w.grain, spans),
-        legend: keys.map(k => ({ label: k, tone: toneFor(k, keys) })),
+        rows: stackRows(periods, lines, keys, lineName, w.grain, spans),
+        legend: keys.map(k => ({ label: lineName(k), tone: toneFor(k, keys) })),
         empty: 'No completed visits in this period',
       }
     },

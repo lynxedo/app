@@ -52,7 +52,16 @@ const LINE_NAMES: Record<string, string> = {
   Other: 'Other / Unclassified',
 }
 
-function lineName(dept: string): string {
+/**
+ * Exported so the visit-revenue trend charts label departments the same way this
+ * report does. A chart reading "MO" beside a report reading "Mosquito" is the same
+ * data wearing two names.
+ *
+ * ⚠ A near-duplicate still lives in ./quotes.ts as SERVICE_LABEL, with slightly
+ * different wording ("Weed & Feed" vs "Weed Fert"). Worth folding into one map;
+ * not done here because it would change strings on a shipped report.
+ */
+export function lineName(dept: string): string {
   return LINE_NAMES[dept] ?? dept
 }
 
