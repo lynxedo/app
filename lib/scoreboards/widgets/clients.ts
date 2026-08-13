@@ -21,6 +21,7 @@
  */
 
 import { formatCurrency } from '@/lib/format'
+import { customerFileHref } from '@/lib/customer-file-href'
 import type { ClientsRow, ClientsGeoRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
@@ -220,6 +221,10 @@ export const CLIENTS_WIDGETS: WidgetDef<WidgetPayload>[] = [
           key: c.client_id,
           cells: {
             name: c.name,
+            // Not a column — it carries the link for the Customer cell. The quiet
+            // big spender this card exists to surface is precisely the one somebody
+            // should ring, so the name has to open their file.
+            name_href: c.client_id ? customerFileHref(c.client_id) : null,
             billed: num(c.billed),
             invoices: num(c.invoices),
             last: c.last_billed ?? '—',
@@ -239,7 +244,7 @@ export const CLIENTS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         title: 'Best Customers',
         sub: `Ranked by amount ${billedSince(r)}`,
         columns: [
-          { key: 'name', label: 'Customer', align: 'left' },
+          { key: 'name', label: 'Customer', align: 'left', link: { hrefKey: 'name_href' } },
           { key: 'billed', label: 'Billed', align: 'right', format: 'currency', sortable: true },
           { key: 'invoices', label: 'Invoices', align: 'right', format: 'number' },
           { key: 'last', label: 'Last invoice', align: 'left' },

@@ -510,6 +510,8 @@ export type QuoteOpenRow = {
   list: {
     quote_number: string | null
     client: string
+    /** Jobber-mirror client id, for the click-through to the customer file. */
+    client_id: string | null
     days_out: number
     viewed: boolean
     service: string
