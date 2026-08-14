@@ -19,7 +19,12 @@ import { consumePendingAction, newestPendingShortId, stageOutwardAction } from '
 import { addContactNoteAction, customerOverviewAction, findContactAction } from './actions-contacts'
 import { queryDataAction } from './actions-data'
 import { getScheduleAction } from './actions-schedule'
-import { previewCustomerText, searchTextsAction, sendCustomerTextAction } from './actions-txt'
+import {
+  previewCustomerText,
+  readTextConversationAction,
+  searchTextsAction,
+  sendCustomerTextAction,
+} from './actions-txt'
 import { callActivityAction } from './actions-calls'
 import { listLeadsAction, upsertLeadAction } from './actions-tracker'
 import { createTaskAction, listTasksAction } from './actions-boards'
@@ -67,6 +72,7 @@ const ALL_ACTIONS: HubAction[] = [
   queryDataAction,
   getScheduleAction,
   searchTextsAction,
+  readTextConversationAction,
   callActivityAction,
   listLeadsAction,
   upsertLeadAction,
@@ -121,6 +127,34 @@ function isConsequential(a: HubAction): boolean {
   return a.kind === 'outward' || a.kind === 'jobber_write'
 }
 
+/**
+ * May this action run over MCP (a connected Claude app)?
+ *
+ * ⚠ Asked PER KIND, not once for "consequential". The two kinds are different
+ * risks with different audiences — texting a customer is visible to them
+ * immediately and goes out under the asking user's own name, while a wrong
+ * schedule change is silent until a crew turns up on the wrong day — so a company
+ * that wants Claude to handle its texts must not have to hand over the Jobber
+ * calendar to get it. One shared flag made that impossible.
+ */
+function mcpAllowsAction(a: HubAction, settings: AssistantSettings): boolean {
+  if (a.kind === 'outward') return settings.allowOutwardOverMcp
+  if (a.kind === 'jobber_write') return settings.allowJobberWritesOverMcp
+  return true
+}
+
+/** What to tell the model when this company hasn't opened that door over MCP. */
+function mcpRefusal(a: HubAction): string {
+  const what =
+    a.kind === 'jobber_write'
+      ? 'Changing the Jobber schedule from a connected Claude app is turned off for this company'
+      : 'Texting customers from a connected Claude app is turned off for this company'
+  return (
+    `${what}, so "${a.name}" can't run here and nothing happened. Tell the user they can do it in the ` +
+    `Hub itself, or an admin can allow it in Admin → AI → Assistant.`
+  )
+}
+
 function confirmationRequired(a: HubAction, settings: AssistantSettings): boolean {
   if (a.kind === 'outward') return settings.requireConfirmation
   if (a.kind === 'jobber_write') return settings.requireJobberConfirmation
@@ -155,7 +189,7 @@ export function listHubActions(actor: HubActor, settings: AssistantSettings): Hu
     if (!isActionAllowedByCompany(a, settings)) return false
     // Don't advertise a consequential action over MCP when this company hasn't
     // allowed it — offering a tool that always refuses is just noise.
-    if (isConsequential(a) && actor.source === 'mcp' && !settings.allowOutwardOverMcp) return false
+    if (isConsequential(a) && actor.source === 'mcp' && !mcpAllowsAction(a, settings)) return false
     return actorPassesGate(actor, a.gate)
   })
 
@@ -208,13 +242,9 @@ export async function runHubAction(
     if (isConsequential(action)) {
       // Over MCP there are no turn boundaries we can see, so the same-turn
       // confirmation binding can't protect that door — approval would rest
-      // entirely on the connected client's own UI. Off unless opted into.
-      if (ctx.actor.source === 'mcp' && !settings.allowOutwardOverMcp) {
-        return (
-          `Actions that reach customers or change the Jobber schedule are turned off for connected ` +
-          `Claude apps in this company, so "${action.name}" can't run here and nothing happened. Tell the ` +
-          `user they can do it in the Hub itself, or an admin can allow it in Admin → AI → Assistant.`
-        )
+      // entirely on the connected client's own UI. Off per kind unless opted into.
+      if (ctx.actor.source === 'mcp' && !mcpAllowsAction(action, settings)) {
+        return mcpRefusal(action)
       }
       if (confirmationRequired(action, settings)) {
         return await stagePreview(ctx, action, args)
