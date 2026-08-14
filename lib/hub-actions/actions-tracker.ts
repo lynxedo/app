@@ -143,6 +143,9 @@ const LEAD_STAGES = new Set([
  */
 const SOLD_SERVICE_CODES = new Set(['IRR SC', 'WF - Lawn Health', 'MOS'])
 
+/** Stages where a lead is still live — i.e. a sale could still be closing it. */
+const OPEN_STAGES = new Set(['current', 'appointment_set', 'follow_up_long_term'])
+
 /** Digits only — the canonical storage form, and what matching compares. */
 function phoneDigits(raw: string): string {
   const d = raw.replace(/\D/g, '')
@@ -207,12 +210,16 @@ export const upsertLeadAction: HubAction = {
   description:
     'Record a sale (or a stage change) on the Lead Tracker, and add a note to the lead. Use this to ' +
     'close out a job setup: it finds the existing lead by phone and updates it, or creates one if there ' +
-    "is no match. Most jobs already have a lead — the after-hours receptionist creates them — so don't " +
-    'assume you need a new one. ' +
+    'is no open lead for it to close. ' +
+    'The Tracker holds ONE LINE PER SALE, not one per customer: a repeat customer is meant to have ' +
+    'several lines, and every service call is its own sale. So a returning customer whose previous ' +
+    'sales are all closed gets a NEW line here — that is correct, not a duplicate, and you should say ' +
+    'so plainly rather than warning about one. Their name and address are carried over for you. ' +
+    'An open lead (the after-hours receptionist usually creates one) is updated instead, because the ' +
+    'sale is closing that lead. ' +
     'NEVER guess lead_source or salesperson; if you do not know them, ask. Contact fields you pass are ' +
     'only filled in where the existing lead is blank, so an update cannot quietly overwrite a real name ' +
-    'or address with a worse one. If more than one lead matches the phone this refuses and lists them — ' +
-    'pass lead_id to say which one you mean.',
+    'or address with a worse one.',
   input_schema: {
     type: 'object',
     properties: {
@@ -307,7 +314,23 @@ export const upsertLeadAction: HubAction = {
     }
 
     // -- Find the lead ---------------------------------------------------------
+    //
+    // ⚠ ONE ROW PER SALE, not one row per customer. A repeat customer is SUPPOSED
+    // to have several rows — every service call is its own sale and has to appear
+    // on its own line, or the second one never shows up in revenue. 92 customers
+    // already look like this, 91 of them with every row closed.
+    //
+    // So the question is never "does this person exist?", it is "is there an OPEN
+    // lead this sale is closing?":
+    //   • exactly one open   → this sale came through that lead, update it
+    //   • none open          → a fresh sale for a known customer, add a new row
+    //   • more than one open → genuinely ambiguous, ask (one customer company-wide)
+    //
+    // An earlier version refused whenever a phone matched more than once, which
+    // read as "duplicate detected" and blocked the single most ordinary case
+    // there is: a repeat customer buying again.
     let existing: LeadRow | null = null
+    let priorForContact: LeadRow | null = null
 
     if (leadId) {
       const { data } = await ctx.admin
@@ -318,39 +341,24 @@ export const upsertLeadAction: HubAction = {
         .limit(1)
       existing = ((data || []) as LeadRow[])[0] ?? null
       if (!existing) return "There's no lead with that id on this company's Tracker."
-    } else if (digits) {
-      const { data } = await ctx.admin
-        .from('leads')
-        .select(LEAD_COLS)
-        .eq('company_id', ctx.actor.companyId)
-        .in('phone', phoneVariants(digits))
-        .order('created_at', { ascending: false })
-        .limit(10)
+    } else if (digits || lastName) {
+      let q = ctx.admin.from('leads').select(LEAD_COLS).eq('company_id', ctx.actor.companyId)
+      q = digits ? q.in('phone', phoneVariants(digits)) : q.ilike('last_name', lastName)
+      const { data } = await q.order('created_at', { ascending: false }).limit(20)
       const hits = (data || []) as LeadRow[]
-      if (hits.length > 1) {
+
+      const open = hits.filter((l) => OPEN_STAGES.has((l.stage || '').toLowerCase()))
+      if (open.length > 1) {
         return lines(
-          `${hits.length} leads share that phone number, so I won't guess which one this sale belongs to. ` +
-            'Ask the user which, then call again with lead_id:',
-          ...hits.map((l) => `• ${leadLabel(l)} — lead_id ${l.id}`),
+          `${open.length} leads for this customer are still open, so I won't guess which one this sale ` +
+            'closes. Nothing was saved — ask which, then call again with lead_id:',
+          ...open.map((l) => `• ${leadLabel(l)} — lead_id ${l.id}`),
         )
       }
-      existing = hits[0] ?? null
-    } else if (lastName) {
-      const { data } = await ctx.admin
-        .from('leads')
-        .select(LEAD_COLS)
-        .eq('company_id', ctx.actor.companyId)
-        .ilike('last_name', lastName)
-        .order('created_at', { ascending: false })
-        .limit(10)
-      const hits = (data || []) as LeadRow[]
-      if (hits.length > 1) {
-        return lines(
-          `Several leads have the last name "${lastName}". Give me the phone number, or pass lead_id:`,
-          ...hits.map((l) => `• ${leadLabel(l)} — lead_id ${l.id}`),
-        )
-      }
-      existing = hits[0] ?? null
+      existing = open[0] ?? null
+      // Newest row of any stage, used only to carry a known customer's details
+      // onto a brand-new row so a repeat sale doesn't have to be re-typed.
+      priorForContact = hits[0] ?? null
     } else {
       return 'Give me the phone number so I can find the lead (or lead_id if you already know it).'
     }
@@ -432,13 +440,30 @@ export const upsertLeadAction: HubAction = {
       )
     }
 
-    // -- No match: create ------------------------------------------------------
-    if (!contact.first_name && !contact.last_name) {
-      return "No lead matches that phone, so this would create a new one — but I need at least a name first. Ask for it rather than creating an unnamed lead."
+    // -- New row --------------------------------------------------------------
+    // Either a customer we've never seen, or — far more often — a known one whose
+    // previous sales are all closed. The second case is a REPEAT SALE and gets its
+    // own line, which is the point of this whole action.
+    const repeat = priorForContact !== null
+
+    // A repeat customer's details are already on file; making the caller retype
+    // them would be the fastest way to end up with a name spelt two ways.
+    const carried: Record<string, string> = {}
+    if (repeat && priorForContact) {
+      for (const k of ['first_name', 'last_name', 'phone', 'email', 'service_address'] as const) {
+        const v = priorForContact[k]
+        if (typeof v === 'string' && v.trim()) carried[k] = v
+      }
     }
+    const contactFields = { ...carried, ...Object.fromEntries(Object.entries(contact).filter(([, v]) => v)) }
+
+    if (!contactFields.first_name && !contactFields.last_name) {
+      return 'This would start a new line on the Tracker, but I have no name to put on it. Ask for the name rather than creating an unnamed lead. Nothing was saved.'
+    }
+
     const insert: Record<string, unknown> = {
       ...sale,
-      ...Object.fromEntries(Object.entries(contact).filter(([, v]) => v)),
+      ...contactFields,
       company_id: ctx.actor.companyId,
     }
     if (stage) insert.stage_changed_at = new Date().toISOString()
@@ -448,13 +473,15 @@ export const upsertLeadAction: HubAction = {
     const newId = ((created || []) as Array<{ id: string }>)[0]?.id
     if (!newId) return "The lead didn't save — nothing was added to the Tracker."
 
-    const noteResult = await addLeadNote(ctx, newId, note)
+    const who = [contactFields.first_name, contactFields.last_name].filter(Boolean).join(' ').trim()
     return lines(
-      `Created a new Tracker lead for ${[contact.first_name, contact.last_name].filter(Boolean).join(' ').trim()}.`,
-      `  No existing lead matched ${phone(digits) || 'that number'} — check that's right rather than a duplicate.`,
+      repeat
+        ? `Added a new Tracker line for ${who} — a repeat customer, so this sale sits alongside their earlier ones rather than replacing any.`
+        : `Created a new Tracker lead for ${who}.`,
+      repeat ? null : `  Nothing on file matched ${phone(digits) || 'that number'}, so this is a first-time customer.`,
       stage ? `  Stage: ${stage}` : null,
       annualValue !== null ? `  Annual value: $${annualValue.toFixed(0)}` : null,
-      noteResult,
+      await addLeadNote(ctx, newId, note),
     )
   },
 }
