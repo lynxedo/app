@@ -33,7 +33,25 @@ const MCP_URL = 'https://mcp.lynxedo.com/mcp'
 // instead — which is the long-term home for these capabilities.
 const HEROES_MCP_COMPANY_ID =
   process.env.HEROES_MCP_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-const MAX_TOOL_ITERATIONS = 6
+// How many rounds of tool use one turn may take.
+//
+// ⚠ This was 6, and 6 was far too low for the work people actually ask for. Real
+// requests routinely spent two rounds on knowledge docs before starting, then one
+// round per page of a paginated API — so "give me the service addresses of the PW
+// customers" and a multi-step Jobber reschedule both died at the ceiling, and the
+// old behaviour on hitting it was to DISCARD every result gathered and reply
+// "I wasn't able to complete that request." One real turn threw away 1,825 tokens
+// of finished work that way.
+//
+// Two things changed together, and the second matters more than the number: the
+// ceiling is higher, and running out is now a wrap-up (answer with what you have,
+// say what's missing) instead of a silent failure. So a generous cap is safe —
+// the worst case is a partial answer, not a lie.
+const MAX_TOOL_ITERATIONS = 16
+// Wall-clock ceiling for the whole agentic turn. The iteration count alone can't
+// bound latency: 16 rounds of a slow external API is minutes of silence in a chat
+// window. Whichever limit is reached first triggers the same wrap-up.
+const TOOL_LOOP_BUDGET_MS = 180_000
 const TOOLS_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
 const WEB_SEARCH_TOOL_TYPE = 'web_search_20250305'
 const PER_QUESTION_SEARCH_BUDGET = 3
@@ -274,6 +292,8 @@ export async function askClaude({
   // Sentinel for the final answer Guardian returns.
   let finalAnswer = ''
 
+  const loopStartedAt = Date.now()
+
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       // Compute remaining web-search budget for THIS iteration. Anthropic
@@ -406,9 +426,60 @@ export async function askClaude({
       )
 
       messages.push({ role: 'user', content: toolResults })
+
+      if (Date.now() - loopStartedAt > TOOL_LOOP_BUDGET_MS) break
     }
 
-    finalAnswer = "I wasn't able to complete that request."
+    // Out of tool budget (iterations or wall clock). Everything gathered this turn
+    // is sitting in `messages` — throwing it away and replying "I wasn't able to
+    // complete that request" is the worst available outcome: the user can't tell a
+    // real dead end from a ceiling, and work that was actually finished looks like
+    // a failure. So ask for a final answer with NO tools instead: partial results
+    // plus an honest account of what's missing.
+    const WRAP_UP =
+      'You have used up the tool budget for this turn, so you cannot call any more tools. ' +
+      'Answer now using everything you have already gathered above. Give the user the real ' +
+      'partial result — the rows, names, numbers or steps you did get — and then say plainly ' +
+      'which part you did not finish and what would finish it (a narrower question, or asking ' +
+      'you to continue). Do NOT say you were unable to complete the request if you have any ' +
+      'usable information, and do not invent anything you did not retrieve.'
+
+    const lastMessage = messages[messages.length - 1]
+    if (lastMessage && lastMessage.role === 'user' && Array.isArray(lastMessage.content)) {
+      // Append to the tool_result message rather than pushing a second user turn —
+      // consecutive same-role messages are not valid on the API.
+      ;(lastMessage.content as Anthropic.ContentBlockParam[]).push({ type: 'text', text: WRAP_UP })
+    } else {
+      messages.push({ role: 'user', content: WRAP_UP })
+    }
+
+    try {
+      const wrapUp = await anthropic.messages.create({
+        model,
+        max_tokens: 4096,
+        system,
+        messages,
+        // No tools on purpose — this call must terminate.
+      })
+      lastUsage = wrapUp.usage as { input_tokens?: number; output_tokens?: number }
+      finalAnswer = wrapUp.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map(b => b.text)
+        .join('')
+        .trim()
+    } catch (e) {
+      console.warn('[guardian] wrap-up call failed:', e)
+    }
+
+    if (!finalAnswer) {
+      // Even the wrap-up failed. Name the work that was done rather than implying
+      // nothing happened — some of these tools have already changed real records.
+      finalAnswer = allToolCalls.length
+        ? `I ran out of room on this one after ${allToolCalls.length} lookups and couldn't pull the answer together. ` +
+          `I did run: ${[...new Set(allToolCalls)].join(', ')} — so some of that may have gone through. ` +
+          `Ask me again with a narrower question and I'll get it.`
+        : "I wasn't able to complete that request."
+    }
     return finalAnswer
   } finally {
     // Billing meter — ONE row per assistant turn, not one per tool call.

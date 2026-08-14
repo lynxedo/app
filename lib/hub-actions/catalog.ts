@@ -17,6 +17,7 @@ import type { AssistantSettings } from './settings'
 import { consumePendingAction, stageOutwardAction } from './pending'
 
 import { addContactNoteAction, customerOverviewAction, findContactAction } from './actions-contacts'
+import { queryDataAction } from './actions-data'
 import { getScheduleAction } from './actions-schedule'
 import { previewCustomerText, searchTextsAction, sendCustomerTextAction } from './actions-txt'
 import { callActivityAction } from './actions-calls'
@@ -55,6 +56,7 @@ const confirmAction: HubAction = {
 const ALL_ACTIONS: HubAction[] = [
   findContactAction,
   customerOverviewAction,
+  queryDataAction,
   getScheduleAction,
   searchTextsAction,
   callActivityAction,
