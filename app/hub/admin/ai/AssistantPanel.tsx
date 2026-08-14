@@ -24,6 +24,7 @@ type Settings = {
   mcpEnabled: boolean
   requireConfirmation: boolean
   allowOutwardOverMcp: boolean
+  allowJobberWritesOverMcp: boolean
   requireJobberConfirmation: boolean
   disabledActions: string[]
   enabledActions: string[]
@@ -149,6 +150,7 @@ export default function AssistantPanel({
           mcp_enabled: settings.mcpEnabled,
           require_confirmation: settings.requireConfirmation,
           allow_outward_over_mcp: settings.allowOutwardOverMcp,
+          allow_jobber_writes_over_mcp: settings.allowJobberWritesOverMcp,
           require_jobber_confirmation: settings.requireJobberConfirmation,
           disabled_actions: settings.disabledActions,
           enabled_actions: settings.enabledActions,
@@ -237,21 +239,35 @@ export default function AssistantPanel({
             onChange={(v) => setSettings({ ...settings, requireConfirmation: v })}
           />
           <Toggle
-            label="Let connected Claude apps text customers and change Jobber visits"
-            hint="Off by default, and only ever affects outside Claude apps — never the Hub itself. It covers four things: texting a customer, and rescheduling, reassigning or completing a visit. Everything else — lookups, the schedule, leads, tasks, Hub messages — works through a connected app either way."
+            label="Let connected Claude apps text customers"
+            hint="Off by default, and only ever affects outside Claude apps — never the Hub itself. Reading text conversations works through a connected app either way; this is only about sending."
             checked={settings.allowOutwardOverMcp}
             disabled={!settings.enabled || !settings.mcpEnabled}
             onChange={(v) => setSettings({ ...settings, allowOutwardOverMcp: v })}
           />
           {settings.allowOutwardOverMcp && (
             <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
-              With this on, a connected Claude app can text a customer or move a visit on your Jobber
-              calendar. <strong className="text-amber-100">The Hub&apos;s own approval step
-              doesn&apos;t apply there</strong> — inside the Hub nothing goes out until a person
-              replies to approve it, but a connected app can&apos;t be held to that, so approval rests
-              on that app asking you first. Two things to weigh: a customer text goes out as the
-              person who asked for it, under their name and signature; and a wrong schedule change is
-              quiet — no customer sees it, a crew just shows up on the wrong day.
+              With this on, a connected Claude app can send a real text to a customer. It still shows
+              you the exact recipient and wording first and needs a second, separate go-ahead — but{' '}
+              <strong className="text-amber-100">that approval is the Claude app asking you, not the
+              Hub holding the message back</strong>, so only turn this on for an app you trust to ask.
+              The text goes out as the person who asked for it, under their own name and signature,
+              and lands in their Txt inbox so the customer&apos;s reply reaches a human.
+            </p>
+          )}
+          <Toggle
+            label="Let connected Claude apps change Jobber visits"
+            hint="Off by default. Covers rescheduling, reassigning and completing visits. Separate from texting on purpose — you can let Claude handle your texts without giving it the crew calendar."
+            checked={settings.allowJobberWritesOverMcp}
+            disabled={!settings.enabled || !settings.mcpEnabled}
+            onChange={(v) => setSettings({ ...settings, allowJobberWritesOverMcp: v })}
+          />
+          {settings.allowJobberWritesOverMcp && (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+              With this on, a connected Claude app can move a visit on your real Jobber calendar.
+              Weigh this one differently from texting:{' '}
+              <strong className="text-amber-100">a wrong schedule change is quiet</strong> — no
+              customer sees it and nothing looks broken, a crew just shows up on the wrong day.
             </p>
           )}
           <Toggle

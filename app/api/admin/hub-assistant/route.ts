@@ -116,6 +116,9 @@ export async function PUT(request: Request) {
   if ('enabled' in body) update.enabled = body.enabled === true
   if ('mcp_enabled' in body) update.mcp_enabled = body.mcp_enabled === true
   if ('allow_outward_over_mcp' in body) update.allow_outward_over_mcp = body.allow_outward_over_mcp === true
+  if ('allow_jobber_writes_over_mcp' in body) {
+    update.allow_jobber_writes_over_mcp = body.allow_jobber_writes_over_mcp === true
+  }
   if ('require_confirmation' in body) update.require_confirmation = body.require_confirmation === true
   if ('require_jobber_confirmation' in body) {
     update.require_jobber_confirmation = body.require_jobber_confirmation === true

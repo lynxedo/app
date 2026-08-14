@@ -11,13 +11,22 @@ export type AssistantSettings = {
   /** Whether outward actions must be previewed + confirmed. */
   requireConfirmation: boolean
   /**
-   * Whether customer-facing actions may run over MCP at all. Off by default: the
-   * same-turn confirmation binding can't protect that door (each tools/call is
-   * its own request, so there are no turn boundaries we can see), which leaves
-   * approval resting entirely on the connected Claude client's own per-tool
-   * confirmation UI. That's a call for the company to make deliberately.
+   * Whether customer-facing actions (texting a customer) may run over MCP at
+   * all. Off by default: the same-turn confirmation binding can't protect that
+   * door (each tools/call is its own request, so there are no turn boundaries we
+   * can see), which leaves approval resting entirely on the connected Claude
+   * client's own per-tool confirmation UI. That's a call for the company to make
+   * deliberately.
    */
   allowOutwardOverMcp: boolean
+  /**
+   * Whether Jobber schedule writes may run over MCP. Its OWN switch rather than
+   * riding on allowOutwardOverMcp: a company that wants Claude to handle its
+   * texts should not have to hand over the crew calendar to get it, and the two
+   * failure modes are nothing alike — a bad text is visible to the customer at
+   * once, a bad reschedule is silent until a truck shows up on the wrong day.
+   */
+  allowJobberWritesOverMcp: boolean
   /** Whether Jobber schedule changes must be previewed + confirmed. */
   requireJobberConfirmation: boolean
   /** Default-ON actions this company has turned OFF. */
@@ -40,6 +49,7 @@ const DEFAULTS: AssistantSettings = {
   mcpEnabled: false,
   requireConfirmation: true,
   allowOutwardOverMcp: false,
+  allowJobberWritesOverMcp: false,
   requireJobberConfirmation: true,
   disabledActions: [],
   enabledActions: [],
@@ -57,7 +67,7 @@ export async function getAssistantSettings(
     const { data } = await admin
       .from('hub_assistant_settings')
       .select(
-        'enabled, mcp_enabled, require_confirmation, allow_outward_over_mcp, require_jobber_confirmation, disabled_actions, enabled_actions, memory_mode',
+        'enabled, mcp_enabled, require_confirmation, allow_outward_over_mcp, allow_jobber_writes_over_mcp, require_jobber_confirmation, disabled_actions, enabled_actions, memory_mode',
       )
       .eq('company_id', companyId)
       .maybeSingle()
@@ -67,6 +77,7 @@ export async function getAssistantSettings(
       mcp_enabled?: boolean | null
       require_confirmation?: boolean | null
       allow_outward_over_mcp?: boolean | null
+      allow_jobber_writes_over_mcp?: boolean | null
       require_jobber_confirmation?: boolean | null
       disabled_actions?: string[] | null
       enabled_actions?: string[] | null
@@ -78,6 +89,7 @@ export async function getAssistantSettings(
       // Only an explicit false turns confirmation off — a null must not open it.
       requireConfirmation: d.require_confirmation !== false,
       allowOutwardOverMcp: d.allow_outward_over_mcp === true,
+      allowJobberWritesOverMcp: d.allow_jobber_writes_over_mcp === true,
       // Null must not open it, same reasoning as requireConfirmation above.
       requireJobberConfirmation: d.require_jobber_confirmation !== false,
       disabledActions: Array.isArray(d.disabled_actions) ? d.disabled_actions : [],
