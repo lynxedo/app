@@ -473,6 +473,7 @@ function HubAssistantTab() {
           <li><strong className="text-white">Check recent calls</strong> — plus missed calls and voicemails that still need follow-up.</li>
           <li><strong className="text-white">List sales leads</strong> from the <Link href="/hub/tracker" className="text-sky-400 hover:underline">Lead Tracker</Link>.</li>
           <li><strong className="text-white">See your open board tasks</strong> — or a teammate&apos;s, when you need to know what&apos;s on their plate.</li>
+          <li><strong className="text-white">Ask for a whole list, or a count, across the business</strong> — &ldquo;all the pet waste customers with their service addresses&rdquo;, &ldquo;how many irrigation jobs are on the books&rdquo;. See <em>Lists and counts</em> below.</li>
         </ul>
         <p className="mt-3"><strong className="text-white">Getting things done</strong></p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
@@ -481,6 +482,13 @@ function HubAssistantTab() {
           <li><strong className="text-white">Post a message</strong> to a room, or <strong className="text-white">DM a teammate</strong> — the message comes from the assistant, not from you, and ends with a short line saying it was posted at your request. It can only post in rooms you can already post in.</li>
           <li><strong className="text-white">Text a customer</strong> — always with your confirmation first (see below).</li>
         </ul>
+      </Section>
+
+      <Section title="Lists and Counts">
+        <p>Most questions are about one customer. When you want <strong className="text-white">many</strong> records at once — a whole service line, every address in a city, a total, a ranking — just ask for it that way. The assistant reads it straight out of your own Lynxedo database instead of stepping through Jobber one customer at a time, so a list that used to time out now comes back in seconds.</p>
+        <p className="mt-2 text-gray-400 text-xs">Examples: <em>&ldquo;give me all the service addresses of the PW customers&rdquo;</em> · <em>&ldquo;how many irrigation jobs are on the books?&rdquo;</em> · <em>&ldquo;which recurring customers cancelled this year, and why?&rdquo;</em></p>
+        <Note><strong className="text-white">If a list is too long it says so.</strong> Very large answers get capped, and the assistant tells you it&apos;s showing part of the set rather than passing it off as all of it — ask for a narrower slice, or a count, instead.</Note>
+        <AdminOnly>This reads the same material as <Link href="/hub/reports" className="text-sky-400 hover:underline">Reports</Link> — customer lists, revenue, invoices — so it follows the <strong className="text-white">Reports</strong> permission: a person needs Reports access in <strong className="text-white">Admin → People</strong> before the assistant will answer this kind of question for them (admins always can). That&apos;s deliberate — without it, asking the assistant would be a way around the per-report access you set. It is <strong className="text-white">read-only</strong> and cannot change or delete anything, and wages, payroll and call-coaching grades are never reachable through it.</AdminOnly>
       </Section>
 
       <Section title="It Can Work in Jobber Too">
