@@ -120,6 +120,13 @@ export async function PUT(request: Request) {
   if ('require_jobber_confirmation' in body) {
     update.require_jobber_confirmation = body.require_jobber_confirmation === true
   }
+  // Anything unrecognised is ignored rather than written: the column has a CHECK
+  // constraint, so a stray value would fail the whole upsert and lose the other
+  // settings the admin was saving at the same time.
+  if ('memory_mode' in body) {
+    const m = body.memory_mode
+    if (m === 'off' || m === 'light' || m === 'full') update.memory_mode = m
+  }
   if ('disabled_actions' in body) {
     const raw = Array.isArray(body.disabled_actions) ? body.disabled_actions : []
     // Only known action names — an unknown string here would silently do nothing

@@ -22,6 +22,9 @@ export { resolveHubActor } from './actor'
 export type { AssistantSettings } from './settings'
 export { getAssistantSettings, assistantAvailableFor, logAssistantEvent } from './settings'
 
+export type { MemoryMode } from './memory'
+export { loadTurnMemory, memoryScopeKey, saveTurnMemory } from './memory'
+
 export {
   allActionMeta,
   consentSummary,
