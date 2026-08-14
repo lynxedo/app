@@ -129,6 +129,20 @@ const LEAD_STAGES = new Set([
   'saves',
 ])
 
+/**
+ * Canonical service codes for a SOLD lead — the three the assistant can actually
+ * set up (see the job_setup knowledge doc). Reporting groups on this column, so a
+ * near-miss silently drops the sale out of its category: on 2026-08-14 a service
+ * call went in as "IR SVC" instead of "IRR SC" and stopped counting with the
+ * other 309 of them.
+ *
+ * Deliberately NOT applied to unsold stages. The after-hours receptionist writes
+ * the caller's own words here ("sprinkler zones not working", and a hundred
+ * others), which is right for a live lead and only needs replacing at the point
+ * the sale is recorded.
+ */
+const SOLD_SERVICE_CODES = new Set(['IRR SC', 'WF - Lawn Health', 'MOS'])
+
 /** Digits only — the canonical storage form, and what matching compares. */
 function phoneDigits(raw: string): string {
   const d = raw.replace(/\D/g, '')
@@ -176,11 +190,12 @@ type LeadRow = {
   status: string | null
   lead_source: string | null
   salesperson: string | null
+  annual_value: number | string | null
   created_at: string
 }
 
 const LEAD_COLS =
-  'id, first_name, last_name, phone, email, service_address, stage, status, lead_source, salesperson, created_at'
+  'id, first_name, last_name, phone, email, service_address, stage, status, lead_source, salesperson, annual_value, created_at'
 
 function leadLabel(l: LeadRow): string {
   const name = [l.first_name, l.last_name].filter(Boolean).join(' ').trim() || 'Unnamed lead'
@@ -276,6 +291,21 @@ export const upsertLeadAction: HubAction = {
 
     const note = str(args, 'note')
 
+    // Reporting groups on the service code, so a
+    // plausible-looking variant quietly drops the sale out of its category.
+    const serviceCodes = strArray(args, 'service')
+    if (stage === 'closed_won' && serviceCodes) {
+      const wrong = serviceCodes.filter((s) => !SOLD_SERVICE_CODES.has(s))
+      if (wrong.length > 0) {
+        return (
+          `"${wrong.join('", "')}" ${wrong.length === 1 ? 'is not a' : 'are not'} service code${wrong.length === 1 ? '' : 's'} ` +
+          `we record sales under, so nothing was saved. Use exactly one of: ` +
+          `${[...SOLD_SERVICE_CODES].map((c) => `"${c}"`).join(', ')}. ` +
+          `If the customer described the problem in their own words, that belongs in the note, not here.`
+        )
+      }
+    }
+
     // -- Find the lead ---------------------------------------------------------
     let existing: LeadRow | null = null
 
@@ -325,12 +355,31 @@ export const upsertLeadAction: HubAction = {
       return 'Give me the phone number so I can find the lead (or lead_id if you already know it).'
     }
 
+    // A sale recorded without its value looks complete and reports as zero, and
+    // nobody notices until a revenue number is wrong weeks later. Refuse rather
+    // than accept a closed_won with an empty annual_value.
+    //
+    // Checked HERE, after the lookup, so that re-confirming a stage on a lead
+    // that already carries a value isn't blocked for no reason — the guard is
+    // about the column ending up empty, not about this call supplying it.
+    if (stage === 'closed_won' && annualValue === null) {
+      const already = existing?.annual_value
+      const hasValue = already !== null && already !== undefined && Number(already) > 0
+      if (!hasValue) {
+        return (
+          "I won't record a sale with no annual value — it would sit in reporting as $0 and nobody " +
+          'would spot it. Nothing was saved. Work it out first: an irrigation service call is the ' +
+          'call price (usually 125); a WF program is the per-visit total × visits per year; ' +
+          'MO Bi-Weekly is the price per visit × 16. Then call me again with annual_value.'
+        )
+      }
+    }
+
     // -- Build the change ------------------------------------------------------
     const sale: Record<string, unknown> = {}
     if (stage) sale.stage = stage
     if (str(args, 'status')) sale.status = str(args, 'status')
-    const service = strArray(args, 'service')
-    if (service) sale.service = service
+    if (serviceCodes) sale.service = serviceCodes
     if (str(args, 'base_program_sold')) sale.base_program_sold = str(args, 'base_program_sold')
     const aux = strArray(args, 'auxiliary_services')
     if (aux) sale.auxiliary_services = aux
