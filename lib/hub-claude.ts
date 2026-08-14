@@ -18,9 +18,12 @@ import {
   hubActionTools,
   isHubActionName,
   listHubActions,
+  loadTurnMemory,
   logAssistantEvent,
+  memoryScopeKey,
   resolveHubActor,
   runHubAction,
+  saveTurnMemory,
 } from '@/lib/hub-actions'
 
 const MCP_URL = 'https://mcp.lynxedo.com/mcp'
@@ -279,7 +282,33 @@ export async function askClaude({
   // the dispatcher checks them first. Same name conflicts resolve in our favor.
   const baseTools: Anthropic.Tool[] = [READ_KNOWLEDGE_DOC_TOOL, ...nativeTools, ...filteredMcpTools]
 
-  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userMessage }]
+  // Conversation memory. Without it every reply began from nothing: the model
+  // saw the room transcript (injected as text in the system prompt) but had no
+  // record of its OWN tool calls or their results, so it re-ran lookups it had
+  // already done, and anything that existed only in a tool result — the
+  // confirmation short_id above all — was gone by the time the person said yes.
+  // See lib/hub-actions/memory.ts.
+  const scopeKey = memoryScopeKey({ roomId, conversationId, userId })
+  const memory = await loadTurnMemory(adminClient, {
+    companyId,
+    scopeKey,
+    mode: assistantSettings.memoryMode,
+  })
+
+  // The light note rides on the system prompt beside the existing transcript;
+  // full replay goes into `messages` as real prior turns.
+  const systemWithMemory = memory.note ? `${system}${memory.note}` : system
+
+  // `replay` always holds whole turns (user … assistant), so appending the new
+  // user message keeps the roles alternating and every tool_use paired with its
+  // tool_result — the API rejects either being broken.
+  const messages: Anthropic.MessageParam[] = [
+    ...memory.replay,
+    { role: 'user', content: userMessage },
+  ]
+  // Only this turn's messages are worth remembering; replayed ones are already
+  // stored. Everything appended below lands after this index.
+  const turnStartIndex = memory.replay.length
 
   // Tracks all tool calls Claude made across iterations for the audit log.
   const allToolCalls: string[] = []
@@ -319,7 +348,7 @@ export async function askClaude({
       const response = await anthropic.messages.create({
         model,
         max_tokens: 4096,
-        system,
+        system: systemWithMemory,
         messages,
         ...(iterationTools.length > 0 ? { tools: iterationTools as Anthropic.Tool[] } : {}),
       })
@@ -457,7 +486,7 @@ export async function askClaude({
       const wrapUp = await anthropic.messages.create({
         model,
         max_tokens: 4096,
-        system,
+        system: systemWithMemory,
         messages,
         // No tools on purpose — this call must terminate.
       })
@@ -482,6 +511,24 @@ export async function askClaude({
     }
     return finalAnswer
   } finally {
+    // Remember this turn. In the `finally` so it also captures the common path —
+    // the loop returns directly the moment the model stops calling tools — and
+    // so a turn that hit the budget or threw is still remembered rather than
+    // silently forgotten. Fire-and-forget: memory must never fail a reply.
+    //
+    // Both representations are written whatever the mode (see memory.ts): the
+    // mode decides what gets read back, so switching a company to 'full'
+    // mid-project makes the turns that already happened available too.
+    if (assistantSettings.enabled && !isTest && scopeKey) {
+      saveTurnMemory(adminClient, {
+        companyId,
+        scopeKey,
+        userId: activeActor?.userId ?? userId ?? null,
+        messages: messages.slice(turnStartIndex),
+        finalAnswer,
+      })
+    }
+
     // Billing meter — ONE row per assistant turn, not one per tool call.
     //
     // It used to log inside the tool-dispatch loop, which billed the customer for

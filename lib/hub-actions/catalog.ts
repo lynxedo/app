@@ -14,7 +14,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import type { ActionContext, ActionGroup, HubAction, HubActor } from './types'
 import { actorPassesGate, str } from './types'
 import type { AssistantSettings } from './settings'
-import { consumePendingAction, stageOutwardAction } from './pending'
+import { consumePendingAction, newestPendingShortId, stageOutwardAction } from './pending'
 
 import { addContactNoteAction, customerOverviewAction, findContactAction } from './actions-contacts'
 import { queryDataAction } from './actions-data'
@@ -36,14 +36,22 @@ const confirmAction: HubAction = {
   name: CONFIRM_ACTION_NAME,
   description:
     'Carry out an action that was previewed earlier and that the user has now explicitly approved. ' +
-    'Pass the id from the preview. Only call this after the user has clearly said yes to that exact ' +
-    'preview — never to "check" whether an id is valid, and never on your own initiative.',
+    'Pass the id from the preview when you still have it; if you have lost it, call this with no id ' +
+    'and the single thing awaiting their approval will be carried out. ' +
+    'When the user agrees to something you previewed, ALWAYS call this — never stage the same preview ' +
+    'a second time, which would leave the first one hanging and could book the work twice. ' +
+    'Only call this after the user has clearly said yes to that exact preview — never to "check" ' +
+    'whether an id is valid, and never on your own initiative.',
   input_schema: {
     type: 'object',
     properties: {
-      id: { type: 'string', description: 'The confirmation id from the preview (6 characters).' },
+      id: {
+        type: 'string',
+        description:
+          'The confirmation id from the preview (6 characters). Omit it if you no longer have it.',
+      },
     },
-    required: ['id'],
+    required: [],
   },
   kind: 'write',
   gate: null,
@@ -254,8 +262,19 @@ async function runConfirm(
   settings: AssistantSettings,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const id = str(args, 'id')
-  if (!id) return 'Provide the confirmation id from the preview.'
+  // An id is preferred but no longer required. It only ever existed inside a
+  // staging tool result, and before conversation memory those did not survive to
+  // the turn where the person said "yes" — so demanding it meant the model
+  // re-staged instead of confirming, forever. Falling back to "the one thing
+  // this person has waiting" costs nothing in safety: consumePendingAction still
+  // enforces same company, same user, earlier turn, unexpired and unconsumed,
+  // and newestPendingShortId refuses outright when it would have to guess.
+  let id = str(args, 'id')
+  if (!id) {
+    const inferred = await newestPendingShortId(ctx.admin, ctx.actor, ctx.turnId)
+    if (!inferred.ok) return inferred.message
+    id = inferred.shortId
+  }
 
   const claimed = await consumePendingAction(ctx.admin, ctx.actor, id, ctx.turnId)
   if (!claimed.ok) return claimed.message

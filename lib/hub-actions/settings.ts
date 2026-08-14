@@ -1,6 +1,7 @@
 // Per-company assistant settings + the usage/audit event log.
 
 import type { Admin, ActorSource, HubActor } from './types'
+import type { MemoryMode } from './memory'
 
 export type AssistantSettings = {
   /** Master switch. Off → no native actions are offered anywhere. */
@@ -23,6 +24,14 @@ export type AssistantSettings = {
   disabledActions: string[]
   /** Default-OFF actions this company has turned ON (the opt-in set). */
   enabledActions: string[]
+  /**
+   * How much of a conversation the assistant carries between messages.
+   * 'light' (default) — a short note of what it did and which records it
+   * touched. 'full' — the real transcript replayed, which costs meaningfully
+   * more per message. 'off' — the old behaviour, every reply from nothing.
+   * See lib/hub-actions/memory.ts.
+   */
+  memoryMode: MemoryMode
 }
 
 /** Fail-closed defaults: a company with no row has the assistant OFF. */
@@ -34,6 +43,10 @@ const DEFAULTS: AssistantSettings = {
   requireJobberConfirmation: true,
   disabledActions: [],
   enabledActions: [],
+  // Light is the default rather than 'off': the old no-memory behaviour is what
+  // made the assistant re-run lookups and lose staged confirmations, so a
+  // company that never touches this setting should get the fix.
+  memoryMode: 'light',
 }
 
 export async function getAssistantSettings(
@@ -44,7 +57,7 @@ export async function getAssistantSettings(
     const { data } = await admin
       .from('hub_assistant_settings')
       .select(
-        'enabled, mcp_enabled, require_confirmation, allow_outward_over_mcp, require_jobber_confirmation, disabled_actions, enabled_actions',
+        'enabled, mcp_enabled, require_confirmation, allow_outward_over_mcp, require_jobber_confirmation, disabled_actions, enabled_actions, memory_mode',
       )
       .eq('company_id', companyId)
       .maybeSingle()
@@ -57,6 +70,7 @@ export async function getAssistantSettings(
       require_jobber_confirmation?: boolean | null
       disabled_actions?: string[] | null
       enabled_actions?: string[] | null
+      memory_mode?: string | null
     }
     return {
       enabled: d.enabled === true,
@@ -68,6 +82,12 @@ export async function getAssistantSettings(
       requireJobberConfirmation: d.require_jobber_confirmation !== false,
       disabledActions: Array.isArray(d.disabled_actions) ? d.disabled_actions : [],
       enabledActions: Array.isArray(d.enabled_actions) ? d.enabled_actions : [],
+      // An unrecognised or missing value falls back to the default rather than
+      // to 'off' — a typo in this column should not silently remove memory.
+      memoryMode:
+        d.memory_mode === 'off' || d.memory_mode === 'full' || d.memory_mode === 'light'
+          ? d.memory_mode
+          : DEFAULTS.memoryMode,
     }
   } catch {
     // A settings read failure must never silently ENABLE the assistant.

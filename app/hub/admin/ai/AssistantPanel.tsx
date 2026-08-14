@@ -27,7 +27,28 @@ type Settings = {
   requireJobberConfirmation: boolean
   disabledActions: string[]
   enabledActions: string[]
+  memoryMode: MemoryMode
 }
+
+type MemoryMode = 'off' | 'light' | 'full'
+
+const MEMORY_OPTIONS: Array<{ value: MemoryMode; label: string; hint: string }> = [
+  {
+    value: 'light',
+    label: 'Light — remembers what it did',
+    hint: 'Recommended. Between messages it keeps a short note of which lookups it ran and which records it touched, so it stops repeating work and can finish something you approve. Costs very little.',
+  },
+  {
+    value: 'full',
+    label: 'Full — remembers the detail',
+    hint: 'Carries the actual results forward, not just a note. Best for a long piece of work in one conversation, where it needs to reason over what it found. Uses noticeably more tokens on every message.',
+  },
+  {
+    value: 'off',
+    label: 'Off — no memory',
+    hint: 'Every message starts from nothing. It will re-run lookups it already did, and may not be able to complete something you approve.',
+  },
+]
 
 type ActionMeta = {
   name: string
@@ -131,6 +152,7 @@ export default function AssistantPanel({
           require_jobber_confirmation: settings.requireJobberConfirmation,
           disabled_actions: settings.disabledActions,
           enabled_actions: settings.enabledActions,
+          memory_mode: settings.memoryMode,
         }),
       })
       if (!res.ok) throw new Error()
@@ -244,6 +266,43 @@ export default function AssistantPanel({
               with no review step. Only do this if you fully trust everyone who can use it.
             </p>
           )}
+
+          <div className="space-y-2 border-t border-white/10 pt-4">
+            <p className="text-sm font-medium text-white">Memory between messages</p>
+            <p className="text-xs text-white/60">
+              How much of a conversation the assistant carries from one message to the next.
+            </p>
+            <div className="space-y-2">
+              {MEMORY_OPTIONS.map((opt) => (
+                <label
+                  key={opt.value}
+                  className="flex cursor-pointer gap-3 rounded-lg border border-white/10 p-3 hover:bg-white/5"
+                >
+                  <input
+                    type="radio"
+                    name="memory-mode"
+                    className="mt-1"
+                    checked={settings.memoryMode === opt.value}
+                    onChange={() => setSettings({ ...settings, memoryMode: opt.value })}
+                  />
+                  <span>
+                    <span className="block text-sm text-white">{opt.label}</span>
+                    <span className="block text-xs text-white/60">{opt.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {settings.memoryMode === 'full' && (
+              <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                <strong className="text-amber-100">Full memory costs more.</strong> Every message
+                carries the recent conversation with it, so each one is bigger than it would be on
+                Light — the longer the thread, the bigger. Worth it while you&apos;re working through
+                something substantial in one conversation; switch back to Light for day-to-day use.
+                Nothing is lost by switching either way — the assistant records both, so turning Full
+                on part-way through a job still gives it the detail from earlier.
+              </p>
+            )}
+          </div>
         </div>
       </section>
       )}

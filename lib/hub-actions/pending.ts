@@ -57,13 +57,88 @@ export async function stageOutwardAction(
   if (error) {
     return "I couldn't stage that for confirmation just now, so nothing has been sent. Please try again."
   }
+  // Supersede this actor's earlier pending copies of the SAME action. Without
+  // this, a conversation that previewed four times (which is exactly what
+  // happened on 2026-08-14, before the assistant had any memory) left four live
+  // rows — and confirming a stale one would have booked a second visit. Only the
+  // newest preview should ever be confirmable.
+  void admin
+    .from('hub_assistant_pending_actions')
+    .update({ status: 'superseded' })
+    .eq('company_id', actor.companyId)
+    .eq('user_id', actor.userId)
+    .eq('action', action)
+    .eq('status', 'pending')
+    .neq('short_id', shortId)
+    .then(undefined, () => {})
+
   return (
     `READY TO SEND — nothing has been sent yet.\n${preview}\n\n` +
-    `Show this to the user exactly as written and ask them to confirm. ` +
-    `If they agree, call confirm_action with id="${shortId}". ` +
+    `Show this to the user exactly as written, INCLUDING the line below, and ask them to confirm.\n` +
+    `Confirmation id: ${shortId}\n` +
+    `If they agree, call confirm_action with id="${shortId}" — do NOT stage this again. ` +
     `If they change anything, start over with a new preview. ` +
     `This expires in 15 minutes. Never claim it was sent until confirm_action succeeds.`
   )
+}
+
+/**
+ * The actor's newest still-valid pending action, when the model has lost the id.
+ *
+ * ⚠ This exists because the id could not survive the trip. Guardian rebuilt each
+ * turn from nothing, and the short_id appears ONLY in a staging tool result — so
+ * by the time the person replied "yes" it was gone, and the model staged a fresh
+ * preview instead of confirming. Conversation memory (lib/hub-actions/memory.ts)
+ * fixes that properly; this is the backstop for when the note is missed, memory
+ * is off, or the row simply predates it.
+ *
+ * It gives up NO safety. The id was never a secret — the PRD is explicit that
+ * the binding is the turn boundary, not the id — and every check that matters
+ * (same company, same user, staged in an earlier turn, not expired, not already
+ * consumed) still runs in consumePendingAction below. Ambiguity refuses rather
+ * than guesses.
+ */
+export async function newestPendingShortId(
+  admin: Admin,
+  actor: HubActor,
+  turnId: string,
+): Promise<{ ok: true; shortId: string } | { ok: false; message: string }> {
+  const { data } = await admin
+    .from('hub_assistant_pending_actions')
+    .select('short_id, action, staged_turn_id, expires_at')
+    .eq('company_id', actor.companyId)
+    .eq('user_id', actor.userId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(10)
+
+  const rows = ((data || []) as Array<{
+    short_id: string
+    action: string
+    staged_turn_id: string | null
+    expires_at: string
+  }>).filter((r) => r.staged_turn_id !== turnId && Date.parse(r.expires_at) >= Date.now())
+
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      message:
+        'There is nothing waiting for your confirmation. Either it was already carried out, it expired ' +
+        '(they last 15 minutes), or it was never staged — nothing was sent. Build the request again.',
+    }
+  }
+  // More than one DISTINCT action pending is genuinely ambiguous — confirming the
+  // wrong one would carry out something the person didn't just agree to.
+  const distinct = [...new Set(rows.map((r) => r.action))]
+  if (distinct.length > 1) {
+    return {
+      ok: false,
+      message:
+        `You have more than one thing awaiting confirmation (${distinct.join(', ')}), so I won't guess ` +
+        `which one they meant. Nothing was sent. Ask them which, and pass its confirmation id.`,
+    }
+  }
+  return { ok: true, shortId: rows[0].short_id }
 }
 
 export type ConsumedAction =
