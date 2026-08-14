@@ -81,10 +81,21 @@ const SHADOWED_BY_NATIVE_ACTIONS = new Set<string>([
   'hub_add_board_item',
   // → jobber_reschedule_visit
   'update_visit_schedule',
-  'update_job_schedule',
   'update_future_visits',
   'edit_visit',
+  // → jobber_schedule_visit / jobber_set_recurring_schedule.
+  //   ⚠ These two were originally listed above under "→ jobber_reschedule_visit",
+  //   which was wrong. Reschedule, assign and complete all act on a visit that
+  //   ALREADY EXISTS, so after the shadow nothing on the native side could CREATE
+  //   a visit or SET a recurrence: the rule at the top of this block — the action
+  //   layer is the only door, but only for capabilities it actually owns — was
+  //   satisfied on paper and broken in fact. Setting up a job dead-ended at a job
+  //   with an empty calendar. Both capabilities now have real native owners
+  //   (lib/hub-actions/actions-jobber.ts), so these entries redirect rather than
+  //   delete. Do not add a name here without checking a native action genuinely
+  //   does the same thing.
   'schedule_visit',
+  'update_job_schedule',
   // → jobber_assign_visit
   'update_visit_assigned_users',
   // → jobber_complete_visit (and its inverse, which would otherwise undo a
