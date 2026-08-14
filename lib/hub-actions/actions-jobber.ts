@@ -25,7 +25,7 @@ import { companyJobberUserId, jobberGraphQLAdmin } from '@/lib/jobber'
 import { formatCurrency } from '@/lib/format'
 import type { ActionContext, HubAction } from './types'
 import { limitArg, str } from './types'
-import { lines, resolveDateArg, stampLabel } from './format'
+import { addDays, dayLabel, lines, opsYmd, resolveDateArg, stampLabel } from './format'
 
 /** Jobber's operating timezone for schedule writes (matches lib/voice-scheduling). */
 const JOBBER_TZ = 'America/Chicago'
@@ -662,30 +662,32 @@ function memberLabel(u: JobberTeamMember): string {
   return `${u.name?.first ?? ''} ${u.name?.last ?? ''}`.trim() || u.id
 }
 
-async function resolveAssign(
-  ctx: ActionContext,
-  args: Record<string, unknown>,
-): Promise<
-  | { ok: true; userId: string; visit: VisitLookup; members: JobberTeamMember[] }
-  | { ok: false; message: string }
-> {
-  const visitId = str(args, 'visit_id')
-  const namesRaw = args.assign_to
-  if (!visitId) return { ok: false, message: 'Provide a visit_id from jobber_get_visits.' }
+/**
+ * Turn model-supplied crew NAMES into Jobber team member ids, refusing anything
+ * ambiguous. Names rather than ids because a model that guesses at an EncodedId
+ * assigns the wrong person silently, whereas a wrong name fails loudly right here.
+ *
+ * An empty list is only an error when the caller says so — actions where "nobody
+ * named" legitimately means "leave the crew alone" pass required: false.
+ */
+async function matchTeamMembers(
+  userId: string,
+  namesRaw: unknown,
+  required = true,
+): Promise<{ ok: true; members: JobberTeamMember[] } | { ok: false; message: string }> {
   const names = Array.isArray(namesRaw)
     ? namesRaw.filter((n): n is string => typeof n === 'string' && n.trim().length > 0)
     : typeof namesRaw === 'string' && namesRaw.trim()
       ? [namesRaw]
       : []
   if (names.length === 0) {
-    return { ok: false, message: 'Say who to assign — one or more team member names.' }
+    return required
+      ? { ok: false, message: 'Say who to assign — one or more team member names.' }
+      : { ok: true, members: [] }
   }
 
-  const loaded = await loadVisit(ctx, visitId)
-  if (!loaded.ok) return loaded
-
   const teamResp = await jobberGraphQLAdmin<{ data?: { users?: { nodes?: JobberTeamMember[] } } }>(
-    loaded.userId,
+    userId,
     JOBBER_TEAM,
     {},
   )
@@ -707,7 +709,26 @@ async function resolveAssign(
     if (!matched.some((m) => m.id === hits[0].id)) matched.push(hits[0])
   }
 
-  return { ok: true, userId: loaded.userId, visit: loaded.visit, members: matched }
+  return { ok: true, members: matched }
+}
+
+async function resolveAssign(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<
+  | { ok: true; userId: string; visit: VisitLookup; members: JobberTeamMember[] }
+  | { ok: false; message: string }
+> {
+  const visitId = str(args, 'visit_id')
+  if (!visitId) return { ok: false, message: 'Provide a visit_id from jobber_get_visits.' }
+
+  const loaded = await loadVisit(ctx, visitId)
+  if (!loaded.ok) return loaded
+
+  const crew = await matchTeamMembers(loaded.userId, args.assign_to)
+  if (!crew.ok) return crew
+
+  return { ok: true, userId: loaded.userId, visit: loaded.visit, members: crew.members }
 }
 
 export const jobberAssignVisitAction: HubAction = {
@@ -837,6 +858,593 @@ export async function previewJobberComplete(
   }
 }
 
+// ── Writes: putting work ON the schedule (confirmed) ─────────────────────────
+//
+// WHY THESE EXIST. The Aug 2026 shadow rule (lib/guardian-permissions.ts)
+// withheld the legacy `schedule_visit` and `update_job_schedule` tools on the
+// stated grounds that `jobber_reschedule_visit` owned the capability. It did not:
+// reschedule, assign and complete all operate on a visit that ALREADY EXISTS, so
+// after the shadow there was no door at all to CREATE a visit or SET a recurrence.
+// Setting up a job dead-ended at a job with nothing on the calendar. These two
+// restore exactly that capability, this time through the gates, the confirmation
+// step and the meter.
+//
+// ⚠ SCOPE, deliberately narrow. `jobber_set_recurring_schedule` only puts a
+// schedule on a job that has NO open visits yet. Changing the recurrence of a
+// live series is a different and much harder operation — the working
+// implementation in `Jobber MCP/server.js` needs a no-op guard, a scratch-rule
+// bounce (Jobber silently generates nothing when the stored rule already equals
+// the target), a delete-and-confirm loop and an async settle wait, because a
+// naive edit orphans or duplicates real visits. That belongs in Jobber's own UI,
+// not in a chat turn, so this refuses rather than half-implements it.
+
+const JOB_SCHEDULE_LOOKUP = `
+  query HubAssistantJobSchedule($jobId: EncodedId!) {
+    job(id: $jobId) {
+      id
+      jobNumber
+      title
+      jobStatus
+      client { name }
+      visitSchedule {
+        startDate
+        endDate
+        recurrenceSchedule { friendly calendarRule }
+      }
+      visits(first: 50) { nodes { id startAt isComplete } }
+    }
+  }
+`
+
+type JobLookup = {
+  id: string
+  jobNumber: number | null
+  title: string | null
+  jobStatus: string | null
+  client?: { name: string | null } | null
+  visitSchedule?: {
+    startDate: string | null
+    endDate: string | null
+    recurrenceSchedule?: { friendly: string | null; calendarRule: string | null } | null
+  } | null
+  visits?: { nodes?: Array<{ id: string; startAt: string | null; isComplete: boolean | null }> }
+}
+
+async function loadJob(
+  ctx: ActionContext,
+  jobId: string,
+): Promise<{ ok: true; userId: string; job: JobLookup } | { ok: false; message: string }> {
+  const ju = await jobberUser(ctx)
+  if (!ju.ok) return ju
+  const resp = await jobberGraphQLAdmin<{ data?: { job?: JobLookup | null } }>(ju.userId, JOB_SCHEDULE_LOOKUP, {
+    jobId,
+  })
+  const job = resp.data?.job
+  if (!job?.id) {
+    return {
+      ok: false,
+      message:
+        "That job id isn't in Jobber. Note it needs the long encoded id, not the job NUMBER — get it from " +
+        'jobber_get_customer_jobs. Never guess one.',
+    }
+  }
+  return { ok: true, userId: ju.userId, job }
+}
+
+function jobLabel(j: JobLookup): string {
+  return `${j.client?.name || 'Unknown customer'} — #${j.jobNumber ?? '?'} ${j.title || '(untitled)'}`
+}
+
+/** Visits on the job that aren't finished — the ones a schedule change would disturb. */
+function openVisits(j: JobLookup): Array<{ id: string; startAt: string | null }> {
+  return (j.visits?.nodes ?? []).filter((v) => !v.isComplete)
+}
+
+const VISIT_CREATE = `
+  mutation HubAssistantVisitCreate($jobId: EncodedId!, $input: VisitCreateInput!) {
+    visitCreate(jobId: $jobId, input: $input) {
+      createdVisits { id startAt }
+      userErrors { message }
+    }
+  }
+`
+
+type ResolvedVisitCreate = {
+  ok: true
+  userId: string
+  job: JobLookup
+  date: string
+  startTime: string
+  endTime: string
+  members: JobberTeamMember[]
+}
+
+async function resolveScheduleVisit(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<ResolvedVisitCreate | { ok: false; message: string }> {
+  const jobId = str(args, 'job_id')
+  if (!jobId) return { ok: false, message: 'Provide a job_id from jobber_get_customer_jobs.' }
+
+  const rawDate = str(args, 'date')
+  let date = ''
+  if (rawDate && rawDate.toLowerCase() !== 'unscheduled') {
+    const resolved = resolveDateArg(rawDate)
+    if (!resolved) {
+      return {
+        ok: false,
+        message: 'I need a specific date ("today", "tomorrow", YYYY-MM-DD), or leave it out to create an unscheduled visit.',
+      }
+    }
+    date = resolved
+  }
+
+  const startTime = str(args, 'start_time')
+  const endTime = str(args, 'end_time')
+  if (startTime && !HHMM_RE.test(startTime)) {
+    return { ok: false, message: 'start_time must be HH:MM on a 24-hour clock, e.g. 14:30.' }
+  }
+  if (endTime && !HHMM_RE.test(endTime)) {
+    return { ok: false, message: 'end_time must be HH:MM on a 24-hour clock, e.g. 16:00.' }
+  }
+  if (!date && (startTime || endTime)) {
+    return { ok: false, message: "A time needs a date. Give the date too, or drop the time and I'll leave the visit unscheduled." }
+  }
+
+  const loaded = await loadJob(ctx, jobId)
+  if (!loaded.ok) return loaded
+
+  const crew = await matchTeamMembers(loaded.userId, args.assign_to, false)
+  if (!crew.ok) return crew
+
+  return { ok: true, userId: loaded.userId, job: loaded.job, date, startTime, endTime, members: crew.members }
+}
+
+/** How the visit's timing reads in a preview or a result. */
+function visitTimingLabel(date: string, startTime: string, endTime: string): string {
+  if (!date) return 'unscheduled — it lands in the Unscheduled bucket for the office to place'
+  const when = `${dayLabel(date)} (${date})`
+  if (!startTime) return `${when}, Anytime`
+  return `${when}, ${startTime}${endTime ? `–${endTime}` : ''}`
+}
+
+export const jobberScheduleVisitAction: HubAction = {
+  name: 'jobber_schedule_visit',
+  description:
+    'Put a NEW visit on an existing Jobber job — either on a specific day, or unscheduled so the office ' +
+    'can place it. Use this after creating a job, or to add an extra visit to one. To move a visit that ' +
+    'already exists use jobber_reschedule_visit instead. ' +
+    'Leave start_time and end_time out unless a specific arrival time was actually promised: the ' +
+    'default is an Anytime visit, and that is almost always what is wanted. Leave the date out entirely ' +
+    'for an unscheduled visit. Get the job id from jobber_get_customer_jobs — it is the long encoded id, ' +
+    'never the job number. Previews first and needs approval.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      job_id: { type: 'string', description: 'Jobber job id (encoded id) from jobber_get_customer_jobs.' },
+      date: {
+        type: 'string',
+        description: 'Day for the visit: "today", "tomorrow", or YYYY-MM-DD. Omit for an unscheduled visit.',
+      },
+      start_time: { type: 'string', description: 'Optional start time, HH:MM 24-hour. Omit for an Anytime visit.' },
+      end_time: { type: 'string', description: 'Optional end time, HH:MM 24-hour.' },
+      assign_to: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional crew, by team member name. Omit to leave the visit unassigned.',
+      },
+    },
+    required: ['job_id'],
+  },
+  kind: 'jobber_write',
+  gate: JOBBER_WRITE_GATE,
+  group: 'jobber',
+  defaultOn: false,
+  consentLabel: 'add visits to jobs in Jobber (with your confirmation)',
+  run: async (ctx, args) => {
+    const resolved = await resolveScheduleVisit(ctx, args)
+    if (!resolved.ok) return resolved.message
+    const { userId, job, date, startTime, endTime, members } = resolved
+
+    const schedule: Record<string, unknown> = {}
+    if (date) {
+      schedule.startAt = localDateTime(date, startTime)
+      if (endTime) schedule.endAt = localDateTime(date, endTime)
+    }
+    if (members.length) schedule.teamMemberIdsToAssign = members.map((m) => m.id)
+
+    // An empty visit attribute object is legitimate — that's how an unassigned,
+    // undated visit gets created — so only send `schedule` when it has content.
+    const visitAttrs = Object.keys(schedule).length ? { schedule } : {}
+
+    const resp = await jobberGraphQLAdmin<{
+      data?: {
+        visitCreate?: {
+          createdVisits?: Array<{ id: string; startAt: string | null }>
+          userErrors?: Array<{ message: string }>
+        }
+      }
+    }>(userId, VISIT_CREATE, { jobId: job.id, input: { visits: [visitAttrs] } })
+
+    const err = userErrorText(resp.data?.visitCreate?.userErrors)
+    if (err) return `Jobber refused that visit: ${err}. Nothing was added.`
+    const created = resp.data?.visitCreate?.createdVisits?.[0]
+    if (!created?.id) return "The visit didn't save — nothing was added to the job."
+
+    return lines(
+      `Added a visit to ${jobLabel(job)}.`,
+      `  ${visitTimingLabel(date, startTime, endTime)}`,
+      `  Crew: ${members.length ? members.map(memberLabel).join(', ') : 'unassigned'}`,
+      `  Visit id ${created.id}`,
+    )
+  },
+}
+
+export async function previewJobberScheduleVisit(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<{ ok: true; preview: string } | { ok: false; message: string }> {
+  const resolved = await resolveScheduleVisit(ctx, args)
+  if (!resolved.ok) return { ok: false, message: resolved.message }
+  const { job, date, startTime, endTime, members } = resolved
+  const existing = openVisits(job).length
+  return {
+    ok: true,
+    preview: lines(
+      `  Job: ${jobLabel(job)}`,
+      `  Adding a visit: ${visitTimingLabel(date, startTime, endTime)}`,
+      `  Crew: ${members.length ? members.map(memberLabel).join(', ') : 'unassigned'}`,
+      existing ? `  This job already has ${existing} unfinished visit${existing === 1 ? '' : 's'} — this ADDS to them.` : null,
+      '  This creates a real visit on the Jobber schedule.',
+    ),
+  }
+}
+
+// -- Recurring schedules ------------------------------------------------------
+
+const JOB_EDIT_SCHEDULE = `
+  mutation HubAssistantJobEditSchedule($jobId: EncodedId!, $input: JobEditInput!) {
+    jobEdit(jobId: $jobId, input: $input) {
+      job {
+        id
+        jobNumber
+        visitSchedule {
+          startDate
+          endDate
+          recurrenceSchedule { friendly calendarRule }
+        }
+      }
+      userErrors { message }
+    }
+  }
+`
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
+const WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+
+/**
+ * Ceiling on how many dates a rule is expanded to for the preview. Far above any
+ * real schedule (a monthly job over three years is 36), so hitting it means the
+ * rule is denser than anything Heroes runs — the count is then reported as "N+"
+ * rather than as if it were exact.
+ */
+const EXPAND_CAP = 400
+
+/** "36" or "400+" — never a capped number presented as a total. */
+function countLabel(dates: string[]): string {
+  return `${dates.length}${dates.length >= EXPAND_CAP ? '+' : ''}`
+}
+
+function ymdFromUtc(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
+function daysBetween(a: string, b: string): number {
+  const [ay, am, ad] = a.split('-').map(Number)
+  const [by, bm, bd] = b.split('-').map(Number)
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86_400_000)
+}
+
+/** Compare two recurrence rules ignoring part order, case, and the RRULE: prefix. */
+function normalizeRule(rule: string | null | undefined): string {
+  if (!rule) return ''
+  return rule
+    .toUpperCase()
+    .replace(/^RRULE:/, '')
+    .split(';')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .sort()
+    .join(';')
+}
+
+/** The date of the nth (1-4, or negative for "from the end") weekday of a month. */
+function nthWeekdayOfMonth(year: number, month0: number, n: number, weekday: number): string | null {
+  const firstDow = new Date(Date.UTC(year, month0, 1)).getUTCDay()
+  const lastDate = new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate()
+  let day: number
+  if (n > 0) {
+    day = 1 + ((weekday - firstDow + 7) % 7) + (n - 1) * 7
+  } else {
+    const lastDow = new Date(Date.UTC(year, month0, lastDate)).getUTCDay()
+    day = lastDate - ((lastDow - weekday + 7) % 7) + (n + 1) * 7
+  }
+  if (day < 1 || day > lastDate) return null
+  return ymdFromUtc(Date.UTC(year, month0, day))
+}
+
+/**
+ * Expand the recurrence rules Heroes actually uses so a preview can show REAL
+ * DATES rather than an RRULE string nobody can eyeball. A wrong rule is the
+ * quietest possible mistake — a truck simply turns up on the wrong day for three
+ * years — and "2nd Tuesday" vs "2nd Thursday" is obvious in dates and invisible
+ * in `BYDAY=2TU`. Returns null for anything not understood; the caller then shows
+ * the raw rule and says plainly that it couldn't be expanded.
+ */
+function expandRecurrence(rule: string, startDate: string, endDate: string): string[] | null {
+  const parts = new Map<string, string>()
+  for (const p of rule.toUpperCase().replace(/^RRULE:/, '').split(';')) {
+    const [k, v] = p.split('=')
+    if (k && v) parts.set(k.trim(), v.trim())
+  }
+  const freq = parts.get('FREQ')
+  const interval = Math.max(1, Number(parts.get('INTERVAL') || '1'))
+  const out: string[] = []
+  const MAX = EXPAND_CAP
+
+  if (freq === 'DAILY' || freq === 'WEEKLY') {
+    const step = interval * (freq === 'WEEKLY' ? 7 : 1)
+    let d = startDate
+    while (d <= endDate && out.length < MAX) {
+      out.push(d)
+      d = addDays(d, step)
+    }
+    return out
+  }
+
+  if (freq === 'MONTHLY') {
+    const byDay = parts.get('BYDAY')
+    const byMonthDay = parts.get('BYMONTHDAY')
+    const [sy, sm] = startDate.split('-').map(Number)
+    let year = sy
+    let month0 = sm - 1
+
+    const m = byDay ? /^(-?\d)(SU|MO|TU|WE|TH|FR|SA)$/.exec(byDay) : null
+    if (byDay && !m) return null
+    const nth = m ? Number(m[1]) : 0
+    const weekday = m ? WEEKDAY_CODES.indexOf(m[2]) : 0
+    const domTarget = byMonthDay ? Number(byMonthDay) : Number(startDate.slice(8, 10))
+    if (!m && byMonthDay && (!Number.isFinite(domTarget) || domTarget < 1 || domTarget > 31)) return null
+
+    for (let i = 0; i < MAX; i++) {
+      let candidate: string | null
+      if (m) {
+        candidate = nthWeekdayOfMonth(year, month0, nth, weekday)
+      } else {
+        const lastDate = new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate()
+        candidate = domTarget > lastDate ? null : ymdFromUtc(Date.UTC(year, month0, domTarget))
+      }
+      if (candidate && candidate >= startDate) {
+        if (candidate > endDate) break
+        out.push(candidate)
+      }
+      month0 += 1
+      if (month0 > 11) {
+        month0 = 0
+        year += 1
+      }
+      // Guard against a rule that can never land (e.g. a 5th Friday every month).
+      if (out.length === 0 && i > 24) return null
+    }
+    return out
+  }
+
+  return null
+}
+
+type ResolvedRecurring = {
+  ok: true
+  userId: string
+  job: JobLookup
+  recurrence: string
+  startDate: string
+  endDate: string
+  members: JobberTeamMember[]
+  dates: string[] | null
+}
+
+async function resolveRecurring(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<ResolvedRecurring | { ok: false; message: string }> {
+  const jobId = str(args, 'job_id')
+  if (!jobId) return { ok: false, message: 'Provide a job_id from jobber_get_customer_jobs.' }
+
+  const recurrence = str(args, 'recurrence').toUpperCase()
+  if (!recurrence.startsWith('RRULE:')) {
+    return {
+      ok: false,
+      message:
+        'recurrence must be an iCal rule starting with "RRULE:" — e.g. "RRULE:FREQ=MONTHLY;BYDAY=2TU" for the ' +
+        'second Tuesday of each month, or "RRULE:FREQ=DAILY;INTERVAL=46" for every 46 days.',
+    }
+  }
+
+  const startDate = resolveDateArg(str(args, 'start_date'))
+  if (!startDate) {
+    return { ok: false, message: 'I need the first date this job should run, as YYYY-MM-DD. Never guess it — ask.' }
+  }
+
+  const rawEnd = str(args, 'end_date')
+  let endDate: string
+  if (rawEnd) {
+    const resolved = resolveDateArg(rawEnd)
+    if (!resolved) return { ok: false, message: 'end_date must be YYYY-MM-DD.' }
+    endDate = resolved
+  } else {
+    // House convention: recurring jobs run three years out.
+    const [y, m, d] = startDate.split('-').map(Number)
+    endDate = `${y + 3}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    if (!YMD_RE.test(endDate)) return { ok: false, message: 'Could not work out an end date — give end_date explicitly.' }
+  }
+  if (daysBetween(startDate, endDate) <= 0) {
+    return { ok: false, message: 'end_date has to be after start_date.' }
+  }
+
+  const loaded = await loadJob(ctx, jobId)
+  if (!loaded.ok) return loaded
+  const { job } = loaded
+
+  // The hard guard. Applying a recurrence to a job that already has live visits
+  // is the destructive case (see the scope note above) — refuse it outright.
+  const open = openVisits(job)
+  if (open.length > 0) {
+    return {
+      ok: false,
+      message:
+        `Job #${job.jobNumber ?? '?'} already has ${open.length} unfinished visit${open.length === 1 ? '' : 's'} on it. ` +
+        'Setting a recurrence now would leave the old visits behind alongside the new series, so I will not do it ' +
+        'from here. Rebuilding a live schedule has to be done in Jobber directly. Nothing was changed.',
+    }
+  }
+
+  // Jobber generates NOTHING when the stored rule already equals the one being
+  // sent — the edit is a silent no-op. Catch it here rather than reporting a
+  // success that produced no visits.
+  if (normalizeRule(job.visitSchedule?.recurrenceSchedule?.calendarRule) === normalizeRule(recurrence)) {
+    return {
+      ok: false,
+      message:
+        `Jobber already stores exactly this rule on job #${job.jobNumber ?? '?'} (${job.visitSchedule?.recurrenceSchedule?.friendly || recurrence}) ` +
+        'but has no visits from it. Re-sending the same rule generates nothing, so this needs doing in Jobber ' +
+        'directly. Nothing was changed.',
+    }
+  }
+
+  const crew = await matchTeamMembers(loaded.userId, args.assign_to, false)
+  if (!crew.ok) return crew
+
+  return {
+    ok: true,
+    userId: loaded.userId,
+    job,
+    recurrence,
+    startDate,
+    endDate,
+    members: crew.members,
+    dates: expandRecurrence(recurrence, startDate, endDate),
+  }
+}
+
+export const jobberSetRecurringScheduleAction: HubAction = {
+  name: 'jobber_set_recurring_schedule',
+  description:
+    'Set the repeating schedule on a recurring Jobber job that does not have one yet, and generate its ' +
+    'visits. Use this to finish a recurring job created with "schedule later". The recurrence is an iCal ' +
+    'rule: "RRULE:FREQ=MONTHLY;BYDAY=2TU" means the 2nd Tuesday of every month; ' +
+    '"RRULE:FREQ=DAILY;INTERVAL=46" means every 46 days. ' +
+    'NEVER guess the rule or the start date — they decide which day a crew shows up for years, so ask if ' +
+    'you are not certain. This will NOT touch a job that already has unfinished visits on it; changing a ' +
+    'live schedule has to be done in Jobber. Previews the first few real dates and needs approval.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      job_id: { type: 'string', description: 'Jobber job id (encoded id) from jobber_get_customer_jobs.' },
+      recurrence: { type: 'string', description: 'iCal rule starting with "RRULE:".' },
+      start_date: { type: 'string', description: 'First date the job runs, YYYY-MM-DD. Anchors the whole series.' },
+      end_date: { type: 'string', description: 'Last date, YYYY-MM-DD. Defaults to three years after the start.' },
+      assign_to: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Crew for the generated visits, by team member name.',
+      },
+    },
+    required: ['job_id', 'recurrence', 'start_date'],
+  },
+  kind: 'jobber_write',
+  gate: JOBBER_WRITE_GATE,
+  group: 'jobber',
+  defaultOn: false,
+  consentLabel: 'set repeating schedules on jobs in Jobber (with your confirmation)',
+  run: async (ctx, args) => {
+    const resolved = await resolveRecurring(ctx, args)
+    if (!resolved.ok) return resolved.message
+    const { userId, job, recurrence, startDate, endDate, members, dates } = resolved
+
+    const scheduling: Record<string, unknown> = { createVisits: true, notifyTeam: false, recurrence }
+    if (members.length) scheduling.assignedTo = members.map((m) => m.id)
+
+    // Jobber wants a duration, not an end date, and the long-standing convention
+    // shared with the MCP server's create_recurring_job is that durationValue is
+    // the day count from start — which makes end_date the EXCLUSIVE boundary.
+    // Kept identical here so a job set up through the assistant ends on the same
+    // day as one set up through the older tooling.
+    const timeframe = {
+      startAt: startDate,
+      durationValue: Math.max(1, daysBetween(startDate, endDate)),
+      durationUnits: 'DAYS',
+    }
+
+    const resp = await jobberGraphQLAdmin<{
+      data?: {
+        jobEdit?: {
+          job?: {
+            jobNumber: number | null
+            visitSchedule?: { recurrenceSchedule?: { friendly: string | null } | null } | null
+          } | null
+          userErrors?: Array<{ message: string }>
+        }
+      }
+    }>(userId, JOB_EDIT_SCHEDULE, { jobId: job.id, input: { scheduling, timeframe } })
+
+    const err = userErrorText(resp.data?.jobEdit?.userErrors)
+    if (err) return `Jobber refused that schedule: ${err}. Nothing changed.`
+    const edited = resp.data?.jobEdit?.job
+    if (!edited) return "The schedule didn't take — nothing changed on the job."
+
+    const friendly = edited.visitSchedule?.recurrenceSchedule?.friendly
+
+    return lines(
+      `Schedule set on ${jobLabel(job)}.`,
+      `  Repeats: ${friendly || recurrence}`,
+      `  From ${startDate} through ${endDate}`,
+      members.length ? `  Crew: ${members.map(memberLabel).join(', ')}` : '  Crew: unassigned',
+      dates && dates.length ? `  ${countLabel(dates)} visit${dates.length === 1 ? '' : 's'} in the series, starting ${dates.slice(0, 3).join(', ')}` : null,
+      '  Jobber generates the visits in the background, so give it a minute before checking the calendar.',
+    )
+  },
+}
+
+export async function previewJobberSetRecurringSchedule(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<{ ok: true; preview: string } | { ok: false; message: string }> {
+  const resolved = await resolveRecurring(ctx, args)
+  if (!resolved.ok) return { ok: false, message: resolved.message }
+  const { job, recurrence, startDate, endDate, members, dates } = resolved
+
+  const today = opsYmd()
+  return {
+    ok: true,
+    preview: lines(
+      `  Job: ${jobLabel(job)}`,
+      `  Rule: ${recurrence}`,
+      `  Runs ${startDate} through ${endDate}`,
+      dates && dates.length
+        ? `  That is ${countLabel(dates)} visit${dates.length === 1 ? '' : 's'}. First three: ${dates
+            .slice(0, 3)
+            .map((d) => `${dayLabel(d)} (${d})`)
+            .join(' · ')}`
+        : dates
+          ? '  ⚠ That rule produces NO visits between those dates — check it before approving.'
+          : "  ⚠ I couldn't expand that rule into dates, so check it carefully in Jobber afterwards.",
+      `  Crew: ${members.length ? members.map(memberLabel).join(', ') : 'unassigned'}`,
+      startDate < today ? `  ⚠ The start date is in the past (today is ${today}) — Jobber will not create a visit on it.` : null,
+      '  This generates every visit in the series on the real Jobber calendar.',
+    ),
+  }
+}
+
 export const JOBBER_ACTIONS: HubAction[] = [
   jobberFindCustomerAction,
   jobberCustomerJobsAction,
@@ -846,6 +1454,8 @@ export const JOBBER_ACTIONS: HubAction[] = [
   jobberRescheduleVisitAction,
   jobberAssignVisitAction,
   jobberCompleteVisitAction,
+  jobberScheduleVisitAction,
+  jobberSetRecurringScheduleAction,
 ]
 
 /** Preview builders for the confirmed Jobber writes, keyed by action name. */
@@ -856,4 +1466,6 @@ export const JOBBER_PREVIEW_BUILDERS: Record<
   [jobberRescheduleVisitAction.name]: previewJobberReschedule,
   [jobberAssignVisitAction.name]: previewJobberAssign,
   [jobberCompleteVisitAction.name]: previewJobberComplete,
+  [jobberScheduleVisitAction.name]: previewJobberScheduleVisit,
+  [jobberSetRecurringScheduleAction.name]: previewJobberSetRecurringSchedule,
 }
