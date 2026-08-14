@@ -1,8 +1,8 @@
-// Lead Tracker actions: list_leads.
+// Lead Tracker actions: list_leads, upsert_lead.
 
-import type { HubAction } from './types'
-import { limitArg, str } from './types'
-import { clip, lines, phone, stampLabel } from './format'
+import type { ActionContext, HubAction } from './types'
+import { limitArg, str, uuidArg } from './types'
+import { clip, lines, phone, resolveDateArg, stampLabel } from './format'
 
 const TRACKER_GATE = { anyFlag: ['can_access_tracker'] }
 
@@ -100,4 +100,329 @@ export const listLeadsAction: HubAction = {
       }),
     )
   },
+}
+
+// ── Writing a sale back to the Tracker ───────────────────────────────────────
+//
+// The last manual step in job setup. Everything else — client, job, line items,
+// visits, recurrence — can be done by the assistant; without this the operator
+// still had to open the Tracker and retype the sale by hand every time.
+//
+// ⚠ The match-then-write shape matters more than the write itself. A lead is
+// matched on PHONE, normalised to digits, because that is the only field the
+// after-hours receptionist, Jobber and the Tracker all agree on — names are
+// typed differently in each. When the phone is stored formatted, the exact-match
+// query misses, so a small set of real-world formats is tried too. And when more
+// than one lead matches, this REFUSES rather than picking: two rows for one
+// person means someone has to decide which is the live one, and silently
+// updating the wrong one loses a sale from reporting with no trace.
+
+/** Stages the Tracker actually recognises (see the Hub Tracker board columns). */
+const LEAD_STAGES = new Set([
+  'current',
+  'appointment_set',
+  'follow_up_long_term',
+  'closed_won',
+  'upsells',
+  'closed_lost',
+  'closed_other',
+  'saves',
+])
+
+/** Digits only — the canonical storage form, and what matching compares. */
+function phoneDigits(raw: string): string {
+  const d = raw.replace(/\D/g, '')
+  // Strip a US country code so "+1 832…" and "832…" match each other.
+  return d.length === 11 && d.startsWith('1') ? d.slice(1) : d
+}
+
+/**
+ * The formats a phone number is plausibly stored in. Canonical storage is digits
+ * only, but rows arrive from several places (receptionist, imports, hand entry)
+ * and some carry formatting. Exact `.in()` on a short list beats a LIKE scan:
+ * it stays indexed, and it can't accidentally match a different number.
+ */
+function phoneVariants(digits: string): string[] {
+  if (digits.length !== 10) return [digits]
+  const [a, b, c] = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6)]
+  return [
+    digits,
+    `(${a}) ${b}-${c}`,
+    `${a}-${b}-${c}`,
+    `${a}.${b}.${c}`,
+    `+1${digits}`,
+    `1${digits}`,
+  ]
+}
+
+function strArray(args: Record<string, unknown>, key: string): string[] | null {
+  const v = args[key]
+  if (Array.isArray(v)) {
+    const out = v.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
+    return out.length ? out : null
+  }
+  if (typeof v === 'string' && v.trim()) return [v.trim()]
+  return null
+}
+
+type LeadRow = {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  phone: string | null
+  email: string | null
+  service_address: string | null
+  stage: string | null
+  status: string | null
+  lead_source: string | null
+  salesperson: string | null
+  created_at: string
+}
+
+const LEAD_COLS =
+  'id, first_name, last_name, phone, email, service_address, stage, status, lead_source, salesperson, created_at'
+
+function leadLabel(l: LeadRow): string {
+  const name = [l.first_name, l.last_name].filter(Boolean).join(' ').trim() || 'Unnamed lead'
+  return `${name} (${phone(l.phone)}) — stage ${l.stage || 'unset'}, created ${stampLabel(l.created_at)}`
+}
+
+export const upsertLeadAction: HubAction = {
+  name: 'upsert_lead',
+  description:
+    'Record a sale (or a stage change) on the Lead Tracker, and add a note to the lead. Use this to ' +
+    'close out a job setup: it finds the existing lead by phone and updates it, or creates one if there ' +
+    "is no match. Most jobs already have a lead — the after-hours receptionist creates them — so don't " +
+    'assume you need a new one. ' +
+    'NEVER guess lead_source or salesperson; if you do not know them, ask. Contact fields you pass are ' +
+    'only filled in where the existing lead is blank, so an update cannot quietly overwrite a real name ' +
+    'or address with a worse one. If more than one lead matches the phone this refuses and lists them — ' +
+    'pass lead_id to say which one you mean.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      lead_id: {
+        type: 'string',
+        description: 'Update this exact lead. Use it only when a previous call reported several matches.',
+      },
+      phone: { type: 'string', description: 'Customer phone — how the lead is matched. Any format.' },
+      first_name: { type: 'string' },
+      last_name: { type: 'string' },
+      email: { type: 'string' },
+      service_address: { type: 'string' },
+      stage: {
+        type: 'string',
+        enum: [
+          'current',
+          'appointment_set',
+          'follow_up_long_term',
+          'closed_won',
+          'upsells',
+          'closed_lost',
+          'closed_other',
+          'saves',
+        ],
+        description: 'Pipeline stage. A sale is "closed_won".',
+      },
+      status: { type: 'string', description: 'Status label, e.g. "Sold".' },
+      service: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Canonical service codes, e.g. ["IRR SC"], ["WF - Lawn Health"], ["MOS"].',
+      },
+      base_program_sold: { type: 'string', description: 'Lead program, e.g. "WF - Root Rot Recovery".' },
+      auxiliary_services: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Add-on programs, e.g. ["WF - Bed Weed Prevention"].',
+      },
+      lead_source: { type: 'string', description: 'Where the lead came from. Ask if you do not know it.' },
+      salesperson: { type: 'string', description: 'Who sold it. Ask if you do not know.' },
+      annual_value: { type: 'number', description: 'Per-visit price × visits per year.' },
+      sold_date: { type: 'string', description: '"today" or YYYY-MM-DD.' },
+      note: {
+        type: 'string',
+        description: 'Short summary of the sale — what was sold, price, schedule, Jobber job number.',
+      },
+    },
+    required: [],
+  },
+  kind: 'write',
+  gate: TRACKER_GATE,
+  defaultOn: false,
+  consentLabel: 'record sales on your Lead Tracker',
+  run: async (ctx, args) => {
+    const leadId = uuidArg(args, 'lead_id')
+    const rawPhone = str(args, 'phone')
+    const digits = phoneDigits(rawPhone)
+    const lastName = str(args, 'last_name')
+
+    const stage = str(args, 'stage').toLowerCase()
+    if (stage && !LEAD_STAGES.has(stage)) {
+      return `"${stage}" isn't a Tracker stage. Use one of: ${[...LEAD_STAGES].join(', ')}.`
+    }
+
+    const soldRaw = str(args, 'sold_date')
+    const soldDate = soldRaw ? resolveDateArg(soldRaw) : ''
+    if (soldRaw && !soldDate) return 'sold_date must be "today" or YYYY-MM-DD.'
+
+    const annualRaw = args.annual_value
+    let annualValue: number | null = null
+    if (annualRaw !== undefined && annualRaw !== null && annualRaw !== '') {
+      const n = Number(annualRaw)
+      if (!Number.isFinite(n) || n < 0) return 'annual_value must be a positive number.'
+      annualValue = n
+    }
+
+    const note = str(args, 'note')
+
+    // -- Find the lead ---------------------------------------------------------
+    let existing: LeadRow | null = null
+
+    if (leadId) {
+      const { data } = await ctx.admin
+        .from('leads')
+        .select(LEAD_COLS)
+        .eq('company_id', ctx.actor.companyId)
+        .eq('id', leadId)
+        .limit(1)
+      existing = ((data || []) as LeadRow[])[0] ?? null
+      if (!existing) return "There's no lead with that id on this company's Tracker."
+    } else if (digits) {
+      const { data } = await ctx.admin
+        .from('leads')
+        .select(LEAD_COLS)
+        .eq('company_id', ctx.actor.companyId)
+        .in('phone', phoneVariants(digits))
+        .order('created_at', { ascending: false })
+        .limit(10)
+      const hits = (data || []) as LeadRow[]
+      if (hits.length > 1) {
+        return lines(
+          `${hits.length} leads share that phone number, so I won't guess which one this sale belongs to. ` +
+            'Ask the user which, then call again with lead_id:',
+          ...hits.map((l) => `• ${leadLabel(l)} — lead_id ${l.id}`),
+        )
+      }
+      existing = hits[0] ?? null
+    } else if (lastName) {
+      const { data } = await ctx.admin
+        .from('leads')
+        .select(LEAD_COLS)
+        .eq('company_id', ctx.actor.companyId)
+        .ilike('last_name', lastName)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      const hits = (data || []) as LeadRow[]
+      if (hits.length > 1) {
+        return lines(
+          `Several leads have the last name "${lastName}". Give me the phone number, or pass lead_id:`,
+          ...hits.map((l) => `• ${leadLabel(l)} — lead_id ${l.id}`),
+        )
+      }
+      existing = hits[0] ?? null
+    } else {
+      return 'Give me the phone number so I can find the lead (or lead_id if you already know it).'
+    }
+
+    // -- Build the change ------------------------------------------------------
+    const sale: Record<string, unknown> = {}
+    if (stage) sale.stage = stage
+    if (str(args, 'status')) sale.status = str(args, 'status')
+    const service = strArray(args, 'service')
+    if (service) sale.service = service
+    if (str(args, 'base_program_sold')) sale.base_program_sold = str(args, 'base_program_sold')
+    const aux = strArray(args, 'auxiliary_services')
+    if (aux) sale.auxiliary_services = aux
+    if (str(args, 'lead_source')) sale.lead_source = str(args, 'lead_source')
+    if (str(args, 'salesperson')) sale.salesperson = str(args, 'salesperson')
+    if (annualValue !== null) sale.annual_value = annualValue
+    if (soldDate) sale.sold_date = soldDate
+
+    // Contact details are fill-the-blanks only on an update. The lead on file was
+    // usually taken down by a person on a call; what the assistant has been handed
+    // second-hand should not overwrite it.
+    const contact = {
+      first_name: str(args, 'first_name'),
+      last_name: lastName,
+      phone: digits,
+      email: str(args, 'email'),
+      service_address: str(args, 'service_address'),
+    }
+
+    if (existing) {
+      const filled: string[] = []
+      for (const [k, v] of Object.entries(contact)) {
+        if (!v) continue
+        if (!(existing as unknown as Record<string, string | null>)[k]) {
+          sale[k] = v
+          filled.push(k.replace(/_/g, ' '))
+        }
+      }
+      if (Object.keys(sale).length === 0 && !note) {
+        return 'Nothing to change on that lead, and no note to add. Say what should be recorded.'
+      }
+      if (Object.keys(sale).length > 0) {
+        sale.updated_at = new Date().toISOString()
+        if (stage && stage !== existing.stage) sale.stage_changed_at = new Date().toISOString()
+        const { error } = await ctx.admin
+          .from('leads')
+          .update(sale)
+          .eq('id', existing.id)
+          .eq('company_id', ctx.actor.companyId)
+        if (error) return `The Tracker refused that update: ${error.message}. Nothing was saved.`
+      }
+      const noteResult = await addLeadNote(ctx, existing.id, note)
+      return lines(
+        `Updated the Tracker lead for ${[existing.first_name, existing.last_name].filter(Boolean).join(' ').trim() || phone(existing.phone)}.`,
+        stage ? `  Stage: ${existing.stage || 'unset'} → ${stage}` : null,
+        annualValue !== null ? `  Annual value: $${annualValue.toFixed(0)}` : null,
+        soldDate ? `  Sold date: ${soldDate}` : null,
+        filled.length ? `  Filled in blanks: ${filled.join(', ')}` : null,
+        noteResult,
+      )
+    }
+
+    // -- No match: create ------------------------------------------------------
+    if (!contact.first_name && !contact.last_name) {
+      return "No lead matches that phone, so this would create a new one — but I need at least a name first. Ask for it rather than creating an unnamed lead."
+    }
+    const insert: Record<string, unknown> = {
+      ...sale,
+      ...Object.fromEntries(Object.entries(contact).filter(([, v]) => v)),
+      company_id: ctx.actor.companyId,
+    }
+    if (stage) insert.stage_changed_at = new Date().toISOString()
+
+    const { data: created, error } = await ctx.admin.from('leads').insert(insert).select('id').limit(1)
+    if (error) return `The Tracker refused that new lead: ${error.message}. Nothing was saved.`
+    const newId = ((created || []) as Array<{ id: string }>)[0]?.id
+    if (!newId) return "The lead didn't save — nothing was added to the Tracker."
+
+    const noteResult = await addLeadNote(ctx, newId, note)
+    return lines(
+      `Created a new Tracker lead for ${[contact.first_name, contact.last_name].filter(Boolean).join(' ').trim()}.`,
+      `  No existing lead matched ${phone(digits) || 'that number'} — check that's right rather than a duplicate.`,
+      stage ? `  Stage: ${stage}` : null,
+      annualValue !== null ? `  Annual value: $${annualValue.toFixed(0)}` : null,
+      noteResult,
+    )
+  },
+}
+
+/**
+ * Attach the note, attributed to the person who asked. Returns a line for the
+ * result — a failed note must NOT fail the whole action, because the sale itself
+ * has already been written and reporting a failure would invite a retry that
+ * double-writes it.
+ */
+async function addLeadNote(ctx: ActionContext, leadId: string, note: string): Promise<string | null> {
+  if (!note) return null
+  const { error } = await ctx.admin.from('lead_notes').insert({
+    lead_id: leadId,
+    company_id: ctx.actor.companyId,
+    note: clip(note, 4000),
+    created_by: ctx.actor.displayName,
+  })
+  return error ? `  ⚠ The sale saved but the note did not (${error.message}) — add it by hand.` : '  Note added.'
 }
