@@ -54,10 +54,27 @@ function clipResult(text: string): string {
 }
 
 /**
+ * Tools whose results are REFERENCE MATERIAL, not a record of work done.
+ *
+ * ⚠ Summarising these was a real bug, not a tidiness issue. A knowledge doc is
+ * thousands of characters, so every turn's note became a wall of doc body that
+ * buried the actual conversation — and because the note sits after the
+ * transcript in the prompt, the assistant read the note as the authoritative
+ * account of the conversation and concluded that details the user HAD given it
+ * were missing. Worse, mining these bodies for ids invented records: the example
+ * "job #1234" inside the jobber_lookups doc was extracted and carried forward as
+ * if it were a real job. Note that these ran; never quote them back.
+ */
+const REFERENCE_TOOLS = new Set(['read_knowledge_doc'])
+
+/**
  * Record identifiers worth carrying forward even when the headline misses them.
  * The confirmation id is the reason this function exists: it appears only in a
  * staging tool result, several lines down, and losing it is what made "yes"
  * unanswerable.
+ *
+ * Only ever called on results from tools that touch REAL records — see
+ * REFERENCE_TOOLS above for why that restriction is load-bearing.
  */
 function extractIds(text: string): string[] {
   const found: string[] = []
@@ -118,6 +135,13 @@ export function summariseTurn(messages: Anthropic.MessageParam[], finalAnswer: s
     if (m.role !== 'assistant' || !Array.isArray(m.content)) continue
     for (const b of m.content as Anthropic.ContentBlockParam[]) {
       if (b.type !== 'tool_use') continue
+      // Reference lookups get a bare mention. Their bodies are enormous and
+      // re-readable on demand; quoting them buried everything that mattered.
+      if (REFERENCE_TOOLS.has(b.name)) {
+        const slug = (b.input as { slug?: unknown })?.slug
+        lines.push(`- ${b.name}${typeof slug === 'string' && slug ? ` (${slug})` : ''} — already read`)
+        continue
+      }
       const raw = resultById.get(b.id) ?? ''
       const ids = extractIds(raw)
       lines.push(
@@ -127,8 +151,18 @@ export function summariseTurn(messages: Anthropic.MessageParam[], finalAnswer: s
     }
   }
 
-  if (lines.length === 0 && !finalAnswer) return ''
+  // What the PERSON said belongs in here too. Leaving it out was the defect
+  // behind the 2026-08-14 Therlonge job: the note listed tool calls and the
+  // assistant's own replies, so it read as a complete account of the
+  // conversation while containing none of the address, price or service the
+  // user had already given — and the assistant asked for all of it again,
+  // twice, insisting it had never been told.
+  const first = messages[0]
+  const asked = typeof first?.content === 'string' ? headline(first.content, 400) : ''
+
+  if (!asked && lines.length === 0 && !finalAnswer) return ''
   return [
+    asked ? `• They said: ${asked}` : '',
     lines.length ? lines.join('\n') : '- (no tools used)',
     finalAnswer ? `  You replied: ${headline(finalAnswer, 300)}` : '',
   ]
@@ -256,11 +290,15 @@ export async function loadTurnMemory(
       if (!note) return EMPTY
       return {
         note:
-          '\n\nWhat you already did earlier in this conversation (most recent last). ' +
-          'These calls have ALREADY run — do not repeat them, and do not tell the user you are ' +
+          '\n\nYour own working notes from earlier in this conversation (oldest first). ' +
+          'These are a CONDENSED aid, not the record of the conversation — "Conversation so far" ' +
+          'above is the source of truth for what was said, and it is complete. Never tell the user ' +
+          'you were not given something without reading that transcript first; if they say they ' +
+          'already told you, they almost certainly did. ' +
+          'The calls listed here have ALREADY run — do not repeat them or announce that you are ' +
           'doing them again. If a confirmation id is listed as staged, that preview is still ' +
           'waiting: when the user agrees, call confirm_action with that id rather than staging a ' +
-          'new one. Call a tool again only if you need detail this note does not carry.\n' +
+          'new one. Call a tool again only if you need detail these notes do not carry.\n' +
           note,
         replay: [],
       }
