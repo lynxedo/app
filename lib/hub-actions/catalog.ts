@@ -20,7 +20,7 @@ import { addContactNoteAction, customerOverviewAction, findContactAction } from 
 import { getScheduleAction } from './actions-schedule'
 import { previewCustomerText, searchTextsAction, sendCustomerTextAction } from './actions-txt'
 import { callActivityAction } from './actions-calls'
-import { listLeadsAction } from './actions-tracker'
+import { listLeadsAction, upsertLeadAction } from './actions-tracker'
 import { createTaskAction, listTasksAction } from './actions-boards'
 import { postHubMessageAction } from './actions-hub'
 import { JOBBER_ACTIONS, JOBBER_PREVIEW_BUILDERS } from './actions-jobber'
@@ -59,6 +59,7 @@ const ALL_ACTIONS: HubAction[] = [
   searchTextsAction,
   callActivityAction,
   listLeadsAction,
+  upsertLeadAction,
   listTasksAction,
   createTaskAction,
   addContactNoteAction,
