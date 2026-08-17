@@ -153,7 +153,11 @@ export default function TxtV2Sidebar({
     wsTabs.openTab({ catalogId: 'txt-thread', instanceKey: c.id, label: displayNameFor(c), href: `/hub/txt/${c.id}` })
   const toast = useToast()
   const confirm = useConfirm()
-  const [scope, setScope] = useState<Scope>('all')
+  // Open on YOUR threads, not the whole company's shared inbox — matches the
+  // Dialer and Inbox sidebars, which already land on "Mine". Managers still get
+  // the pinned unassigned Queue above this list on every tab except Archived, so
+  // defaulting to Mine hides nothing that needs triage.
+  const [scope, setScope] = useState<Scope>('mine')
   const [viewFilter, setViewFilter] = useState<ViewFilter>('all')
   const [filterOpen, setFilterOpen] = useState(false)
   const filterRef = useRef<HTMLDivElement>(null)
