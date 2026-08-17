@@ -75,7 +75,7 @@ export function sourceKey(req: SourceRequest): string {
 
 /** Runtime option lists a `catalog` field can be filled from. Served per company by
  *  app/api/hub/scoreboards/catalogs — see that route for what each one reads. */
-export type CatalogName = 'lead_services' | 'tracker_stages'
+export type CatalogName = 'lead_services' | 'tracker_stages' | 'lead_salespeople'
 
 export type ConfigField =
   | { kind: 'number'; label: string; def: number; min: number; max: number; unit?: string; hint?: string }

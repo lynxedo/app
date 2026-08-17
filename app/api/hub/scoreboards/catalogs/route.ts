@@ -5,14 +5,19 @@ import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, type ReportPerms } from '@/lib/reports/registry'
 import type { LeadItemsRow } from '@/lib/scoreboards/widgets/sources'
 import type { CatalogName } from '@/lib/scoreboards/widgets/types'
+// Shared so the picker, the filter and the chart all name the no-salesperson bucket
+// with the same string — the filter matches on it.
+import { NO_SELLER } from '@/lib/scoreboards/widgets/trackeditems'
 
 export const dynamic = 'force-dynamic'
 
 /* Option lists for `catalog` config fields — the tenant's own data, for the widget
  * settings panel.
  *
- * GET ?name=lead_services   Service values from the Lead Tracker, with lead counts
- * GET ?name=tracker_stages  This company's Tracker stages, in board order
+ * GET ?name=lead_services     Service values from the Lead Tracker, with lead counts
+ * GET ?name=tracker_stages    This company's Tracker stages, in board order
+ * GET ?name=lead_salespeople  Who is credited on leads, with counts, for the
+ *                             "only count these people" filter
  *
  * ⚠ WHY THIS EXISTS AT ALL: a `multi` config field carries a static option list
  * declared in code, and there is no static list of a customer's product names. See
@@ -37,7 +42,7 @@ const ALL_TIME_END = '2999-12-31'
 
 export async function GET(request: Request) {
   const name = new URL(request.url).searchParams.get('name') as CatalogName | null
-  if (name !== 'lead_services' && name !== 'tracker_stages') {
+  if (name !== 'lead_services' && name !== 'tracker_stages' && name !== 'lead_salespeople') {
     return NextResponse.json({ error: 'Unknown catalog' }, { status: 400 })
   }
 
@@ -101,6 +106,25 @@ export async function GET(request: Request) {
 
   const row = data as LeadItemsRow | null
   const totals = new Map<string, number>()
+
+  if (name === 'lead_salespeople') {
+    /* One entry per person, plus the unattributed bucket when it isn't empty — you
+     * may legitimately want to count the leads nobody is credited for. The RPC has
+     * already collapsed "Kathryn"/"kathryn" to one row and returned the spelling
+     * that occurs most, so this is a plain sum. */
+    for (const r of row?.rows ?? []) {
+      const who = r.salesperson?.trim() || NO_SELLER
+      totals.set(who, (totals.get(who) ?? 0) + r.leads)
+    }
+    return NextResponse.json({
+      options: [...totals.entries()]
+        // Real people first by volume; the unattributed bucket last, since it is a
+        // gap rather than a colleague.
+        .sort((a, b) => (a[0] === NO_SELLER ? 1 : b[0] === NO_SELLER ? -1 : 0) || b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([value, count]) => ({ value, label: value, count })),
+    })
+  }
+
   for (const r of row?.rows ?? []) totals.set(r.value, (totals.get(r.value) ?? 0) + r.leads)
 
   return NextResponse.json({
