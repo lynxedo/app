@@ -2527,6 +2527,21 @@ function ScoreboardsTab() {
         <p className="mt-2 text-gray-400">If someone can&apos;t open Scoreboards at all, the Share panel says so too — sharing with them does nothing until an admin turns the section on for them in Admin → People.</p>
       </Section>
 
+      <Section title="Counting Things You Sell (Tracked Items)">
+        <p>Two cards let you count a specific thing you sell — Rachio controllers, aerations, winterizations, whatever you want to watch — and see who sold them. Add <strong className="text-white">Item Sold — Count</strong> for a single number, or <strong className="text-white">Items Sold — Table</strong> to list several items with a count each. Both are under <strong className="text-white">Tracked Items</strong> in the widget picker.</p>
+        <p className="mt-2">Open the card&apos;s ⚙ settings and tick which <strong className="text-white">Service</strong> entries to count. The list comes from the Service column on your Lead Tracker cards, with the number of leads beside each one so you can see what people actually use. On the count card you can also give it your own name (&ldquo;Rachio controllers&rdquo;) and switch <strong className="text-white">Show</strong> to <em>Who sold them</em> to break it out per salesperson.</p>
+
+        <p className="mt-3"><strong className="text-white">Where the number comes from.</strong> These count <em>leads in your Lead Tracker</em>, not Jobber invoices. That matters in two ways. It means the count follows who is named in the <strong className="text-white">Salesperson</strong> field on the lead — which is why &ldquo;who sold them&rdquo; works here and wouldn&apos;t off invoices, where the salesperson is usually blank. It also means it counts what was <em>sold</em>, not what has been <em>installed and billed</em> — a controller sold today counts today, even if the job happens next week.</p>
+        <p className="mt-2">A sale counted this way needs a Lead Tracker card. If somebody sells an upgrade to an existing customer straight in Jobber without making a card for it, the count won&apos;t know about it.</p>
+
+        <p className="mt-3"><strong className="text-white">Which stage counts as sold.</strong> By default only <strong className="text-white">Closed Won</strong> counts. If an upsell is a sale to you, tick <strong className="text-white">Upsells</strong> as well — the card lists whichever stages it counted, right under the number. Untick everything to count every lead that <em>asked</em> for it, sold or not, which is a useful way to see demand.</p>
+        <p className="mt-2"><strong className="text-white">Which date it lands on.</strong> By default a sale counts on its <strong className="text-white">sold date</strong>, so &ldquo;August&rdquo; means what you sold in August. Switch it to the lead date if you&apos;d rather line the card up with the rest of the Sales report, which counts leads by when they came in.</p>
+
+        <p className="mt-3"><strong className="text-white">Spelling is handled for you.</strong> If the same product has been typed a few ways — &ldquo;IR- Rachio&rdquo; and &ldquo;IR - Rachio&rdquo; — they&apos;re counted as one item, and the card tells you it did that. Genuinely different entries stay separate: tick both if you want &ldquo;Rachio 8 Station&rdquo; and &ldquo;Rachio 16 Station&rdquo; added together, or give each its own card to compare them.</p>
+        <p className="mt-2 text-gray-400">Two things the cards will tell you rather than hide: an item you&apos;re tracking that didn&apos;t sell shows as <strong className="text-white">0</strong> instead of disappearing, and if a lead lists two services it counts under both — so the rows in the table can add up to more than the number of sales. The card says so when it happens.</p>
+        <p className="mt-2 text-gray-400">These cards need access to the <strong className="text-white">Sales &amp; Pipeline</strong> report, since that&apos;s where Lead Tracker numbers live. They aren&apos;t on any ready-made Report — which items you track is your choice, so they only exist on boards you build.</p>
+      </Section>
+
       <Section title="Visit Revenue Over Time">
         <p>Three cards show what the crews actually produced, as a trend you can slice three ways:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">

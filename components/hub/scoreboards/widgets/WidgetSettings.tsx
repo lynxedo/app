@@ -1,6 +1,7 @@
 'use client'
 
-import type { ConfigField, WidgetConfig } from '@/lib/scoreboards/widgets/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { CatalogName, ConfigField, WidgetConfig } from '@/lib/scoreboards/widgets/types'
 import { SPAN_STOPS } from '@/lib/scoreboards/widgets/types'
 import type { WidgetCatalogEntry } from '@/lib/scoreboards/widgets/registry'
 
@@ -36,6 +37,128 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 const inputCls = 'w-full rounded-lg border border-sky-400/15 bg-[#020c16]/60 px-2.5 py-1.5 text-[12px] text-gray-200'
 const pillCls = (on: boolean) =>
   `rounded-full border px-2.5 py-1 text-[11px] ${on ? 'border-sky-400/50 bg-sky-400/15 text-sky-200' : 'border-sky-400/15 text-gray-400 hover:text-sky-200'}`
+
+type CatalogOption = { value: string; label: string; count: number | null }
+
+/**
+ * Options for a `catalog` field, fetched once per catalog name and shared by every
+ * field using it (a board with six tracked-item cards open still asks once).
+ */
+const catalogCache = new Map<CatalogName, CatalogOption[]>()
+
+function useCatalog(name: CatalogName) {
+  const [options, setOptions] = useState<CatalogOption[] | null>(catalogCache.get(name) ?? null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const cached = catalogCache.get(name)
+    if (cached) { setOptions(cached); return }
+    let live = true
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/hub/scoreboards/catalogs?name=${encodeURIComponent(name)}`)
+        const body = await res.json().catch(() => ({}))
+        if (!live) return
+        if (!res.ok) {
+          // 403 here means the Sales report isn't granted. Say which, rather than
+          // rendering an empty list that reads as "there is nothing to pick".
+          setError(res.status === 403
+            ? 'You need access to the Sales & Pipeline report to choose items.'
+            : (body?.error || 'Could not load the list.'))
+          return
+        }
+        const opts: CatalogOption[] = Array.isArray(body?.options) ? body.options : []
+        catalogCache.set(name, opts)
+        setOptions(opts)
+      } catch {
+        if (live) setError('Could not load the list.')
+      }
+    })()
+    return () => { live = false }
+  }, [name])
+
+  return { options, error }
+}
+
+/**
+ * Searchable multi-select over the tenant's own values.
+ *
+ * ⚠ Selected values are listed FIRST and always shown, even when a search box
+ * filters them out of the list below — otherwise typing a filter makes a card look
+ * as though it lost its selection.
+ *
+ * ⚠ A selected value that is no longer in the catalog (its last lead was deleted,
+ * or somebody renamed it) still renders as a chip so it can be seen and removed. It
+ * is never silently dropped: the widget is still counting it, so hiding it here
+ * would leave a card measuring something invisible in its own settings.
+ */
+function CatalogField({
+  name, selected, onChange,
+}: { name: CatalogName; selected: string[]; onChange: (next: string[]) => void }) {
+  const { options, error } = useCatalog(name)
+  const [q, setQ] = useState('')
+
+  const chosen = useMemo(() => new Set(selected), [selected])
+  const filtered = useMemo(() => {
+    const list = (options ?? []).filter(o => !chosen.has(o.value))
+    const needle = q.trim().toLowerCase()
+    return needle ? list.filter(o => o.label.toLowerCase().includes(needle)) : list
+  }, [options, chosen, q])
+
+  const toggle = (v: string) => {
+    onChange(chosen.has(v) ? selected.filter(x => x !== v) : [...selected, v])
+  }
+
+  if (error) return <div className="rounded-lg border border-amber-400/35 bg-amber-500/5 p-2.5 text-[11px] text-amber-200">{error}</div>
+  if (!options) return <div className={`${inputCls} text-gray-500`}>Loading…</div>
+
+  return (
+    <div>
+      {selected.length ? (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {selected.map(v => (
+            <button
+              key={v}
+              onClick={() => toggle(v)}
+              title="Remove"
+              className="flex items-center gap-1 rounded-full border border-sky-400/50 bg-sky-400/15 px-2.5 py-1 text-[11px] text-sky-200"
+            >
+              <span className="max-w-[220px] truncate">{v}</span>
+              <span className="text-amber-200">✕</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {options.length > 8 ? (
+        <input
+          className={`${inputCls} mb-1.5`}
+          placeholder="Search…"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+        />
+      ) : null}
+
+      <div className="max-h-[220px] overflow-y-auto rounded-lg border border-sky-400/15 bg-[#020c16]/40">
+        {filtered.length === 0 ? (
+          <div className="px-2.5 py-2 text-[11px] text-gray-500">
+            {options.length === 0 ? 'Nothing recorded yet.' : q ? 'Nothing matches.' : 'All of them are selected.'}
+          </div>
+        ) : filtered.map(o => (
+          <button
+            key={o.value}
+            onClick={() => toggle(o.value)}
+            className="flex w-full items-center gap-2 border-b border-sky-400/10 px-2.5 py-1.5 text-left text-[11.5px] text-gray-300 last:border-0 hover:bg-sky-400/10 hover:text-sky-200"
+          >
+            <span className="flex-1 truncate">{o.label}</span>
+            {/* The count is what makes two spellings of one product visible. */}
+            {o.count != null ? <span className="shrink-0 text-[10.5px] text-gray-500">{o.count}</span> : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export function WidgetSettings({ def, span, config, windowLabel, onConfig, onSpan, onRemove, onClose }: Props) {
   const entries = Object.entries(def.config) as [string, ConfigField][]
@@ -88,6 +211,31 @@ export function WidgetSettings({ def, span, config, windowLabel, onConfig, onSpa
                 <select className={inputCls} value={String(value ?? field.def)} onChange={e => onConfig(key, e.target.value)}>
                   {field.opts.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
+              </Field>
+            )
+          }
+          if (field.kind === 'text') {
+            return (
+              <Field key={key} label={field.label} hint={field.hint}>
+                <input
+                  className={inputCls}
+                  value={String(value ?? field.def)}
+                  placeholder={field.placeholder}
+                  maxLength={120}
+                  onChange={e => onConfig(key, e.target.value)}
+                />
+              </Field>
+            )
+          }
+          if (field.kind === 'catalog') {
+            const on = Array.isArray(value) ? (value as string[]) : field.def
+            return (
+              <Field key={key} label={field.label} hint={field.hint}>
+                <CatalogField
+                  name={field.catalog}
+                  selected={on}
+                  onChange={next => onConfig(key, next.slice(0, field.max ?? 60))}
+                />
               </Field>
             )
           }

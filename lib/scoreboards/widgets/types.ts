@@ -51,6 +51,11 @@ export type SourceKey =
   // `tech_credit` as params, so the same source backs the monthly and weekly
   // views without a second query shape.
   | 'visit_revenue_trend'
+  // Lead Tracker Service values × salesperson, for the tracked-item widgets.
+  // Deliberately NOT parameterised by which items are selected: every tracked-item
+  // card on a board sharing a basis and stage set then shares ONE query, however
+  // many products are being counted.
+  | 'lead_items'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 
@@ -68,11 +73,34 @@ export function sourceKey(req: SourceRequest): string {
 
 /* ── Config schema — this is what generates the settings form ────────────── */
 
+/** Runtime option lists a `catalog` field can be filled from. Served per company by
+ *  app/api/hub/scoreboards/catalogs — see that route for what each one reads. */
+export type CatalogName = 'lead_services' | 'tracker_stages'
+
 export type ConfigField =
   | { kind: 'number'; label: string; def: number; min: number; max: number; unit?: string; hint?: string }
   | { kind: 'enum'; label: string; def: string; opts: string[]; hint?: string }
   | { kind: 'multi'; label: string; def: string[]; opts: string[]; hint?: string }
   | { kind: 'bool'; label: string; def: boolean; hint?: string }
+  | { kind: 'text'; label: string; def: string; placeholder?: string; hint?: string }
+  /**
+   * Multi-select whose options are the TENANT'S OWN DATA, fetched at render time.
+   *
+   * ⚠⚠ Why this can't be a `multi`. `multi` carries a static `opts` array declared
+   * at import, and `sanitizeConfig` drops any value not in it. Heroes has 224
+   * distinct invoiced line-item names and ~40 Lead Tracker Service values, they
+   * differ per tenant, and new ones appear whenever somebody types one — so a
+   * static list would be wrong on day one and would SILENTLY discard every
+   * selection made against it. It also renders as a pill per option, which is fine
+   * for four and unusable for forty.
+   *
+   * The consequence, stated plainly: values here cannot be validated against a
+   * whitelist, so sanitizing bounds them (count, length) instead of verifying
+   * them. That is safe because a value is only ever used as a string to match
+   * against rows already scoped to the caller's company — never interpolated into
+   * SQL, and never used to widen what is read.
+   */
+  | { kind: 'catalog'; label: string; def: string[]; catalog: CatalogName; hint?: string; max?: number }
 
 export type ConfigSchema = Record<string, ConfigField>
 export type WidgetConfig = Record<string, unknown>
@@ -109,6 +137,23 @@ export function sanitizeConfig(schema: ConfigSchema, raw: unknown): WidgetConfig
       case 'bool':
         out[k] = v === true || v === 'true'
         break
+      case 'text':
+        out[k] = String(v).slice(0, 120)
+        break
+      case 'catalog': {
+        // Bounded, not whitelisted — see the note on the field type. Empty stays
+        // empty rather than falling back to the default: a tracked-item card with
+        // nothing selected must say "pick your items", not quietly count something
+        // the person didn't choose.
+        const seen = new Set<string>()
+        const arr = (Array.isArray(v) ? v : [])
+          .map(x => String(x).trim())
+          .filter(x => x.length > 0 && x.length <= 200)
+          .filter(x => (seen.has(x) ? false : (seen.add(x), true)))
+          .slice(0, f.max ?? 60)
+        out[k] = arr
+        break
+      }
     }
   }
   return out

@@ -427,6 +427,33 @@ export type RevenueTrendRow = {
   unattributed_visits: number
 }
 
+/**
+ * Lead Tracker Service values, counted per salesperson — the tracked-item source.
+ *
+ * `rows` carries RAW service values, one row per (value, salesperson). Folding the
+ * spellings of one product together happens in the widget so it stays visible and
+ * undoable; see trackeditems.ts.
+ */
+export type LeadItemsRow = {
+  basis: 'sold' | 'created'
+  start: string
+  end: string
+  stages: string[]
+  rows: { value: string; salesperson: string | null; leads: number }[]
+  coverage: {
+    /** Leads in the window matching the stage filter. */
+    leads: number
+    /** Of those, how many carry no Service value at all — they can match nothing. */
+    no_service: number
+    /** Leads listing more than one service, so per-item counts sum above the lead count. */
+    multi_service: number
+    no_salesperson: number
+    /** Oldest/newest date this company has on the chosen basis — the data floor. */
+    earliest: string | null
+    latest: string | null
+  }
+}
+
 export type ServiceLine = {
   dept: string
   revenue: number
@@ -812,6 +839,25 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`visit_revenue_trend: ${error.message}`)
     return data ? [data as RevenueTrendRow] : []
+  },
+
+  /**
+   * ⚠ `stages` arrives as a comma-joined string because SourceParams holds only
+   * scalars (it has to — `sourceKey` stringifies params to build the dedupe key, and
+   * an array would key by object identity and split the cache slot every render).
+   * Split back to the text[] the function wants.
+   */
+  lead_items: async (ctx, params) => {
+    const stages = String(params.stages ?? '').split(',').map(s => s.trim()).filter(Boolean)
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_lead_items', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+      p_basis: String(params.basis ?? 'sold'),
+      p_stages: stages.length ? stages : null,
+    })
+    if (error) throw new Error(`lead_items: ${error.message}`)
+    return data ? [data as LeadItemsRow] : []
   },
 
   /**

@@ -50,6 +50,13 @@ export const WIDGET_GROUP_REPORT: Record<string, string> = {
   'Marketing': 'marketing',
   'People': 'people',
   'Goals': 'goals',
+  /**
+   * Tracked items count Lead Tracker rows, so they answer to the Sales & Pipeline
+   * grant — the report that already shows leads, who sold them and what closed.
+   * Mapping them anywhere wider would hand someone Tracker figures their own
+   * reports withhold, which is the side door this file exists to keep shut.
+   */
+  'Tracked Items': 'sales',
 }
 
 /**
