@@ -5,9 +5,9 @@
 // floating PiP. Pure consumer of a DialerLookupMatch from the shared call state.
 //
 // Quick actions reuse existing send paths (no new SMS plumbing): Text and On-my-
-// way go through the Txt2 find-or-create + send routes; Add note writes to the
-// call row (call-log2) and optionally pushes a Jobber client note; Open in Jobber
-// deep-links via the matched client's web URI.
+// way go through the Txt2 find-or-create + send routes; the notepad writes to the
+// call row (shown in the Call Log) and is deliberately internal-only — it does
+// NOT touch Jobber; Open in Jobber deep-links via the matched client's web URI.
 
 import { useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
@@ -187,7 +187,6 @@ export default function CallContactCard({
           <CallNotepad
             number={targetPhone}
             room={dialer?.conferenceRoom ?? null}
-            jobberClientId={contact?.jobberClientId}
             compact={compact}
           />
         </div>

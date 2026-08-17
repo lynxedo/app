@@ -3,20 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveRecentCallId } from '@/lib/dialer-active-call'
 import { CENTRAL_TZ } from '@/lib/timezone'
-import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 
 const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
-const NOTE_CREATE = `
-  mutation NoteCreate($input: NoteCreateInput!) {
-    noteCreate(input: $input) {
-      note { id }
-      userErrors { message }
-    }
-  }
-`
-
-// companyJobberUserId now lives in lib/jobber.ts (shared with Daily Log v2).
 
 // Notes taken on a call.
 //
@@ -84,9 +72,13 @@ export async function GET(request: Request) {
   return NextResponse.json({ callId, notes: (data?.agent_notes as string | null) || '' })
 }
 
-// Body: { note: string, room?: string, toJobber?: boolean, jobberClientId?: string }
-// Appends the note to the call row (shown in the Call Log detail), and
-// optionally posts it as a Jobber client note.
+// Body: { note: string, room?: string }
+// Appends the note to the call row (shown in the Call Log detail).
+//
+// Per Ben (Aug 14 2026): this is an INTERNAL scratchpad. It deliberately does
+// NOT write to the customer's Jobber record — half-formed notes typed mid-call
+// don't belong on a customer-facing system of record. Jobber client notes are
+// still written deliberately from elsewhere.
 export async function POST(request: Request) {
   const g = await gate()
   if ('error' in g) return NextResponse.json({ error: g.error }, { status: g.status })
@@ -95,9 +87,6 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 5000) : ''
   if (!note) return NextResponse.json({ error: 'note required' }, { status: 400 })
-  const toJobber = body.toJobber === true
-  const jobberClientId = typeof body.jobberClientId === 'string' ? body.jobberClientId : null
-
   const admin = createAdminClient()
 
   // Attach to the call row. `room` matters: without it resolveRecentCallId falls
@@ -120,28 +109,5 @@ export async function POST(request: Request) {
     await admin.from('calls').update({ agent_notes: notes }).eq('id', callId)
   }
 
-  // Optionally push to Jobber as a client note.
-  let jobberPosted = false
-  let jobberError: string | null = null
-  if (toJobber && jobberClientId) {
-    try {
-      const jobberUserId = await companyJobberUserId(companyId, user.id)
-      if (!jobberUserId) {
-        jobberError = 'No connected Jobber account'
-      } else {
-        const res = await jobberGraphQLAdmin<{
-          data?: { noteCreate?: { userErrors?: { message: string }[] } }
-        }>(jobberUserId, NOTE_CREATE, {
-          input: { subjectType: 'CLIENT', subjectId: jobberClientId, content: note },
-        })
-        const errs = res?.data?.noteCreate?.userErrors
-        if (errs && errs.length) jobberError = errs.map((e) => e.message).join('; ')
-        else jobberPosted = true
-      }
-    } catch (e) {
-      jobberError = e instanceof Error ? e.message : 'Jobber note failed'
-    }
-  }
-
-  return NextResponse.json({ ok: true, callId, notes, jobberPosted, jobberError })
+  return NextResponse.json({ ok: true, callId, notes })
 }

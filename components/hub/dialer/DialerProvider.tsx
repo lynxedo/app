@@ -34,6 +34,7 @@ import IncomingCall from './IncomingCall'
 import CallWaiting from './CallWaiting'
 import PipDialer from './PipDialer'
 import CallDisposition from './CallDisposition'
+import PostCallNotepad from './PostCallNotepad'
 
 const DialerContext = createContext<UseTwilioDevice | null>(null)
 
@@ -74,7 +75,13 @@ export default function DialerProvider({ children }: { children: ReactNode }) {
   // ── Session 6: after-call disposition options + prompt ────────────────────
   const [dispoOptions, setDispoOptions] = useState<string[]>([...DEFAULT_DISPOSITIONS])
   const [dispositionsEnabled, setDispositionsEnabled] = useState(true)
-  const [endedCall, setEndedCall] = useState<{ contactName: string | null } | null>(null)
+  const [endedCall, setEndedCall] = useState<
+    { contactName: string | null; number: string | null; room: string | null } | null
+  >(null)
+  // Dismissing the notes card is separate from dismissing the wrap-up prompt —
+  // the prompt is a 30s tap-one-button thing, the notes card may be held open
+  // for as long as someone is still writing.
+  const [notesDismissed, setNotesDismissed] = useState(false)
 
   useEffect(() => {
     fetch('/api/dialer/settings/dispositions')
@@ -97,6 +104,28 @@ export default function DialerProvider({ children }: { children: ReactNode }) {
     else if (device.incomingFrom) lastLabelRef.current = formatPhone(device.incomingFrom)
   }, [device.contactMatch, device.inCallWith, device.incomingFrom])
 
+  // The far-end number and the conference room, captured WHILE the call is live.
+  // Both are cleared by the hook the instant the call ends, so a note typed
+  // afterwards would otherwise have nothing to file itself against — and would
+  // fall back to "most recent call in 6 hours", i.e. the wrong call once the
+  // next one arrives.
+  const lastNumberRef = useRef<string | null>(null)
+  const lastRoomRef = useRef<string | null>(null)
+  useEffect(() => {
+    // Clearing and capturing MUST live in one effect, in this order. Split
+    // across two, React can run the capture first and the clear second within
+    // the same render — wiping the room of the call that just started, which
+    // would then file its notes against the PREVIOUS call.
+    if ((device.state === 'incoming' || device.state === 'placing') && !device.conferenceRoom) {
+      lastRoomRef.current = null
+    }
+    const n = device.inCallWith || device.incomingFrom
+    if (n) lastNumberRef.current = n
+    // Guarded assignment: the hook nulls conferenceRoom as the call tears down,
+    // and we want the last real value, not that null.
+    if (device.conferenceRoom) lastRoomRef.current = device.conferenceRoom
+  }, [device.state, device.inCallWith, device.incomingFrom, device.conferenceRoom])
+
   // Show the wrap-up prompt only after a CONNECTED call ends (not a failed dial
   // or a missed incoming). Clear any stale prompt when a new call starts.
   const prevStateRef = useRef(device.state)
@@ -105,10 +134,15 @@ export default function DialerProvider({ children }: { children: ReactNode }) {
     prevStateRef.current = device.state
     if (device.state === 'incoming' || device.state === 'placing' || device.state === 'in-call') {
       setEndedCall(null)
+      setNotesDismissed(false)
       return
     }
     if (prev === 'in-call') {
-      setEndedCall({ contactName: lastLabelRef.current })
+      setEndedCall({
+        contactName: lastLabelRef.current,
+        number: lastNumberRef.current,
+        room: lastRoomRef.current,
+      })
     }
   }, [device.state])
 
@@ -170,6 +204,15 @@ export default function DialerProvider({ children }: { children: ReactNode }) {
             options={dispoOptions}
             contactName={endedCall.contactName}
             onDismiss={() => setEndedCall(null)}
+          />
+        )}
+        {endedCall && !notesDismissed && (
+          <PostCallNotepad
+            number={endedCall.number}
+            room={endedCall.room}
+            contactName={endedCall.contactName}
+            raised={dispositionsEnabled && dispoOptions.length > 0}
+            onDismiss={() => setNotesDismissed(true)}
           />
         )}
         {pip.pipWindow && <PipDialer pipWindow={pip.pipWindow} />}
