@@ -95,9 +95,18 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Close Rate',
         value: r?.close_rate != null ? `${num(r.close_rate)}%` : '—',
         tone: rateTone(r?.close_rate ?? null),
-        // Naming the denominator matters: it's decided leads, not all leads.
+        /* Naming the denominator matters: it's decided leads, not all leads.
+         * ⚠ And the numerator is `competed_won`, NOT `won` — `won` now includes the
+         * stages marked "counts as a sale" (Heroes: Upsells) while `decided` does not,
+         * so pairing those two could print "464 won of 549 decided", or on one rep's
+         * row a numerator larger than its denominator. Upsells are reported on their
+         * own line below rather than folded into a rate they never competed in. */
         sub: r
-          ? `${num(r.won).toLocaleString()} won of ${num(r.decided).toLocaleString()} decided${num(r.excluded_junk) > 0 ? ` · ${num(r.excluded_junk)} bad or duplicate leads excluded` : ''}`
+          ? [
+              `${num(r.competed_won).toLocaleString()} won of ${num(r.decided).toLocaleString()} decided`,
+              ...(num(r.upsold) > 0 ? [`${num(r.upsold)} upsell${num(r.upsold) === 1 ? '' : 's'} sold outside this rate`] : []),
+              ...(num(r.excluded_junk) > 0 ? [`${num(r.excluded_junk)} bad or duplicate leads excluded`] : []),
+            ].join(' · ')
           : 'Nothing decided yet',
       }
     },
@@ -118,8 +127,14 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Value Sold',
         value: r ? formatCurrency(num(r.won_value)) : '—',
         tone: 'good',
+        /* `won` is the right basis here — this card IS "what did we sell". The split
+         * is named because the figure moved when upsells started counting: Heroes'
+         * 2026 YTD went from $202,753.71 to $234,294.24. */
         sub: r?.avg_deal != null
-          ? `${num(r.won).toLocaleString()} sales · ${formatCurrency(num(r.avg_deal))} average, in annual value`
+          ? [
+              `${num(r.won).toLocaleString()} sales · ${formatCurrency(num(r.avg_deal))} average, in annual value`,
+              ...(num(r.upsold) > 0 ? [`includes ${num(r.upsold)} upsell${num(r.upsold) === 1 ? '' : 's'} worth ${formatCurrency(num(r.upsold_value))}`] : []),
+            ].join(' · ')
           : 'Nothing sold yet',
       }
     },
@@ -198,7 +213,8 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
           label: new Date(`${m.month}-15T12:00:00Z`).toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
           value: num(m.close_rate),
           tone: rateTone(num(m.close_rate)),
-          detail: `${num(m.won)} won of ${num(m.decided)} decided · ${num(m.leads)} leads in`,
+          // ⚠ competed_won, not won: see kpi_close_rate above.
+          detail: `${num(m.competed_won)} won of ${num(m.decided)} decided · ${num(m.leads)} leads in`,
         }))
       return {
         kind: 'bars',
@@ -252,7 +268,9 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
           { key: 'name', label: 'Salesperson', align: 'left' },
           { key: 'leads', label: 'Leads', align: 'right', format: 'number' },
           { key: 'decided', label: 'Decided', align: 'right', format: 'number' },
-          { key: 'won', label: 'Won', align: 'right', format: 'number', sortable: true },
+          // "Sold", not "Won": includes any stage marked as counting as a sale, which
+          // is why it can exceed Decided on a rep with upsells.
+          { key: 'won', label: 'Sold', align: 'right', format: 'number', sortable: true, title: 'Deals sold, including upsells if your Lead Tracker counts them as sales' },
           { key: 'rate', label: 'Close rate', align: 'right', format: 'percent' },
           { key: 'value', label: 'Value sold', align: 'right', format: 'currency', sortable: true },
         ],
@@ -283,7 +301,8 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
           label: s.source,
           value: num(s.close_rate),
           tone: rateTone(num(s.close_rate)),
-          detail: `${num(s.won)} of ${num(s.decided)} decided · ${formatCurrency(num(s.value))}`,
+          // ⚠ competed_won, not won: the rate this sits beside is competed-only.
+          detail: `${num(s.competed_won)} of ${num(s.decided)} decided · ${formatCurrency(num(s.value))}`,
         }))
       const thin = (r?.by_source ?? []).filter(s => s.close_rate == null).length
       return {
@@ -408,6 +427,65 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
       }
 
       return { kind: 'list', title: 'What the Numbers Say', sub: `Read of ${win.phrase}`, items }
+    },
+  },
+  {
+    type: 'sales_new_vs_upsell',
+    group: 'Sales',
+    title: 'New Business vs Upsells',
+    blurb: 'How much of what you sold was a new customer and how much was an upgrade',
+    defaultSpan: 6,
+    /**
+     * The old Main board's "Upsells vs New Sales by Month" card, which had no widget.
+     *
+     * ⚠ Which stages count as an upsell is NOT set here — it comes from
+     * `counts_as_sale` on the Lead Tracker stages, so this card, Value Sold, Open
+     * Pipeline and every per-person figure all agree by construction. A card-level
+     * setting would let one board disagree with another about what a sale is.
+     */
+    config: {
+      measure: {
+        kind: 'enum' as const,
+        label: 'Measure by',
+        def: 'Annual value',
+        opts: ['Annual value', 'How many'],
+      },
+    },
+    sources: (_cfg, win) => [salesReq(win)],
+    metric: (bag, cfg, win) => {
+      const r = sales(bag, win)
+      const byValue = String(cfg.measure) === 'Annual value'
+      const stages = r?.sale_stages ?? []
+      const months = r?.by_month ?? []
+      const rows = months.map(m => {
+        const nw = byValue ? num(m.competed_value) : num(m.competed_won)
+        const up = byValue ? num(m.upsold_value) : num(m.upsold)
+        return {
+          label: new Date(`${m.month}-15T12:00:00Z`).toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
+          caption: byValue ? formatCurrency(nw + up) : String(nw + up),
+          parts: [
+            { value: Math.round(nw), tone: 'good' as Tone, label: 'New business' },
+            { value: Math.round(up), tone: 'mixed' as Tone, label: 'Upsells' },
+          ],
+        }
+      })
+      return {
+        kind: 'stacked',
+        title: 'New Business vs Upsells',
+        // ⚠ 'magnitude', not the default 'share': normalising every month to 100%
+        // would answer "what was the mix" while hiding that one month sold twice as
+        // much as another, which is half the question here.
+        scale: 'magnitude',
+        sub: stages.length
+          ? `${win.phrase} · by the month the lead arrived · upsells are the ${stages.join(', ')} stage${stages.length === 1 ? '' : 's'}`
+          : `${win.phrase} · no Lead Tracker stage is marked as counting as a sale, so everything here is new business`,
+        rows,
+        legend: [
+          { label: 'New business', tone: 'good' as Tone },
+          { label: 'Upsells', tone: 'mixed' as Tone },
+        ],
+        empty: 'No leads in this period',
+      }
     },
   },
 ]

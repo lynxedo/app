@@ -493,12 +493,33 @@ export type ServiceLinesRow = {
 /** Lead-Tracker funnel for a cohort of leads created in the window. */
 export type SalesRow = {
   leads: number
+  /**
+   * Everything SOLD — `closed_won` plus any stage the tenant marked
+   * `counts_as_sale` in Admin → Lead Tracker (Heroes ticks Upsells).
+   *
+   * ⚠⚠ This moved on 2026-08-17 and the reason is worth keeping. Before, anything
+   * that was not won/lost/junk counted as STILL OPEN, so Heroes' 55 sold upsells sat
+   * in Open Pipeline forever and their $31,541 was missing from Value Sold — the old
+   * Main board counted them, so the two disagreed by 15% on "what did we sell".
+   */
   won: number
+  /** Sold in open competition (`closed_won` only) — the close-rate numerator. */
+  competed_won: number
+  /** Sold without competing: the counts_as_sale stages. */
+  upsold: number
+  upsold_value: number
+  /** Which stages the tenant counts as a sale. Cards name them rather than assuming. */
+  sale_stages: string[]
   lost: number
   decided: number
   open: number
   /** Bad Lead / Unreachable / Duplicate — excluded from close rate, reported anyway. */
   excluded_junk: number
+  /**
+   * ⚠ Competed-only basis, deliberately UNCHANGED by counts_as_sale: an upsell to an
+   * existing customer is not a lead you competed for, so it must not move the rate
+   * (Ben's call). Time-to-close stays on the same basis for the same reason.
+   */
   close_rate: number | null
   won_value: number
   avg_deal: number | null
@@ -509,9 +530,19 @@ export type SalesRow = {
   attempts_total: number
   /** Minimum decided leads before a rate is shown at all. */
   rate_min_sample: number
-  by_month: { month: string; leads: number; won: number; decided: number; close_rate: number | null }[]
-  by_source: { source: string; leads: number; won: number; decided: number; close_rate: number | null; value: number }[]
-  by_salesperson: { name: string; leads: number; won: number; decided: number; close_rate: number | null; value: number }[]
+  by_month: {
+    month: string; leads: number; won: number; competed_won: number; upsold: number
+    decided: number; won_value: number; competed_value: number; upsold_value: number
+    close_rate: number | null
+  }[]
+  by_source: {
+    source: string; leads: number; won: number; competed_won: number; upsold: number
+    decided: number; close_rate: number | null; value: number
+  }[]
+  by_salesperson: {
+    name: string; leads: number; won: number; decided: number; close_rate: number | null
+    value: number; upsold: number; upsold_value: number
+  }[]
   lost_reasons: { reason: string; count: number }[]
   open_by_stage: { stage: string; count: number }[]
 }
@@ -600,6 +631,45 @@ export type HomePulseRow = {
     horizon_months: number
     first_month_partial: boolean
   }
+}
+
+/**
+ * One row per (active recurring job, base-program line).
+ *
+ * ⚠ `addon_names` carries whatever the tenant flagged `is_auxiliary` in
+ * `recurring_program_definitions`, NOT a fixed pair of columns. The function still
+ * returns `has_phc` / `has_bwp` for the legacy hardcoded WF board; widgets must
+ * never read those two — they are two Heroes line-item names baked into SQL and are
+ * always false for any other tenant.
+ *
+ * ⚠ `is_priced` is false when the base program has no visits-per-year set, which
+ * means `annual_value` is 0 because nobody filled a field — not because the work is
+ * worthless. All ten Heroes Mosquito jobs are in that state, so any card summing
+ * value has to be able to say how many jobs it could not price.
+ */
+export type RecurringBookRow = {
+  job_id: string
+  client_id: string
+  dept_prefix: string | null
+  display_name: string | null
+  annual_value: number | string | null
+  addon_names: string[] | null
+  visits_per_year: number | null
+  is_priced: boolean
+}
+
+export type TicketSizeRow = {
+  ticket_count: number
+  avg_value: number | string | null
+  median_value: number | string | null
+  total_value: number | string | null
+  by_line: {
+    line: string
+    ticket_count: number
+    avg_value: number | string | null
+    median_value: number | string | null
+    total_value: number | string | null
+  }[]
 }
 
 /* ── Executors ──────────────────────────────────────────────────────────── */
@@ -998,6 +1068,57 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
       .lte('lead_creation_date', String(params.end))
     if (error) throw new Error(`leads_decided: ${error.message}`)
     return (data ?? []) as DecidedLeadRow[]
+  },
+
+  /**
+   * The active recurring book (Jobber jobs + line items + the tenant's program
+   * definitions).
+   *
+   * ⚠ TAKES NO PARAMETERS AT ALL, deliberately — not even a date window. It is a
+   * point-in-time picture of what is on the books right now, the same reason
+   * `invoice_ar` takes no dates: an "active customers" count for a window in March
+   * is not a smaller version of the same number, it is a different question the data
+   * cannot answer. Every card built on it says "as things stand today" rather than
+   * quietly ignoring the date picker above it.
+   *
+   * The no-parameter shape also means every book card on a board — WF count, IR
+   * value, program mix, attach rate — shares ONE cache slot and therefore one query.
+   */
+  recurring_book: async (ctx) => {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_recurring_book', {
+      p_company_id: ctx.companyId,
+    })
+    if (error) throw new Error(`recurring_book: ${error.message}`)
+    return (data ?? []) as RecurringBookRow[]
+  },
+
+  /**
+   * What a single completed job is worth, per service line.
+   *
+   * ⚠ `lines` and `exclude` arrive comma-joined for the same reason `lead_items`
+   * joins its stages: SourceParams holds only scalars, because `sourceKey`
+   * stringifies params to build the dedupe key and an array would key by object
+   * identity, splitting the cache slot on every render.
+   *
+   * ⚠ Which names are excluded IS the definition of the measure — a service plan, an
+   * install and a drainage job are not repair tickets — so the exclusion list is
+   * part of the cache key and two cards excluding different things correctly cost
+   * two queries.
+   */
+  ticket_size: async (ctx, params) => {
+    const split = (v: unknown) =>
+      String(v ?? '').split(',').map(s => s.trim()).filter(Boolean)
+    const lines = split(params.lines)
+    const exclude = split(params.exclude)
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_ticket_size', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+      p_lines: lines.length ? lines : null,
+      p_exclude: exclude.length ? exclude : null,
+    })
+    if (error) throw new Error(`ticket_size: ${error.message}`)
+    return data ? [data as TicketSizeRow] : []
   },
 }
 

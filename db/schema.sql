@@ -1261,6 +1261,7 @@ CREATE TABLE public.reactions (
 
 CREATE TABLE public.recurring_program_definitions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
   line_item_name text NOT NULL,
   dept_prefix text NOT NULL,
   is_recurring boolean NOT NULL DEFAULT true,
@@ -2195,7 +2196,8 @@ ALTER TABLE qbo_tokens ADD CONSTRAINT qbo_tokens_company_id_fkey FOREIGN KEY (co
 ALTER TABLE reactions ADD CONSTRAINT reactions_pkey PRIMARY KEY (message_id, user_id, emoji);
 ALTER TABLE reactions ADD CONSTRAINT reactions_message_id_fkey FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE;
 ALTER TABLE reactions ADD CONSTRAINT reactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES hub_users(id) ON DELETE CASCADE;
-ALTER TABLE recurring_program_definitions ADD CONSTRAINT recurring_program_definitions_line_item_name_key UNIQUE (line_item_name);
+ALTER TABLE recurring_program_definitions ADD CONSTRAINT recurring_program_definitions_company_line_item_key UNIQUE (company_id, line_item_name);
+ALTER TABLE recurring_program_definitions ADD CONSTRAINT recurring_program_definitions_company_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE CASCADE;
 ALTER TABLE recurring_program_definitions ADD CONSTRAINT recurring_program_definitions_pkey PRIMARY KEY (id);
 ALTER TABLE recurring_services ADD CONSTRAINT recurring_services_pkey PRIMARY KEY (id);
 ALTER TABLE recurring_services ADD CONSTRAINT recurring_services_lead_id_fkey FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL;
@@ -2656,7 +2658,8 @@ CREATE UNIQUE INDEX qbo_tokens_company_id_key ON public.qbo_tokens USING btree (
 CREATE INDEX qbo_tokens_company_id_idx ON public.qbo_tokens USING btree (company_id);
 CREATE INDEX idx_reactions_user_id ON public.reactions USING btree (user_id);
 CREATE UNIQUE INDEX reactions_pkey ON public.reactions USING btree (message_id, user_id, emoji);
-CREATE UNIQUE INDEX recurring_program_definitions_line_item_name_key ON public.recurring_program_definitions USING btree (line_item_name);
+CREATE UNIQUE INDEX recurring_program_definitions_company_line_item_key ON public.recurring_program_definitions USING btree (company_id, line_item_name);
+CREATE INDEX recurring_program_definitions_company_idx ON public.recurring_program_definitions USING btree (company_id);
 CREATE UNIQUE INDEX recurring_program_definitions_pkey ON public.recurring_program_definitions USING btree (id);
 CREATE INDEX recurring_services_cancelled_idx ON public.recurring_services USING btree (cancelled_status);
 CREATE INDEX recurring_services_company_idx ON public.recurring_services USING btree (company_id);

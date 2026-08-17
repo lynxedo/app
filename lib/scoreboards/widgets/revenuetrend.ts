@@ -19,6 +19,7 @@ import type { RevenueTrendRow } from './sources'
 import type { SourceBag, SourceRequest, WidgetConfig, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
 import { NO_TECH, keepPerson, peopleField, peoplePhrase, personFilter } from './people-filter'
+import { formatCurrency } from '@/lib/format'
 // Same code→name map the Service Line report uses, so "MO" never appears on one
 // screen while "Mosquito" appears on another.
 import { lineName } from './servicelines'
@@ -105,6 +106,48 @@ function windowPhrase(w: { start: string; end: string; grain: Grain }, cfg: Widg
 }
 
 /* ── shared plumbing ─────────────────────────────────────────────────────── */
+
+/**
+ * Narrow the money to one or more service lines.
+ *
+ * ⚠ Added to the company total and the by-line chart, deliberately NOT to
+ * TREND_CONFIG itself — the per-technician chart is about people, and silently
+ * gaining a line filter would change what its bars mean without its title moving.
+ *
+ * ⚠ Filtered in the METRIC, never pushed into the query, for the same reason the
+ * person filter is: a WF card and a PW card on one board then share ONE round trip.
+ * It also means the filter can only ever remove buckets the viewer was already sent.
+ */
+const LINE_FILTER = {
+  kind: 'catalog' as const,
+  label: 'Only these service lines',
+  def: [] as string[],
+  catalog: 'service_lines' as const,
+  hint: 'Leave every box unticked for the whole company.',
+}
+
+const asArray = (v: unknown): string[] =>
+  Array.isArray(v) ? v.map(String).filter(Boolean) : []
+
+/** Per-bucket totals for just the selected lines. Empty selection → null (= use the
+ *  company total, which is what the source already hands us). */
+function bucketTotalsForLines(
+  r: RevenueTrendRow | null,
+  cfg: WidgetConfig,
+): Map<string, number> | null {
+  const sel = new Set(asArray(cfg.lines))
+  if (!sel.size) return null
+  const out = new Map<string, number>()
+  for (const l of r?.lines ?? []) {
+    if (sel.has(l.k)) out.set(l.b, (out.get(l.b) ?? 0) + num(l.total))
+  }
+  return out
+}
+
+function linePhrase(cfg: WidgetConfig): string | null {
+  const sel = asArray(cfg.lines)
+  return sel.length ? sel.map(lineName).join(' + ') : null
+}
 
 const TREND_CONFIG = {
   grain: { kind: 'enum' as const, label: 'Bucket by', def: 'Month', opts: ['Month', 'Week'] },
@@ -222,27 +265,41 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Visit Revenue by Period',
     blurb: 'What the crews produced, month by month or week by week',
     defaultSpan: 6,
-    config: TREND_CONFIG,
+    config: { ...TREND_CONFIG, lines: LINE_FILTER },
     sources: (cfg, win) => [trendReq(cfg, win)],
     metric: (bag, cfg, win) => {
       const r = trend(bag, cfg, win)
       const periods = r?.periods ?? []
       const spans = spansMoreThanOneYear(periods)
       const w = trendWindow(cfg, win)
+      const only = linePhrase(cfg)
+      const perLine = bucketTotalsForLines(r, cfg)
       return {
         kind: 'bars',
-        title: 'Visit Revenue by Period',
+        title: only ? `Visit Revenue — ${only}` : 'Visit Revenue by Period',
         // Says what it is measuring, every time. The Revenue report has a monthly
         // chart of INVOICED money and the two will not tie.
-        sub: `${windowPhrase(w, cfg, periods.length)} · completed work, not invoices`,
+        sub: [
+          windowPhrase(w, cfg, periods.length),
+          'completed work, not invoices',
+          ...(only ? [`${only} only`] : []),
+        ].join(' · '),
         format: 'currency',
         rows: periods.map(p => ({
           label: bucketLabel(p.b, w.grain, spans),
-          value: Math.round(num(p.total)),
+          value: Math.round(perLine ? num(perLine.get(p.b)) : num(p.total)),
           tone: 'good' as Tone,
-          detail: `${num(p.visits).toLocaleString()} visit${num(p.visits) === 1 ? '' : 's'}`,
+          /* ⚠ The visit count is dropped once a line filter is on. Visits are not
+           * split per line in the payload, so it would be the COMPANY's visit count
+           * sitting next to one line's dollars — a caption quietly contradicting the
+           * bar it labels. Absent beats wrong. */
+          detail: perLine
+            ? undefined
+            : `${num(p.visits).toLocaleString()} visit${num(p.visits) === 1 ? '' : 's'}`,
         })),
-        empty: 'No completed visits in this period',
+        empty: only
+          ? `No completed ${only} visits in this period`
+          : 'No completed visits in this period',
       }
     },
   },
@@ -255,26 +312,35 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Visit Revenue by Service Line',
     blurb: 'Stacked by department, month by month or week by week',
     defaultSpan: 12,
-    config: TREND_CONFIG,
+    config: { ...TREND_CONFIG, lines: LINE_FILTER },
     sources: (cfg, win) => [trendReq(cfg, win)],
     metric: (bag, cfg, win) => {
       const r = trend(bag, cfg, win)
       const periods = r?.periods ?? []
-      const lines = r?.lines ?? []
+      const sel = new Set(asArray(cfg.lines))
+      const lines = sel.size ? (r?.lines ?? []).filter(l => sel.has(l.k)) : (r?.lines ?? [])
       const w = trendWindow(cfg, win)
       const keys = rankKeys(lines)
       const spans = spansMoreThanOneYear(periods)
+      const only = linePhrase(cfg)
       return {
         kind: 'stacked',
-        title: 'Visit Revenue by Service Line',
+        title: only ? `Visit Revenue — ${only}` : 'Visit Revenue by Service Line',
         // The by-line series is computed at visit level with no technician
         // fan-out, so these bars sum EXACTLY to the company total — verified to
         // the cent. That is why this one carries no caveat and the tech one does.
-        sub: `${windowPhrase(w, cfg, periods.length)} · adds up to total visit revenue`,
+        // ⚠ Once filtered they no longer add up to the company total, and saying so
+        // is the point: the claim on the card has to stay true of the card.
+        sub: [
+          windowPhrase(w, cfg, periods.length),
+          only ? `${only} only — not the company total` : 'adds up to total visit revenue',
+        ].join(' · '),
         scale: 'magnitude',
         rows: stackRows(periods, lines, keys, lineName, w.grain, spans),
         legend: keys.map(k => ({ label: lineName(k), tone: toneFor(k, keys) })),
-        empty: 'No completed visits in this period',
+        empty: only
+          ? `No completed ${only} visits in this period`
+          : 'No completed visits in this period',
       }
     },
   },
@@ -354,6 +420,59 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
         scale: 'magnitude',
         rows: stackRows(periods, techs, keys, k => names.get(k) ?? k, w.grain, spans),
         legend: keys.map(k => ({ label: names.get(k) ?? k, tone: toneFor(k, keys) })),
+      }
+    },
+  },
+
+  {
+    type: 'kpi_visit_revenue',
+    group: 'Revenue',
+    title: 'Visit Revenue',
+    blurb: 'One figure for the work completed — company-wide or for one service line',
+    defaultSpan: 3,
+    /**
+     * ⚠ The gap this fills is narrow but real: EVERY other revenue KPI in the library
+     * measures INVOICED money (`kpi_invoiced`, `kpi_collected`, `kpi_avg_invoice`),
+     * and visit revenue existed only as a chart. The old Main board's headline tile
+     * and the "WF/IR/PW Revenue YTD" tiles are all this measure, so without it those
+     * boards could not be rebuilt.
+     */
+    config: {
+      lines: LINE_FILTER,
+      label: {
+        kind: 'text' as const,
+        label: 'Name on the card',
+        def: '',
+        placeholder: 'e.g. WF Revenue',
+        hint: 'Leave blank and the card names the filter itself.',
+      },
+    },
+    // Grain is irrelevant to a total but the source needs one; month is the cheaper
+    // bucketing and the sum is identical either way.
+    sources: (_cfg, win) => [{ source: 'visit_revenue_trend', params: { start: win.start, end: win.end, grain: 'month', tech_credit: 'each' } }],
+    metric: (bag, cfg, win) => {
+      const r = bag.get<RevenueTrendRow>({
+        source: 'visit_revenue_trend',
+        params: { start: win.start, end: win.end, grain: 'month', tech_credit: 'each' },
+      })[0] ?? null
+      const only = linePhrase(cfg)
+      const perLine = bucketTotalsForLines(r, cfg)
+      const total = perLine
+        ? [...perLine.values()].reduce((s, v) => s + v, 0)
+        : num(r?.total)
+      const visits = (r?.periods ?? []).reduce((s, p) => s + num(p.visits), 0)
+      return {
+        kind: 'kpi',
+        label: String(cfg.label).trim() || (only ? `${only} Revenue` : 'Visit Revenue'),
+        value: formatCurrency(total),
+        tone: 'good',
+        sub: [
+          `Completed work in ${win.phrase}`,
+          'not invoices',
+          // Visit counts are company-wide in the payload, so they are only quoted
+          // when the figure beside them is too.
+          ...(perLine ? [`${only} only`] : [`${visits.toLocaleString()} visit${visits === 1 ? '' : 's'}`]),
+        ].join(' · '),
       }
     },
   },

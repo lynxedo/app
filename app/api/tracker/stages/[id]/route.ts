@@ -27,6 +27,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.label !== undefined) allowed.label = body.label
   if (body.color !== undefined) allowed.color = body.color
   if (body.sort_order !== undefined) allowed.sort_order = body.sort_order
+  /* Does landing in this stage mean the deal is SOLD?
+   *
+   * Separate from `system_role` on purpose: a role is single-source per company (a
+   * partial unique index enforces it), so `closed_won` and `upsells` could not both
+   * be tagged 'won'. Read by `scoreboard_sales`, which is why ticking a stage here
+   * moves Value Sold, Open Pipeline and every per-person sales figure together — one
+   * definition of "a sale" across the whole product. */
+  if (body.counts_as_sale !== undefined) allowed.counts_as_sale = !!body.counts_as_sale
 
   let roleToAssign: string | null | undefined
   if (body.system_role !== undefined) {

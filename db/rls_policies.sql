@@ -1008,7 +1008,7 @@ CREATE POLICY reactions_select
 
 CREATE POLICY recurring_program_definitions_select
   ON public.recurring_program_definitions  AS PERMISSIVE  FOR SELECT  TO authenticated
-  USING (true);
+  USING ((company_id = get_my_company_id()));
 
 CREATE POLICY recurring_services_company_isolation
   ON public.recurring_services  AS PERMISSIVE  FOR ALL  TO public
