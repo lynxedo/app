@@ -19,9 +19,11 @@
  * for the current tenant; a multi-tenant refinement can pass it later).
  */
 
-import { SCOREBOARDS, getScoreboard } from '@/lib/scoreboards/registry'
+import { useEffect, useState } from 'react'
+import { SCOREBOARDS, getScoreboard, isCustomBoardSlug } from '@/lib/scoreboards/registry'
 import { hasWidgetLayout } from '@/lib/scoreboards/widgets/registry'
 import WidgetBoardView from '@/components/hub/scoreboards/widgets/WidgetBoardView'
+import NewScoreboardButton from '@/app/hub/scoreboards/NewScoreboardButton'
 import { useWorkspaceTabs } from './WorkspaceTabsContext'
 import Scoreboard1View from '@/app/hub/scoreboards/[slug]/Scoreboard1View'
 import Scoreboard2View from '@/app/hub/scoreboards/[slug]/Scoreboard2View'
@@ -36,11 +38,39 @@ export function ScoreboardsIndexTab({ allowedSlugs, isAdmin }: { allowedSlugs: s
   // Mirror the sidebar's visibility: admins see all, others see their grants.
   const boards = isAdmin ? SCOREBOARDS : SCOREBOARDS.filter(b => (allowedSlugs ?? []).includes(b.slug))
 
+  // User-built boards, fetched the same way the sidebar fetches them — the server
+  // decides who may see which, so the tab can't disagree with the real index page.
+  const [custom, setCustom] = useState<{ slug: string; title: string; widgetCount: number }[]>([])
+  useEffect(() => {
+    let live = true
+    fetch('/api/hub/scoreboards/custom')
+      .then(r => (r.ok ? r.json() : { boards: [] }))
+      .then(b => { if (live) setCustom(b.boards ?? []) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6">
-      <h1 className="text-xl font-semibold mb-1">Scoreboards</h1>
-      <p className="text-sm text-white/50 mb-5">Open a board — it stays put in its own tab.</p>
-      {boards.length === 0 ? (
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold mb-1">Scoreboards</h1>
+          <p className="text-sm text-white/50">Open a board — it stays put in its own tab.</p>
+        </div>
+        {/* ⚠ Not a duplicate of the index page's button for the sake of it. Workspace
+            Tabs graduated to every desktop user on Aug 13, so the sidebar's "All
+            scoreboards" opens THIS twin and most people never reach the real index
+            page — without a create button here, building a scoreboard would be
+            unreachable on the desktop app. */}
+        <NewScoreboardButton
+          compact
+          onCreated={(slug, label) => {
+            setCustom(prev => [{ slug, title: label, widgetCount: 0 }, ...prev])
+            tabs.openTab({ catalogId: 'scoreboards', instanceKey: slug, label, href: `/hub/scoreboards/${slug}` })
+          }}
+        />
+      </div>
+      {boards.length === 0 && custom.length === 0 ? (
         <p className="text-sm text-white/50">No scoreboards available to you yet.</p>
       ) : (
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(230px,1fr))]">
@@ -58,6 +88,22 @@ export function ScoreboardsIndexTab({ allowedSlugs, isAdmin }: { allowedSlugs: s
               <p className="text-[13px] text-white/55 line-clamp-2">{b.subtitle}</p>
             </button>
           ))}
+          {custom.map(b => (
+            <button
+              key={b.slug}
+              type="button"
+              onClick={() => tabs.openTab({ catalogId: 'scoreboards', instanceKey: b.slug, label: b.title, href: `/hub/scoreboards/${b.slug}` })}
+              className="text-left rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/20 p-4 transition-colors"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold bg-white/10 text-white/70">Custom</span>
+                <span className="font-semibold truncate">{b.title}</span>
+              </div>
+              <p className="text-[13px] text-white/55">
+                {b.widgetCount === 0 ? 'Empty — nothing added yet' : `${b.widgetCount} ${b.widgetCount === 1 ? 'card' : 'cards'}`}
+              </p>
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -65,6 +111,16 @@ export function ScoreboardsIndexTab({ allowedSlugs, isAdmin }: { allowedSlugs: s
 }
 
 export function ScoreboardBoardTab({ slug }: { slug: string }) {
+  /* A board somebody built. Handled BEFORE getScoreboard, which only knows the
+   * eight we ship — without this line a custom board in a tab renders "Unknown
+   * scoreboard" while the real route shows it perfectly, the exact failure the
+   * widget migration hit here once already. The title is a pre-load placeholder;
+   * WidgetBoardView replaces it with the saved one, and the data route is what
+   * decides whether this viewer may see the board at all. */
+  if (isCustomBoardSlug(slug)) {
+    return <WidgetBoardView meta={{ slug, title: 'Scoreboard', badge: 'Custom' }} />
+  }
+
   const meta = getScoreboard(slug)
   if (!meta) return <div className="p-6 text-sm text-white/60">Unknown scoreboard.</div>
 

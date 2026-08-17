@@ -47,6 +47,10 @@ export type SourceKey =
   | 'home_pulse'
   | 'people'
   | 'goals'
+  // Visit revenue bucketed over time. Takes `grain` (month|week) and
+  // `tech_credit` as params, so the same source backs the monthly and weekly
+  // views without a second query shape.
+  | 'visit_revenue_trend'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 
@@ -141,6 +145,15 @@ export type WidgetInstance = {
   type: string
   span: number
   config: WidgetConfig
+  /**
+   * This viewer isn't entitled to the report this widget reads (custom boards
+   * only — see ./gating.ts). It stays IN the list rather than being stripped out,
+   * and that is load-bearing rather than cosmetic: the editor saves the widget
+   * list wholesale, so silently dropping a card here would delete it from the
+   * board the moment its own author saved a move — data loss triggered by a
+   * permission change. Present-but-locked round-trips safely.
+   */
+  restricted?: boolean
 }
 
 export type BoardLayout = {
@@ -150,6 +163,10 @@ export type BoardLayout = {
   /** null = the company's shared board. */
   ownerUserId: string | null
   isPreset: boolean
+  /** Who built it. null on every preset — nobody built those. */
+  createdBy?: string | null
+  /** Custom board shared with everyone who can open Scoreboards. */
+  sharedAll?: boolean
   widgets: WidgetInstance[]
 }
 

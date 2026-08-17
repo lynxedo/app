@@ -76,6 +76,21 @@ export type StackedPayload = {
   rows: { label: string; caption: string; parts: { value: number; tone: Tone; label: string }[] }[]
   legend: { label: string; tone: Tone }[]
   empty?: string
+  /**
+   * How the bars are scaled.
+   *
+   * `'share'` (the default, and what every widget written before this existed
+   * assumes) stretches each bar to full width, so it answers "what was the MIX in
+   * this period" — cancellations by month, calls by day.
+   *
+   * `'magnitude'` scales each bar against the largest row, so length carries the
+   * value and the segments carry the mix. That is what a revenue-over-time chart
+   * needs: normalising each month to 100% would hide the seasonality entirely and
+   * make a $24k August look identical to a $72k March.
+   *
+   * Absent = 'share', so adding this changed no existing widget.
+   */
+  scale?: 'share' | 'magnitude'
   /** Opens the full row list behind this chart (see lib/reports/drilldowns.ts). */
   drill?: DrillLink
 }

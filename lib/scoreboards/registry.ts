@@ -94,3 +94,21 @@ export function boardsForUser(perms: ScoreboardPerms): ScoreboardMeta[] {
 export function getScoreboard(slug: string): ScoreboardMeta | null {
   return SCOREBOARDS.find(b => b.slug === slug) ?? null
 }
+
+/* ── Custom (user-built) scoreboards ─────────────────────────────────────── */
+
+/**
+ * Slug namespace for a board somebody built, e.g. `custom-k3f9dq2m1x`.
+ *
+ * ⚠ A HYPHEN, not the colon that Reports use (`report:clients`). All three kinds
+ * share `scoreboard_layouts.slug`, but only this one also appears in a URL path
+ * (`/hub/scoreboards/custom-k3f9dq2m1x`) — a colon there is legal per RFC 3986 yet
+ * gets percent-encoded by half the tooling that touches it, so the id would stop
+ * matching the row. The prefix still can't collide with '1'…'8' or `report:`.
+ */
+export const CUSTOM_SLUG_PREFIX = 'custom-'
+
+/** Client-safe: used by the page dispatch, the Workspace-Tabs twin and the sidebar. */
+export function isCustomBoardSlug(slug: string): boolean {
+  return slug.startsWith(CUSTOM_SLUG_PREFIX) && slug.length > CUSTOM_SLUG_PREFIX.length
+}

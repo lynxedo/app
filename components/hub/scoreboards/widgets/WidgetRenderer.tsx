@@ -189,24 +189,36 @@ function Stacked({ p }: { p: StackedPayload }) {
         ? <Empty message={p.empty ?? 'Nothing to show yet'} />
         : (
           <div className="flex flex-col gap-[7px]">
-            {p.rows.map(r => {
-              const total = Math.max(1, r.parts.reduce((s, x) => s + x.value, 0))
-              return (
-                <div key={r.label} className="grid grid-cols-[minmax(72px,104px)_1fr_46px] items-center gap-2.5 text-[11px]">
-                  <div className="truncate text-gray-400">{r.label}</div>
-                  <div className="flex h-[15px] overflow-hidden rounded-[3px] bg-white/[0.05]">
-                    {r.parts.map((x, i) => (
-                      <div
-                        key={i}
-                        title={`${x.label}: ${x.value}`}
-                        style={{ width: `${(100 * x.value) / total}%`, background: toneColor(x.tone), opacity: 0.8 }}
-                      />
-                    ))}
+            {/* In 'magnitude' mode a bar's LENGTH is its value, measured against the
+                biggest row, and the segments split that length. In the default
+                'share' mode every bar fills the track and only the mix varies —
+                which is right for "what share cancelled" and wrong for "how much
+                did we earn", where equal-length bars would erase the trend. */}
+            {(() => {
+              const totals = p.rows.map(r => Math.max(0, r.parts.reduce((s, x) => s + x.value, 0)))
+              const peak = Math.max(1, ...totals)
+              return p.rows.map((r, ri) => {
+                const total = Math.max(1, totals[ri])
+                const fill = p.scale === 'magnitude' ? (100 * totals[ri]) / peak : 100
+                return (
+                  <div key={r.label} className="grid grid-cols-[minmax(72px,104px)_1fr_60px] items-center gap-2.5 text-[11px]">
+                    <div className="truncate text-gray-400">{r.label}</div>
+                    <div className="h-[15px] overflow-hidden rounded-[3px] bg-white/[0.05]">
+                      <div className="flex h-full" style={{ width: `${fill}%` }}>
+                        {r.parts.map((x, i) => (
+                          <div
+                            key={i}
+                            title={`${x.label}: ${x.value}`}
+                            style={{ width: `${(100 * x.value) / total}%`, background: toneColor(x.tone), opacity: 0.8 }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-right font-semibold text-gray-300 tabular-nums">{r.caption}</div>
                   </div>
-                  <div className="text-right font-semibold text-gray-300 tabular-nums">{r.caption}</div>
-                </div>
-              )
-            })}
+                )
+              })
+            })()}
           </div>
         )}
       <Legend items={p.legend} />

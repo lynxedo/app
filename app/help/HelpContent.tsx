@@ -2420,7 +2420,7 @@ function ScoreboardsTab() {
         <p>Two related places, and the difference is who decides what&apos;s on them:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Reports</strong> (<strong className="text-white">/hub/reports</strong>) are ready-made. Open one and the standard numbers are already laid out — no setup, and the layout doesn&apos;t change. Start here.</li>
-          <li><strong className="text-white">Scoreboards</strong> (<strong className="text-white">/hub/scoreboards</strong>) are the same building blocks, arranged how your company wants them. Admins and managers can change what shows.</li>
+          <li><strong className="text-white">Scoreboards</strong> (<strong className="text-white">/hub/scoreboards</strong>) are the same building blocks, arranged how you want them. The standard boards are edited by admins and managers, and <em>anyone</em> can build their own — see &ldquo;Build Your Own Scoreboard&rdquo; below.</li>
         </ul>
         <p className="mt-2">Both draw from one library of cards, so a number means the same thing wherever you see it.</p>
         <p className="mt-2">Eight ready-made reports exist today. <strong className="text-white">Home</strong> is the one to pin:</p>
@@ -2516,13 +2516,40 @@ function ScoreboardsTab() {
         </ul>
       </Section>
 
+      <Section title="Build Your Own Scoreboard">
+        <p>Anyone who can open Scoreboards can build one. Click <strong className="text-white">＋ New scoreboard</strong> at the top of the Scoreboards list, give it a name, then <strong className="text-white">✎ Edit board</strong> → <strong className="text-white">Add a widget</strong> and pick the cards you want. Drag a card to move it, drag its right edge to resize it, and ⚙ changes what an individual card shows. Nothing is live for anyone else until you save.</p>
+        <p className="mt-2">Your boards appear under <strong className="text-white">Your scoreboards</strong> on the list page and under <strong className="text-white">Custom</strong> in the sidebar. Only you can reshape, rename or delete a board you built (admins can too).</p>
+
+        <p className="mt-3"><strong className="text-white">Choosing who can see it.</strong> Open the board and click <strong className="text-white">👥 Share</strong>. Tick the people you want, or tick <em>Everyone who can open Scoreboards</em> — that option keeps working as staff join and leave, with no re-sharing. A board you build starts private to you.</p>
+
+        <p className="mt-3"><strong className="text-white">Which cards you can use depends on which Reports you have.</strong> The widget library is the same one the ready-made Reports are built from, and a card is only available to you if you have access to the Report it comes from. A card outside that shows greyed out in the picker and names the Report you'd need to ask for — so if you can't add the labour-cost cards, it's because you don't have <strong className="text-white">Crew &amp; Labor</strong>.</p>
+        <p className="mt-2">The same rule applies to whoever you share with, and this is the part worth understanding: sharing a board does <em>not</em> hand over data the other person isn't allowed to see. If a board has a card from a Report they don't have, that card shows as <strong className="text-white">🔒 Hidden</strong> on their screen and the numbers are never sent to them. The Share panel tells you this before you share — each name says either &ldquo;Sees the whole board&rdquo; or &ldquo;Won't see 3 cards — needs Crew &amp; Labor&rdquo;, so you can decide whether to share it as-is or ask an admin to grant them the Report first.</p>
+        <p className="mt-2 text-gray-400">If someone can&apos;t open Scoreboards at all, the Share panel says so too — sharing with them does nothing until an admin turns the section on for them in Admin → People.</p>
+      </Section>
+
+      <Section title="Visit Revenue Over Time">
+        <p>Three cards show what the crews actually produced, as a trend you can slice three ways:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Visit Revenue by Period</strong> — the company total, one bar per month or week.</li>
+          <li><strong className="text-white">Visit Revenue by Service Line</strong> — the same money stacked by department (WF, IR, PW, MO…), so you see the seasonal shape and the mix at once.</li>
+          <li><strong className="text-white">Visit Revenue by Technician</strong> — stacked by person.</li>
+        </ul>
+        <p className="mt-2">Each has a <strong className="text-white">Bucket by</strong> setting (Month or Week) and a <strong className="text-white">Period shown</strong> setting. Leave the second on <em>Follow the page range</em> and the card obeys the date picker at the top — pick Year to date and you get a bar per month. Switch it to <em>Trailing periods</em> and set <em>How many</em> to 6 with Week, and the card is pinned to the last six weeks no matter what the picker says. The card always prints the period it actually measured.</p>
+
+        <p className="mt-3"><strong className="text-white">⚠ This is visit revenue, not invoiced money — the two will not match.</strong> These cards count the work completed (the line items on completed visits, priced as Jobber has them). The Revenue &amp; Invoicing report&apos;s &ldquo;Invoiced vs Collected by Month&rdquo; counts money billed and money received. Work done in July and invoiced in August lands in different months on the two charts, and that is correct, not a bug.</p>
+
+        <p className="mt-3"><strong className="text-white">One thing to know about the technician chart.</strong> When two techs work the same visit, both are credited in full — the same way the WF/IR/PW boards and Crew &amp; Labor have always counted it. That means the bars add up to slightly more than company revenue, and the card says by how much rather than leaving you to spot it. If you would rather the columns add up exactly, open the card&apos;s ⚙ settings and set <em>Visits with two techs</em> to <em>Split between them</em> — the trade is that a tech&apos;s number then stops matching the other boards.</p>
+        <p className="mt-2 text-gray-400">The service-line chart has no such caveat: it is worked out per visit, so those bars always add up to the company total exactly.</p>
+      </Section>
+
       <Section title="Access — Who Sees What">
-        <p>There are two gates:</p>
+        <p>There are two gates for the standard boards:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Scoreboards section access</strong> — the <em>Scoreboards</em> toggle in <strong className="text-white">Admin → People</strong>. A user without this flag sees no Scoreboards link at all.</li>
           <li><strong className="text-white">Per-board access</strong> — once the section is on, a user still sees <em>only the boards you explicitly grant them</em>. By default they can't open any board until an admin enables them one by one.</li>
         </ul>
         <p className="mt-2">Admins always see every board regardless of both gates.</p>
+        <p className="mt-2"><strong className="text-white">Boards people build for themselves work differently</strong> — they aren't granted in Admin → Scoreboards at all. The person who built one decides who sees it, and what each viewer is shown is limited by their own Report access. So a manager cannot use a custom board to hand out wage or performance numbers that <strong className="text-white">Admin → Reports</strong> withholds; you stay in control of the data by controlling Report access.</p>
       </Section>
 
       <Section title="Going Back in Time — Weekly Snapshots">

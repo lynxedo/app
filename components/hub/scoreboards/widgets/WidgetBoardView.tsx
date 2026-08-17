@@ -6,10 +6,12 @@ import type { WidgetCatalogEntry } from '@/lib/scoreboards/widgets/registry'
 import type { BoardLayout, WidgetConfig, WidgetInstance } from '@/lib/scoreboards/widgets/types'
 import { MIN_SPAN, MAX_SPAN, SPAN_STOPS } from '@/lib/scoreboards/widgets/types'
 import type { WidgetPayload } from '@/lib/scoreboards/widgets/payloads'
+import { getReport } from '@/lib/reports/registry'
 import ScoreboardError from '@/components/hub/ScoreboardError'
 import { WidgetRenderer } from './WidgetRenderer'
 import { WidgetSettings } from './WidgetSettings'
 import { WidgetPicker } from './WidgetPicker'
+import { CustomBoardManager } from './CustomBoardManager'
 
 /* A scoreboard rendered from a saved list of widgets.
  *
@@ -33,6 +35,19 @@ type ApiResponse = {
   errors?: Record<string, string>
   stats?: { requested: number; executed: number; ms: number }
   error?: string
+  /** Reports this viewer may read — bounds which widgets the picker offers. */
+  viewerReports?: string[]
+  viewerIsAdmin?: boolean
+  /** Non-null only for a board somebody built, which is the only kind you can share or delete. */
+  custom?: { canManage: boolean } | null
+}
+
+/** Report titles for the lock message on a widget this viewer isn't entitled to. */
+function neededReportLabel(slugs: string[] | undefined): string {
+  const titles = (slugs ?? []).map(s => getReport(s)?.title).filter(Boolean) as string[]
+  if (!titles.length) return 'a report you don’t have access to'
+  if (titles.length === 1) return `the ${titles[0]} report`
+  return `the ${titles[0]} report`
 }
 
 let tempSeq = 0
@@ -82,6 +97,10 @@ export default function WidgetBoardView({
   const [pickerOpen, setPickerOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [manageOpen, setManageOpen] = useState(false)
+  // Renaming happens in the manage panel, which doesn't reload the board — so the
+  // header takes the new name from here rather than waiting for a refetch.
+  const [titleOverride, setTitleOverride] = useState<string | null>(null)
   const savedRef = useRef<WidgetInstance[]>([])
   const gridRef = useRef<HTMLDivElement | null>(null)
 
@@ -307,7 +326,7 @@ export default function WidgetBoardView({
             {meta.badge ? <span className="rounded-full bg-sky-400/15 px-2 py-0.5 text-[11px] font-semibold text-sky-400">{meta.badge}</span> : null}
           </div>
           <div className="text-[13px] text-sky-300">
-            {businessName ? `${businessName} · ` : ''}{res?.layout?.title ?? meta.title}
+            {businessName ? `${businessName} · ` : ''}{titleOverride ?? res?.layout?.title ?? meta.title}
           </div>
         </div>
       </header>
@@ -373,6 +392,14 @@ export default function WidgetBoardView({
             {editing ? '✓ Done editing' : '✎ Edit board'}
           </button>
         ) : null}
+        {res?.custom?.canManage ? (
+          <button
+            onClick={() => setManageOpen(true)}
+            className="rounded-lg border border-sky-400/15 px-2.5 py-1.5 text-[12px] text-gray-400 hover:border-sky-400/40 hover:text-sky-200"
+          >
+            👥 Share
+          </button>
+        ) : null}
       </div>
 
       {editing ? (
@@ -434,7 +461,23 @@ export default function WidgetBoardView({
                       </>
                     ) : null}
 
-                    {failure ? (
+                    {w.restricted ? (
+                      /* Present but locked. The numbers were never fetched — the
+                         server drops a restricted widget before the resolver runs —
+                         so this card is the whole of what reaches the browser. It
+                         stays on the board rather than vanishing so that its author
+                         saving a move can't silently delete it. */
+                      <div className="min-h-[90px]">
+                        <div className="text-[13px] font-semibold text-gray-400">{def?.title ?? w.type}</div>
+                        <div className="mt-2 flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-2.5 text-[11.5px] leading-snug text-gray-400">
+                          <span aria-hidden>🔒</span>
+                          <span>
+                            Hidden — you need {neededReportLabel(def?.reports)} to see this.
+                            Ask an admin for access.
+                          </span>
+                        </div>
+                      </div>
+                    ) : failure ? (
                       <div className="min-h-[90px]">
                         <div className="text-[13px] font-semibold text-sky-200">{def?.title ?? w.type}</div>
                         <div className="mt-2 rounded-lg border border-red-400/25 bg-red-500/[0.06] p-2.5 text-[11.5px] leading-snug text-red-200">
@@ -465,6 +508,34 @@ export default function WidgetBoardView({
                 </button>
               ) : null}
             </div>
+
+            {/* A brand-new board is empty, and an empty grid with no prompt reads as
+                broken rather than blank. Only shown to someone who can actually fill
+                it; a viewer of an empty board is told plainly that it's empty. */}
+            {widgets.length === 0 && !editing ? (
+              <div className="rounded-2xl border border-dashed border-sky-400/25 bg-white/[0.02] p-8 text-center">
+                <div className="text-2xl">🧭</div>
+                {canEdit ? (
+                  <>
+                    <p className="mt-2 text-[14px] font-semibold text-sky-100">Nothing on this scoreboard yet</p>
+                    <p className="mx-auto mt-1 max-w-md text-[12px] text-gray-400">
+                      Pick the cards you want from the same library the preset Reports are built from.
+                      You’ll see the ones covered by the reports you have access to.
+                    </p>
+                    <button
+                      onClick={() => { setEditing(true); setPickerOpen(true) }}
+                      className="mt-4 rounded-lg bg-sky-500 px-3.5 py-2 text-[12.5px] font-semibold text-[#fff] hover:brightness-110"
+                    >
+                      ＋ Add your first widget
+                    </button>
+                  </>
+                ) : (
+                  <p className="mt-2 text-[13px] text-gray-400">
+                    This scoreboard is empty — whoever built it hasn’t added any cards yet.
+                  </p>
+                )}
+              </div>
+            ) : null}
 
             <div className="mt-4 flex flex-wrap items-center justify-end gap-3 text-[11px] text-gray-600">
               {res.stats ? (
@@ -504,6 +575,23 @@ export default function WidgetBoardView({
           present={widgets.map(w => w.type)}
           onAdd={addWidget}
           onClose={() => setPickerOpen(false)}
+          /* Report-gated on a board somebody built; ungated on the boards we ship,
+             whose cards answer to their own per-board grant. Passing undefined is
+             what turns the gate off, so the preset boards keep today's library. */
+          allowedReports={res.custom ? (res.viewerReports ?? []) : undefined}
+          viewerIsAdmin={res.viewerIsAdmin}
+        />
+      ) : null}
+
+      {manageOpen ? (
+        <CustomBoardManager
+          slug={surf.slug}
+          onClose={() => setManageOpen(false)}
+          onRenamed={t => setTitleOverride(t)}
+          /* Full navigation rather than router.push: this component is also
+             rendered inside a kept-alive Workspace tab, where pushing a route
+             leaves the tab mounted on a board that no longer exists. */
+          onDeleted={() => window.location.assign('/hub/scoreboards')}
         />
       ) : null}
 

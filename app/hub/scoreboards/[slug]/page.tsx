@@ -1,7 +1,8 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getScoreboard, canSeeBoard } from '@/lib/scoreboards/registry'
+import { getScoreboard, canSeeBoard, isCustomBoardSlug } from '@/lib/scoreboards/registry'
 import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
+import { resolveCustomBoard } from '@/lib/scoreboards/custom'
 import { getBusinessProfile } from '@/lib/business-profile'
 import Scoreboard1View from './Scoreboard1View'
 import Scoreboard2View from './Scoreboard2View'
@@ -31,9 +32,6 @@ export default async function ScoreboardPage({
   // re-checks can_access_coaching, so this leaks nothing to someone without it.
   if (slug === '6') redirect('/hub/reports/coaching')
 
-  const board = getScoreboard(slug)
-  if (!board) notFound()
-
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -46,6 +44,31 @@ export default async function ScoreboardPage({
 
   const isAdmin = profile?.role === 'admin'
   const admin = createAdminClient()
+  const { businessName } = await getBusinessProfile(admin, profile?.company_id ?? null)
+
+  /* A board somebody built. Its own share list decides who may open it — see
+   * lib/scoreboards/custom.ts — and the widget-level Report gate is applied by the
+   * data route, so a viewer without (say) Crew & Labor gets a locked card and no
+   * numbers. The section flag still comes first: a custom board cannot be a way
+   * into Scoreboards for someone who has no access to it. */
+  if (isCustomBoardSlug(slug)) {
+    if (!isAdmin && profile?.can_access_scoreboards !== true) redirect('/hub')
+    if (!profile?.company_id) redirect('/hub')
+    const board = await resolveCustomBoard(profile.company_id, slug, user.id, !!isAdmin)
+    // Not-shared and not-found land in the same place on purpose: probing slugs
+    // shouldn't tell you which ones exist.
+    if (!board.ok) redirect('/hub/scoreboards')
+    return (
+      <WidgetBoardView
+        meta={{ slug, title: board.row.title, badge: 'Custom' }}
+        businessName={businessName}
+      />
+    )
+  }
+
+  const board = getScoreboard(slug)
+  if (!board) notFound()
+
   const perms = {
     isAdmin,
     canAccessScoreboards: !!profile?.can_access_scoreboards,
@@ -54,8 +77,6 @@ export default async function ScoreboardPage({
   // Section gate + per-board view grant (Admin -> Scoreboards). Admins see all.
   // The coaching exception that used to live here left with the board itself.
   if (!canSeeBoard(perms, board.slug)) redirect('/hub')
-
-  const { businessName } = await getBusinessProfile(admin, profile?.company_id ?? null)
 
   // Boards that have been migrated to widgets render from a saved layout. The
   // hardcoded view stays reachable at ?classic=1 for as long as the migration is

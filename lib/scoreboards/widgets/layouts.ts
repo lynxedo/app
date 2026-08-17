@@ -7,7 +7,8 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getWidgetDef, BOARD_8_PRESET, WIDGET_BOARD_SLUGS, REPORT_PRESETS } from './registry'
+import { getWidgetDef, BOARD_8_PRESET, WIDGET_BOARD_SLUGS, REPORT_PRESETS, widgetGroups } from './registry'
+import { unmappedWidgetGroups } from './gating'
 import { clampSpan, sanitizeConfig, type BoardLayout, type WidgetInstance } from './types'
 
 type Admin = ReturnType<typeof createAdminClient>
@@ -30,13 +31,33 @@ if (presetMismatch.length) {
   throw new Error(`Widget board(s) ${presetMismatch.join(', ')} have no preset defined`)
 }
 
+// Every widget group must map to a Report, because that mapping IS the
+// entitlement for putting the widget on a custom Scoreboard (./gating.ts). An
+// unmapped group fails closed — the widgets in it become unusable by everyone
+// except admins, which reads exactly like "the library shrank" and is impossible
+// to spot from the picker. Fail here instead, where adding a group breaks the
+// build. Asserted in this server-only module so a client bundle can't throw.
+const unmappedGroups = unmappedWidgetGroups(widgetGroups())
+if (unmappedGroups.length) {
+  throw new Error(
+    `Widget group(s) ${unmappedGroups.join(', ')} have no Report mapped in WIDGET_GROUP_REPORT — ` +
+    `add them to lib/scoreboards/widgets/gating.ts or nobody can use those widgets`,
+  )
+}
+
 /** @deprecated prefer hasWidgetLayout from ./registry — it works on the client too. */
 export function hasPreset(slug: string): boolean {
   return slug in PRESETS
 }
 
-type LayoutRow = { id: string; slug: string; title: string; owner_user_id: string | null; is_preset: boolean }
+type LayoutRow = {
+  id: string; slug: string; title: string; owner_user_id: string | null; is_preset: boolean
+  created_by?: string | null; shared_all?: boolean | null
+}
 type WidgetRow = { id: string; widget_type: string; span: number; config: unknown; position: number }
+
+/** Columns every layout read needs. One constant so a new column can't reach some reads and miss others. */
+const LAYOUT_COLS = 'id, slug, title, owner_user_id, is_preset, created_by, shared_all'
 
 function toLayout(row: LayoutRow, widgets: WidgetRow[]): BoardLayout {
   const instances: WidgetInstance[] = []
@@ -57,6 +78,8 @@ function toLayout(row: LayoutRow, widgets: WidgetRow[]): BoardLayout {
     title: row.title,
     ownerUserId: row.owner_user_id,
     isPreset: row.is_preset,
+    createdBy: row.created_by ?? null,
+    sharedAll: row.shared_all === true,
     widgets: instances,
   }
 }
@@ -83,7 +106,7 @@ export async function loadBoardLayout(
   const admin = createAdminClient()
   const { data: rows } = await admin
     .from('scoreboard_layouts')
-    .select('id, slug, title, owner_user_id, is_preset')
+    .select(LAYOUT_COLS)
     .eq('company_id', companyId)
     .eq('slug', slug)
     .or(`owner_user_id.is.null,owner_user_id.eq.${userId}`)
@@ -105,7 +128,7 @@ export async function seedPresetLayout(companyId: string, slug: string): Promise
   const readShared = async (): Promise<LayoutRow | null> => {
     const { data } = await admin
       .from('scoreboard_layouts')
-      .select('id, slug, title, owner_user_id, is_preset')
+      .select(LAYOUT_COLS)
       .eq('company_id', companyId).eq('slug', slug).is('owner_user_id', null)
       .maybeSingle()
     return (data ?? null) as LayoutRow | null
@@ -127,7 +150,7 @@ export async function seedPresetLayout(companyId: string, slug: string): Promise
     const { data: inserted, error } = await admin
       .from('scoreboard_layouts')
       .insert({ company_id: companyId, slug, owner_user_id: null, title: preset.title, is_preset: true })
-      .select('id, slug, title, owner_user_id, is_preset')
+      .select(LAYOUT_COLS)
       .maybeSingle()
 
     if (error) {
