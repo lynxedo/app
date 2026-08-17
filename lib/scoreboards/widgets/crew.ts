@@ -116,6 +116,81 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
   },
 
   {
+    type: 'kpi_person_rev_per_hour',
+    group: 'Crew & Labor',
+    title: 'Revenue per Hour — One Person',
+    blurb: 'One technician’s own rate, as a single figure',
+    defaultSpan: 3,
+    /**
+     * The tile version of a row in "Revenue per Hour by Technician".
+     *
+     * ⚠⚠ WHY THIS EXISTS AS A SEPARATE WIDGET rather than a person filter on
+     * `kpi_revenue_per_labor_hour`. That card divides COMPANY revenue — computed at
+     * visit level with no per-technician fan-out — by clocked hours. Filtering its
+     * hours to one person would leave the company's revenue over one person's hours:
+     * a ratio whose numerator and denominator describe different populations, reading
+     * absurdly high. That is exactly why the three Crew ratio KPIs were left
+     * company-wide when the person filter shipped (Aug 17).
+     *
+     * This card is honest because BOTH halves are that person's own: their attributed
+     * revenue over their own clocked hours — the identical arithmetic the ranking
+     * chart already does per row, so the two agree by construction.
+     *
+     * ⚠ Multiple people ticked are summed, not averaged: their revenue over their
+     * combined hours, which is the crew's rate. Averaging individual rates would
+     * weight a 20-hour week the same as a 400-hour one.
+     */
+    config: PEOPLE_FIELD,
+    sources: (_cfg, win) => [crewReq(win)],
+    metric: (bag, cfg, win) => {
+      const r = crew(bag, win)
+      const f = personFilter(cfg)
+      /* ⚠ An empty filter means EVERYONE on every other card, and here that would be
+       * actively confusing rather than merely wide: the rankable crew's combined rate
+       * is NOT the same number as "Revenue per Labor Hour", which divides company
+       * revenue (no per-tech fan-out, and including work nobody is credited for) by
+       * all clocked hours. Two near-identical tiles showing different figures is worse
+       * than one tile asking to be configured. */
+      if (!f.active) {
+        return {
+          kind: 'kpi',
+          label: 'Revenue per Hour — One Person',
+          value: '—',
+          tone: 'neutral',
+          sub: 'Pick who this card is about in its ⚙ settings. For the whole company, use “Revenue per Labor Hour” instead — it is a different calculation, not this one left unfiltered.',
+        }
+      }
+      const picked = onlyPeople(rankable(r), f)
+      const hours = picked.reduce((s, p) => s + num(p.hours), 0)
+      const revenue = picked.reduce((s, p) => s + num(p.revenue), 0)
+      const rate = hours > 0 ? revenue / hours : null
+      // Anyone the filter matched who cannot be ranked — salaried, under an hour, or
+      // with no Jobber user to credit work to. Named, because a rate quietly computed
+      // without them is a different number than the one asked for.
+      const skipped = onlyPeople((r?.people ?? []).filter(p => !p.rankable), f)
+      const who = picked.length === 1
+        ? picked[0].name
+        : picked.length > 1
+          ? `${picked.length} people`
+          : null
+      return {
+        kind: 'kpi',
+        label: who ? `Revenue per Hour — ${who}` : 'Revenue per Hour — One Person',
+        value: rate != null ? `${formatCurrency(rate)}/hr` : '—',
+        tone: rate == null ? 'neutral' : rate >= 100 ? 'good' : rate >= 50 ? 'warn' : 'bad',
+        sub: rate != null
+          ? [
+              `${formatCurrency(revenue)} of work ÷ ${hours.toLocaleString(undefined, { maximumFractionDigits: 1 })} clocked hours`,
+              periodPhrase(r, win),
+              ...(picked.length > 1 ? [`combined across ${picked.map(p => p.name).join(', ')}`] : []),
+              ...(skipped.length ? [`not counted: ${skipped.map(p => p.name).join(', ')}`] : []),
+            ].join(' · ')
+          : `Nobody ticked has both clocked hours and attributed work in this period${skipped.length ? ` — ${skipped.map(p => p.name).join(', ')} cannot be ranked` : ''}`,
+      }
+    },
+  },
+
+  {
     type: 'kpi_labor_hours',
     group: 'Crew & Labor',
     title: 'Hours Clocked',
