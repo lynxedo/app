@@ -2527,6 +2527,35 @@ function ScoreboardsTab() {
         <p className="mt-2 text-gray-400">If someone can&apos;t open Scoreboards at all, the Share panel says so too — sharing with them does nothing until an admin turns the section on for them in Admin → People.</p>
       </Section>
 
+      <Section title="Building A Service-Line Board">
+        <p>Cards about your recurring book take the service line as a <em>setting</em>, so one card builds a lawn-care board, an irrigation board or a pet-waste board depending on how you set it. Add the card, open ⚙, and tick the lines you want under <strong className="text-white">Which service lines</strong>. Leave every box unticked for the whole company.</p>
+        <p className="mt-2"><strong className="text-white">The cards:</strong></p>
+        <ul className="mt-1 ml-5 list-disc space-y-1">
+          <li><strong className="text-white">Book Size</strong> — how many active recurring jobs, or how many customers. Those are different numbers, because one customer can hold a lawn job and a sprinkler job, so the card says which it counted.</li>
+          <li><strong className="text-white">Book Value</strong> — what the line is worth a year, in total or averaged per job.</li>
+          <li><strong className="text-white">Program Mix</strong> — how the book splits across your programs, as a donut or bars, by job count or by value.</li>
+          <li><strong className="text-white">Add-On Attach Rate</strong> — what share of a line&apos;s jobs also buy an add-on. Pick the add-ons in ⚙; they&apos;re the programs marked as add-ons in <strong className="text-white">Admin → Service Mapping</strong>.</li>
+          <li><strong className="text-white">Visit Revenue</strong> — one figure for the work completed. Also takes the service-line filter, so it answers &ldquo;what did irrigation bring in this year&rdquo;.</li>
+          <li><strong className="text-white">Ticket Size</strong> — what a single completed job is worth. See below.</li>
+        </ul>
+        <p className="mt-3">You can also narrow a card to one <em>program</em> rather than a whole line — tick your Gold plan under <strong className="text-white">Narrow to these programs</strong> and the card becomes about Gold customers only.</p>
+        <p className="mt-3"><strong className="text-white">These cards ignore the date range at the top of the board</strong>, and say so on every card. Your recurring book is a picture of right now — there&apos;s no record of what it looked like last March, so a card showing &ldquo;active customers&rdquo; for a past range would be inventing a number. The revenue and ticket cards do follow the date range.</p>
+        <p className="mt-3"><strong className="text-white">If a line shows $0, check Service Mapping.</strong> A book&apos;s annual value is visits-per-year × price, so a program with no visits-per-year set adds nothing. The card tells you how many jobs it couldn&apos;t price and which lines they&apos;re on, rather than quietly reporting zero — but the fix is to fill that field in <strong className="text-white">Admin → Service Mapping</strong>.</p>
+      </Section>
+
+      <Section title="Ticket Size — What One Job Is Worth">
+        <p><strong className="text-white">Ticket Size</strong> answers &ldquo;what does a typical repair bill?&rdquo; It shows the median or the average value of a single completed job, for whichever service lines you tick.</p>
+        <p className="mt-2">The setting that matters is <strong className="text-white">Leave these out</strong>. What you exclude <em>is</em> the measure: a service plan, a new installation and a drainage job are not repair tickets, so leaving those out is what turns &ldquo;a job&rdquo; into &ldquo;a repair&rdquo;. Type comma-separated words and anything whose line-item name contains one is dropped — <em>Service Plan, Installation, Drainage</em> is a good starting point for irrigation.</p>
+        <p className="mt-2 text-gray-400">Median is the default rather than the average, because one large install drags an average a long way. The card shows the other figure underneath either way.</p>
+      </Section>
+
+      <Section title="What Counts As A Sale">
+        <p>Some Lead Tracker stages mean a deal is <em>sold</em> even though nobody competed for it — an upsell to a customer you already have. Tick <strong className="text-white">Sold</strong> beside a stage in <strong className="text-white">Lead Tracker → Settings</strong> and that stage counts as a sale everywhere: it&apos;s added to <strong className="text-white">Value Sold</strong>, and it stops appearing in <strong className="text-white">Open Pipeline</strong> as though it were still waiting for an answer.</p>
+        <p className="mt-2"><strong className="text-white">It deliberately does not move your close rate.</strong> A close rate is how often you win the deals you competed for, and an upsell to an existing customer was never in competition — folding it in would flatter the number. So the close rate still counts only <em>Closed Won</em> against <em>Closed Won + Closed Lost</em>, and upsells are reported on their own line beside it. Time-to-close works the same way.</p>
+        <p className="mt-2">The <strong className="text-white">New Business vs Upsells</strong> card splits the two apart month by month, by value or by count.</p>
+        <p className="mt-2 text-gray-400">One thing to know about the numbers: whatever value you type on an upsell lead is what gets added, so enter the <em>upgrade</em> amount rather than the customer&apos;s new total, or the same money gets counted twice.</p>
+      </Section>
+
       <Section title="Narrowing A Card To One Person">
         <p>Any card that breaks numbers out by person can be pinned to one person — or a few — instead. Open the card&apos;s ⚙ settings and use <strong className="text-white">Only include these people</strong>. Leave it empty for everyone; tick one name for their own card; tick several for a crew.</p>
         <p className="mt-2">A filtered card always tells you so. The title picks up their name (&ldquo;Hours Clocked — Angel Morin&rdquo;) and the line underneath reads &ldquo;Angel Morin only&rdquo; — because a tile showing <strong className="text-white">500</strong> looks like a company number at a glance, and a glance is all a scoreboard gets.</p>

@@ -8,6 +8,9 @@ import type { CatalogName } from '@/lib/scoreboards/widgets/types'
 // Shared so the picker, the filter and the chart all spell the no-credit bucket the
 // same way — the filter matches on this exact string.
 import { NO_SELLER, NO_TECH } from '@/lib/scoreboards/widgets/people-filter'
+// Pure code→name map, shared with the Service Line report and the revenue trend, so
+// "MO" never appears in the picker while "Mosquito" appears on the chart it filters.
+import { lineName } from '@/lib/scoreboards/widgets/servicelines'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +48,14 @@ const CATALOG_REPORTS: Record<CatalogName, string[]> = {
   staff_people: ['crew'],
   // Jobber user names — the technician revenue trend (Crew) and quote reps (Sales).
   jobber_people: ['crew', 'sales'],
+  /* The recurring-book pickers. Service lines are used by the book cards (Clients),
+   * Ticket Size and the company revenue trend (Revenue) and the by-line chart
+   * (Service Lines), so all three reports can offer them. Programs and add-ons are
+   * only used by the book cards, so they stay narrower — the same
+   * "any report that places this widget" rule `canUseWidget` applies. */
+  service_lines: ['clients', 'revenue', 'service-lines'],
+  recurring_programs: ['clients'],
+  recurring_addons: ['clients'],
 }
 
 /** Every value, however old. The picker must offer a product sold once last year. */
@@ -110,6 +121,76 @@ export async function GET(request: Request) {
   }
 
   const admin = createAdminClient()
+
+  if (name === 'service_lines' || name === 'recurring_programs' || name === 'recurring_addons') {
+    /* Three pickers, ONE book read.
+     *
+     * ⚠ The offered list is the UNION of what the tenant has DEFINED and what the
+     * book currently uses, not just one of them. Counting only what is on the book
+     * would hide a program nobody is enrolled on right now — precisely the thing you
+     * might be about to start selling — and reading only the definitions would drop
+     * a line the book uses but nobody has defined. Same rule as the tracked-item
+     * picker, which offers a service sold once last year.
+     *
+     * ⚠ `dept_prefix` is the stored VALUE and the friendly name is only the LABEL,
+     * because the widgets match on the code: the book rows carry `dept_prefix` and
+     * the revenue trend's series key is the same code. Offering the display name
+     * would produce a picker whose entries match nothing. */
+    const [defsRes, bookRes] = await Promise.all([
+      supabase
+        .from('recurring_program_definitions')
+        .select('dept_prefix, display_name, is_auxiliary')
+        .eq('company_id', profile.company_id),
+      admin.rpc('scoreboard_recurring_book', { p_company_id: profile.company_id }),
+    ])
+    if (defsRes.error) return NextResponse.json({ error: defsRes.error.message }, { status: 500 })
+    if (bookRes.error) return NextResponse.json({ error: bookRes.error.message }, { status: 500 })
+
+    type BookRow = { dept_prefix: string | null; display_name: string | null; addon_names: string[] | null }
+    const bookRows = (bookRes.data ?? []) as BookRow[]
+    const defs = defsRes.data ?? []
+    const counts = new Map<string, number>()
+    const bump = (k: string | null | undefined) => {
+      const v = k?.trim()
+      if (v) counts.set(v, (counts.get(v) ?? 0) + 1)
+    }
+
+    if (name === 'service_lines') {
+      for (const r of bookRows) bump(r.dept_prefix)
+      const all = new Set<string>([
+        ...defs.map(d => d.dept_prefix?.trim()).filter((v): v is string => !!v),
+        ...counts.keys(),
+      ])
+      return NextResponse.json({
+        options: [...all].sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a.localeCompare(b))
+          // Label carries the friendly name AND the code, so somebody who thinks in
+          // "IR" and somebody who thinks in "Irrigation" both find the row.
+          .map(code => ({ value: code, label: `${lineName(code)} (${code})`, count: counts.get(code) ?? 0 })),
+      })
+    }
+
+    if (name === 'recurring_addons') {
+      for (const r of bookRows) for (const a of r.addon_names ?? []) bump(a)
+      const all = new Set<string>([
+        ...defs.filter(d => d.is_auxiliary).map(d => d.display_name?.trim()).filter((v): v is string => !!v),
+        ...counts.keys(),
+      ])
+      return NextResponse.json({
+        options: [...all].sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a.localeCompare(b))
+          .map(v => ({ value: v, label: v, count: counts.get(v) ?? 0 })),
+      })
+    }
+
+    for (const r of bookRows) bump(r.display_name)
+    const all = new Set<string>([
+      ...defs.filter(d => !d.is_auxiliary).map(d => d.display_name?.trim()).filter((v): v is string => !!v),
+      ...counts.keys(),
+    ])
+    return NextResponse.json({
+      options: [...all].sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a.localeCompare(b))
+        .map(v => ({ value: v, label: v, count: counts.get(v) ?? 0 })),
+    })
+  }
 
   if (name === 'staff_people') {
     /* From `scoreboard_crew_labor` so the names are byte-identical to the ones the

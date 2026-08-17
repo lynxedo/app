@@ -109,12 +109,18 @@ export const PEOPLE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'What you sold',
         value: formatCurrency(num(p.sales.sold_value)),
         tone: num(p.sales.sold_value) > 0 ? 'good' : 'neutral',
-        // The denominator is named because "close rate" alone invites the
-        // reading that it is a share of all leads. It is decided leads.
+        /* The denominator is named because "close rate" alone invites the
+         * reading that it is a share of all leads. It is decided leads.
+         *
+         * ⚠ `won` and `decided` are NOT phrased as numerator-over-denominator any
+         * more. `won` counts everything sold, including the stages marked "counts as
+         * a sale" (Heroes: Upsells), while the close rate is competed-only — so
+         * "12 won of 9 decided (78%)" was reachable on a rep with upsells. The two
+         * facts are now stated side by side instead of as one ratio. */
         sub: rate != null
-          ? `${win.phrase} · ${num(p.sales.won)} won of ${num(p.sales.decided)} decided (${rate}%)`
+          ? `${win.phrase} · ${num(p.sales.won)} sold · ${rate}% of ${num(p.sales.decided)} decided leads closed`
           : num(p.sales.decided) > 0
-            ? `${win.phrase} · ${num(p.sales.won)} won · too few decided to rate fairly (under ${min})`
+            ? `${win.phrase} · ${num(p.sales.won)} sold · too few decided to rate fairly (under ${min})`
             : `${win.phrase} · no leads assigned to you`,
       }
     },
@@ -331,7 +337,9 @@ export const PEOPLE_WIDGETS: WidgetDef<WidgetPayload>[] = [
           { key: 'name', label: 'Person', align: 'left' },
           { key: 'department', label: 'Department', align: 'left' },
           { key: 'leads', label: 'Leads', align: 'right', format: 'number', sortable: true },
-          { key: 'won', label: 'Won', align: 'right', format: 'number', sortable: true },
+          // "Sold", not "Won": includes any stage marked as counting as a sale, so it
+          // is deliberately not the close rate's numerator.
+          { key: 'won', label: 'Sold', align: 'right', format: 'number', sortable: true, title: 'Deals sold, including upsells if your Lead Tracker counts them as sales' },
           { key: 'close_rate', label: 'Close rate', align: 'right', format: 'percent', sortable: true },
           { key: 'sold', label: 'Sold', align: 'right', format: 'currency', sortable: true },
           { key: 'hours', label: 'Hours', align: 'right', format: 'number', sortable: true },

@@ -56,6 +56,15 @@ export type SourceKey =
   // card on a board sharing a basis and stage set then shares ONE query, however
   // many products are being counted.
   | 'lead_items'
+  // The active recurring book, one row per (job, base-program line). Backs every
+  // "how many customers / what is the book worth / what is the program mix / what
+  // share bought the add-on" card — the questions the WF, IR and PW boards all open
+  // with. Deliberately takes NO line or program parameter: filtering happens in the
+  // metric, so a WF card and a PW card on one board still cost ONE query.
+  | 'recurring_book'
+  // Average and median value of a single completed job, per service line. The IR
+  // repair-ticket card generalised.
+  | 'ticket_size'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 
@@ -84,6 +93,20 @@ export type CatalogName =
   | 'staff_people'
   /** Jobber user names — visit revenue by technician, quote reps. */
   | 'jobber_people'
+  /**
+   * Service lines the tenant actually runs (WF / IR / PW / MO for Heroes), from
+   * `recurring_program_definitions.dept_prefix`. Used by the book, ticket-size and
+   * revenue-trend widgets.
+   */
+  | 'service_lines'
+  /**
+   * Recurring program names as the book reports them (`display_name`) — "IR Gold",
+   * "Lawn Health Basic". Lets a card be about one program rather than a whole line,
+   * which is how "Active IR Gold Customers" is expressed.
+   */
+  | 'recurring_programs'
+  /** Add-ons — programs flagged `is_auxiliary`. Drives the attach-rate card. */
+  | 'recurring_addons'
 
 export type ConfigField =
   | { kind: 'number'; label: string; def: number; min: number; max: number; unit?: string; hint?: string }

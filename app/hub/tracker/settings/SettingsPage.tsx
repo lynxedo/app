@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-type Stage = { id: string; key: string; label: string; color: string; sort_order: number; system_role?: string | null }
+type Stage = { id: string; key: string; label: string; color: string; sort_order: number; system_role?: string | null; counts_as_sale?: boolean | null }
 type ColType = 'text' | 'number' | 'date' | 'dropdown' | 'checkbox' | 'phone'
 
 // Optional pipeline semantics — powers the Board / Needs-me cockpit views (won/lost
@@ -201,6 +201,24 @@ function StageManager({ stages, onChange }: { stages: Stage[]; onChange: (s: Sta
     }
   }
 
+  /* Whether landing in this stage means the deal is SOLD.
+   *
+   * Read by the Sales report, so ticking it here moves Value Sold, Open Pipeline and
+   * every per-person sales figure at once — there is one definition of "a sale".
+   * Heroes ticks Upsells: before it existed, 55 sold upsells sat in Open Pipeline
+   * forever and their $31,541 was missing from Value Sold. */
+  async function setCountsAsSale(id: string, next: boolean) {
+    // Optimistic, then reverted on failure — a checkbox that does not move when
+    // clicked reads as broken.
+    onChange(stages.map(s => s.id === id ? { ...s, counts_as_sale: next } : s))
+    const res = await fetch(`/api/tracker/stages/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ counts_as_sale: next }),
+    })
+    if (!res.ok) onChange(stages.map(s => s.id === id ? { ...s, counts_as_sale: !next } : s))
+  }
+
   async function reorder(id: string, dir: -1 | 1) {
     const idx = stages.findIndex(s => s.id === id)
     if (idx < 0) return
@@ -301,6 +319,18 @@ function StageManager({ stages, onChange }: { stages: Stage[]; onChange: (s: Sta
               >
                 {SYSTEM_ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
+              <label
+                className="flex items-center gap-1 text-xs text-gray-400 shrink-0 cursor-pointer select-none"
+                title="Counts as a sale — included in Value Sold and removed from Open Pipeline on the Sales report. Tick this for stages like Upsells."
+              >
+                <input
+                  type="checkbox"
+                  checked={!!stage.counts_as_sale}
+                  onChange={e => setCountsAsSale(stage.id, e.target.checked)}
+                  className="accent-indigo-500"
+                />
+                <span className="hidden sm:inline">Sold</span>
+              </label>
               <button
                 onClick={() => reorder(stage.id, -1)}
                 disabled={i === 0}
