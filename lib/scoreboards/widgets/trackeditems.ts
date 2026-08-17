@@ -57,6 +57,19 @@ function stageLabel(key: string): string {
 const asArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(String).filter(Boolean) : []
 
+/**
+ * The bucket a lead with no salesperson lands in.
+ *
+ * ⚠ Doubles as the value you tick to count exactly those, so the picker, the filter
+ * and the chart all name it identically. A real person called this would merge with
+ * the bucket; that is a trade taken knowingly against inventing a sentinel value
+ * that could show up in the UI.
+ */
+export const NO_SELLER = 'No salesperson recorded'
+
+/** Case-insensitive, because the Tracker holds "Kathryn" and "kathryn" as one person. */
+const sellerKey = (s: string) => s.trim().toLowerCase()
+
 /* ── shared plumbing ─────────────────────────────────────────────────────── */
 
 const BASIS_SOLD = 'When it sold'
@@ -83,6 +96,13 @@ const ITEM_CONFIG = {
     def: BASIS_SOLD,
     opts: [BASIS_SOLD, BASIS_CREATED],
     hint: 'Sold date answers “what did we sell in July”. Lead date matches the rest of the Sales report.',
+  },
+  people: {
+    kind: 'catalog' as const,
+    label: 'Only count these people',
+    def: [] as string[],
+    catalog: 'lead_salespeople' as const,
+    hint: 'Leave empty for the whole company. Tick one person for their own card.',
   },
 }
 
@@ -121,7 +141,7 @@ type Group = {
  * absent row. "We sold none of these" and "I forgot to tick that one" look identical
  * on a card that simply omits it, and only one of them is worth acting on.
  */
-export function groupSelected(row: LeadItemsRow | null, selected: string[]): Group[] {
+export function groupSelected(row: LeadItemsRow | null, selected: string[], people: string[] = []): Group[] {
   const wanted = new Map<string, Group>()
   for (const s of selected) {
     const k = itemKey(s)
@@ -129,15 +149,19 @@ export function groupSelected(row: LeadItemsRow | null, selected: string[]): Gro
       wanted.set(k, { key: k, label: s, leads: 0, spellings: new Set(), bySeller: new Map() })
     }
   }
+  /* ⚠ The person filter is applied HERE, in the pure metric, not pushed into the
+   * query — which is what lets one card for Angel and another for Lucas share a
+   * single round trip. Empty = the whole company; it is never treated as "nobody". */
+  const onlyThese = new Set(people.map(sellerKey))
   const counts = new Map<string, Map<string, number>>()   // key → raw spelling → leads
   for (const r of row?.rows ?? []) {
     const k = itemKey(r.value)
     const g = wanted.get(k)
     if (!g) continue
+    const name = r.salesperson?.trim() || NO_SELLER
+    if (onlyThese.size && !onlyThese.has(sellerKey(name))) continue
     g.leads += r.leads
     g.spellings.add(r.value)
-    const seller = r.salesperson?.trim() || null
-    const name = seller ?? 'No salesperson recorded'
     g.bySeller.set(name, (g.bySeller.get(name) ?? 0) + r.leads)
     const m = counts.get(k) ?? new Map<string, number>()
     m.set(r.value, (m.get(r.value) ?? 0) + r.leads)
@@ -162,6 +186,21 @@ function stagePhrase(cfg: WidgetConfig): string {
   const stages = asArray(cfg.stages)
   if (!stages.length) return 'every lead that asked, sold or not'
   return stages.map(stageLabel).join(' + ')
+}
+
+/**
+ * Who the card is limited to, or null for everyone.
+ *
+ * ⚠ Always stated on a filtered card. A tile reading "3" is unremarkable for a
+ * company and excellent for one person, and nothing else on the card distinguishes
+ * the two — an unlabelled filtered number is how somebody concludes sales collapsed.
+ */
+function peoplePhrase(cfg: WidgetConfig): string | null {
+  const people = asArray(cfg.people)
+  if (!people.length) return null
+  if (people.length === 1) return `${people[0]} only`
+  if (people.length <= 3) return `${people.join(' + ')} only`
+  return `${people.length} people only`
 }
 
 /**
@@ -221,11 +260,17 @@ export const TRACKED_ITEM_WIDGETS: WidgetDef<WidgetPayload>[] = [
     metric: (bag, cfg, win) => {
       const row = items(bag, cfg, win)
       const selected = asArray(cfg.values)
-      const groups = groupSelected(row, selected)
+      const people = asArray(cfg.people)
+      const groups = groupSelected(row, selected, people)
       const total = groups.reduce((s, g) => s + g.leads, 0)
       const custom = String(cfg.label ?? '').trim()
-      const name = custom || (groups.length === 1 ? groups[0].label : groups.length ? `${groups.length} items` : 'Tracked item')
+      const itemName = groups.length === 1 ? groups[0].label : groups.length ? `${groups.length} items` : 'Tracked item'
+      // With exactly one person and no name of your own, the person goes IN the
+      // label — a tile headed "Rachio controllers" that silently means only Angel's
+      // is the misreading this whole option needs to avoid.
+      const name = custom || (people.length === 1 ? `${itemName} — ${people[0]}` : itemName)
       const bySeller = String(cfg.split) === 'Who sold them'
+      const only = peoplePhrase(cfg)
 
       if (!selected.length) {
         return {
@@ -246,8 +291,8 @@ export const TRACKED_ITEM_WIDGETS: WidgetDef<WidgetPayload>[] = [
         const ranked = [...merged.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         return {
           kind: 'bars',
-          title: `${name} — who sold them`,
-          sub: `${total} sold ${basisPhrase(cfg)} · ${stagePhrase(cfg)}${caveats.length ? ` · ${caveats.join(' · ')}` : ''}`,
+          title: custom ? `${custom} — who sold them` : `${itemName} — who sold them`,
+          sub: [`${total} sold ${basisPhrase(cfg)}`, stagePhrase(cfg), only, ...caveats].filter(Boolean).join(' · '),
           format: 'number',
           rows: ranked.map(([who, n], i) => ({
             label: who,
@@ -266,6 +311,7 @@ export const TRACKED_ITEM_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: [
           `sold ${basisPhrase(cfg)}`,
           stagePhrase(cfg),
+          only,
           spellings > 1 ? `${spellings} spellings counted as one` : null,
           ...caveats,
         ].filter(Boolean).join(' · '),
@@ -285,10 +331,15 @@ export const TRACKED_ITEM_WIDGETS: WidgetDef<WidgetPayload>[] = [
     metric: (bag, cfg, win) => {
       const row = items(bag, cfg, win)
       const selected = asArray(cfg.values)
-      const groups = groupSelected(row, selected).sort((a, b) => b.leads - a.leads || a.label.localeCompare(b.label))
+      const people = asArray(cfg.people)
+      const groups = groupSelected(row, selected, people).sort((a, b) => b.leads - a.leads || a.label.localeCompare(b.label))
       const total = groups.reduce((s, g) => s + g.leads, 0)
-      const caveats = notes(row, win, true)
+      // ⚠ Only warn about missing salespeople when they could be in the count. Filter
+      // to named people and every unattributed lead is excluded by construction, so
+      // the warning would be noise about rows that cannot appear.
+      const caveats = notes(row, win, people.length === 0)
       const multi = row?.coverage.multi_service ?? 0
+      const only = peoplePhrase(cfg)
 
       const foot = [
         `${total} sold across ${groups.length} item${groups.length === 1 ? '' : 's'}`,
@@ -301,12 +352,14 @@ export const TRACKED_ITEM_WIDGETS: WidgetDef<WidgetPayload>[] = [
 
       return {
         kind: 'table',
-        title: 'Items Sold',
-        sub: `${basisPhrase(cfg)} · ${stagePhrase(cfg)}`,
+        title: only ? `Items Sold — ${only.replace(/ only$/, '')}` : 'Items Sold',
+        sub: [basisPhrase(cfg), stagePhrase(cfg), only].filter(Boolean).join(' · '),
         columns: [
           { key: 'item', label: 'Item', align: 'left' },
           { key: 'sold', label: 'Sold', align: 'right', format: 'number', sortable: true },
-          { key: 'top', label: 'Top seller', align: 'left' },
+          // Under a single-person filter every row's top seller is that person, so
+          // the column would just repeat the title. Dropped rather than padded.
+          ...(people.length === 1 ? [] : [{ key: 'top', label: 'Top seller', align: 'left' as const }]),
         ],
         rows: groups.map(g => {
           const ranked = [...g.bySeller.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
