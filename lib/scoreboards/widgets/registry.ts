@@ -24,6 +24,7 @@ import { HOME_WIDGETS, HOME_REPORT_PRESET } from './home'
 import { PEOPLE_WIDGETS, PEOPLE_REPORT_PRESET } from './people'
 import { GOALS_WIDGETS, GOALS_REPORT_PRESET } from './goals'
 import { REVENUE_TREND_WIDGETS } from './revenuetrend'
+import { TRACKED_ITEM_WIDGETS } from './trackeditems'
 import type { Tone, WidgetPayload } from './payloads'
 // Pure map + pure lookup. gating.ts pulls in lib/reports/registry, which is data
 // and pure functions only — safe in the browser bundle, and the picker wants the
@@ -442,7 +443,7 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
 ]
 
 /** Every widget in the library. One array per subject area, concatenated here. */
-const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...CLIENTS_GEO_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...QUOTE_WIDGETS, ...HOME_WIDGETS, ...PEOPLE_WIDGETS, ...GOALS_WIDGETS, ...REVENUE_TREND_WIDGETS]
+const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...CLIENTS_GEO_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...QUOTE_WIDGETS, ...HOME_WIDGETS, ...PEOPLE_WIDGETS, ...GOALS_WIDGETS, ...REVENUE_TREND_WIDGETS, ...TRACKED_ITEM_WIDGETS]
 
 const BY_TYPE = new Map(ALL_WIDGETS.map(w => [w.type, w]))
 
