@@ -18,6 +18,7 @@
 import type { RevenueTrendRow } from './sources'
 import type { SourceBag, SourceRequest, WidgetConfig, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
+import { NO_TECH, keepPerson, peopleField, peoplePhrase, personFilter } from './people-filter'
 // Same code→name map the Service Line report uses, so "MO" never appears on one
 // screen while "Mosquito" appears on another.
 import { lineName } from './servicelines'
@@ -289,6 +290,7 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
     config: {
       ...TREND_CONFIG,
       top: { kind: 'number' as const, label: 'Show top', def: 8, min: 3, max: 15, unit: 'technicians' },
+      people: peopleField('jobber_people', 'technicians'),
       shared: {
         kind: 'enum' as const,
         label: 'Visits with two techs',
@@ -302,8 +304,14 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
       const credit = String(cfg.shared) === 'Split between them' ? 'split' : 'each'
       const r = trend(bag, cfg, win, credit)
       const periods = r?.periods ?? []
-      const techs = r?.techs ?? []
       const w = trendWindow(cfg, win)
+      const filter = personFilter(cfg)
+      /* ⚠ Filtered in the metric, so a card for one tech and the whole-team card
+       * share ONE query. Filtering to a subset also means the bars no longer sum to
+       * company revenue — but that was already true of this chart when crediting each
+       * tech, and the subtitle states the filter, so the bar labels stay the truth
+       * about themselves. */
+      const techs = (r?.techs ?? []).filter(t => keepPerson(filter, t.name, NO_TECH))
       const keys = rankKeys(techs, Math.max(3, Math.min(15, Number(cfg.top) || 8)))
       const spans = spansMoreThanOneYear(periods)
       const names = new Map<string, string>()
@@ -319,10 +327,20 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
       const sharedVisits = num(r?.shared_visits)
       const unattributed = num(r?.unattributed_revenue)
       const notes: string[] = []
-      if (overlap > 0.5) {
+      /* ⚠⚠ Both figures below are COMPANY-WIDE, so neither may be printed on a
+       * filtered card: "$16,331 above company revenue" is a statement about all
+       * twenty technicians and would be simply false beneath one person's bars. The
+       * filter itself is stated instead — a caveat that no longer applies is worse
+       * than no caveat, because it reads as though it were measured for this card. */
+      const only = peoplePhrase(filter)
+      if (only) notes.push(only)
+      if (!filter.active && overlap > 0.5) {
         notes.push(`${sharedVisits} visit${sharedVisits === 1 ? '' : 's'} had more than one tech and credit both, so the bars come to ${money(overlap)} above company revenue`)
       }
-      if (unattributed > 0.5) {
+      // Only worth saying when unassigned work could be in this card: filtered to
+      // named people it is excluded by construction, so the note would describe
+      // money the chart was never asked about.
+      if (unattributed > 0.5 && !filter.active) {
         notes.push(`${money(unattributed)} sits on visits with nobody assigned and appears in no column`)
       }
 
@@ -330,10 +348,12 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
         kind: 'stacked',
         title: 'Visit Revenue by Technician',
         sub: `${windowPhrase(w, cfg, periods.length)}${notes.length ? ` · ${notes.join(' · ')}` : credit === 'split' ? ' · shared visits split, so this adds up to company revenue' : ''}`,
+        empty: filter.active
+          ? 'No completed visits for these technicians in this period'
+          : 'No completed visits in this period',
         scale: 'magnitude',
         rows: stackRows(periods, techs, keys, k => names.get(k) ?? k, w.grain, spans),
         legend: keys.map(k => ({ label: names.get(k) ?? k, tone: toneFor(k, keys) })),
-        empty: 'No completed visits in this period',
       }
     },
   },

@@ -21,6 +21,7 @@ import { formatCurrency } from '@/lib/format'
 import type { SalesRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
+import { keepPerson, peopleField, personFilter, withPeople, withPeopleTitle } from './people-filter'
 
 /**
  * Link from a figure to the rows behind it, carrying the CURRENT window so the
@@ -216,12 +217,16 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Sales by Person',
     blurb: 'Who is closing, and at what rate',
     defaultSpan: 12,
-    config: {},
+    config: { people: peopleField('lead_salespeople', 'people') },
     sources: (_cfg, win) => [salesReq(win)],
-    metric: (bag, _cfg, win) => {
+    metric: (bag, cfg, win) => {
       const r = sales(bag, win)
+      const f = personFilter(cfg)
       const floor = num(r?.rate_min_sample) || 10
-      const rows = (r?.by_salesperson ?? []).map(p => ({
+      /* ⚠ 'Unassigned' is a real row here (74 leads on Heroes' book, closing at 3.2%),
+       * so it is filterable like anyone else — ticking it alone answers "how are the
+       * leads nobody owns doing", which is the cheapest fix on the page. */
+      const rows = (r?.by_salesperson ?? []).filter(p => keepPerson(f, p.name, p.name)).map(p => ({
         key: p.name,
         cells: {
           name: p.name,
@@ -241,8 +246,8 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
       }))
       return {
         kind: 'table',
-        title: 'Sales by Person',
-        sub: win.phrase,
+        title: withPeopleTitle('Sales by Person', f),
+        sub: withPeople(win.phrase, f),
         columns: [
           { key: 'name', label: 'Salesperson', align: 'left' },
           { key: 'leads', label: 'Leads', align: 'right', format: 'number' },
@@ -253,7 +258,7 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
         ],
         rows,
         foot: `Close rate is shown only where at least ${floor} leads have been decided — a perfect score off a handful of leads says nothing, and publishing it would flatter whoever happened to get an easy run.`,
-        empty: 'No leads in this period',
+        empty: f.active ? 'No leads for these people in this period' : 'No leads in this period',
       }
     },
   },

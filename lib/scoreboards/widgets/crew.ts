@@ -25,6 +25,9 @@ import { formatCurrency } from '@/lib/format'
 import type { CrewLaborRow, CrewPerson } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
+import {
+  keepPerson, peopleField, personFilter, withPeople, withPeopleTitle, type PersonFilter,
+} from './people-filter'
 
 const crewReq = (win: WindowSpec) => ({
   source: 'crew_labor' as const,
@@ -69,6 +72,24 @@ function rankable(r: CrewLaborRow | null): CrewPerson[] {
   return (r?.people ?? []).filter(p => p.rankable && p.rev_per_hour != null)
 }
 
+/**
+ * The person filter, applied to a crew row list.
+ *
+ * ⚠⚠ Only the PER-PERSON widgets take this filter. The three ratio KPIs
+ * (revenue per labor hour, labor cost %, revenue per visit) deliberately do not,
+ * because their numerator is company revenue computed WITHOUT per-technician
+ * fan-out: a visit worked by two people credits both, so summing a subset's revenue
+ * over-counts. The per-technician revenue trend measured that overshoot at $16,331 —
+ * 3.8% of the year — on Heroes' book. A filtered ratio would therefore be inflated
+ * and would not reconcile with anything, which is worse than not offering it. Hours
+ * ARE additive per person, so "Hours Clocked" does take the filter.
+ */
+const PEOPLE_FIELD = { people: peopleField('staff_people', 'people') }
+
+function onlyPeople(people: CrewPerson[], f: PersonFilter): CrewPerson[] {
+  return people.filter(p => keepPerson(f, p.name, p.name))
+}
+
 export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
   {
     /* ★ The headline. */
@@ -100,17 +121,22 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Hours Clocked',
     blurb: 'Total field hours actually worked',
     defaultSpan: 3,
-    config: {},
+    config: PEOPLE_FIELD,
     sources: (_cfg, win) => [crewReq(win)],
-    metric: (bag, _cfg, win) => {
+    metric: (bag, cfg, win) => {
       const r = crew(bag, win)
-      const n = (r?.people ?? []).length
+      const f = personFilter(cfg)
+      const people = onlyPeople(r?.people ?? [], f)
+      const n = people.length
+      // Hours are additive per person, so a filtered total is exact — unlike the
+      // ratio KPIs, which is why this one carries the filter and they don't.
+      const hours = f.active ? people.reduce((s, p) => s + num(p.hours), 0) : num(r?.hours)
       return {
         kind: 'kpi',
-        label: 'Hours Clocked',
-        value: r && r.coverage.has_data ? num(r.hours).toLocaleString() : '—',
+        label: withPeopleTitle('Hours Clocked', f),
+        value: r && r.coverage.has_data ? hours.toLocaleString() : '—',
         sub: r && r.coverage.has_data
-          ? `${n} ${n === 1 ? 'person' : 'people'} on the clock · ${periodPhrase(r, win)}`
+          ? withPeople(`${n} ${n === 1 ? 'person' : 'people'} on the clock · ${periodPhrase(r, win)}`, f)
           : 'No timeclock data for this period',
       }
     },
@@ -170,11 +196,12 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Revenue per Hour by Technician',
     blurb: 'Who turns clocked time into the most work',
     defaultSpan: 6,
-    config: {},
+    config: PEOPLE_FIELD,
     sources: (_cfg, win) => [crewReq(win)],
-    metric: (bag, _cfg, win) => {
+    metric: (bag, cfg, win) => {
       const r = crew(bag, win)
-      const rows = rankable(r)
+      const f = personFilter(cfg)
+      const rows = onlyPeople(rankable(r), f)
         .slice()
         .sort((a, b) => num(b.rev_per_hour) - num(a.rev_per_hour))
         .map(p => ({
@@ -183,11 +210,11 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
           tone: (num(p.rev_per_hour) >= 100 ? 'good' : num(p.rev_per_hour) >= 50 ? 'warn' : 'bad') as Tone,
           detail: `${formatCurrency(num(p.revenue))} over ${num(p.hours).toLocaleString()} hrs${p.is_active ? '' : ' · no longer employed'}`,
         }))
-      const skipped = (r?.people ?? []).filter(p => !p.rankable)
+      const skipped = onlyPeople((r?.people ?? []).filter(p => !p.rankable), f)
       return {
         kind: 'bars',
-        title: 'Revenue per Hour by Technician',
-        sub: periodPhrase(r, win),
+        title: withPeopleTitle('Revenue per Hour by Technician', f),
+        sub: withPeople(periodPhrase(r, win), f),
         format: 'currency',
         rows,
         // Naming who is missing and why is the difference between a ranking and a
@@ -206,11 +233,12 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Hours by Person',
     blurb: 'Who is putting in the time',
     defaultSpan: 6,
-    config: {},
+    config: PEOPLE_FIELD,
     sources: (_cfg, win) => [crewReq(win)],
-    metric: (bag, _cfg, win) => {
+    metric: (bag, cfg, win) => {
       const r = crew(bag, win)
-      const rows = (r?.people ?? [])
+      const f = personFilter(cfg)
+      const rows = onlyPeople(r?.people ?? [], f)
         .filter(p => num(p.hours) > 0)
         .map(p => ({
           label: p.name,
@@ -222,8 +250,8 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
         }))
       return {
         kind: 'bars',
-        title: 'Hours by Person',
-        sub: `${periodPhrase(r, win)} · includes people who have since left`,
+        title: withPeopleTitle('Hours by Person', f),
+        sub: withPeople(`${periodPhrase(r, win)} · includes people who have since left`, f),
         format: 'number',
         rows,
         empty: 'No hours clocked in this period',
@@ -268,11 +296,12 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Crew Detail',
     blurb: 'Hours, wages and work per person',
     defaultSpan: 12,
-    config: {},
+    config: PEOPLE_FIELD,
     sources: (_cfg, win) => [crewReq(win)],
-    metric: (bag, _cfg, win) => {
+    metric: (bag, cfg, win) => {
       const r = crew(bag, win)
-      const rows = (r?.people ?? []).map(p => ({
+      const f = personFilter(cfg)
+      const rows = onlyPeople(r?.people ?? [], f).map(p => ({
         key: p.employee_id,
         cells: {
           name: p.name,
@@ -295,8 +324,8 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
       }))
       return {
         kind: 'table',
-        title: 'Crew Detail',
-        sub: periodPhrase(r, win),
+        title: withPeopleTitle('Crew Detail', f),
+        sub: withPeople(periodPhrase(r, win), f),
         columns: [
           { key: 'name', label: 'Person', align: 'left' },
           { key: 'department', label: 'Department', align: 'left' },

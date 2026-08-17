@@ -33,6 +33,7 @@ import { customerFileHref } from '@/lib/customer-file-href'
 import type { QuoteCohortRow, QuoteOpenRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
+import { NO_TECH, keepPerson, peopleField, personFilter, withPeople, withPeopleTitle } from './people-filter'
 
 const cohortReq = (win: WindowSpec) => ({
   source: 'quotes_cohort' as const,
@@ -250,11 +251,12 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Quotes Waiting For An Answer',
     blurb: 'Oldest first, with whether the customer opened it',
     defaultSpan: 12,
-    config: {},
+    config: { people: peopleField('jobber_people', 'people') },
     sources: () => [openReq()],
-    metric: (bag) => {
+    metric: (bag, cfg) => {
       const o = openBook(bag)
-      const rows = (o?.list ?? []).map(q => ({
+      const f = personFilter(cfg)
+      const rows = (o?.list ?? []).filter(q => keepPerson(f, q.salesperson, NO_TECH)).map(q => ({
         key: String(q.quote_number ?? Math.random()),
         cells: {
           days_out: num(q.days_out),
@@ -276,8 +278,8 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
       const cap = num(o?.list_cap)
       return {
         kind: 'table',
-        title: 'Quotes Waiting For An Answer',
-        sub: 'As of today, oldest first — the date range does not apply',
+        title: withPeopleTitle('Quotes Waiting For An Answer', f),
+        sub: withPeople('As of today, oldest first — the date range does not apply', f),
         columns: [
           { key: 'days_out', label: 'Days waiting', align: 'right', format: 'number', sortable: true },
           { key: 'quote', label: 'Quote', align: 'left', link: { hrefKey: 'quote_href', external: true }, title: 'Opens this quote in Jobber, where it can be resent.' },
@@ -290,10 +292,15 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         // ⚠ A truncated list must never read as complete.
         // Was "look up a quote by its number in Jobber" — a workaround for having no
         // link. Both cells are now clickable, so the note says what they do instead.
+        /* ⚠⚠ The person filter is applied to the CAPPED list, so when the cap bites
+         * a filtered card shows "this person's quotes among the oldest N" — not all of
+         * theirs. Said outright, because a filtered subset of a truncated list reads
+         * exactly like a complete answer. When the cap is not binding (Heroes: 32 open
+         * against a cap of 100) the filtered list IS complete, so no caveat is added. */
         foot: total > cap
-          ? `Showing the ${cap} longest-waiting of ${total.toLocaleString()} open quotes. The quote number opens it in Jobber; the name opens their customer file.`
+          ? `Showing the ${cap} longest-waiting of ${total.toLocaleString()} open quotes${f.active ? ', and this card then narrows to the people you picked — so it is their quotes within that oldest ' + cap + ', not all of theirs' : ''}. The quote number opens it in Jobber; the name opens their customer file.`
           : 'The quote number opens it in Jobber to resend; the customer name opens their file, where you can call or text them.',
-        empty: 'No quotes are waiting on a customer',
+        empty: f.active ? 'No quotes from these people are waiting on a customer' : 'No quotes are waiting on a customer',
       }
     },
   },
@@ -391,16 +398,17 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Quotes By Salesperson',
     blurb: 'Sent, won and win rate per person',
     defaultSpan: 12,
-    config: {},
+    config: { people: peopleField('jobber_people', 'people') },
     sources: (_cfg, win) => [cohortReq(win)],
-    metric: (bag, _cfg, win) => {
+    metric: (bag, cfg, win) => {
       const r = cohort(bag, win)
-      const people = (r?.by_salesperson ?? [])
+      const f = personFilter(cfg)
+      const people = (r?.by_salesperson ?? []).filter(p => keepPerson(f, p.name, NO_TECH))
       const floor = num(r?.rate_min_sample)
       return {
         kind: 'table',
-        title: 'Quotes By Salesperson',
-        sub: `Quotes sent ${win.phrase}`,
+        title: withPeopleTitle('Quotes By Salesperson', f),
+        sub: withPeople(`Quotes sent ${win.phrase}`, f),
         columns: [
           { key: 'name', label: 'Salesperson', align: 'left', sortable: true },
           { key: 'sent', label: 'Sent', align: 'right', format: 'number', sortable: true },
@@ -422,7 +430,7 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
           tones: { win_rate: rateTone(p.win_rate == null ? null : num(p.win_rate)) },
         })),
         foot: `A win rate needs at least ${floor} decided quotes. Quotes with no salesperson on them are grouped as Unassigned.`,
-        empty: 'No quotes were sent in this period',
+        empty: f.active ? 'No quotes sent by these people in this period' : 'No quotes were sent in this period',
       }
     },
   },
