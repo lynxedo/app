@@ -22,6 +22,9 @@
 import type { LeadItemsRow } from './sources'
 import type { SourceBag, SourceRequest, WidgetConfig, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
+import {
+  NO_SELLER, peopleField, peoplePhrase, personFilter, personKey,
+} from './people-filter'
 
 /* ── matching ─────────────────────────────────────────────────────────────── */
 
@@ -57,18 +60,6 @@ function stageLabel(key: string): string {
 const asArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(String).filter(Boolean) : []
 
-/**
- * The bucket a lead with no salesperson lands in.
- *
- * ⚠ Doubles as the value you tick to count exactly those, so the picker, the filter
- * and the chart all name it identically. A real person called this would merge with
- * the bucket; that is a trade taken knowingly against inventing a sentinel value
- * that could show up in the UI.
- */
-export const NO_SELLER = 'No salesperson recorded'
-
-/** Case-insensitive, because the Tracker holds "Kathryn" and "kathryn" as one person. */
-const sellerKey = (s: string) => s.trim().toLowerCase()
 
 /* ── shared plumbing ─────────────────────────────────────────────────────── */
 
@@ -97,13 +88,7 @@ const ITEM_CONFIG = {
     opts: [BASIS_SOLD, BASIS_CREATED],
     hint: 'Sold date answers “what did we sell in July”. Lead date matches the rest of the Sales report.',
   },
-  people: {
-    kind: 'catalog' as const,
-    label: 'Only count these people',
-    def: [] as string[],
-    catalog: 'lead_salespeople' as const,
-    hint: 'Leave empty for the whole company. Tick one person for their own card.',
-  },
+  people: peopleField('lead_salespeople', 'people'),
 }
 
 function itemsReq(cfg: WidgetConfig, win: WindowSpec): SourceRequest {
@@ -152,14 +137,14 @@ export function groupSelected(row: LeadItemsRow | null, selected: string[], peop
   /* ⚠ The person filter is applied HERE, in the pure metric, not pushed into the
    * query — which is what lets one card for Angel and another for Lucas share a
    * single round trip. Empty = the whole company; it is never treated as "nobody". */
-  const onlyThese = new Set(people.map(sellerKey))
+  const onlyThese = new Set(people.map(personKey))
   const counts = new Map<string, Map<string, number>>()   // key → raw spelling → leads
   for (const r of row?.rows ?? []) {
     const k = itemKey(r.value)
     const g = wanted.get(k)
     if (!g) continue
     const name = r.salesperson?.trim() || NO_SELLER
-    if (onlyThese.size && !onlyThese.has(sellerKey(name))) continue
+    if (onlyThese.size && !onlyThese.has(personKey(name))) continue
     g.leads += r.leads
     g.spellings.add(r.value)
     g.bySeller.set(name, (g.bySeller.get(name) ?? 0) + r.leads)
@@ -188,20 +173,6 @@ function stagePhrase(cfg: WidgetConfig): string {
   return stages.map(stageLabel).join(' + ')
 }
 
-/**
- * Who the card is limited to, or null for everyone.
- *
- * ⚠ Always stated on a filtered card. A tile reading "3" is unremarkable for a
- * company and excellent for one person, and nothing else on the card distinguishes
- * the two — an unlabelled filtered number is how somebody concludes sales collapsed.
- */
-function peoplePhrase(cfg: WidgetConfig): string | null {
-  const people = asArray(cfg.people)
-  if (!people.length) return null
-  if (people.length === 1) return `${people[0]} only`
-  if (people.length <= 3) return `${people.join(' + ')} only`
-  return `${people.length} people only`
-}
 
 /**
  * Caveats that belong on the card rather than in a doc nobody opens.
@@ -270,7 +241,7 @@ export const TRACKED_ITEM_WIDGETS: WidgetDef<WidgetPayload>[] = [
       // is the misreading this whole option needs to avoid.
       const name = custom || (people.length === 1 ? `${itemName} — ${people[0]}` : itemName)
       const bySeller = String(cfg.split) === 'Who sold them'
-      const only = peoplePhrase(cfg)
+      const only = peoplePhrase(personFilter(cfg))
 
       if (!selected.length) {
         return {
@@ -339,7 +310,7 @@ export const TRACKED_ITEM_WIDGETS: WidgetDef<WidgetPayload>[] = [
       // the warning would be noise about rows that cannot appear.
       const caveats = notes(row, win, people.length === 0)
       const multi = row?.coverage.multi_service ?? 0
-      const only = peoplePhrase(cfg)
+      const only = peoplePhrase(personFilter(cfg))
 
       const foot = [
         `${total} sold across ${groups.length} item${groups.length === 1 ? '' : 's'}`,
