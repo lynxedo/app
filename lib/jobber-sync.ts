@@ -284,6 +284,31 @@ function dedupLineItems(rows: Record<string, unknown>[]): Record<string, unknown
 const LINE_ITEM_PAGE_CAP = 25
 
 /**
+ * Whether the number of line items Jobber returned for a parent lets us treat
+ * "absent from the response" as "deleted in Jobber". Both excluded counts would
+ * otherwise wipe real money:
+ *
+ *  - AT the page cap: there may be more lines we never fetched.
+ *  - ZERO lines: ⚠⚠ an empty nested connection is far more often an INCOMPLETE
+ *    RESPONSE than a parent whose every line was deleted. Jobber can hand back a
+ *    node with `lineItems` empty or absent — partial data alongside GraphQL
+ *    errors, or a nested-cost cut-off — and `(x?.nodes?.length ?? 0) < CAP` reads
+ *    that as "Jobber deleted them all", tombstoning the parent's ENTIRE value in
+ *    one pass. Measured on Heroes 2026-08-17: from 2026-08-11 onward 36 live
+ *    jobs, 40 visits and 2 invoices had every line item tombstoned this way. 28
+ *    of those jobs were WF recurring work still present in Jobber with real
+ *    prices, and the recurring book was understating WF by $39,449.96 because of
+ *    it — reported $243,008.88 against Jobber's own $290,049.24.
+ *
+ * The asymmetry is what decides it: declining to act on an empty response leaves
+ * at worst one stale row, which the next run that returns ANY line will clear,
+ * while acting on it silently destroys a whole job's revenue.
+ */
+function lineCountAllowsReconcile(count: number): boolean {
+  return count > 0 && count < LINE_ITEM_PAGE_CAP
+}
+
+/**
  * Soft-delete the line items Jobber no longer returns for a set of just-synced
  * parents ("orphans"). The line-item upserts above only INSERT/UPDATE whatever
  * Jobber currently returns and never remove anything — so a line item deleted in
@@ -300,6 +325,12 @@ const LINE_ITEM_PAGE_CAP = 25
  * parents we fetched, so it can never touch another parent's or another tool's
  * rows. (Today the Jobber sync is the only writer of line_items, all source
  * 'jobber' — if that ever changes, revisit this scope.)
+ *
+ * ⚠ A tombstone here is REVERSIBLE only because the line-item upserts write
+ * `deleted_at: null`: if Jobber returns the line again it comes back to life on
+ * the next run. That clause is load-bearing, not tidiness — without it a single
+ * bad reconcile is permanent, which is exactly how the 2026-08-11 false deletions
+ * survived five nightly syncs. See lineCountAllowsReconcile above.
  */
 async function reconcileDeletedLineItems(
   admin: ReturnType<typeof createAdminClient>,
@@ -982,6 +1013,9 @@ async function syncJobs(
         total: li.totalPrice ?? null,
         last_synced_at: nowIso,
         updated_at: nowIso,
+        // Jobber returned this line, so it is live — revive it if a previous run
+        // tombstoned it. Makes the reconcile reversible; see its doc comment.
+        deleted_at: null,
       }))
     })
     if (lineItemRows.length) {
@@ -996,7 +1030,7 @@ async function syncJobs(
     await reconcileDeletedLineItems(
       admin, companyId, 'job',
       nodes.filter(job => jobIdByExternal.has(job.id) &&
-        (job.lineItems?.nodes?.length ?? 0) < LINE_ITEM_PAGE_CAP).map(job => job.id),
+        lineCountAllowsReconcile(job.lineItems?.nodes?.length ?? 0)).map(job => job.id),
       nowIso
     )
 
@@ -1162,6 +1196,8 @@ async function syncVisits(
         total: li.totalPrice ?? null,
         last_synced_at: nowIso,
         updated_at: nowIso,
+        // See the job line-item upsert: revive anything a bad reconcile tombstoned.
+        deleted_at: null,
       }))
     })
     if (lineItemRows.length) {
@@ -1178,7 +1214,7 @@ async function syncVisits(
     await reconcileDeletedLineItems(
       admin, companyId, 'visit',
       nodes.filter(v => visitIdByExternal.has(v.id) &&
-        (v.lineItems?.nodes?.length ?? 0) < LINE_ITEM_PAGE_CAP).map(v => v.id),
+        lineCountAllowsReconcile(v.lineItems?.nodes?.length ?? 0)).map(v => v.id),
       nowIso
     )
 
@@ -1905,6 +1941,8 @@ async function syncInvoices(
         total: li.totalPrice ?? null,
         last_synced_at: nowIso,
         updated_at: nowIso,
+        // See the job line-item upsert: revive anything a bad reconcile tombstoned.
+        deleted_at: null,
       }))
     })
     if (lineItemRows.length) {
@@ -1919,7 +1957,7 @@ async function syncInvoices(
     await reconcileDeletedLineItems(
       admin, companyId, 'invoice',
       nodes.filter(inv => invoiceIdByExternal.has(inv.id) &&
-        (inv.lineItems?.nodes?.length ?? 0) < LINE_ITEM_PAGE_CAP).map(inv => inv.id),
+        lineCountAllowsReconcile(inv.lineItems?.nodes?.length ?? 0)).map(inv => inv.id),
       nowIso
     )
 
