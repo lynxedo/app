@@ -393,11 +393,16 @@ export default function WidgetBoardView({
           </button>
         ) : null}
         {res?.custom?.canManage ? (
+          /* ⚠ This button used to read "👥 Share" while the panel it opens also
+           * RENAMES and DELETES the board. Ben went looking for both and reasonably
+           * never clicked it — a control has to name everything behind it, not the
+           * one thing it was first built for. "Edit board" (arrange the cards) and
+           * "Settings" (name, audience, delete) are the two halves. */
           <button
             onClick={() => setManageOpen(true)}
             className="rounded-lg border border-sky-400/15 px-2.5 py-1.5 text-[12px] text-gray-400 hover:border-sky-400/40 hover:text-sky-200"
           >
-            👥 Share
+            ⚙ Settings
           </button>
         ) : null}
       </div>
