@@ -2556,6 +2556,24 @@ function ScoreboardsTab() {
         <p className="mt-2 text-gray-400">One thing to know about the numbers: whatever value you type on an upsell lead is what gets added, so enter the <em>upgrade</em> amount rather than the customer&apos;s new total, or the same money gets counted twice.</p>
       </Section>
 
+      <Section title="Commission">
+        <p>Commission cards work out what each person is owed against <em>their own</em> bonus rules. They&apos;re widgets you add to any scoreboard — there&apos;s no Commission page, by design.</p>
+        <p className="mt-2"><strong className="text-white">First, set the rules.</strong> An admin adds them in <strong className="text-white">Admin → Reports → Commission plans</strong>. One rule per line, and a person can have several — that&apos;s how &ldquo;5% of irrigation sales <em>plus</em> $50 a controller&rdquo; is set up. Each rule is: who it&apos;s for, what it&apos;s paid on, and how it pays.</p>
+        <p className="mt-3"><strong className="text-white">What a rule can be paid on:</strong></p>
+        <ul className="mt-1 ml-5 list-disc space-y-1">
+          <li><strong className="text-white">Value they sold</strong> — annual value of the deals credited to them in the Lead Tracker.</li>
+          <li><strong className="text-white">Number of sales they closed</strong> — the count rather than the value.</li>
+          <li><strong className="text-white">Revenue they produced</strong> — value of the visits they completed. Work done, not work sold.</li>
+          <li><strong className="text-white">Revenue of a whole service line</strong> — the department&apos;s figure, for a lead paid on how their line performs.</li>
+          <li><strong className="text-white">Particular things they sold</strong> — how many of the products you pick, from the Lead Tracker&apos;s Service column.</li>
+        </ul>
+        <p className="mt-3"><strong className="text-white">How it pays:</strong> a percentage, a flat amount per unit, or tiered percentages. Tiers are <strong className="text-white">marginal</strong> — &ldquo;3% up to $50,000 then 5%&rdquo; pays 3% on the first $50,000 and 5% only on what&apos;s above it, so crossing the line doesn&apos;t suddenly repay everything at the higher rate. You can also set a floor (&ldquo;nothing until they sell $20,000&rdquo;) and a cap.</p>
+        <p className="mt-2 text-gray-400">A dollar figure pays a percentage; a count pays a flat amount per unit. The editor only offers the combination that makes sense, because a percentage of a count isn&apos;t a number anybody can use.</p>
+        <p className="mt-3"><strong className="text-white">Then add the cards</strong> to a scoreboard: <strong className="text-white">Commission Owed</strong> (one total), <strong className="text-white">Commission Detail</strong> (a row per rule showing the figure it rode on and what it paid) and <strong className="text-white">Commission by Person</strong> (a chart). They need <strong className="text-white">Crew &amp; Labor</strong> access, because commission is pay and that&apos;s the report already gated for wage figures.</p>
+        <p className="mt-3"><strong className="text-white">Two things to know about the numbers.</strong> Paying on <em>revenue they produced</em> rides on a figure that credits a two-person visit to both people, so it runs a few percent above what the company actually produced — the card says so. And <strong className="text-white">rules aren&apos;t dated</strong>: changing a rate changes what earlier periods report too, the same way labour costing applies today&apos;s wage to an old week. If you change someone&apos;s percentage mid-year, last month&apos;s figure moves with it.</p>
+        <p className="mt-2 text-gray-400">A rule that can&apos;t be worked out says why rather than showing zero — if nobody in Jobber matches a person, no completed work can be credited to them, and the card names them instead of quietly paying nothing.</p>
+      </Section>
+
       <Section title="Narrowing A Card To One Person">
         <p>Any card that breaks numbers out by person can be pinned to one person — or a few — instead. Open the card&apos;s ⚙ settings and use <strong className="text-white">Only include these people</strong>. Leave it empty for everyone; tick one name for their own card; tick several for a crew.</p>
         <p className="mt-2">A filtered card always tells you so. The title picks up their name (&ldquo;Hours Clocked — Angel Morin&rdquo;) and the line underneath reads &ldquo;Angel Morin only&rdquo; — because a tile showing <strong className="text-white">500</strong> looks like a company number at a glance, and a glance is all a scoreboard gets.</p>

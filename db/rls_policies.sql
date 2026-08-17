@@ -18,6 +18,8 @@ ALTER TABLE public.call_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.calls ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_synx_bridges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_synx_user_links ENABLE ROW LEVEL SECURITY;
+-- RLS on with NO policies = service-role only. Pay data; same shape as report_goals.
+ALTER TABLE public.commission_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.client_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.client_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;

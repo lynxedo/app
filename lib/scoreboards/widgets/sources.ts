@@ -672,6 +672,31 @@ export type TicketSizeRow = {
   }[]
 }
 
+/**
+ * One bonus rule. See lib/reports/commission.ts for what each field means and how it
+ * pays; this is only the row shape.
+ *
+ * ⚠ Carries `employee_id`, never a name. The three data sets a commission can be
+ * based on spell people differently, and `scoreboard_people` already reconciles all
+ * three onto the roster — so the commission figure and that person's People card
+ * agree by construction instead of via a second matching rule that can drift.
+ */
+export type CommissionPlanRow = {
+  id: string
+  employee_id: string
+  label: string
+  basis: string
+  rate_kind: string
+  rate: number | string | null
+  tiers: unknown
+  threshold: number | string | null
+  cap: number | string | null
+  line_prefix: string | null
+  items: string[] | null
+  active: boolean
+  sort_order: number
+}
+
 /* ── Executors ──────────────────────────────────────────────────────────── */
 
 const SOURCES: Record<SourceKey, SourceExecutor> = {
@@ -1105,6 +1130,33 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * part of the cache key and two cards excluding different things correctly cost
    * two queries.
    */
+  /**
+   * The bonus rules for this company.
+   *
+   * ⚠ TAKES NO DATE WINDOW: a plan is a standing rule, not an event. Which period it
+   * is measured over comes from the board's date range and is applied to the BASIS,
+   * not to the rule.
+   *
+   * ⚠ Read through the SERVICE-ROLE client, not the caller's, because
+   * `commission_plans` is RLS-on-with-no-policies — pay data, same shape as
+   * report_goals. The route has already checked the caller's report grant, and the
+   * query scopes by company itself. See the two-clients warning at the top of this
+   * file: there is no second net below the route.
+   *
+   * ⚠ Inactive plans are returned rather than filtered. A rule someone switched off
+   * mid-period still explains why a figure moved, and the cards can say "2 rules are
+   * switched off" instead of silently dropping them.
+   */
+  commission_plans: async (ctx) => {
+    const { data, error } = await ctx.rpcClient
+      .from('commission_plans')
+      .select('id, employee_id, label, basis, rate_kind, rate, tiers, threshold, cap, line_prefix, items, active, sort_order')
+      .eq('company_id', ctx.companyId)
+      .order('sort_order', { ascending: true })
+    if (error) throw new Error(`commission_plans: ${error.message}`)
+    return (data ?? []) as CommissionPlanRow[]
+  },
+
   ticket_size: async (ctx, params) => {
     const split = (v: unknown) =>
       String(v ?? '').split(',').map(s => s.trim()).filter(Boolean)

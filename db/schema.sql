@@ -253,6 +253,26 @@ CREATE TABLE public.clients (
   phone_digits text
 );
 
+CREATE TABLE public.commission_plans (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  employee_id uuid NOT NULL,
+  label text NOT NULL,
+  basis text NOT NULL,
+  rate_kind text NOT NULL DEFAULT 'percent'::text,
+  rate numeric(12,4),
+  tiers jsonb,
+  threshold numeric(14,2),
+  cap numeric(14,2),
+  line_prefix text,
+  items text[],
+  active boolean NOT NULL DEFAULT true,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
 CREATE TABLE public.companies (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   name text NOT NULL,
