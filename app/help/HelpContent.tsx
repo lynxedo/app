@@ -1313,9 +1313,9 @@ function TxtTab() {
       </Section>
 
       <Section title="The conversation list">
-        <p>The Txt sidebar lists conversations under these tabs:</p>
+        <p>The Txt sidebar lists conversations under these tabs. It opens on <strong className="text-white">Mine</strong> every time, so you land on your own threads rather than the whole company&apos;s — tap <strong className="text-white">All</strong> whenever you need the shared view.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Mine</strong> — conversations assigned to you (or where you&apos;re a member).</li>
+          <li><strong className="text-white">Mine</strong> — conversations assigned to you (or where you&apos;re a member). This is the tab Txt opens on.</li>
           <li><strong className="text-white">All</strong> — every active conversation on Heroes&apos; line. The whole team can <em>read</em> any thread here, but you can only <em>send</em> in conversations you own or have joined (see <strong className="text-white">Sending a text</strong>). The orange <strong className="text-white">unread</strong> dot only lights on threads that are <em>yours</em> (owned or joined), so a teammate&apos;s unread threads don&apos;t bury your own in the All view.</li>
           <li><strong className="text-white">Archived</strong> — closed-out conversations. Archiving clears the owner and drops everyone off the thread, so if the customer texts again it comes back <strong className="text-white">unassigned</strong> — with no owner attached — ready to be claimed fresh (managers see it back in the <strong className="text-white">Queue</strong>). You can also reopen one yourself anytime — open it and tap <strong className="text-white">Reopen to reply</strong>, which claims it for you.</li>
         </ul>

@@ -243,9 +243,21 @@ export async function POST(req: NextRequest) {
   if (existingConv) {
     conversationId = existingConv.id
     const reopenPatch: Record<string, unknown> = {}
-    if (existingConv.status === 'archived') {
+    const reopening = existingConv.status === 'archived'
+    if (reopening) {
+      // Reopen UNASSIGNED, with a genuinely clean slate. The archive paths already
+      // clear the owner + drop every member, so this is normally a no-op — but the
+      // fresh start has to be guaranteed HERE, at the one moment a thread comes
+      // back to life, not only at archive time. Two reasons:
+      //   1. Threads archived before that clearing existed still carry their old
+      //      owner pointer + member rows. Reopening one used to leave it looking
+      //      unassigned while STILL sitting in its last owner's "Mine" tab — a
+      //      queue-shaped thread in a rep's personal list, with no way to shed it.
+      //   2. Any future archive path that forgets the cleanup can't resurrect a
+      //      stale owner, because the reopen enforces it regardless.
       reopenPatch.status = 'unassigned'
       reopenPatch.archived_by = null
+      reopenPatch.assigned_to = null
     }
     // Stamp the inbound number if we don't have one yet — never overwrite an
     // explicit override that was set later.
@@ -257,6 +269,15 @@ export async function POST(req: NextRequest) {
         .from('txt_conversations')
         .update(reopenPatch)
         .eq('id', conversationId)
+    }
+    // Drop leftover seats AFTER the status write, so a failure here can't leave the
+    // thread archived-but-memberless (invisible to everyone). Mirrors the ordering
+    // in the manual archive route.
+    if (reopening) {
+      await supabase
+        .from('txt_conversation_members')
+        .delete()
+        .eq('conversation_id', conversationId)
     }
   } else {
     const { data: createdConv, error: convErr } = await supabase
