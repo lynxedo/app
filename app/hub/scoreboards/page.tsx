@@ -6,6 +6,7 @@ import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
 import { listCustomBoards } from '@/lib/scoreboards/custom'
 import { createAdminClient } from '@/lib/supabase/admin'
 import NewScoreboardButton from './NewScoreboardButton'
+import BoardCardSettings from './BoardCardSettings'
 
 export const metadata = { title: 'Scoreboards' }
 export const dynamic = 'force-dynamic'
@@ -119,10 +120,11 @@ export default async function ScoreboardsIndexPage() {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
                 {mine.map(b => (
+                  <div key={b.slug} className="relative">
+                  {b.canManage ? <BoardCardSettings slug={b.slug} title={b.title} /> : null}
                   <Link
-                    key={b.slug}
                     href={`/hub/scoreboards/${b.slug}`}
-                    className="group rounded-xl border border-sky-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] p-5 transition hover:border-sky-400/40"
+                    className="group block rounded-xl border border-sky-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] p-5 pr-12 transition hover:border-sky-400/40"
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-lg">🧭</span>
@@ -141,6 +143,7 @@ export default async function ScoreboardsIndexPage() {
                       Open →
                     </span>
                   </Link>
+                  </div>
                 ))}
               </div>
             )}
@@ -152,10 +155,13 @@ export default async function ScoreboardsIndexPage() {
             <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[1px] text-gray-500">{othersHeading}</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               {others.map(b => (
+                <div key={b.slug} className="relative">
+                {/* canManage is true here only for an admin — a board shared WITH you
+                    is not yours to rename or delete. */}
+                {b.canManage ? <BoardCardSettings slug={b.slug} title={b.title} /> : null}
                 <Link
-                  key={b.slug}
                   href={`/hub/scoreboards/${b.slug}`}
-                  className="group rounded-xl border border-sky-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] p-5 transition hover:border-sky-400/40"
+                  className="group block rounded-xl border border-sky-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] p-5 pr-12 transition hover:border-sky-400/40"
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-lg">🧭</span>
@@ -168,6 +174,7 @@ export default async function ScoreboardsIndexPage() {
                     Open →
                   </span>
                 </Link>
+                </div>
               ))}
             </div>
           </section>

@@ -127,7 +127,7 @@ export function CustomBoardManager({
         <div className="flex items-center gap-3 border-b border-sky-400/15 px-4 py-3.5">
           <div className="flex-1">
             <h2 className="text-[14px] font-semibold text-sky-50">Scoreboard settings</h2>
-            <p className="mt-0.5 text-[11px] text-gray-500">Rename it, and choose who can see it.</p>
+            <p className="mt-0.5 text-[11px] text-gray-500">Rename it, choose who can see it, or delete it.</p>
           </div>
           <button
             onClick={onClose}
