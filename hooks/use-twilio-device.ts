@@ -21,6 +21,12 @@ import { nativeVoiceAvailable, getNativeVoice, nativePlatform } from '@/lib/nati
 import type { NativeAudioRoute } from '@/lib/native-voice'
 import { isDesktopEnvironment } from '@/lib/is-desktop'
 import type { DialerLookupMatch } from '@/lib/dialer-lookup'
+import {
+  announceOnCall,
+  clearOwnOnCall,
+  isSiblingOnCall,
+  subscribeSiblingOnCall,
+} from '@/lib/dialer-call-presence'
 
 // Phase 3 transfer modes — mirror the /conference/transfer endpoint.
 export type TransferMode = 'cold' | 'warm-consult' | 'warm-complete' | 'warm-cancel'
@@ -276,6 +282,53 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const deviceRef = useRef<DeviceType | null>(null)
   const incomingCallRef = useRef<Call | null>(null)
   const activeCallRef = useRef<Call | null>(null)
+  // ⚠ Assign the active call through `setActiveCall`, NEVER by writing
+  // activeCallRef.current directly — the incoming ringtone has to stay disabled
+  // for as long as ANY call is up. See the call-waiting note below for why
+  // muting reactively is not enough.
+  //
+  // Aug 18 2026: call waiting had gone audible again. Ten places changed whether
+  // a call was active; only two kept the ringtone in step, and NEITHER the
+  // inbound-answered nor the outbound-connected path disabled it. So the ring was
+  // live for the whole call and the only defence was `audio.incoming(false)`
+  // fired from inside the `incoming` handler — which RACES the SDK: the Voice SDK
+  // starts the incoming sound while processing the invite, so muting once the
+  // event reaches us is too late and the ring is already sounding. (The Jul 21
+  // note shipping this flagged it as unverified for exactly this reason: "it
+  // depends on the SDK's audio engine at call time".)
+  //
+  // ⚠ And the ring is re-enabled when a call ENDS, never lazily on the next
+  // invite — re-enabling inside the handler would race the same way in the
+  // opposite direction and silence a LEGITIMATE incoming call, which is far
+  // worse than a distracting one.
+  const setActiveCall = useCallback((call: Call | null) => {
+    activeCallRef.current = call
+    // Tell sibling tabs, so THEIR ringtone goes quiet too — Twilio rings every
+    // tab registered under this identity, and a tab with no call of its own would
+    // otherwise ring out loud mid-conversation.
+    announceOnCall(!!call)
+    deviceRef.current?.audio?.incoming(!call)
+  }, [])
+
+  // Keep this tab's ringtone in step with SIBLING tabs' calls as well as our own.
+  const syncIncomingRing = useCallback(() => {
+    const shouldRing = !activeCallRef.current && !isSiblingOnCall()
+    deviceRef.current?.audio?.incoming(shouldRing)
+  }, [])
+
+  useEffect(() => {
+    // React to a sibling starting/ending a call (and to its flag expiring).
+    const unsubscribe = subscribeSiblingOnCall(syncIncomingRing)
+    // A closed tab can't clear its own flag, and a stale flag would silence a
+    // real call — so drop ours on the way out.
+    const onUnload = () => clearOwnOnCall()
+    window.addEventListener('pagehide', onUnload)
+    return () => {
+      unsubscribe()
+      window.removeEventListener('pagehide', onUnload)
+      clearOwnOnCall()
+    }
+  }, [syncIncomingRing])
   // Call waiting (web/desktop): a SECOND inbound call that arrives while already
   // on a call. Presented as a SILENT on-screen notice (no ringtone, and the main
   // `state` is left on 'in-call' so the active-call UI isn't disturbed).
@@ -683,6 +736,15 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           call.on('reject', clearWaiting)
           return
         }
+        // Another TAB of ours is on the call → this tab has no call of its own, so
+        // the branches above don't fire. Stay silent and don't present: the tab
+        // that IS on the call shows the "call waiting" banner and can answer it.
+        // ⚠ Never reject — that would cancel the call the busy tab is presenting
+        // (the same reason the hidden second Device stays quiet without rejecting).
+        if (isSiblingOnCall()) {
+          device.audio?.incoming(false)
+          return
+        }
         // Not busy → normal audible incoming. Ensure the ring is on (self-heals
         // if a prior waiting call left it muted).
         device.audio?.incoming(true)
@@ -690,7 +752,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         setIncomingFrom(from)
         setState('incoming')
         call.on('accept', () => {
-          activeCallRef.current = call
+          setActiveCall(call)
           incomingCallRef.current = null
           setInCallWith(from)
           setCallStartedAt(Date.now())
@@ -705,7 +767,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           // been superseded, interceptCallEnd handles it (and returns true) so
           // we don't reset a still-live foreground. Normal single call → false.
           if (interceptCallEnd(call)) return
-          activeCallRef.current = null
+          setActiveCall(null)
           incomingCallRef.current = null
           setInCallWith(null)
           setCallStartedAt(null)
@@ -761,7 +823,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       setErrorMessage(msg)
       setState('error')
     }
-  }, [fetchAndApplyToken])
+  }, [fetchAndApplyToken, setActiveCall])
 
   // Auto-register on mount when requested
   useEffect(() => {
@@ -1072,7 +1134,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     cleanupSecondDeviceIfEnded(endedForegroundCall)
     if (bg.room) void holdRoom(bg.room, false)
     try { bg.call.mute(false) } catch { /* ignore */ }
-    activeCallRef.current = bg.call
+    setActiveCall(bg.call)
     setInCallWith(bg.from)
     setConferenceRoom(bg.room)
     setCallStartedAt(bg.startedAt)
@@ -1082,7 +1144,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     setState('in-call')
     bgLineRef.current = null
     syncBgDisplay()
-  }, [holdRoom, syncBgDisplay, cleanupSecondDeviceIfEnded])
+  }, [holdRoom, syncBgDisplay, cleanupSecondDeviceIfEnded, setActiveCall])
 
   // Called at the TOP of every web call's disconnect handler. Returns true when
   // it has fully handled the end (so the caller skips its normal single-call
@@ -1152,7 +1214,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     })
     call.on('disconnect', () => {
       if (interceptCallEnd(call)) return
-      activeCallRef.current = null
+      setActiveCall(null)
       setInCallWith(null)
       setCallStartedAt(null)
       setMuted(false)
@@ -1163,7 +1225,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       setState('ready')
     })
     call.on('error', (e: Error) => { setErrorMessage(e.message) })
-  }, [interceptCallEnd])
+  }, [interceptCallEnd, setActiveCall])
 
   // Hold the current caller and answer the waiting one — BOTH stay live. The
   // waiting call is forwarded to a hidden second Device (SDK requirement for two
@@ -1214,7 +1276,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       secondCallRef.current = c2
       void applyAudioToDevice(dev2)
       // 4) Promote #2 to the foreground.
-      activeCallRef.current = c2
+      setActiveCall(c2)
       waitingCallRef.current = null
       setWaitingFrom(null)
       setWaitingContactMatch(null)
@@ -1237,7 +1299,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       // FALLBACK: undo everything, keep caller #1 live, drop #2 to voicemail.
       try { await holdRoom(fgRoom, false) } catch { /* ignore */ }
       try { fg.mute(false) } catch { /* ignore */ }
-      activeCallRef.current = fg
+      setActiveCall(fg)
       bgLineRef.current = null
       syncBgDisplay()
       setHeld(false)
@@ -1253,7 +1315,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       }
       deviceRef.current?.audio?.incoming(false)
     }
-  }, [holdRoom, syncBgDisplay, applyAudioToDevice, attachPromotedCallHandlers, waitingContactMatch])
+  }, [holdRoom, syncBgDisplay, applyAudioToDevice, attachPromotedCallHandlers, waitingContactMatch, setActiveCall])
 
   // End the current caller and answer the waiting one. Single-device path: the
   // active call is disconnected first (SDK requirement), then the waiting call
@@ -1265,7 +1327,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     const from2 = waitingFromRef.current || waiting.parameters?.From || 'Unknown'
     // Promote #2 synchronously so #1's disconnect handler sees it's no longer
     // the foreground and skips its reset (interceptCallEnd).
-    activeCallRef.current = waiting
+    setActiveCall(waiting)
     waitingCallRef.current = null
     setWaitingFrom(null)
     setWaitingContactMatch(null)
@@ -1292,7 +1354,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     try { fg.on('disconnect', acceptWaiting) } catch { /* ignore */ }
     try { fg.disconnect() } catch { /* already gone */ acceptWaiting() }
     setTimeout(acceptWaiting, 1200)
-  }, [attachPromotedCallHandlers, applyAudioForCall, waitingContactMatch])
+  }, [attachPromotedCallHandlers, applyAudioForCall, waitingContactMatch, setActiveCall])
 
   // Flip foreground <-> background (both calls stay live). Holds the current
   // caller, unholds the held one, and swaps all display state.
@@ -1315,7 +1377,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         contact: contactMatchRef.current,
         startedAt: callStartedAtRef.current || Date.now(),
       }
-      activeCallRef.current = bg.call
+      setActiveCall(bg.call)
       setInCallWith(bg.from)
       setConferenceRoom(bg.room)
       setCallStartedAt(bg.startedAt)
@@ -1329,7 +1391,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       swappingRef.current = false
       setSwapping(false)
     }
-  }, [holdRoom, syncBgDisplay])
+  }, [holdRoom, syncBgDisplay, setActiveCall])
 
   const placeCall = useCallback(async (
     number: string,
@@ -1399,7 +1461,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       // Apply the user's chosen mic + speaker (if any) before dialing.
       await applyAudioForCall()
       const call = await device.connect({ params })
-      activeCallRef.current = call
+      setActiveCall(call)
       setInCallWith(number)
       setConferenceRoom(room)
       call.on('accept', () => {
@@ -1410,7 +1472,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         // Call-waiting: defer to interceptCallEnd (background resume / superseded
         // call) before the normal single-call reset.
         if (interceptCallEnd(call)) return
-        activeCallRef.current = null
+        setActiveCall(null)
         setInCallWith(null)
         setCallStartedAt(null)
         setMuted(false)
@@ -1428,7 +1490,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       setErrorMessage(err instanceof Error ? err.message : 'place_call_failed')
       setState('error')
     }
-  }, [ensureRegistered, applyAudioForCall])
+  }, [ensureRegistered, applyAudioForCall, setActiveCall])
 
   const toggleMute = useCallback(() => {
     const next = !muted
