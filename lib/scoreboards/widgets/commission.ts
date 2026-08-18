@@ -53,8 +53,18 @@ function itemKey(raw: string): string {
 /* ── sources ─────────────────────────────────────────────────────────────── */
 
 const plansReq = (): SourceRequest => ({ source: 'commission_plans', params: {} })
+/**
+ * ⚠⚠ `commission_people`, NOT `people`. Same RPC, but `people` narrows to the
+ * viewer's own row unless the caller holds the People team-view grant — and the
+ * custom scoreboard route hardcodes that false, because a board carries no
+ * per-report grant. Reading `people` here meant every plan belonging to anyone but
+ * the viewer was dropped as orphaned and the cards showed $0 on a custom board,
+ * which is the only place these cards can be placed. See the source's own note for
+ * why the unnarrowed read is safe: these widgets are Crew-&-Labor-gated, and a
+ * restricted widget is dropped before the resolver ever runs.
+ */
 const peopleReq = (win: WindowSpec): SourceRequest =>
-  ({ source: 'people', params: { start: win.start, end: win.end } })
+  ({ source: 'commission_people', params: { start: win.start, end: win.end } })
 /**
  * Service-line revenue for the `line_revenue` basis.
  *
@@ -91,12 +101,19 @@ const itemsReq = (cfg: WidgetConfig, win: WindowSpec): SourceRequest => ({
 const ALL_SOURCES = (cfg: WidgetConfig, win: WindowSpec): SourceRequest[] =>
   [plansReq(), peopleReq(win), lineRevReq(win), itemsReq(cfg, win)]
 
+/**
+ * ⚠ This setting affects ONE basis — "particular things they sold" — and nothing
+ * else. Its old label ("A product counts as sold when the stage is") read as though
+ * it defined what a sale was for the whole card, which it never did; with upsells now
+ * their own basis it also looked like the place upsells were defined, which it is
+ * not. Both are set in Admin → Lead Tracker. Named for what it actually does.
+ */
 const STAGES_FIELD = {
   kind: 'catalog' as const,
-  label: 'A product counts as sold when the stage is',
+  label: 'Stages counted by “particular things they sold” rules',
   def: ['closed_won'],
   catalog: 'tracker_stages' as const,
-  hint: 'Only used by rules paid on particular things sold. Tick Upsells too if an upsell earns commission.',
+  hint: 'Only affects rules paid on particular things sold — leave it alone otherwise. It does NOT set what counts as a sale or an upsell; those come from the “Sold” ticks in Admin → Lead Tracker.',
 }
 
 
@@ -140,9 +157,11 @@ type Assembled = {
   total: number
   /** Caveats that belong on the card rather than in a doc nobody opens. */
   notes: string[]
-  /** Plans switched off, and plans whose person is no longer on the roster. */
+  /** Plans switched off, and plans whose person has no figures this period. */
   inactive: number
   orphaned: number
+  /** How many rules exist at all — distinguishes "none set up" from "none resolved". */
+  planCount: number
 }
 
 function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled {
@@ -294,17 +313,31 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
   if (cov?.clamped && cov.effective_start && cov.effective_end) {
     notes.push(`produced-revenue rules cover ${cov.effective_start} to ${cov.effective_end} only, because that is where timeclock data exists`)
   }
+  /* ⚠ Worded for what was actually checked. The old text said "no longer on the
+   * roster", which was simply false in the case that made it appear — the person was
+   * on the roster; the figures had been narrowed out from under the card. Say what is
+   * true: they have no row in this period's figures, and give both real reasons. */
   if (orphaned > 0) {
-    notes.push(`${orphaned} plan${orphaned === 1 ? '' : 's'} belong to someone no longer on the roster and are not counted`)
+    notes.push(`${orphaned} rule${orphaned === 1 ? ' is' : 's are'} for someone with no figures in this period — they have either left or had no activity in this window`)
   }
   if (inactive > 0) {
     notes.push(`${inactive} rule${inactive === 1 ? ' is' : 's are'} switched off`)
   }
 
-  return { lines, total, notes, inactive, orphaned }
+  return { lines, total, notes, inactive, orphaned, planCount: plans.length }
 }
 
 const NO_PLANS = 'No commission plans set up yet — an admin adds them in Admin → Reports.'
+/* ⚠ A DIFFERENT message from NO_PLANS, and the distinction cost a real debugging
+ * session: plans existed, every one was dropped, and the card said "none set up yet"
+ * — pointing at the one screen where they demonstrably already were. An empty result
+ * must say WHICH kind of empty it is. */
+const PLANS_BUT_NOTHING = 'Commission plans exist, but none of them could be worked out for this period — see the notes above.'
+
+/** The right empty-state line for what actually happened. */
+function emptyLine(planCount: number): string {
+  return planCount === 0 ? NO_PLANS : PLANS_BUT_NOTHING
+}
 
 
 /* ── the widgets ─────────────────────────────────────────────────────────── */
@@ -340,13 +373,17 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Commission Owed',
         value: a.lines.length ? formatCurrency(a.total) : '—',
         tone: 'warn',
+        /* ⚠ The notes are printed when the card is EMPTY too. They were previously
+         * dropped in that branch, so the one situation where the card most needed to
+         * explain itself — nothing resolved — was the one where it explained least,
+         * and it fell back to "none set up yet" while rules plainly existed. */
         sub: a.lines.length
           ? [
               `${win.phrase} · ${a.lines.length} rule${a.lines.length === 1 ? '' : 's'} across ${people} ${people === 1 ? 'person' : 'people'}`,
               ...(problems ? [`${problems} cannot be worked out — see the table`] : []),
               ...a.notes,
             ].join(' · ')
-          : NO_PLANS,
+          : [emptyLine(a.planCount), ...a.notes].join(' · '),
       }
     },
   },
@@ -408,7 +445,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         ],
         rows,
         foot: a.lines.length ? `${formatCurrency(a.total)} owed for ${win.label}` : undefined,
-        empty: NO_PLANS,
+        empty: emptyLine(a.planCount),
       }
     },
   },
@@ -443,7 +480,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
             tone: 'good' as Tone,
             detail: `${g.rules} rule${g.rules === 1 ? '' : 's'}`,
           })),
-        empty: NO_PLANS,
+        empty: emptyLine(a.planCount),
       }
     },
   },
