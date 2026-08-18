@@ -1000,6 +1000,46 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * ⚠ Rates are withheld below 10 decided — four reps read a flawless 100% off 3–11
    * decisions before that floor went in.
    */
+  /**
+   * The people figures behind the Commission cards — the SAME RPC as `people`, but
+   * never narrowed to the viewer.
+   *
+   * ⚠⚠ WHY THIS EXISTS AS A SEPARATE SOURCE. `people` self-narrows to the viewer's
+   * own row unless the caller holds the People "team view" grant, and the custom
+   * scoreboard route hardcodes that to false on purpose — a board carries no
+   * per-report grant, so People-shaped data must fail closed there. Commission read
+   * `people`, so on a custom board every plan belonging to anyone but the viewer was
+   * dropped as "orphaned" and the cards showed $0. The privacy narrowing is right for
+   * People Performance and wrong for Commission, which is by definition a manager
+   * looking at other people's pay.
+   *
+   * ⚠ Safe because the commission widgets answer to the Crew & Labor grant and a
+   * restricted widget is dropped BEFORE the resolver runs — so a viewer without that
+   * grant never reaches this source at all. It must therefore only ever be requested
+   * by Crew-&-Labor-gated widgets; anything else would be a side door around the
+   * People self-scope.
+   *
+   * ⚠ A DISTINCT source name is also what makes it work: the resolver dedupes on
+   * (source, params), so a board carrying a People card and a Commission card gets
+   * the narrowed list for one and the full list for the other. Sharing the name would
+   * hand whichever ran first to both.
+   */
+  commission_people: async (ctx, params) => {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_people', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`commission_people: ${error.message}`)
+    if (!data) return []
+    const row = data as Omit<PeopleRow, 'scope'> & { people: Omit<Person, 'is_viewer'>[] }
+    return [{
+      ...row,
+      scope: 'team',
+      people: (row.people ?? []).map(p => ({ ...p, is_viewer: p.user_id != null && p.user_id === ctx.viewerUserId })),
+    } as PeopleRow]
+  },
+
   sales_person_trend: async (ctx, params) => {
     const { data, error } = await ctx.rpcClient.rpc('scoreboard_sales_person_trend', {
       p_company_id: ctx.companyId,

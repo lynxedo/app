@@ -41,6 +41,8 @@ export type SourceKey =
   | 'service_lines'
   | 'sales_pipeline'
   | 'sales_person_trend'
+  // Commission reads people UNNARROWED — see the resolver's note. Crew-gated only.
+  | 'commission_people'
   // Two quote sources, not one: the cohort obeys the date picker, the open book is
   // point-in-time. See quotes.ts — the same split invoice_window/invoice_ar made.
   | 'quotes_cohort'
