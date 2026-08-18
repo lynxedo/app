@@ -81,7 +81,7 @@ export default async function ReportsAdminPage() {
   // report, and what the business is AIMING at on one of them.
   const { data: goalRows } = await admin
     .from('report_goals')
-    .select('id, metric, grain, period_start, period_end, target')
+    .select('id, metric, grain, period_start, period_end, target, employee_id')
     .eq('company_id', company)
     .order('period_start', { ascending: false })
     .limit(200)
@@ -201,7 +201,10 @@ export default async function ReportsAdminPage() {
     <div className="space-y-14">
       <ReportAccessPanel reports={reports} users={users} initialAccess={access} teamSlug={PEOPLE_TEAM_SLUG} />
       <GoalsAdminPanel
-        metrics={GOAL_METRICS.map(m => ({ key: m.key, label: m.label, format: m.format, help: m.help }))}
+        metrics={GOAL_METRICS.map(m => ({
+          key: m.key, label: m.label, format: m.format, help: m.help,
+          perPerson: m.perPerson, perPersonBlocker: m.perPersonBlocker ?? null,
+        }))}
         goals={(goalRows ?? []).map(g => ({
           id: g.id as string,
           metric: g.metric as string,
@@ -209,7 +212,12 @@ export default async function ReportsAdminPage() {
           period_start: g.period_start as string,
           period_end: g.period_end as string,
           target: Number(g.target),
+          employee_id: (g.employee_id as string | null) ?? null,
+          // Resolved here from the same roster the picker offers, so the list and
+          // the picker cannot disagree about what somebody is called.
+          person_name: g.employee_id ? (empName.get(g.employee_id as string) ?? null) : null,
         }))}
+        employees={employees}
       />
       <CommissionAdminPanel employees={employees} plans={plans} lines={lines} items={items} />
       <RecurringProgramsPanel programs={programs} unmapped={unmapped} lines={lines} />

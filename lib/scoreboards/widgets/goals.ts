@@ -16,6 +16,14 @@
  * ⚠ Actuals are computed over each goal's OWN period, not the range at the top
  * of the screen: an August target is judged against August whatever window is
  * selected. The range decides which goals are listed, nothing more.
+ *
+ * ⚠⚠ A target belongs either to the company or to ONE PERSON, and every card
+ * here says which — a row reading "90%" means something very different about the
+ * business than about Mike. A person's actual comes from `scoreboard_people`, the
+ * same composer the People report and commission are built on, so a person's goal
+ * cannot disagree with the report it is judged against. Only four measures can be
+ * scoped to a person at all; `lib/reports/goals.ts` documents why the other three
+ * cannot, and both the API and the target screen refuse them.
  */
 
 import { formatCurrency } from '@/lib/format'
@@ -46,6 +54,18 @@ function fmt(metricKey: string, v: number | null | undefined): string {
   if (m.format === 'currency') return formatCurrency(num(v))
   if (m.format === 'percent') return `${num(v)}%`
   return num(v).toLocaleString()
+}
+
+/**
+ * Whose target this is, for display.
+ *
+ * ⚠ A person target whose name could not be resolved says so rather than falling
+ * back to "Company" — mislabelling one person's number as the whole business's is
+ * the one error this column exists to prevent.
+ */
+function whose(g: GoalRow): string {
+  if (!g.employee_id) return 'Company'
+  return g.person_name || 'Someone no longer on the roster'
 }
 
 const STATUS_TEXT: Record<GoalRow['status'], string> = {
@@ -143,6 +163,7 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
           key: g.id,
           cells: {
             metric: m?.label ?? g.metric,
+            who: whose(g),
             period: periodLabel(g.grain, g.period_start),
             target: fmt(g.metric, g.target),
             actual: fmt(g.metric, g.actual),
@@ -166,6 +187,7 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: r ? `${rows.length} target${rows.length === 1 ? '' : 's'} overlapping ${win.phrase}` : win.phrase,
         columns: [
           { key: 'metric', label: 'Goal', align: 'left' },
+          { key: 'who', label: 'Whose', align: 'left' },
           { key: 'period', label: 'Period', align: 'left' },
           { key: 'target', label: 'Target', align: 'right' },
           { key: 'actual', label: 'Actual', align: 'right' },
@@ -200,7 +222,13 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: `${win.phrase} · targets still open`,
         format: 'percent',
         rows: live.map(g => ({
-          label: `${getGoalMetric(g.metric)?.label ?? g.metric} · ${periodLabel(g.grain, g.period_start)}`,
+          // The person is named in the bar itself: a row of bars with no owner
+          // reads as company performance at a glance.
+          label: [
+            getGoalMetric(g.metric)?.label ?? g.metric,
+            g.employee_id ? whose(g) : null,
+            periodLabel(g.grain, g.period_start),
+          ].filter(Boolean).join(' · '),
           value: num(g.attainment_pct),
           tone: STATUS_TONE[g.status],
           // The period's own progress alongside the goal's, so "40% there" can
@@ -231,6 +259,20 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         'Every actual comes from the report that owns that number, so a goal can never disagree with the report it is measured against.',
         '"Should be at" prorates the target to today. It is blank for close rate and revenue per hour: a rate does not accumulate through a period, so there is no honest half-way figure.',
       ]
+      // Only explain the person rules when a person's target is actually on
+      // screen — a company-only board should not be told about a scope it is
+      // not using.
+      const people = (r?.goals ?? []).filter(g => g.employee_id)
+      if (people.length > 0) {
+        items.push(
+          "A person's figures come from the People report, so an individual's target cannot disagree with the report it is judged against.",
+          'Only leads, value sold, close rate and revenue per hour can be set for one person. Invoiced, cash collected and new customers cannot be split by person honestly, so they are company-only.',
+          'A person is credited only with leads assigned to them, so individual targets will not add up to a company one — unassigned leads belong to nobody.',
+        )
+      }
+      if (people.some(g => g.metric === 'close_rate' && g.actual == null)) {
+        items.push('A close rate reads "no data" until that person has enough decided leads to rate fairly — the same floor the People report uses, rather than a rate built on two or three deals.')
+      }
       if (r && r.total_in_window === 0) {
         items.unshift('No targets are set for this range yet. An admin adds them at the bottom of Admin → Reports.')
       }
