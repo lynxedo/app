@@ -244,6 +244,88 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
   },
 
   {
+    type: 'kpi_person_labor_cost_pct',
+    group: 'Crew & Labor',
+    title: 'Labor Cost % — One Person',
+    blurb: 'What share of one technician’s own production went to their wages',
+    defaultSpan: 3,
+    /**
+     * Ben asked to "dial down" Labor Cost % of Revenue to technicians.
+     *
+     * ⚠⚠ A SEPARATE WIDGET, not a person filter on `kpi_labor_cost_pct` — the same
+     * decision, for the same reason, as `kpi_person_rev_per_hour` above. That card
+     * divides hourly field wages by COMPANY revenue, computed at visit level with no
+     * per-technician fan-out. Filtering only its wage half would leave one person's
+     * wages over the whole company's revenue and report something near 2%, which
+     * looks like a wonderful number and means nothing at all.
+     *
+     * This card is honest because BOTH halves belong to the people ticked: their
+     * wages over the revenue attributed to them — the same two figures the Crew table
+     * already shows side by side, so it agrees with that table by construction.
+     *
+     * ⚠ Several people ticked are WEIGHTED, not averaged: their combined wages over
+     * their combined revenue. Averaging each person's percentage would let a
+     * 20-hour week count as much as a 400-hour one.
+     */
+    config: PEOPLE_FIELD,
+    sources: (_cfg, win) => [crewReq(win)],
+    metric: (bag, cfg, win) => {
+      const r = crew(bag, win)
+      const f = personFilter(cfg)
+      /* ⚠ An empty filter asks rather than defaulting to everyone. The crew's combined
+       * figure is NOT the same number as "Labor Cost % of Revenue", which divides by
+       * company revenue including work nobody is credited for — so an unfiltered
+       * version of this card would sit beside that one showing a different percentage
+       * for what reads like the same question. */
+      if (!f.active) {
+        return {
+          kind: 'kpi',
+          label: 'Labor Cost % — One Person',
+          value: '—',
+          tone: 'neutral',
+          sub: 'Pick who this card is about in its ⚙ settings. For the whole company, use “Labor Cost % of Revenue” instead — it is a different calculation, not this one left unfiltered.',
+        }
+      }
+      // Same rankable test the per-person $/hour card uses, so the two cards never
+      // disagree about who can be measured.
+      const picked = onlyPeople(rankable(r), f)
+      const cost = picked.reduce((s, p) => s + num(p.labor_cost), 0)
+      const revenue = picked.reduce((s, p) => s + num(p.revenue), 0)
+      const pct = revenue > 0 ? Math.round((cost / revenue) * 1000) / 10 : null
+      /* Anyone ticked who cannot be measured. ⚠ This is not tidiness: someone with
+       * real clocked wages but no Jobber user has cost and NO revenue, so quietly
+       * including them would divide by a denominator missing their share of the work
+       * and report a percentage that is too high. Excluded, and named. */
+      const skipped = onlyPeople((r?.people ?? []).filter(p => !p.rankable || p.rev_per_hour == null), f)
+      const who = picked.length === 1
+        ? picked[0].name
+        : picked.length > 1
+          ? `${picked.length} people`
+          : null
+      return {
+        kind: 'kpi',
+        label: who ? `Labor Cost % — ${who}` : 'Labor Cost % — One Person',
+        value: pct != null ? `${pct}%` : '—',
+        // Same bands as the company card, so the two read on one scale.
+        tone: pct == null ? 'neutral' : pct <= 30 ? 'good' : pct <= 40 ? 'warn' : 'bad',
+        sub: pct != null
+          ? [
+              `${formatCurrency(cost)} in their wages ÷ ${formatCurrency(revenue)} of work credited to them`,
+              periodPhrase(r, win),
+              ...(picked.length > 1 ? [`combined across ${picked.map(p => p.name).join(', ')}`] : []),
+              /* ⚠ States which way the error runs. A visit worked by two people credits
+               * its full value to BOTH, so a shared visit inflates the denominator and
+               * this percentage reads a little LOW — i.e. it flatters the technician,
+               * which is the direction nobody questions. */
+              'a visit worked by two people is credited to both, so a shared visit makes this read slightly low',
+              ...(skipped.length ? [`not counted: ${skipped.map(p => p.name).join(', ')}`] : []),
+            ].join(' · ')
+          : `Nobody ticked has both wages and attributed work in this period${skipped.length ? ` — ${skipped.map(p => p.name).join(', ')} cannot be measured` : ''}`,
+      }
+    },
+  },
+
+  {
     type: 'kpi_revenue_per_visit',
     group: 'Crew & Labor',
     title: 'Revenue per Visit',

@@ -134,11 +134,19 @@ export type Person = {
   is_viewer: boolean
   sales: {
     leads: number
+    /** Everything counted as a sale: Closed Won plus every stage ticked "Sold". */
     won: number
+    /** Closed Won alone — a deal competed for, with no upsells in it. */
+    competed_won: number
+    /** The "Sold" stages alone — the Lead Tracker's Upsells section. */
+    upsold: number
     decided: number
     /** Null below the fair-rating floor — see `rate_min_sample`. */
     close_rate: number | null
+    /** Annual value of everything counted as a sale, upsells included. */
     sold_value: number
+    /** Annual value of the upsells alone. `sold_value` minus this is new business. */
+    upsold_value: number
     avg_deal: number | null
   }
   field: {
@@ -192,6 +200,32 @@ export type PeopleRow = {
   }
   /** Salesperson names that matched nobody, or matched more than one person. */
   unmatched_sales: { name: string; leads: number; won: number; sold_value: number }[]
+  /**
+   * Lead Tracker stage keys ticked "counts as a sale" — the Upsells section.
+   * ⚠ Empty means no stage is ticked, so every per-person `upsold` figure is
+   * legitimately zero. A card paying on upsells must say that rather than show a $0
+   * that reads as "they sold nothing".
+   */
+  sale_stages: string[]
+}
+
+/**
+ * Sales per salesperson per time bucket — the source behind "Sales by Person over Time".
+ *
+ * ⚠ `k` is the salesperson's NAME, not an id: `leads.salesperson` is free text and
+ * there is nothing stable to key on. It is normalised exactly the way
+ * `scoreboard_sales` normalises it, so one person can never appear as two bars.
+ *
+ * ⚠ Unlike the per-technician revenue trend, the segments DO add up to the period
+ * total — a lead has exactly one salesperson, so nothing is credited twice.
+ */
+export type SalesPersonTrendRow = {
+  grain: 'month' | 'week'
+  start: string
+  end: string
+  periods: { b: string; total: number; count: number }[]
+  /** One row per (bucket, salesperson). */
+  people: { b: string; k: string; name: string; total: number; count: number }[]
 }
 
 /** One row per year — the whole retention picture for that year's book. */
@@ -966,6 +1000,17 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * ⚠ Rates are withheld below 10 decided — four reps read a flawless 100% off 3–11
    * decisions before that floor went in.
    */
+  sales_person_trend: async (ctx, params) => {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_sales_person_trend', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+      p_grain: String(params.grain ?? 'month'),
+    })
+    if (error) throw new Error(`sales_person_trend: ${error.message}`)
+    return data ? [data as SalesPersonTrendRow] : []
+  },
+
   sales_pipeline: async (ctx, params) => {
     const { data, error } = await ctx.rpcClient.rpc('scoreboard_sales', {
       p_company_id: ctx.companyId,

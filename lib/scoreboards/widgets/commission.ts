@@ -165,7 +165,12 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
   let inactive = 0
   let orphaned = 0
   let sharedVisitRisk = false
+  let usesUpsells = false
   const unattributable: string[] = []
+  /* Who holds a rule paid on the combined figure, and who holds an upsell-only rule.
+   * A person in BOTH sets is paid for their upsells twice. */
+  const includesUpsells = new Set<string>()
+  const upsellOnly = new Set<string>()
 
   for (const plan of plans) {
     if (!plan.active) { inactive++; continue }
@@ -178,11 +183,37 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
     let problem: string | undefined
 
     switch (plan.basis) {
+      /* ⚠ New business is derived by SUBTRACTION, not by a second query: `won` and
+       * `sold_value` already carry Closed Won plus the upsells, and `upsold`/
+       * `upsold_value` carry the upsell half. Taking the difference means the three
+       * sales bases cannot disagree about what a deal was — the alternative, a
+       * separate closed-won-only figure, is a second rule that can drift from the
+       * Sales report next to it. Floored at zero: if a stage were ever ticked "Sold"
+       * AND counted as a competed win, the difference could go negative, and a
+       * negative basis is not a smaller bonus, it is a broken one. */
+      case 'new_sales_value':
+        amount = Math.max(0, num(person.sales.sold_value) - num(person.sales.upsold_value))
+        break
+      case 'new_sales_count':
+        amount = Math.max(0, num(person.sales.won) - num(person.sales.upsold))
+        break
+      case 'upsell_value':
+        amount = num(person.sales.upsold_value)
+        usesUpsells = true
+        upsellOnly.add(person.name)
+        break
+      case 'upsell_count':
+        amount = num(person.sales.upsold)
+        usesUpsells = true
+        upsellOnly.add(person.name)
+        break
       case 'sales_value':
         amount = num(person.sales.sold_value)
+        includesUpsells.add(person.name)
         break
       case 'sales_count':
         amount = num(person.sales.won)
+        includesUpsells.add(person.name)
         break
       case 'revenue_produced':
         amount = num(person.field.revenue)
@@ -237,6 +268,21 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
    * as though it had been measured for it. */
   if (sharedVisitRisk) {
     notes.push('rules paid on “revenue they produced” ride on a figure that credits a two-person visit to both people, so it runs a few percent above what the company produced')
+  }
+  /* ⚠⚠ THE DOUBLE-PAY WARNING, and it is the reason the combined basis kept its old
+   * meaning rather than being quietly redefined. "Value they sold" already contains
+   * the upsells, so a person holding that AND an upsell rule is paid for every upsell
+   * twice — a real overpayment that looks like an ordinary bigger number. Named per
+   * person, because the fix is to switch one of THEIR rules to new-business-only. */
+  const doublePaid = [...includesUpsells].filter(n => upsellOnly.has(n))
+  if (doublePaid.length) {
+    notes.push(`${doublePaid.join(', ')} ${doublePaid.length === 1 ? 'has' : 'have'} both an upsell rule and a rule paid on new business and upsells together, so their upsells are paid twice — switch one to “new business only”`)
+  }
+  /* An upsell rule against a Lead Tracker where no stage is ticked "Sold" can only
+   * ever pay zero. A plausible-looking $0 reads as "they sold nothing", not as "this
+   * is switched off", so it is said outright. */
+  if (usesUpsells && !(peopleRow?.sale_stages?.length)) {
+    notes.push('no Lead Tracker stage is ticked as “Sold”, so every upsell rule pays nothing until one is — Admin → Lead Tracker')
   }
   if (unattributable.length) {
     notes.push(`${[...new Set(unattributable)].join(', ')} have no matching Jobber user, so no produced revenue can be credited to them`)

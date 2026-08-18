@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useToast, useConfirm } from '@/components/ui'
 import {
-  COMMISSION_BASES, describeRule, getBasis, rateKindsFor,
+  BASIS_GROUPS, COMMISSION_BASES, describeRule, getBasis, rateKindsFor,
   type CommissionPlan, type RateKind,
 } from '@/lib/reports/commission'
 
@@ -156,8 +156,16 @@ export default function CommissionAdminPanel({
           </div>
           <div>
             <label className={lbl} htmlFor="cp-basis">Paid on</label>
+            {/* Grouped: nine options in one flat list is a wall, and the three sales
+                bases in particular only make sense read against each other. */}
             <select id="cp-basis" className={input} value={basis} onChange={e => setBasis(e.target.value)}>
-              {COMMISSION_BASES.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}
+              {BASIS_GROUPS.map(g => (
+                <optgroup key={g} label={g}>
+                  {COMMISSION_BASES.filter(b => b.group === g).map(b => (
+                    <option key={b.key} value={b.key}>{b.label}</option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </div>
           <div>
