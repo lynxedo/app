@@ -32,6 +32,7 @@ import type {
 import type { SourceBag, SourceRequest, WidgetConfig, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
 import { formatCurrency } from '@/lib/format'
+import { keepPerson, peopleField, peoplePhrase, personFilter, withPeopleTitle, type PersonFilter } from './people-filter'
 import {
   type CommissionPlan, type CommissionBasis, type RateKind,
   describeRule, getBasis, normalizeTiers, payout,
@@ -108,6 +109,9 @@ const ALL_SOURCES = (cfg: WidgetConfig, win: WindowSpec): SourceRequest[] =>
  * their own basis it also looked like the place upsells were defined, which it is
  * not. Both are set in Admin → Lead Tracker. Named for what it actually does.
  */
+/** ⚠ `commission_plan_people`, not `staff_people` — see the header note. */
+const PEOPLE_FIELD = { people: peopleField('commission_plan_people', 'people') }
+
 const STAGES_FIELD = {
   kind: 'catalog' as const,
   label: 'Stages counted by “particular things they sold” rules',
@@ -162,6 +166,10 @@ type Assembled = {
   orphaned: number
   /** How many rules exist at all — distinguishes "none set up" from "none resolved". */
   planCount: number
+  /** The person filter as applied, for titles, subtitles and the drill-down link. */
+  filter: PersonFilter
+  /** Rules dropped purely by the person filter — so an empty card can say it was filtered. */
+  filteredOut: number
 }
 
 function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled {
@@ -183,6 +191,8 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
   const notes: string[] = []
   let inactive = 0
   let orphaned = 0
+  const f = personFilter(cfg)
+  let filteredOut = 0
   let sharedVisitRisk = false
   let usesUpsells = false
   const unattributable: string[] = []
@@ -195,6 +205,11 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
     if (!plan.active) { inactive++; continue }
     const person = byEmployee.get(plan.employee_id)
     if (!person) { orphaned++; continue }
+    /* ⚠ Applied HERE, in the pure metric, never pushed into a query — so a card for
+     * Mike and an unfiltered card on the same board still share ONE round trip, and
+     * the filter can only ever remove a rule the viewer was already sent. The fallback
+     * is the person's own name because a commission row always has one. */
+    if (!keepPerson(f, person.name, person.name)) { filteredOut++; continue }
     const def = getBasis(plan.basis)
     if (!def) continue
 
@@ -324,7 +339,33 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
     notes.push(`${inactive} rule${inactive === 1 ? ' is' : 's are'} switched off`)
   }
 
-  return { lines, total, notes, inactive, orphaned, planCount: plans.length }
+  /* ⚠ A filtered card discloses itself in the subtitle as well as the title: a tile
+   * reading $1,462 is unremarkable for a company and very specific for one person,
+   * and a glance is all a scoreboard gets. */
+  const only = peoplePhrase(f)
+  if (only) notes.unshift(only)
+
+  return { lines, total, notes, inactive, orphaned, planCount: plans.length, filter: f, filteredOut }
+}
+
+/**
+ * The link to the deals behind a commission figure.
+ *
+ * ⚠ Points at the Crew & Labor report because that is the grant these cards already
+ * answer to — the drill-down route re-checks it, so the link cannot become a side
+ * door for someone who can see the board but not the report.
+ *
+ * ⚠ The card's person filter is carried in the query string so the list narrows the
+ * same way the card did. Names are comma-joined; a name containing a comma would
+ * split, which is why the drill-down re-derives its own total and the page states
+ * who it covers rather than trusting the caller.
+ */
+function commissionDrill(a: Assembled): { href: string; label: string } {
+  const qs = a.filter.active ? `?people=${encodeURIComponent(a.filter.names.join(','))}` : ''
+  return {
+    href: `/hub/reports/crew/commission-deals${qs}`,
+    label: 'See the deals behind these figures',
+  }
 }
 
 const NO_PLANS = 'No commission plans set up yet — an admin adds them in Admin → Reports.'
@@ -335,8 +376,15 @@ const NO_PLANS = 'No commission plans set up yet — an admin adds them in Admin
 const PLANS_BUT_NOTHING = 'Commission plans exist, but none of them could be worked out for this period — see the notes above.'
 
 /** The right empty-state line for what actually happened. */
-function emptyLine(planCount: number): string {
-  return planCount === 0 ? NO_PLANS : PLANS_BUT_NOTHING
+function emptyLine(a: Assembled): string {
+  /* ⚠ Three distinct empties, and conflating them is what cost a debugging session
+   * once already: nothing set up · set up but nothing resolved · resolved but filtered
+   * away. The last one is the easiest to cause by accident and the easiest to fix. */
+  if (a.planCount === 0) return NO_PLANS
+  if (a.filteredOut > 0 && a.lines.length === 0) {
+    return `No rules for ${a.filter.names.join(', ') || 'the people picked'} — ${a.filteredOut} rule${a.filteredOut === 1 ? '' : 's'} for other people ${a.filteredOut === 1 ? 'was' : 'were'} filtered out in this card's ⚙ settings.`
+  }
+  return PLANS_BUT_NOTHING
 }
 
 
@@ -362,7 +410,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Commission Owed',
     blurb: 'Total commission earned this period across everyone with a plan',
     defaultSpan: 3,
-    config: { stages: STAGES_FIELD },
+    config: { ...PEOPLE_FIELD, stages: STAGES_FIELD },
     sources: ALL_SOURCES,
     metric: (bag, cfg, win) => {
       const a = assemble(bag, cfg, win)
@@ -370,7 +418,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
       const problems = a.lines.filter(l => l.problem).length
       return {
         kind: 'kpi',
-        label: 'Commission Owed',
+        label: withPeopleTitle('Commission Owed', a.filter),
         value: a.lines.length ? formatCurrency(a.total) : '—',
         tone: 'warn',
         /* ⚠ The notes are printed when the card is EMPTY too. They were previously
@@ -383,7 +431,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
               ...(problems ? [`${problems} cannot be worked out — see the table`] : []),
               ...a.notes,
             ].join(' · ')
-          : [emptyLine(a.planCount), ...a.notes].join(' · '),
+          : [emptyLine(a), ...a.notes].join(' · '),
       }
     },
   },
@@ -394,7 +442,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Commission Detail',
     blurb: 'One row per bonus rule: what it measures, the figure, and what it pays',
     defaultSpan: 12,
-    config: { stages: STAGES_FIELD },
+    config: { ...PEOPLE_FIELD, stages: STAGES_FIELD },
     sources: ALL_SOURCES,
     metric: (bag, cfg, win) => {
       const a = assemble(bag, cfg, win)
@@ -427,7 +475,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         }))
       return {
         kind: 'table',
-        title: 'Commission Detail',
+        title: withPeopleTitle('Commission Detail', a.filter),
         sub: [
           `${win.phrase} · ${formatCurrency(a.total)} in total`,
           // ⚠ Rates are not dated. Editing one changes what past periods report, the
@@ -445,7 +493,11 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         ],
         rows,
         foot: a.lines.length ? `${formatCurrency(a.total)} owed for ${win.label}` : undefined,
-        empty: emptyLine(a.planCount),
+        /* ⚠⚠ The filter travels in the href. A drill-down must reproduce its card's
+         * filter exactly — a list disagreeing with the number above it makes a correct
+         * figure look broken. Only offered when there is something to open. */
+        drill: a.lines.length ? commissionDrill(a) : undefined,
+        empty: emptyLine(a),
       }
     },
   },
@@ -456,7 +508,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
     title: 'Commission by Person',
     blurb: 'Who earned what, totalled across all of their rules',
     defaultSpan: 6,
-    config: { stages: STAGES_FIELD },
+    config: { ...PEOPLE_FIELD, stages: STAGES_FIELD },
     sources: ALL_SOURCES,
     metric: (bag, cfg, win) => {
       const a = assemble(bag, cfg, win)
@@ -469,7 +521,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
       }
       return {
         kind: 'bars',
-        title: 'Commission by Person',
+        title: withPeopleTitle('Commission by Person', a.filter),
         sub: [`${win.phrase} · ${formatCurrency(a.total)} in total`, ...a.notes].join(' · '),
         format: 'currency',
         rows: [...byPerson.entries()]
@@ -480,7 +532,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
             tone: 'good' as Tone,
             detail: `${g.rules} rule${g.rules === 1 ? '' : 's'}`,
           })),
-        empty: emptyLine(a.planCount),
+        empty: emptyLine(a),
       }
     },
   },

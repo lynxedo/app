@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
-import { getDrilldown, type DrillColumn, type DrillRow } from '@/lib/reports/drilldowns'
+import { getDrilldown, parseDrillPeople, type DrillColumn, type DrillRow } from '@/lib/reports/drilldowns'
 import { resolveWindow } from '@/lib/scoreboards/widgets/windows'
 import { formatCurrency } from '@/lib/format'
 
@@ -85,6 +85,8 @@ export default async function ReportDetailPage({
 }) {
   const { slug, detail } = await params
   const sp = await searchParams
+  // The person filter the calling card was showing, so this list narrows the same way.
+  const people = parseDrillPeople(sp.people)
 
   const report = getReport(slug)
   if (!report) notFound()
@@ -123,7 +125,7 @@ export default async function ReportDetailPage({
   let rows: DrillRow[] = []
   let loadError: string | null = null
   try {
-    rows = await drill.run({ supabase, rpcClient: createAdminClient(), companyId: profile.company_id, win })
+    rows = await drill.run({ supabase, rpcClient: createAdminClient(), companyId: profile.company_id, win, people })
   } catch (e) {
     loadError = e instanceof Error ? e.message : 'Could not load these rows'
   }
@@ -137,6 +139,9 @@ export default async function ReportDetailPage({
   const exportQs = new URLSearchParams(qs)
   exportQs.set('report', slug)
   exportQs.set('drill', detail)
+  // ⚠ On the export but NOT on the back link: the report page takes no person filter,
+  // and the download must contain exactly the rows shown here.
+  if (people.length) exportQs.set('people', people.join(','))
 
   const totals = drill.columns.filter(c => c.format === 'currency')
 
@@ -155,6 +160,13 @@ export default async function ReportDetailPage({
           <div className="min-w-0">
             <h1 className="text-xl md:text-2xl font-semibold text-[var(--t-heading)]">{drill.title}</h1>
             <p className="mt-1 text-sm text-[var(--t-muted)] max-w-3xl">{drill.description}</p>
+            {/* ⚠ A narrowed list must say so on its face. Without this, someone who
+                followed a filtered card's link reads a short list as the whole thing. */}
+            {people.length > 0 && (
+              <p className="mt-1 text-sm text-amber-300/90">
+                Narrowed to {people.join(', ')}, matching the card you came from.
+              </p>
+            )}
             <p className="mt-2 text-xs text-[var(--t-muted)]">
               {drill.pointInTime
                 ? 'As of today — this figure is not affected by the report’s date range.'

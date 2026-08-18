@@ -33,6 +33,14 @@ import { customerFileHref, customerFilePath } from '@/lib/customer-file-href'
  * correct. Doing these properly means having the RPC return its own rows, which is
  * a bigger change than adding a spec here. Better absent than wrong.
  *
+ * ⚠ `commission-deals` is registered under `crew` and is NOT a counter-example to
+ * that. It never touches the clamped, dual-priced labour figures; it lists the Lead
+ * Tracker deals the SALES-based commission rules ride on, which are reproducible
+ * exactly, and its description states outright that rules paid on revenue produced,
+ * on a service line, or on particular items are not represented. The `crew`
+ * registration is a GATE, not a placement — nothing auto-lists drill-downs on a
+ * report page, so it appears only where a commission card links to it.
+ *
  * ⚠ ONE EXCEPTION, and it is the exception that proves the rule: `unclassified-work`
  * on Service Lines. It does NOT try to reproduce revenue or labour attribution —
  * it answers only "which visits fell into the Other bucket", which is decided by a
@@ -90,6 +98,15 @@ export type DrillSpec = {
     rpcClient: SupabaseClient
     companyId: string
     win: WindowSpec
+    /**
+     * Names the calling card was filtered to, from `?people=`. Empty means everyone.
+     *
+     * ⚠ Only datasets whose card carries a person filter read this. It exists because
+     * a drill-down MUST reproduce its tile's filter exactly — a list of everyone under
+     * a heading naming one person is the failure this registry's opening note warns
+     * about, and it reads as a bug in the number rather than in the list.
+     */
+    people: string[]
   }) => Promise<DrillRow[]>
 }
 
@@ -746,7 +763,133 @@ const DRILLDOWNS: DrillSpec[] = [
       return (data ?? []) as DrillRow[]
     },
   },
+  {
+    key: 'commission-deals',
+    title: 'Deals behind the commission figures',
+    /* ⚠⚠ THE DESCRIPTION IS LOAD-BEARING, because this list can only reproduce SOME
+     * of the bases. The three sales bases ride on Lead Tracker deals and those are
+     * listable exactly. "Revenue they produced", "revenue of a whole service line"
+     * and "particular things they sold" do NOT have a deal list behind them — the
+     * first two are the clamped, dual-priced Crew & Labor figures this registry
+     * refuses to approximate, and the third is a per-item tally. Saying so is the
+     * difference between a list that is narrower than the card and a list that looks
+     * like it disagrees with it. */
+    description:
+      'Every Lead Tracker deal credited to the people who hold a commission rule, in this date range — the deals the sales-based rules are paid on. Each row says whether it was new business (Closed Won) or an upsell, so the two halves can be added up separately. Rules paid on revenue produced, on a whole service line, or on particular things sold are NOT represented here: those figures have no deal list behind them.',
+    reports: ['crew'],
+    /* ⚠ The customer is a plain NAME, not a link to their file, and that is the
+     * established rule rather than an omission: `leads` carries no client id at all
+     * (only a name, phone and email), and matching a lead to a customer file on email
+     * or phone is exactly the mapping §8.3 refused — three Heroes customers share an
+     * email, so a "helpful" match opens the WRONG person's record. Absent beats wrong. */
+    columns: [
+      { key: 'client', label: 'Customer' },
+      { key: 'salesperson', label: 'Credited to' },
+      { key: 'kind', label: 'Counts as' },
+      { key: 'program', label: 'Program sold' },
+      { key: 'created', label: 'Lead came in', format: 'date' },
+      { key: 'sold', label: 'Sold', format: 'date' },
+      { key: 'value', label: 'Annual value', format: 'currency' },
+    ],
+    run: async ({ supabase, rpcClient, companyId, win, people }) => {
+      /* ⚠ Which stages count as an upsell is READ, never assumed — it is the tenant's
+       * own `counts_as_sale` ticks, the same flag `scoreboard_sales` reads. Hardcoding
+       * 'upsells' would be a second definition that drifts from the cards. */
+      const { data: stageRows } = await supabase
+        .from('tracker_stages')
+        .select('key, counts_as_sale')
+        .eq('company_id', companyId)
+      const saleStages = new Set(
+        ((stageRows ?? []) as { key: string; counts_as_sale: boolean }[])
+          .filter(r => r.counts_as_sale).map(r => r.key),
+      )
+
+      /* Who holds a rule. ⚠ Read through the SERVICE-ROLE client: `commission_plans`
+       * is RLS-on with no policies, so the caller's client returns zero rows silently.
+       * Safe because the route has already checked the Crew & Labor grant, which is
+       * the same gate the commission cards answer to. */
+      const { data: planRows } = await rpcClient
+        .from('commission_plans')
+        .select('employee_id, active')
+        .eq('company_id', companyId)
+      const holders = new Set(
+        ((planRows ?? []) as { employee_id: string; active: boolean }[])
+          .filter(r => r.active).map(r => r.employee_id),
+      )
+      if (!holders.size) return []
+
+      // Their names as the commission cards spell them — same source, so the match
+      // against `leads.salesperson` is made the same way `scoreboard_people` makes it.
+      const { data: peopleData } = await rpcClient.rpc('scoreboard_people', {
+        p_company_id: companyId, p_start: win.start, p_end: win.end,
+      })
+      const nameByEmp = new Map<string, string>()
+      for (const p of ((peopleData as { people?: { employee_id: string; name: string }[] } | null)?.people ?? [])) {
+        nameByEmp.set(p.employee_id, p.name)
+      }
+      // ⚠ The card's own filter, reproduced. Without this the list would show every
+      // plan-holder under a heading naming one person.
+      const wanted = new Set(
+        [...holders]
+          .map(id => nameByEmp.get(id))
+          .filter((n): n is string => !!n)
+          .filter(n => !people.length || people.some(w => w.trim().toLowerCase() === n.toLowerCase()))
+          .map(n => n.toLowerCase()),
+      )
+      if (!wanted.size) return []
+
+      /* ⚠ Same cohort as every Sales card and as the commission bases: leads CREATED
+       * in the window. Filtering on sold_date instead would list a different set than
+       * the figure was computed from — §8.3's lesson, inverted. */
+      const rows = await fetchAllRows<{
+        stage: string | null; salesperson: string | null; annual_value: number | null
+        lead_creation_date: string | null; sold_date: string | null
+        first_name: string | null; last_name: string | null; base_program_sold: string | null
+      }>(() => supabase
+        .from('leads')
+        .select('stage, salesperson, annual_value, lead_creation_date, sold_date, first_name, last_name, base_program_sold')
+        .eq('company_id', companyId)
+        .gte('lead_creation_date', win.start)
+        .lte('lead_creation_date', win.end)
+        // Stable order so paging cannot drop or repeat a row at a page edge.
+        .order('lead_creation_date', { ascending: false }))
+
+      return rows
+        .filter(r => {
+          const stage = r.stage ?? ''
+          if (stage !== 'closed_won' && !saleStages.has(stage)) return false
+          // `scoreboard_people` matches a rep on the FIRST name, lowercased. Matched
+          // the same way here so the list cannot credit a deal the card did not.
+          const first = (r.salesperson ?? '').trim().split(' ')[0]?.toLowerCase() ?? ''
+          if (!first) return false
+          return [...wanted].some(w => w.split(' ')[0] === first)
+        })
+        .map(r => ({
+          client: [r.first_name, r.last_name].map(v => (v ?? '').trim()).filter(Boolean).join(' ') || 'Unnamed lead',
+          salesperson: (r.salesperson ?? '').trim() || 'Unassigned',
+          kind: r.stage === 'closed_won' ? 'New business' : 'Upsell',
+          program: (r.base_program_sold ?? '').trim() || '—',
+          created: r.lead_creation_date,
+          sold: r.sold_date,
+          value: num(r.annual_value),
+        }))
+        .sort((a, b) => Number(b.value) - Number(a.value))
+    },
+  },
 ]
+/**
+ * The `?people=` filter a drill-down link carries, parsed once.
+ *
+ * ⚠ Shared by the page and the Excel export deliberately: they must narrow to the
+ * same set, or the downloaded file would quietly contain rows the page never showed.
+ * Bounded — a filter is only ever used to REMOVE rows the caller could already read,
+ * so the cap costs nothing but keeps a hand-typed URL from being unbounded work.
+ */
+export function parseDrillPeople(raw: string | string[] | undefined): string[] {
+  const one = Array.isArray(raw) ? raw[0] : raw
+  if (!one) return []
+  return one.split(',').map(s => s.trim()).filter(Boolean).slice(0, 40)
+}
 
 export function getDrilldown(key: string): DrillSpec | undefined {
   return DRILLDOWNS.find(d => d.key === key)
