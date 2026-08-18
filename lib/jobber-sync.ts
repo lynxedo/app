@@ -1687,9 +1687,9 @@ const VISIT_PROBE_CEILING = 6000
  *  horizon is six months — and ghosts come from reschedules and deletions, which
  *  happen near-term, not three years out. */
 const VISIT_PROBE_HORIZON_DAYS = 186
-/** If more than this share of what we checked looks deleted, something is wrong
- *  with the PROBE, not the book. Report instead of writing. */
-const VISIT_TOMBSTONE_MAX_RATIO = 0.1
+/** Hard ceiling on how many visits one run may tombstone, so a genuine backlog
+ *  drains over several runs and a runaway can never wipe the book in one pass. */
+const VISIT_TOMBSTONE_MAX_PER_RUN = 400
 
 /**
  * Tombstone visits that Jobber no longer has.
@@ -1712,10 +1712,20 @@ const VISIT_TOMBSTONE_MAX_RATIO = 0.1
  *   1. A probe that THROWS skips its batch — never treated as "all deleted".
  *   2. A batch that returns ZERO of the ids asked for is treated as an API
  *      failure, not as 40 simultaneous deletions.
- *   3. If the total exceeds VISIT_TOMBSTONE_MAX_RATIO of what was checked, NOTHING
- *      is written and the run reports why. Heroes' real rate is ~0.1%; a figure
- *      near the cap means the probe is broken. (Precedent: reading the wrong level
- *      of a GraphQL reply once made a reconcile report all 1,159 jobs deleted.)
+ *   3. A candidate is tombstoned only when a SECOND, independent mechanism agrees
+ *      it is gone: the last full visit sync did not refresh it either, judged per
+ *      job against its newest live sibling. A transient probe glitch cannot satisfy
+ *      both. Anything uncorroborated is withheld and logged. (Precedent for why one
+ *      signal is not enough: reading the wrong level of a GraphQL reply once made a
+ *      reconcile report all 1,159 jobs deleted, and on 2026-08-17 an empty nested
+ *      line-item list wiped $39,449.96 of live recurring work.)
+ *   4. One run tombstones at most VISIT_TOMBSTONE_MAX_PER_RUN, so a real backlog
+ *      drains across runs and a runaway stays bounded.
+ *
+ * ⚠ Guard 3 REPLACED a flat "refuse if more than 10% look deleted" rule, which was
+ * wrong in the direction that mattered: a genuine backlog trips it, so the reconcile
+ * could never clear the thing it exists to clear. Heroes sat at 15.4% with 243
+ * duplicated (job, date) slots and it refused on every run.
  */
 async function reconcileDeletedVisits(
   userId: string,
@@ -1784,36 +1794,120 @@ async function reconcileDeletedVisits(
     return 0
   }
 
-  // Guard 3 — refuse a mass tombstone outright.
-  const ratio = checked ? missing.length / checked : 1
-  if (ratio > VISIT_TOMBSTONE_MAX_RATIO) {
-    throw new Error(
-      `visit reconcile refused: ${missing.length} of ${checked} checked (${(ratio * 100).toFixed(1)}%) ` +
-      `look deleted, over the ${(VISIT_TOMBSTONE_MAX_RATIO * 100).toFixed(0)}% cap — probe is suspect, nothing written`
-    )
-  }
-
   const nowIso = new Date().toISOString()
   // Read the parent links BEFORE tombstoning: a job's status and totals are
   // DERIVED from its visits, so removing one changes the job (see the
   // VISIT_DESTROY handler, which refreshes the job behind for the same reason).
-  const { data: doomed } = await admin
-    .from('visits')
-    .select('external_id, job_external_id')
-    .eq('company_id', companyId)
-    .in('external_id', missing)
+  // last_synced_at comes along because Guard 3 needs it.
+  // Chunked: these ids are ~50-char base64, so one .in() over the whole set would
+  // exceed PostgREST's URL length and silently return a short list.
+  const candidates: Array<{ external_id: string; job_external_id: string | null; last_synced_at: string | null }> = []
+  for (let i = 0; i < missing.length; i += 100) {
+    const { data: page, error: candErr } = await admin
+      .from('visits')
+      .select('external_id, job_external_id, last_synced_at')
+      .eq('company_id', companyId)
+      .in('external_id', missing.slice(i, i + 100))
+    if (candErr) throw new Error(`visit reconcile candidate read: ${candErr.message}`)
+    candidates.push(...((page ?? []) as typeof candidates))
+  }
 
-  const { data: killed, error: updErr } = await admin
-    .from('visits')
-    .update({ deleted_at: nowIso })
-    .eq('company_id', companyId)
-    .eq('source', 'jobber')
-    .in('external_id', missing)
-    .is('deleted_at', null)
-    .select('id')
-  if (updErr) throw new Error(`visit reconcile tombstone: ${updErr.message}`)
+  // ⚠⚠ Guard 3 — REQUIRE TWO INDEPENDENT SIGNALS, not a percentage.
+  //
+  // The old rule refused outright once more than a fixed 10% share of the
+  // probe looked deleted, on the theory that a large share means a broken probe.
+  // That was wrong in one direction that mattered: a genuine BACKLOG also trips it,
+  // and then the reconcile can never clear the very thing it exists to clear.
+  // Measured on Heroes 2026-08-17: 243 (job, date) slots held two live visit rows
+  // each — reschedules leave the old row behind — and the probe reported 15.4%,
+  // over the 10% cap, so it refused on every run while the backlog grew.
+  //
+  // The replacement is stronger than either a ratio or a raised number: a visit is
+  // tombstoned only when BOTH mechanisms agree it is gone —
+  //   (1) Jobber's id probe did not return it (already computed, above), AND
+  //   (2) the last full visit sync did not refresh it either, judged PER JOB: its
+  //       last_synced_at is older than the newest live visit on the same job.
+  // A transient probe glitch cannot satisfy (2), because a visit Jobber really has
+  // gets its timestamp bumped by the ordinary sync that walks that job's visits.
+  // Verified on job #2413 before this shipped: of its live rows, the 20 Jobber
+  // returned were all stamped that day and the 34 it did not were all stale from
+  // six days earlier — a clean split with no overlap.
+  //
+  // Guards 1 and 2 above are untouched: a failed probe and a batch where Jobber
+  // knows NONE of 40 ids still skip without writing. Those cover the
+  // empty-response failure mode (see lineCountAllowsReconcile for the same trap
+  // costing real money on line items).
+  const jobsTouched = [...new Set(
+    candidates.map(r => r.job_external_id).filter(Boolean) as string[]
+  )]
+  // ⚠ Corroboration must come from a visit the probe says is ALIVE. Including the
+  // candidates themselves would let one phantom vouch for another — on a job where
+  // every row is a phantom, the newest phantom would "confirm" the older ones.
+  const suspect = new Set(missing)
+  const newestByJob = new Map<string, string>()
+  for (let i = 0; i < jobsTouched.length; i += 100) {
+    const { data: siblings, error: sibErr } = await admin
+      .from('visits')
+      .select('external_id, job_external_id, last_synced_at')
+      .eq('company_id', companyId)
+      .eq('source', 'jobber')
+      .is('deleted_at', null)
+      .in('job_external_id', jobsTouched.slice(i, i + 100))
+    if (sibErr) throw new Error(`visit reconcile sibling read: ${sibErr.message}`)
+    for (const sib of siblings ?? []) {
+      const job = sib.job_external_id as string
+      const ts = sib.last_synced_at as string
+      if (!job || !ts) continue
+      if (suspect.has(sib.external_id as string)) continue
+      const seen = newestByJob.get(job)
+      if (!seen || ts > seen) newestByJob.set(job, ts)
+    }
+  }
 
-  const jobIds = [...new Set((doomed ?? []).map(r => r.job_external_id).filter(Boolean) as string[])]
+  const confirmed = candidates.filter(r => {
+    const newest = newestByJob.get(r.job_external_id as string)
+    // No LIVE sibling to compare against means no corroboration — withhold.
+    if (!newest || !r.last_synced_at) return false
+    return (r.last_synced_at as string) < newest
+  })
+  const withheld = candidates.length - confirmed.length
+  if (withheld) {
+    console.warn(
+      `[jobber-sync] visit reconcile: withheld ${withheld} of ${candidates.length} ` +
+      `candidate(s) — Jobber's probe missed them, but no LIVE visit on the same job ` +
+      `was refreshed more recently, so nothing corroborates the deletion`
+    )
+  }
+  if (!confirmed.length) {
+    console.log(`[jobber-sync] visit reconcile: ${checked} checked, none corroborated as deleted`)
+    return 0
+  }
+
+  // Bound one run. A real backlog drains across runs; a runaway stays contained.
+  const doomed = confirmed.slice(0, VISIT_TOMBSTONE_MAX_PER_RUN)
+  if (confirmed.length > doomed.length) {
+    console.warn(
+      `[jobber-sync] visit reconcile: ${confirmed.length} corroborated but capped at ` +
+      `${VISIT_TOMBSTONE_MAX_PER_RUN} this run — re-run to continue draining`
+    )
+  }
+  const missingConfirmed = doomed.map(r => r.external_id as string)
+
+  let killedCount = 0
+  for (let i = 0; i < missingConfirmed.length; i += 100) {
+    const { data: killed, error: updErr } = await admin
+      .from('visits')
+      .update({ deleted_at: nowIso })
+      .eq('company_id', companyId)
+      .eq('source', 'jobber')
+      .in('external_id', missingConfirmed.slice(i, i + 100))
+      .is('deleted_at', null)
+      .select('id')
+    if (updErr) throw new Error(`visit reconcile tombstone: ${updErr.message}`)
+    killedCount += killed?.length ?? 0
+  }
+
+  const jobIds = [...new Set(doomed.map(r => r.job_external_id).filter(Boolean) as string[])]
   for (let i = 0; i < jobIds.length; i += OPEN_JOB_BATCH) {
     try {
       await syncJobs(userId, companyId, undefined, jobIds.slice(i, i + OPEN_JOB_BATCH))
@@ -1824,9 +1918,9 @@ async function reconcileDeletedVisits(
   }
 
   console.log(
-    `[jobber-sync] visit reconcile: ${checked} checked, tombstoned ${killed?.length ?? 0}, refreshed ${jobIds.length} job(s)`
+    `[jobber-sync] visit reconcile: ${checked} checked, tombstoned ${killedCount}, refreshed ${jobIds.length} job(s)`
   )
-  return killed?.length ?? 0
+  return killedCount
 }
 
 /**
