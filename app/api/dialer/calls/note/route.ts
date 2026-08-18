@@ -63,8 +63,16 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
   const room = searchParams.get('room') || undefined
+  // Far-end number — the fallback when there's no room (every inbound call for
+  // anyone but the inbound route user; see resolveRecentCallId).
+  const phone = searchParams.get('phone') || undefined
 
-  const callId = await resolveRecentCallId({ bodyRoom: room, userId: g.user.id, companyId: g.companyId })
+  const callId = await resolveRecentCallId({
+    bodyRoom: room,
+    farEndNumber: phone,
+    userId: g.user.id,
+    companyId: g.companyId,
+  })
   if (!callId) return NextResponse.json({ callId: null, notes: '' })
 
   const admin = createAdminClient()
@@ -89,12 +97,13 @@ export async function POST(request: Request) {
   if (!note) return NextResponse.json({ error: 'note required' }, { status: 400 })
   const admin = createAdminClient()
 
-  // Attach to the call row. `room` matters: without it resolveRecentCallId falls
-  // back to "this user's most recent call in the last 6 hours", which can be a
-  // DIFFERENT call if another one has since come in. The notepad passes the live
-  // conference room so the note lands on the call it was typed during.
+  // Attach to the call row. The notepad passes the live conference room when it
+  // has one AND the far-end number, which is what makes an inbound note land:
+  // inbound rooms are server-side and the web dialer can't see them unless the
+  // caller is the inbound route user. See resolveRecentCallId.
   const callId = await resolveRecentCallId({
     bodyRoom: typeof body.room === 'string' ? body.room : undefined,
+    farEndNumber: typeof body.phone === 'string' ? body.phone : undefined,
     userId: user.id,
     companyId,
   })
