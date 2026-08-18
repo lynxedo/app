@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
-import { getDrilldown } from '@/lib/reports/drilldowns'
+import { getDrilldown, parseDrillPeople } from '@/lib/reports/drilldowns'
 import { toCsv, csvFilename } from '@/lib/reports/drilldown-csv'
 import { resolveWindow } from '@/lib/scoreboards/widgets/windows'
 
@@ -58,7 +58,12 @@ export async function GET(request: Request) {
 
   let rows
   try {
-    rows = await drill.run({ supabase, rpcClient: createAdminClient(), companyId: profile.company_id, win })
+    // ⚠ Same filter as the page. A download that quietly contains rows the page did
+    // not show is the version of this bug nobody notices until it is in a spreadsheet.
+    rows = await drill.run({
+      supabase, rpcClient: createAdminClient(), companyId: profile.company_id, win,
+      people: parseDrillPeople(sp.get('people') ?? undefined),
+    })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Could not build this export' },

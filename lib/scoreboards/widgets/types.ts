@@ -101,6 +101,14 @@ export type CatalogName =
   /** Jobber user names — visit revenue by technician, quote reps. */
   | 'jobber_people'
   /**
+   * The people who actually hold a commission rule, named exactly as the commission
+   * cards name them. ⚠ A FOURTH catalog rather than reusing `staff_people`: that one
+   * composes "Angel Morin" (Crew style) while the commission cards compose "Angel"
+   * (People style), so a picker built on it would offer names matching nothing and
+   * render an honest-looking zero. Derived from the same source the card draws from.
+   */
+  | 'commission_plan_people'
+  /**
    * Service lines the tenant actually runs (WF / IR / PW / MO for Heroes), from
    * `recurring_program_definitions.dept_prefix`. Used by the book, ticket-size and
    * revenue-trend widgets.

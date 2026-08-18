@@ -48,6 +48,8 @@ const CATALOG_REPORTS: Record<CatalogName, string[]> = {
   staff_people: ['crew'],
   // Jobber user names — the technician revenue trend (Crew) and quote reps (Sales).
   jobber_people: ['crew', 'sales'],
+  // Commission is pay, so its picker answers to the same grant its cards do.
+  commission_plan_people: ['crew'],
   /* The recurring-book pickers. Service lines are used by the book cards (Clients),
    * Ticket Size and the company revenue trend (Revenue) and the by-line chart
    * (Service Lines), so all three reports can offer them. Programs and add-ons are
@@ -210,6 +212,59 @@ export async function GET(request: Request) {
     return NextResponse.json({
       // Hours as the count, so a picker entry reads "Angel Morin 421" and a
       // long-departed name with 2 hours is visibly not the person you meant.
+      options: [...seen.entries()].sort(byCountThenName).map(([value, count]) => ({ value, label: value, count })),
+    })
+  }
+
+  if (name === 'commission_plan_people') {
+    /* Only the people who actually hold a rule, named the way the commission cards
+     * name them.
+     *
+     * ⚠⚠ Both halves matter. Names come from `scoreboard_people` — the same source
+     * the cards read — so the offered string is byte-identical to the drawn one by
+     * construction; rebuilding it from `employees` would compose "Mike Cyplik" where
+     * the card says "Mike", and a filter that matches nothing renders a plausible
+     * zero. The LIST is bounded by `commission_plans`, because a picker offering
+     * forty staff for a feature three of them have rules under is a worse tool than
+     * one offering three.
+     *
+     * ⚠ Matched on employee_id, never on a name — that is the whole reason a plan is
+     * keyed on the roster row (see the migration's note). The name is only ever a
+     * label here and the value the filter compares.
+     */
+    const [{ data: plans, error: pErr }, { data: peopleData, error: peErr }] = await Promise.all([
+      admin.from('commission_plans')
+        .select('employee_id, active')
+        .eq('company_id', profile.company_id),
+      admin.rpc('scoreboard_people', {
+        p_company_id: profile.company_id,
+        p_start: ALL_TIME_START,
+        p_end: ALL_TIME_END,
+      }),
+    ])
+    if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 })
+    if (peErr) return NextResponse.json({ error: peErr.message }, { status: 500 })
+
+    // Rule count per person, so the entry reads "Mike 2" and someone whose rules were
+    // all switched off is visibly not the person you meant.
+    const rules = new Map<string, number>()
+    for (const r of (plans ?? []) as { employee_id: string; active: boolean }[]) {
+      if (!r.active) continue
+      rules.set(r.employee_id, (rules.get(r.employee_id) ?? 0) + 1)
+    }
+    const byEmp = new Map<string, string>()
+    for (const p of ((peopleData as { people?: { employee_id: string; name: string }[] } | null)?.people ?? [])) {
+      byEmp.set(p.employee_id, p.name)
+    }
+    const seen = new Map<string, number>()
+    for (const [empId, n] of rules) {
+      const nm = byEmp.get(empId)
+      // No name means the person has no row in the figures at all — the card already
+      // says so in words, and offering them here would be offering a guaranteed zero.
+      if (!nm) continue
+      seen.set(nm, (seen.get(nm) ?? 0) + n)
+    }
+    return NextResponse.json({
       options: [...seen.entries()].sort(byCountThenName).map(([value, count]) => ({ value, label: value, count })),
     })
   }
