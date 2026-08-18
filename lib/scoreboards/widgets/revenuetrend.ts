@@ -89,7 +89,7 @@ export function trendWindow(cfg: WidgetConfig, win: WindowSpec): { start: string
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /** A bucket's axis label. Weeks read as their Monday; months gain a year when the chart spans one. */
-function bucketLabel(b: string, grain: Grain, spansYears: boolean): string {
+export function bucketLabel(b: string, grain: Grain, spansYears: boolean): string {
   const y = b.slice(0, 4)
   const m = Number(b.slice(5, 7))
   const d = Number(b.slice(8, 10))
@@ -97,7 +97,7 @@ function bucketLabel(b: string, grain: Grain, spansYears: boolean): string {
   return spansYears ? `${MONTHS[m - 1]} ${y.slice(2)}` : MONTHS[m - 1]
 }
 
-function windowPhrase(w: { start: string; end: string; grain: Grain }, cfg: WidgetConfig, count: number): string {
+export function windowPhrase(w: { start: string; end: string; grain: Grain }, cfg: WidgetConfig, count: number): string {
   const unit = w.grain === 'week' ? 'week' : 'month'
   if (String(cfg.window) === 'Trailing periods') {
     return `Trailing ${count} ${unit}${count === 1 ? '' : 's'} to ${bucketLabel(w.end, 'week', false)}`
@@ -149,7 +149,7 @@ function linePhrase(cfg: WidgetConfig): string | null {
   return sel.length ? sel.map(lineName).join(' + ') : null
 }
 
-const TREND_CONFIG = {
+export const TREND_CONFIG = {
   grain: { kind: 'enum' as const, label: 'Bucket by', def: 'Month', opts: ['Month', 'Week'] },
   window: {
     kind: 'enum' as const,
@@ -187,7 +187,7 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
  */
 const SERIES_TONES: Tone[] = ['good', 'warn', 'mixed', 'neutral', 'bad', 'unknown', 'free', 'paid']
 
-function toneFor(key: string, ordered: string[]): Tone {
+export function toneFor(key: string, ordered: string[]): Tone {
   const i = ordered.indexOf(key)
   return SERIES_TONES[(i < 0 ? 0 : i) % SERIES_TONES.length]
 }
@@ -199,7 +199,7 @@ function toneFor(key: string, ordered: string[]): Tone {
  * that carry no line items, so it arrives with $0 for the period — kept, it would
  * take a legend swatch and a colour while drawing no bar, which reads as a bug.
  */
-function rankKeys(rows: { k: string; total: number }[], limit?: number): string[] {
+export function rankKeys(rows: { k: string; total: number }[], limit?: number): string[] {
   const sums = new Map<string, number>()
   for (const r of rows) sums.set(r.k, (sums.get(r.k) ?? 0) + num(r.total))
   const ordered = [...sums.entries()]
@@ -218,13 +218,16 @@ const money = (n: number) => `$${Math.round(n).toLocaleString()}`
  * dropped, so the bar heights still equal the period totals. A chart that silently
  * omits the tail reads as a shrinking business.
  */
-function stackRows(
+export function stackRows(
   periods: { b: string; total: number }[],
   parts: { b: string; k: string; total: number }[],
   keys: string[],
   labelFor: (k: string) => string,
   grain: Grain,
   spansYears: boolean,
+  /** How a bar's caption is rendered. Defaults to dollars, which is what every
+   *  visit-revenue chart wants; a count chart passes its own. */
+  fmt: (n: number) => string = money,
 ) {
   const byBucket = new Map<string, Map<string, number>>()
   for (const p of parts) {
@@ -245,11 +248,11 @@ function stackRows(
     // number printed beside a bar has to be that bar's number — otherwise the
     // label silently contradicts the length it sits next to.
     const drawn = named.reduce((s, x) => s + x.value, 0)
-    return { label: bucketLabel(p.b, grain, spansYears), caption: money(drawn), parts: named }
+    return { label: bucketLabel(p.b, grain, spansYears), caption: fmt(drawn), parts: named }
   })
 }
 
-function spansMoreThanOneYear(periods: { b: string }[]): boolean {
+export function spansMoreThanOneYear(periods: { b: string }[]): boolean {
   if (periods.length < 2) return false
   return periods[0].b.slice(0, 4) !== periods[periods.length - 1].b.slice(0, 4)
 }

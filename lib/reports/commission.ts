@@ -17,6 +17,10 @@
 
 /** What a bonus rides on. Every one of these is already computed somewhere. */
 export type CommissionBasis =
+  | 'new_sales_value'
+  | 'new_sales_count'
+  | 'upsell_value'
+  | 'upsell_count'
   | 'sales_value'
   | 'sales_count'
   | 'revenue_produced'
@@ -28,9 +32,15 @@ export type RateKind = 'percent' | 'per_unit' | 'tiered'
 /** Money or a tally — decides which rate kinds even make sense. */
 export type BasisUnit = 'currency' | 'count'
 
+/** Heading the editor files this basis under. Nine options in one flat list is a wall. */
+export type BasisGroup = 'Sales' | 'Work done' | 'Products'
+
 export type CommissionBasisDef = {
   key: CommissionBasis
   label: string
+  group: BasisGroup
+  /** Short phrase for a one-line rule summary — the full label reads badly mid-sentence. */
+  noun: string
   unit: BasisUnit
   /** One line in the editor: what it measures, and what to watch. */
   hint: string
@@ -40,22 +50,84 @@ export type CommissionBasisDef = {
   caution?: string
 }
 
+/**
+ * ⚠⚠ THE THREE SALES BASES OVERLAP ON PURPOSE, AND THE OVERLAP IS THE WHOLE POINT.
+ *
+ * Ben: "the lead tracker we use Closed Won but there is also an Upsell section. I give
+ * a bonus on upsells but it is different then regular sales." A won deal is therefore
+ * one of two kinds, and a rule needs to be able to name either kind — or both.
+ *
+ *   new_sales_value  Closed Won only          — a deal competed for and won
+ *   upsell_value     the "Sold" stages only   — sold to a customer already on the book
+ *   sales_value      both                     — what the original single basis meant
+ *
+ * `sales_value` is KEPT rather than redefined to mean new business. Redefining it would
+ * silently change what an existing rule pays without anybody editing it, which in a pay
+ * feature is the worst possible way to be right. Its caution says what it covers, and
+ * the Commission cards warn when a person holds one of these AND an upsell rule, since
+ * that pays the same upsell twice.
+ */
 export const COMMISSION_BASES: CommissionBasisDef[] = [
   {
-    key: 'sales_value',
-    label: 'Value they sold',
+    key: 'new_sales_value',
+    label: 'Value they sold — new business only',
+    group: 'Sales',
+    noun: 'new-business value sold',
     unit: 'currency',
-    hint: 'Annual value of the deals credited to them in the Lead Tracker, including upsells if you count those as sales.',
+    hint: 'Annual value of the deals they moved to Closed Won. Upsells are not counted — they have their own basis, so an upsell can pay a different rate.',
+  },
+  {
+    key: 'new_sales_count',
+    label: 'Number of new-business sales they closed',
+    group: 'Sales',
+    noun: 'new-business sales',
+    unit: 'count',
+    hint: 'How many deals they moved to Closed Won, rather than what those deals were worth. Upsells are not counted.',
+  },
+  {
+    key: 'upsell_value',
+    label: 'Value of upsells they sold',
+    group: 'Sales',
+    noun: 'upsell value sold',
+    unit: 'currency',
+    /* ⚠ "Upsell" is not hardcoded to a stage named Upsells. It is every stage ticked
+     * "Sold" in Admin → Lead Tracker, which is the flag that exists precisely so a
+     * tenant can say which of their own stages are sales-but-not-competed-wins. */
+    hint: 'Annual value of the deals in the stages you ticked as “Sold” in Admin → Lead Tracker — the Upsells section — rather than Closed Won.',
+    caution: 'If no stage is ticked as “Sold”, this basis has nothing to count and every rule using it pays zero.',
+  },
+  {
+    key: 'upsell_count',
+    label: 'Number of upsells they sold',
+    group: 'Sales',
+    noun: 'upsells sold',
+    unit: 'count',
+    hint: 'How many upsells they closed — for a flat spiff per upsell rather than a percentage of its value.',
+    caution: 'If no stage is ticked as “Sold” in Admin → Lead Tracker, this basis has nothing to count and every rule using it pays zero.',
+  },
+  {
+    key: 'sales_value',
+    label: 'Value they sold — new business and upsells',
+    group: 'Sales',
+    noun: 'value sold incl. upsells',
+    unit: 'currency',
+    hint: 'Annual value of every deal credited to them, Closed Won and upsells together, paid at one rate.',
+    caution: 'This already includes upsells. If the same person also has a rule paid on upsells, every upsell is paid twice — use “new business only” for one of them.',
   },
   {
     key: 'sales_count',
-    label: 'Number of sales they closed',
+    label: 'Number of sales they closed — new business and upsells',
+    group: 'Sales',
+    noun: 'sales incl. upsells',
     unit: 'count',
-    hint: 'How many deals they closed, rather than what those deals were worth.',
+    hint: 'How many deals they closed in total, rather than what those deals were worth.',
+    caution: 'This already includes upsells. If the same person also has a rule paid on upsells, every upsell is counted twice — use “new business only” for one of them.',
   },
   {
     key: 'revenue_produced',
     label: 'Revenue they produced',
+    group: 'Work done',
+    noun: 'revenue they produced',
     unit: 'currency',
     hint: 'Value of the completed visits credited to them — work done, not work sold.',
     /* ⚠⚠ The one basis with a real accuracy problem, and it costs money rather than
@@ -69,6 +141,8 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
   {
     key: 'line_revenue',
     label: 'Revenue of a whole service line',
+    group: 'Work done',
+    noun: 'service-line revenue',
     unit: 'currency',
     hint: 'The department’s revenue, not this person’s — for a lead who is paid on how their line performs.',
     needs: 'line',
@@ -76,11 +150,23 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
   {
     key: 'item_count',
     label: 'Particular things they sold',
+    group: 'Products',
+    noun: 'tracked items sold',
     unit: 'count',
     hint: 'How many of the products you pick they sold, from the Lead Tracker’s Service column.',
     needs: 'items',
   },
 ]
+
+/** The editor's optgroups, in the order they are offered. */
+export const BASIS_GROUPS: BasisGroup[] = ['Sales', 'Work done', 'Products']
+
+/**
+ * Bases that already contain upsells, so pairing one with an upsell rule double-pays.
+ * Named here rather than in the widget so the editor and the card agree on the set.
+ */
+export const BASES_INCLUDING_UPSELLS = new Set<CommissionBasis>(['sales_value', 'sales_count'])
+export const UPSELL_ONLY_BASES = new Set<CommissionBasis>(['upsell_value', 'upsell_count'])
 
 const BY_BASIS = new Map(COMMISSION_BASES.map(b => [b.key, b]))
 
@@ -210,7 +296,7 @@ export function payout(plan: CommissionPlan, amount: number): Payout {
 /** "5% of value they sold", "$50 per controller sold" — one line, for a card or the editor. */
 export function describeRule(plan: CommissionPlan): string {
   const def = getBasis(plan.basis)
-  const of = def ? def.label.toLowerCase() : plan.basis
+  const of = def ? def.noun : plan.basis
   let rule: string
   if (plan.rate_kind === 'percent') rule = `${plan.rate ?? 0}% of ${of}`
   else if (plan.rate_kind === 'per_unit') rule = `$${plan.rate ?? 0} per unit of ${of}`

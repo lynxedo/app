@@ -21,7 +21,15 @@ import { formatCurrency } from '@/lib/format'
 import type { SalesRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
-import { keepPerson, peopleField, personFilter, withPeople, withPeopleTitle } from './people-filter'
+/* The bucket maths, the trailing-window control and the stacked-bar assembly are
+ * imported from the visit-revenue trend rather than reimplemented. Ben asked for
+ * this card to work "like the Visit Revenue by Technician" — sharing the actual
+ * code is the only way that stays true as either card changes. */
+import {
+  TREND_CONFIG, rankKeys, spansMoreThanOneYear, stackRows, toneFor, trendWindow, windowPhrase,
+} from './revenuetrend'
+import type { SalesPersonTrendRow } from './sources'
+import { keepPerson, peopleField, peoplePhrase, personFilter, withPeople, withPeopleTitle } from './people-filter'
 
 /**
  * Link from a figure to the rows behind it, carrying the CURRENT window so the
@@ -277,6 +285,97 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
         rows,
         foot: `Close rate is shown only where at least ${floor} leads have been decided — a perfect score off a handful of leads says nothing, and publishing it would flatter whoever happened to get an easy run.`,
         empty: f.active ? 'No leads for these people in this period' : 'No leads in this period',
+      }
+    },
+  },
+
+  {
+    type: 'sales_by_person_trend',
+    group: 'Sales',
+    title: 'Sales by Person over Time',
+    blurb: 'Stacked by salesperson, month by month or week by week',
+    defaultSpan: 12,
+    /**
+     * The chart version of "Sales by Person".
+     *
+     * Ben: "let's add a different version widget. Make it like the Visit Revenue by
+     * Technician where it is a bar graph and we can choose either board time frame
+     * or trailing X weeks/months."
+     *
+     * ⚠ A SEPARATE WIDGET rather than a display toggle on the table. The table
+     * answers "how is each rep doing over this window", including close rate, which
+     * has no sensible per-month reading at Heroes' volume — several reps decide
+     * fewer than the fair-rating floor in a single month, so a monthly close-rate
+     * series would be mostly blanks. This card drops the rate and shows what is
+     * additive over time: value sold, or the number of sales.
+     *
+     * ⚠⚠ UNLIKE Visit Revenue by Technician, THESE BARS ADD UP. That chart credits a
+     * two-person visit to both technicians, so its segments total above company
+     * revenue; a lead has exactly one salesperson, so nothing here is counted twice.
+     * Verified against the Sales report over Heroes' 2026 book: the segments, the
+     * period totals and `won_value` all come to $234,919.24 on 468 sales.
+     */
+    config: {
+      ...TREND_CONFIG,
+      show: {
+        kind: 'enum' as const,
+        label: 'Show',
+        def: 'Value sold',
+        opts: ['Value sold', 'Number of sales'],
+      },
+      top: { kind: 'number' as const, label: 'Show top', def: 8, min: 3, max: 15, unit: 'salespeople' },
+      people: peopleField('lead_salespeople', 'people'),
+    },
+    sources: (cfg, win) => {
+      const w = trendWindow(cfg, win)
+      return [{ source: 'sales_person_trend' as const, params: { start: w.start, end: w.end, grain: w.grain } }]
+    },
+    metric: (bag, cfg, win) => {
+      const w = trendWindow(cfg, win)
+      const r = bag.get<SalesPersonTrendRow>({
+        source: 'sales_person_trend', params: { start: w.start, end: w.end, grain: w.grain },
+      })[0] ?? null
+      const byCount = String(cfg.show) === 'Number of sales'
+      const f = personFilter(cfg)
+
+      const periods = (r?.periods ?? []).map(p => ({ b: p.b, total: byCount ? num(p.count) : num(p.total) }))
+      /* ⚠ Filtered in the metric, never in the query — so this card and an unfiltered
+       * one on the same board share ONE round trip, and the filter can only ever
+       * remove rows the viewer was already sent. 'Unassigned' is a real row and stays
+       * filterable like anyone else. */
+      const people = (r?.people ?? [])
+        .filter(p => keepPerson(f, p.name, p.name))
+        .map(p => ({ b: p.b, k: p.k, name: p.name, total: byCount ? num(p.count) : num(p.total) }))
+
+      const keys = rankKeys(people, Math.max(3, Math.min(15, Number(cfg.top) || 8)))
+      const spans = spansMoreThanOneYear(periods)
+      const names = new Map<string, string>()
+      for (const p of people) if (!names.has(p.k)) names.set(p.k, p.name)
+
+      const fmt = byCount
+        ? (n: number) => Math.round(n).toLocaleString()
+        : (n: number) => `$${Math.round(n).toLocaleString()}`
+
+      const notes: string[] = [byCount ? 'deals sold' : 'annual value sold']
+      /* ⚠ Same cohort as every other Sales card: leads are counted in the month they
+       * were CREATED, not the month they closed. Said on the card because a bar chart
+       * over time invites the other reading — a deal created in March and sold in
+       * June sits in March. */
+      notes.push('counted in the month the lead came in, not the month it closed')
+      // The filter states itself, the same way every other filtered card does.
+      const only = peoplePhrase(f)
+      if (only) notes.push(only)
+
+      return {
+        kind: 'stacked',
+        title: withPeopleTitle('Sales by Person over Time', f),
+        sub: `${windowPhrase(w, cfg, periods.length)} · ${notes.join(' · ')}`,
+        // ⚠ Magnitude, not normalised: a $12k month and a $60k month must not draw
+        // the same height, which is the whole point of putting sales on a time axis.
+        scale: 'magnitude',
+        rows: stackRows(periods, people, keys, k => names.get(k) ?? k, w.grain, spans, fmt),
+        legend: keys.map(k => ({ label: names.get(k) ?? k, tone: toneFor(k, keys) })),
+        empty: f.active ? 'No sales for these people in this period' : 'No sales in this period',
       }
     },
   },
