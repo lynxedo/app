@@ -100,7 +100,12 @@ export default function CallNotepad({
   // What's already on this call.
   useEffect(() => {
     let cancelled = false
-    const qs = room ? `?room=${encodeURIComponent(room)}` : ''
+    const params = new URLSearchParams()
+    if (room) params.set('room', room)
+    // Sent even when a room exists: on an inbound call the web dialer usually
+    // has no room, and without the number the note has nothing to attach to.
+    if (number) params.set('phone', number)
+    const qs = params.toString() ? `?${params.toString()}` : ''
     fetch(`/api/dialer/calls/note${qs}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -110,7 +115,7 @@ export default function CallNotepad({
     return () => {
       cancelled = true
     }
-  }, [room])
+  }, [room, number])
 
   function flash(msg: string) {
     setToast(msg)
@@ -125,7 +130,7 @@ export default function CallNotepad({
       const res = await fetch('/api/dialer/calls/note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: text, room: room || undefined }),
+        body: JSON.stringify({ note: text, room: room || undefined, phone: number || undefined }),
       })
       const body = await res.json().catch(() => null)
       if (!res.ok) {
@@ -135,16 +140,17 @@ export default function CallNotepad({
         return
       }
       if (!alive.current) return
+      if (!body?.callId) {
+        // Nothing was filed. KEEP the text and the draft — clearing the box here
+        // destroyed the words while the toast implied they'd been kept, which is
+        // exactly the failure this notepad exists to prevent.
+        flash('Could not attach this to a call — your note is still here')
+        return
+      }
       if (typeof body?.notes === 'string') setSaved(body.notes)
       setNote('')
       writeDraft(key, '')
-      if (!body?.callId) {
-        // No call row to attach to (e.g. a note typed long after the call).
-        // Say so rather than implying it was filed against the call.
-        flash('Saved, but no call to attach it to')
-      } else {
-        flash('Note saved')
-      }
+      flash('Note saved')
     } finally {
       if (alive.current) setBusy(false)
     }
