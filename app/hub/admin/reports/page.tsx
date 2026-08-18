@@ -5,6 +5,7 @@ import { REPORTS, PEOPLE_TEAM_SLUG } from '@/lib/reports/registry'
 import ReportAccessPanel from './ReportAccessPanel'
 import GoalsAdminPanel from './GoalsAdminPanel'
 import CommissionAdminPanel from './CommissionAdminPanel'
+import RecurringProgramsPanel, { type ProgramRow, type UnmappedRow } from './RecurringProgramsPanel'
 import { GOAL_METRICS } from '@/lib/reports/goals'
 import { normalizeTiers, type CommissionBasis, type RateKind } from '@/lib/reports/commission'
 
@@ -92,7 +93,8 @@ export default async function ReportsAdminPage() {
    * Three lookups feed the editor's pickers. Each is the tenant's own data, and the
    * employee list is what plans are KEYED on, so it has to be the roster rather than
    * any name string. */
-  const [{ data: planRows }, { data: empRows }, { data: defRows }, itemsRes] = await Promise.all([
+  const [{ data: planRows }, { data: empRows }, { data: defRows }, itemsRes,
+         cadenceRes, unmappedRes] = await Promise.all([
     admin
       .from('commission_plans')
       .select('id, employee_id, label, basis, rate_kind, rate, tiers, threshold, cap, line_prefix, items, active, sort_order')
@@ -106,7 +108,7 @@ export default async function ReportsAdminPage() {
       .order('first_name', { ascending: true }),
     admin
       .from('recurring_program_definitions')
-      .select('dept_prefix')
+      .select('id, line_item_name, dept_prefix')
       .eq('company_id', company),
     admin.rpc('scoreboard_lead_items', {
       p_company_id: company,
@@ -115,6 +117,13 @@ export default async function ReportsAdminPage() {
       p_basis: 'created',
       p_stages: null,
     }),
+    // The recurring programs editor. `_cadence_check` puts what each program DECLARES
+    // next to what its jobs are actually scheduled for, which is the whole point of the
+    // screen: on 2026-08-17 two cadences were wrong in opposite directions and finding
+    // either needed a database session. `_unmapped_line_items` is the discovery half —
+    // items sitting on recurring jobs that nothing counts.
+    admin.rpc('recurring_program_cadence_check', { p_company_id: company }),
+    admin.rpc('recurring_unmapped_line_items', { p_company_id: company }),
   ])
 
   const employees = (empRows ?? []).map(e => ({
@@ -161,6 +170,33 @@ export default async function ReportsAdminPage() {
     sort_order: Number(p.sort_order ?? 0),
   }))
 
+  /* The cadence RPC is keyed on line_item_name (that is the table's natural key), but
+   * edit and delete need the row id — mapped from the read that already happened above
+   * rather than a second round trip. */
+  const defById = new Map(
+    (defRows ?? []).map(d => [d.line_item_name as string, d.id as string])
+  )
+  const programs: ProgramRow[] = ((cadenceRes.data ?? []) as Record<string, unknown>[])
+    .map(r => ({
+      id: defById.get(String(r.line_item_name)) ?? String(r.line_item_name),
+      line_item_name: String(r.line_item_name),
+      display_name: String(r.display_name),
+      dept_prefix: String(r.dept_prefix ?? ''),
+      is_auxiliary: r.is_auxiliary === true,
+      rounds_per_year: r.declared_per_year == null ? null : Number(r.declared_per_year),
+      live_jobs: Number(r.live_jobs ?? 0),
+      measured_typical: r.measured_rounds_typical == null ? null : Number(r.measured_rounds_typical),
+      measured_min: r.measured_rounds_min == null ? null : Number(r.measured_rounds_min),
+      measured_max: r.measured_rounds_max == null ? null : Number(r.measured_rounds_max),
+    }))
+  const unmapped: UnmappedRow[] = ((unmappedRes.data ?? []) as Record<string, unknown>[])
+    .map(r => ({
+      line_item_name: String(r.line_item_name),
+      live_jobs: Number(r.live_jobs ?? 0),
+      per_visit_total: Number(r.per_visit_total ?? 0),
+      guessed_prefix: r.guessed_prefix == null ? null : String(r.guessed_prefix),
+    }))
+
   return (
     <div className="space-y-14">
       <ReportAccessPanel reports={reports} users={users} initialAccess={access} teamSlug={PEOPLE_TEAM_SLUG} />
@@ -176,6 +212,7 @@ export default async function ReportsAdminPage() {
         }))}
       />
       <CommissionAdminPanel employees={employees} plans={plans} lines={lines} items={items} />
+      <RecurringProgramsPanel programs={programs} unmapped={unmapped} lines={lines} />
     </div>
   )
 }
