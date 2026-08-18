@@ -13,6 +13,28 @@
  * not work that way: 40% through the month does not mean you should have 40% of
  * your close rate. Prorating a rate target would produce confident nonsense, so
  * rate metrics get attainment and no pace at all, and the card says why.
+ *
+ * ⚠⚠ `perPerson` is the second load-bearing field, and it is a statement about
+ * the DATA rather than a product preference.
+ *
+ * A target can be set for one person only where that person's actual can be
+ * computed honestly. Four can: leads, value sold and close rate all come from
+ * `scoreboard_people.sales`, and revenue per labour hour from its `field` block
+ * — both halves of that ratio belong to the person, which is why it works here
+ * while the company-wide Crew ratios cannot be split at all (§9's person filter
+ * found exactly the same asymmetry).
+ *
+ * Three cannot, and the reason is attribution, not effort:
+ *   invoiced      — `invoices.salesperson_external_id` is set on roughly a third
+ *                   of rows, so a person's billed total would omit most of it.
+ *   collected     — a payment records no salesperson whatsoever.
+ *   new_customers — the Clients report has no per-person breakdown, and deriving
+ *                   one from leads would produce a different number than the
+ *                   report shows, which is the one thing §8.11 exists to prevent.
+ *
+ * Offering those three per person would render "no data" forever, or worse, show
+ * the COMPANY figure beside somebody's name. So the target screen hides them for
+ * a person and the API refuses them.
  */
 
 export type GoalMetric = {
@@ -24,6 +46,14 @@ export type GoalMetric = {
   cumulative: boolean
   /** What the number actually counts, for the target-setting screen. */
   help: string
+  /** Can be set for ONE person, not only the company. See the header. */
+  perPerson: boolean
+  /**
+   * Why this cannot be a person's target. Set only when `perPerson` is false and
+   * shown in the UI — an option that is merely absent invites the next person to
+   * file it as a bug and re-add it without the reason.
+   */
+  perPersonBlocker?: string
 }
 
 export const GOAL_METRICS: GoalMetric[] = [
@@ -33,6 +63,8 @@ export const GOAL_METRICS: GoalMetric[] = [
     format: 'currency',
     cumulative: true,
     help: 'Work billed in the period, excluding drafts. Matches the Revenue report.',
+    perPerson: false,
+    perPersonBlocker: 'Invoices name a salesperson on only about a third of rows, so one person\u2019s billed total would leave most of it out.',
   },
   {
     key: 'collected',
@@ -40,6 +72,8 @@ export const GOAL_METRICS: GoalMetric[] = [
     format: 'currency',
     cumulative: true,
     help: 'Payments received against invoices in the period.',
+    perPerson: false,
+    perPersonBlocker: 'A payment does not record who sold the work, so it cannot be credited to a person.',
   },
   {
     key: 'new_customers',
@@ -47,6 +81,8 @@ export const GOAL_METRICS: GoalMetric[] = [
     format: 'number',
     cumulative: true,
     help: 'Customers added in the period. Matches the Clients report.',
+    perPerson: false,
+    perPersonBlocker: 'The Clients report does not break new customers down by person, and working one out separately would disagree with it.',
   },
   {
     key: 'leads',
@@ -54,6 +90,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     format: 'number',
     cumulative: true,
     help: 'Leads created in the period, the same cohort the close rate uses.',
+    perPerson: true,
   },
   {
     key: 'won_value',
@@ -61,6 +98,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     format: 'currency',
     cumulative: true,
     help: 'Annual value of leads won in the period.',
+    perPerson: true,
   },
   {
     key: 'close_rate',
@@ -68,6 +106,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     format: 'percent',
     cumulative: false,
     help: 'Share of decided leads won. A rate, so no pace is shown — see the report.',
+    perPerson: true,
   },
   {
     key: 'rev_per_labor_hour',
@@ -75,6 +114,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     format: 'currency',
     cumulative: false,
     help: 'Revenue divided by clocked hours. A rate, and clamped to where timeclock data exists.',
+    perPerson: true,
   },
 ]
 
@@ -83,6 +123,19 @@ export type GoalGrain = (typeof GOAL_GRAINS)[number]
 
 export function getGoalMetric(key: string): GoalMetric | null {
   return GOAL_METRICS.find(m => m.key === key) ?? null
+}
+
+/** The measures a single person can be given a target on. */
+export const PER_PERSON_GOAL_METRICS = GOAL_METRICS.filter(m => m.perPerson)
+
+/**
+ * Whether this measure can be scoped to one person.
+ *
+ * ⚠ An unknown key answers false. A metric that has left the catalog must not
+ * become settable for a person just because nothing recognises it any more.
+ */
+export function metricSupportsPerson(key: string): boolean {
+  return getGoalMetric(key)?.perPerson === true
 }
 
 /**

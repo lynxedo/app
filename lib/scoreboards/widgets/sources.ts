@@ -112,6 +112,20 @@ export type GoalRow = {
    * made a live target read "Not started".
    */
   status: 'hit' | 'missed' | 'on_track' | 'behind' | 'under' | 'open' | 'unknown'
+  /**
+   * Null on a company-wide target; set when this target belongs to one person.
+   *
+   * ⚠ Keyed on `employees.id`, never a name — the Crew and People reports spell
+   * the same person differently ("Mike Cyplik" vs "Mike"), so a name could not
+   * match both sources. Same key `commission_plans` uses.
+   */
+  employee_id: string | null
+  /**
+   * Whose target it is, for display. Composed from the roster rather than the
+   * figures, so a target set for somebody with no activity in the period still
+   * says whose it is instead of rendering an anonymous "no data" row.
+   */
+  person_name: string | null
 }
 
 export type GoalsRow = {

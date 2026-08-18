@@ -5,7 +5,17 @@ import { useRouter } from 'next/navigation'
 import { useToast, useConfirm } from '@/components/ui'
 import { periodLabel, periodBounds, type GoalGrain } from '@/lib/reports/goals'
 
-type Metric = { key: string; label: string; format: 'currency' | 'number' | 'percent'; help: string }
+type Metric = {
+  key: string
+  label: string
+  format: 'currency' | 'number' | 'percent'
+  help: string
+  /** Can this measure be set for one person? See lib/reports/goals.ts. */
+  perPerson: boolean
+  /** Why not, shown to the admin instead of the option just being absent. */
+  perPersonBlocker: string | null
+}
+type Employee = { id: string; name: string; department: string | null; is_active: boolean }
 type Goal = {
   id: string
   metric: string
@@ -13,7 +23,13 @@ type Goal = {
   period_start: string
   period_end: string
   target: number
+  /** Null on a company-wide target. */
+  employee_id: string | null
+  person_name: string | null
 }
+
+/** The company-wide option's value. Not '' so an unset select cannot look like it. */
+const COMPANY = 'company'
 
 function fmtTarget(format: Metric['format'], v: number): string {
   if (format === 'currency') return `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
@@ -27,7 +43,9 @@ function thisMonthISO(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 }
 
-export default function GoalsAdminPanel({ metrics, goals }: { metrics: Metric[]; goals: Goal[] }) {
+export default function GoalsAdminPanel(
+  { metrics, goals, employees }: { metrics: Metric[]; goals: Goal[]; employees: Employee[] },
+) {
   const router = useRouter()
   const toast = useToast()
   const confirm = useConfirm()
@@ -36,9 +54,24 @@ export default function GoalsAdminPanel({ metrics, goals }: { metrics: Metric[];
   const [grain, setGrain] = useState<GoalGrain>('month')
   const [periodStart, setPeriodStart] = useState(thisMonthISO())
   const [target, setTarget] = useState('')
+  const [who, setWho] = useState<string>(COMPANY)
   const [saving, setSaving] = useState(false)
 
   const selected = metrics.find(m => m.key === metric) ?? null
+
+  // Someone deactivated can still hold a target for a period they worked, so they
+  // stay listed — just clearly marked, rather than vanishing and taking the
+  // explanation for an existing row with them.
+  const roster = [...employees].sort((a, b) =>
+    a.is_active === b.is_active ? a.name.localeCompare(b.name) : a.is_active ? -1 : 1)
+
+  // ⚠ Switching to a measure that cannot be per-person snaps the picker back to
+  // the company rather than leaving a person selected that the API would refuse —
+  // a form that lets you build an invalid request and only complains on Save is
+  // the thing this avoids.
+  const personAllowed = selected?.perPerson === true
+  const effectiveWho = personAllowed ? who : COMPANY
+  const employeeId = effectiveWho === COMPANY ? null : effectiveWho
   // Shown before saving, because "which period is this?" is the thing an admin
   // gets wrong — a quarter set from a mid-quarter date is still that quarter.
   const bounds = /^\d{4}-\d{2}-\d{2}$/.test(periodStart) ? periodBounds(grain, periodStart) : null
@@ -53,7 +86,9 @@ export default function GoalsAdminPanel({ metrics, goals }: { metrics: Metric[];
     const res = await fetch('/api/admin/goals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ metric, grain, period_start: periodStart, target: value }),
+      body: JSON.stringify({
+        metric, grain, period_start: periodStart, target: value, employee_id: employeeId,
+      }),
     })
     setSaving(false)
     if (!res.ok) {
@@ -68,9 +103,10 @@ export default function GoalsAdminPanel({ metrics, goals }: { metrics: Metric[];
 
   async function remove(g: Goal) {
     const label = metrics.find(m => m.key === g.metric)?.label ?? g.metric
+    const owner = g.employee_id ? `${g.person_name || 'that person'}'s ` : ''
     const ok = await confirm({
       title: 'Remove this target?',
-      message: `${label} for ${periodLabel(g.grain, g.period_start)} will no longer appear on the Goals report. Nothing else changes.`,
+      message: `${owner}${label} for ${periodLabel(g.grain, g.period_start)} will no longer appear on the Goals report. Nothing else changes.`,
       confirmText: 'Remove',
       danger: true,
     })
@@ -92,12 +128,14 @@ export default function GoalsAdminPanel({ metrics, goals }: { metrics: Metric[];
           What the business is aiming at, for the <strong className="text-gray-300">Goals &amp; Targets</strong> report. Each target is measured against its own period on the
           <strong className="text-gray-300"> Goals &amp; Targets</strong> report, using the same numbers the other
           reports show &mdash; so a goal can never disagree with the report it is judged against. Setting a target for
-          a period that already has one replaces it.
+          a period that already has one replaces it. A target can belong to the whole company or to{' '}
+          <strong className="text-gray-300">one person</strong>; the two are kept separate, so a company target and
+          somebody&rsquo;s own target for the same measure can both exist.
         </p>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 md:p-6">
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-5">
           <label className="block">
             <span className="text-xs text-gray-400">Measure</span>
             <select
@@ -106,6 +144,23 @@ export default function GoalsAdminPanel({ metrics, goals }: { metrics: Metric[];
               className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"
             >
               {metrics.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-xs text-gray-400">Whose target</span>
+            <select
+              value={effectiveWho}
+              onChange={e => setWho(e.target.value)}
+              disabled={!personAllowed}
+              className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm disabled:opacity-60"
+            >
+              <option value={COMPANY}>The whole company</option>
+              {roster.map(e => (
+                <option key={e.id} value={e.id}>
+                  {e.name}{e.is_active ? '' : ' (no longer active)'}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -149,6 +204,17 @@ export default function GoalsAdminPanel({ metrics, goals }: { metrics: Metric[];
         </div>
 
         {selected && <p className="text-gray-500 text-xs mt-3">{selected.help}</p>}
+        {selected && !selected.perPerson && (
+          <p className="text-amber-300/80 text-xs mt-1">
+            Company-wide only. {selected.perPersonBlocker}
+          </p>
+        )}
+        {employeeId && (
+          <p className="text-gray-500 text-xs mt-1">
+            Measured from this person&rsquo;s own figures on the People report. They are credited only with work
+            assigned to them, so individual targets will not add up to a company one.
+          </p>
+        )}
         {bounds && (
           <p className="text-sky-300/80 text-xs mt-1">
             This target will cover <strong>{periodLabel(grain, bounds.start)}</strong> &mdash; {bounds.start} to {bounds.end}.
@@ -180,6 +246,11 @@ export default function GoalsAdminPanel({ metrics, goals }: { metrics: Metric[];
                     <div className="text-sm font-medium truncate">
                       {m?.label ?? g.metric}
                       <span className="text-gray-500 font-normal"> · {periodLabel(g.grain, g.period_start)}</span>
+                    </div>
+                    <div className="text-xs mt-0.5">
+                      {g.employee_id
+                        ? <span className="text-sky-300/80">{g.person_name || 'Someone no longer on the roster'}</span>
+                        : <span className="text-gray-500">The whole company</span>}
                     </div>
                     <div className="text-xs text-gray-500 mt-0.5">
                       {m ? fmtTarget(m.format, g.target) : g.target}
