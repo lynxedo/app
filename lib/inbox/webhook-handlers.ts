@@ -216,7 +216,93 @@ async function handleMessageUpsert(
     }
   }
 
+  // New mail → push. ONLY on message.created: a message.updated is a flag/folder change,
+  // not new mail. Redelivery can't double-push — the webhook route dedupes on
+  // (provider, event_id) before processInboxEvent ever runs. Best-effort: a failed push
+  // must never fail the mirror, which is the part that must not be lost.
+  if (n.type === 'message.created' && threadDbId && providerMessageId) {
+    try {
+      await notifyNewInboundMail(admin, account, threadDbId, providerMessageId)
+    } catch (err) {
+      console.warn('[inbox:webhook] new-mail push failed', err)
+    }
+  }
+
   if (threadDbId) await broadcastInboxUpdate(admin, account.company_id, threadDbId)
+}
+
+// Push for genuinely new inbound mail — the "a customer emailed us" notification.
+// Recipients:
+//   • SHARED mailbox → every inbox MANAGER (admin OR can_manage_shared_inbox) so nothing in
+//     the queue goes unseen, PLUS the assignee and anyone the thread was shared with. A
+//     standard user therefore only ever hears about threads that are actually theirs, while
+//     a manager hears about everything.
+//   • PERSONAL mailbox → its owner alone. A manager must never be pushed someone's personal mail.
+// Per-user muting is enforced downstream by sendHubPush: type 'inbox' routes through the
+// Inbox DND channel, so anyone with Inbox DND on is filtered there, not here.
+async function notifyNewInboundMail(
+  admin: SupabaseClient,
+  account: WebhookAccount,
+  threadDbId: string,
+  providerMessageId: string
+): Promise<void> {
+  const { data: msg } = await admin
+    .from('inbox_messages')
+    .select('direction, from_name, from_email, subject, snippet, deleted_at')
+    .eq('account_id', account.id)
+    .eq('provider_message_id', providerMessageId)
+    .maybeSingle()
+  // Outbound (our own send — the send route already notifies collaborators), or it landed
+  // straight in trash/junk → nothing to announce.
+  if (!msg || msg.direction !== 'inbound' || msg.deleted_at) return
+
+  const { data: thread } = await admin
+    .from('inbox_threads')
+    .select('id, subject, is_shared, assigned_to_user_id, owner_user_id, deleted_at')
+    .eq('id', threadDbId)
+    .maybeSingle()
+  if (!thread || thread.deleted_at) return
+
+  const ids = new Set<string>()
+  if (thread.is_shared) {
+    // Same manager definition the end-of-day digest uses — one rule, not two.
+    const { data: managers } = await admin
+      .from('user_profiles')
+      .select('id')
+      .eq('company_id', account.company_id)
+      .or('role.eq.admin,can_manage_shared_inbox.eq.true')
+    for (const m of (managers ?? []) as { id: string }[]) ids.add(m.id)
+
+    if (thread.assigned_to_user_id) ids.add(thread.assigned_to_user_id as string)
+    const { data: members } = await admin
+      .from('inbox_thread_members')
+      .select('user_id')
+      .eq('thread_id', threadDbId)
+    for (const m of (members ?? []) as { user_id: string }[]) ids.add(m.user_id)
+  } else if (thread.owner_user_id) {
+    ids.add(thread.owner_user_id as string)
+  }
+  if (ids.size === 0) return
+
+  const from = ((msg.from_name as string | null) || (msg.from_email as string | null) || 'Someone').trim()
+  const subject = (
+    (msg.subject as string | null) ||
+    (thread.subject as string | null) ||
+    '(no subject)'
+  ).trim()
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
+
+  await sendHubPush(
+    Array.from(ids),
+    {
+      title: `📧 ${from.slice(0, 60)}`,
+      body: subject.slice(0, 140),
+      url: `${baseUrl}/hub/email/${threadDbId}?source=push`,
+      type: 'inbox',
+      groupKey: threadDbId,
+    },
+    { isDm: true }
+  )
 }
 
 // grant.expired: the mailbox connection needs re-auth. Flag it and DM the owner once.
