@@ -1497,6 +1497,17 @@ function InboxTab() {
         <p className="mt-2">The Inbox landing page also shows an <strong className="text-white">oversight</strong> view — how many threads are unassigned, how many await a reply, and each teammate&apos;s workload.</p>
       </Section>
 
+      <Section title="Notifications">
+        <p>You get a notification on your phone and computer when:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">New email arrives</strong> — every <strong className="text-white">manager</strong> is notified of everything that comes in, so nothing sits in the queue unseen. A <strong className="text-white">standard user</strong> is notified only about conversations assigned or handed to them.</li>
+          <li><strong className="text-white">A conversation is assigned or shared with you</strong>, or someone <strong className="text-white">@mentions you in a note</strong>.</li>
+          <li><strong className="text-white">A follow-up reminder</strong> you set comes due, and a <strong className="text-white">5pm summary</strong> of what&apos;s still open (managers).</li>
+        </ul>
+        <Note>To quiet these, turn on <strong className="text-white">Inbox DND</strong> in <strong className="text-white">Settings → Notifications</strong> — it silences inbox notifications only, and can be put on a schedule so evenings and weekends stay quiet. Master DND silences everything.</Note>
+        <p className="mt-2">Connected a personal work email? Its new mail notifies <em>only you</em> — never the managers.</p>
+      </Section>
+
       <Section title="Signatures">
         <p>Set your own signature in <strong className="text-white">Settings → Account → Email Inbox</strong>. Managers/admins can also set a <strong className="text-white">company default</strong> there (template tokens <code className="text-gray-300">{'{Name}'}</code> / <code className="text-gray-300">{'{Job Title}'}</code>) that fills in per person for anyone who hasn&apos;t set their own.</p>
       </Section>
