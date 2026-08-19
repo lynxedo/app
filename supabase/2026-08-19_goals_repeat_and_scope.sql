@@ -33,8 +33,14 @@
 -- override for its own first month can coexist; until the old index goes, that one
 -- combination returns a 409 that says so rather than a raw 500.
 --
--- ⏭ FOLLOW-UP, once this code is live on prod and staging:
+-- ✅ FOLLOW-UP DONE the same day, as report_goals_drop_old_scope_index_2026_08_19,
+-- once the new code was live on prod (main 4a78a944) and staging (develop f3d21e70)
+-- and both served builds were verified:
 --     drop index if exists report_goals_scope_unique;
+-- Guarded to refuse unless the replacement index existed, so it could not leave the
+-- table with no unique key. Proven afterwards: the route's 6-column upsert target
+-- resolves, re-saving a target replaces rather than duplicates, and a template plus an
+-- override for its own first month now coexist.
 
 alter table report_goals
   add column if not exists repeats boolean not null default false;
