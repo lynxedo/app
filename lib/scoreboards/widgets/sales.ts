@@ -103,7 +103,6 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Close Rate',
         value: r?.close_rate != null ? `${num(r.close_rate)}%` : '—',
         tone: rateTone(r?.close_rate ?? null),
-        judged: true,
         /* Naming the denominator matters: it's decided leads, not all leads.
          * ⚠ And the numerator is `competed_won`, NOT `won` — `won` now includes the
          * stages marked "counts as a sale" (Heroes: Upsells) while `decided` does not,
@@ -165,7 +164,6 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Time to Close',
         value: m != null ? (num(m) === 0 ? 'Same day' : `${num(m)} days`) : '—',
         tone: m == null ? 'neutral' : num(m) <= 2 ? 'good' : num(m) <= 7 ? 'warn' : 'bad',
-        judged: true,
         sub: r && m != null
           ? `Typical (median) of ${num(r.close_time_sample).toLocaleString()} sales · average ${num(r.avg_days_to_close)} days`
           : 'Nothing closed yet',

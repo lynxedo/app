@@ -197,7 +197,6 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Source Coverage',
         value: `${pct}%`,
         tone: pct >= 85 ? 'good' : pct >= 65 ? 'warn' : 'bad',
-        judged: true,
         sub: 'Share of the book with a known lead source',
       }
     },

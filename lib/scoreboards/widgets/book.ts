@@ -385,8 +385,15 @@ export const BOOK_WIDGETS: WidgetDef<WidgetPayload>[] = [
         kind: 'kpi',
         label: String(cfg.label).trim() || name,
         value: denom > 0 ? `${pct}%` : '—',
-        tone: pct >= 25 ? 'good' : pct >= 10 ? 'warn' : 'neutral',
-        judged: true,
+        /* ⚠ Monotonic, which it was NOT. The band used to be
+         *   pct >= 25 ? 'good' : pct >= 10 ? 'warn' : 'neutral'
+         * so a 5% attach rate rendered CALMER than a 14.9% one — worse news in a
+         * quieter colour, which is the one thing a tone must never do. The 10%
+         * boundary is gone rather than moved; nobody chose it either. 25% stays only
+         * because it is what the card has always shown, and it is the admin's to
+         * change — ⚠ note that a target is NOT currently the answer for this one, as
+         * the recurring book takes no dates and so cannot be a goal metric. */
+        tone: pct >= 25 ? 'good' : 'warn',
         sub: denom > 0
           ? `${hit} of ${denom} recurring job${denom === 1 ? '' : 's'} on ${scope} · ${AS_OF}`
           : `No active recurring jobs on ${scope}`,
