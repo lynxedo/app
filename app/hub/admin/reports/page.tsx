@@ -6,7 +6,7 @@ import ReportAccessPanel from './ReportAccessPanel'
 import GoalsAdminPanel from './GoalsAdminPanel'
 import CommissionAdminPanel from './CommissionAdminPanel'
 import RecurringProgramsPanel, { type ProgramRow, type UnmappedRow } from './RecurringProgramsPanel'
-import { GOAL_METRICS } from '@/lib/reports/goals'
+import { GOAL_METRICS, GOAL_GRAINS } from '@/lib/reports/goals'
 import { normalizeTiers, type CommissionBasis, type RateKind } from '@/lib/reports/commission'
 
 export const metadata = { title: 'Reports Admin' }
@@ -202,7 +202,8 @@ export default async function ReportsAdminPage() {
       <ReportAccessPanel reports={reports} users={users} initialAccess={access} teamSlug={PEOPLE_TEAM_SLUG} />
       <GoalsAdminPanel
         metrics={GOAL_METRICS.map(m => ({
-          key: m.key, label: m.label, format: m.format, help: m.help,
+          key: m.key, label: m.label, group: m.group, format: m.format, help: m.help,
+          direction: m.direction, grains: [...(m.grains ?? GOAL_GRAINS)],
           perPerson: m.perPerson, perPersonBlocker: m.perPersonBlocker ?? null,
         }))}
         goals={(goalRows ?? []).map(g => ({

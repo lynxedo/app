@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getGoalMetric, metricSupportsPerson, periodBounds, GOAL_GRAINS, type GoalGrain } from '@/lib/reports/goals'
+import {
+  getGoalMetric, metricSupportsPerson, metricAllowsGrain, grainsForMetric,
+  periodBounds, GOAL_GRAINS, type GoalGrain,
+} from '@/lib/reports/goals'
 
 // Admin-only: set and clear the targets behind Reports → Goals & Targets (§8.11).
 //
@@ -37,7 +40,8 @@ export async function POST(request: Request) {
   const rawEmployee = String(body.employee_id ?? '').trim()
   const employeeId = rawEmployee && rawEmployee !== 'company' ? rawEmployee : null
 
-  if (!getGoalMetric(metric)) {
+  const metricDef = getGoalMetric(metric)
+  if (!metricDef) {
     return NextResponse.json({ error: 'Unknown metric' }, { status: 400 })
   }
   if (!GOAL_GRAINS.includes(grain)) {
@@ -49,6 +53,24 @@ export async function POST(request: Request) {
   if (!Number.isFinite(target) || target <= 0) {
     return NextResponse.json({ error: 'Target must be a number above zero' }, { status: 400 })
   }
+  // ⚠ Refused rather than stored: retention and churn come from a function that
+  // takes a YEAR, so a monthly retention target is not a smaller version of the
+  // same question — nothing could ever measure it, and it would sit on the report
+  // reading "No data" while looking like a commitment somebody made.
+  if (!metricAllowsGrain(metric, grain)) {
+    const allowed = grainsForMetric(metric)
+      .map(x => (x === 'month' ? 'monthly' : x === 'quarter' ? 'quarterly' : 'yearly'))
+    return NextResponse.json({
+      error: `${metricDef.label} can only be set ${allowed.join(' or ')}. ${metricDef.help}`,
+    }, { status: 400 })
+  }
+  // A percentage above 100 is a typo, not a stretch goal — and 8500 instead of 85
+  // would render as a target nothing can ever reach.
+  if (metricDef.format === 'percent' && target > 100) {
+    return NextResponse.json({
+      error: `${metricDef.label} is a percentage, so the target has to be 100 or less.`,
+    }, { status: 400 })
+  }
 
   const admin = createAdminClient()
 
@@ -58,10 +80,9 @@ export async function POST(request: Request) {
     // actual would sit on the report reading "no data" forever while looking
     // like a real commitment somebody made.
     if (!metricSupportsPerson(metric)) {
-      const m = getGoalMetric(metric)
       return NextResponse.json({
-        error: m?.perPersonBlocker
-          ? `${m.label} cannot be set for one person. ${m.perPersonBlocker}`
+        error: metricDef.perPersonBlocker
+          ? `${metricDef.label} cannot be set for one person. ${metricDef.perPersonBlocker}`
           : 'That measure cannot be set for one person.',
       }, { status: 400 })
     }
