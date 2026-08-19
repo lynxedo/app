@@ -2,8 +2,7 @@ import { NextResponse, after } from 'next/server'
 import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
-import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
-import { getHubBotUserId } from '@/lib/guardian-post'
+import { postOfficeAlert } from '@/lib/office-alerts'
 
 // Angi "Standard Lead API" webhook.
 //
@@ -19,9 +18,8 @@ import { getHubBotUserId } from '@/lib/guardian-post'
 export const runtime = 'nodejs'
 
 const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
-// The company's Hub bot (resolved via getHubBotUserId) posts system messages into
-// the Hub "office" room.
-const OFFICE_ROOM_ID = 'cebac7e5-caf8-400c-a15d-5eb9d81e1967'
+// The company's Hub bot posts the lead alert into the "Office Alerts" room
+// (resolved per company by lib/office-alerts.ts).
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a)
@@ -191,26 +189,19 @@ export async function POST(request: Request) {
     created_by: 'Angi',
   })
 
-  // Alert the Hub "office" room so someone works the lead fast (speed-to-lead).
-  // Best-effort — a messaging hiccup must never fail the lead ingest.
-  try {
+  // Alert the "Office Alerts" room so someone works the lead fast
+  // (speed-to-lead). Headline names the caller + number; the rest goes in the
+  // thread. Best-effort — a messaging hiccup must never fail the lead ingest.
+  {
     const leadName = [first, last].filter(Boolean).join(' ') || 'Unknown name'
-    const line2 = [svc && `Service: ${svc}`, phone, service_address].filter(Boolean).join(' · ')
-    const content = `📥 New Angi lead: ${leadName}${line2 ? `\n${line2}` : ''}\nOpen the Lead Tracker → /hub/tracker`
-    const botUserId = await getHubBotUserId(admin, HEROES_COMPANY_ID)
-    if (!botUserId) throw new Error(`no Hub bot for company ${HEROES_COMPANY_ID}`)
-    const { data: alertMsg } = await admin
-      .from('messages')
-      .insert({ company_id: HEROES_COMPANY_ID, room_id: OFFICE_ROOM_ID, sender_id: botUserId, content })
-      .select('id')
-      .single()
-    if (alertMsg) {
-      after(() => broadcastMessageInserted({
-        messageId: alertMsg.id, roomId: OFFICE_ROOM_ID, conversationId: null, parentId: null, senderId: botUserId,
-      }))
-    }
-  } catch (e) {
-    console.error('[angi] office-room alert failed:', (e as Error).message)
+    await postOfficeAlert(admin, HEROES_COMPANY_ID, {
+      title: `📥 New Angi lead: ${leadName}${phone ? ` ${phone}` : ''}`,
+      details: [
+        svc && `Service: ${svc}`,
+        service_address,
+        'Open the Lead Tracker → /hub/tracker',
+      ],
+    })
   }
 
   // (Email displays via the built-in Email column in the Lead Tracker as of

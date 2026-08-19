@@ -2,8 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchNewLsaLeads, googleAdsConfigured, type LsaLead } from '@/lib/google-ads'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
-import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
-import { getHubBotUserId } from '@/lib/guardian-post'
+import { postOfficeAlert } from '@/lib/office-alerts'
 
 // Google Local Services Ads (LSA) lead poller.
 //
@@ -12,7 +11,7 @@ import { getHubBotUserId } from '@/lib/guardian-post'
 // connection + a customer id, it pulls new local_services_lead rows via the
 // Google Ads API and drops each into the SAME destination as the Angi webhook:
 // a `leads` row (Lead Tracker) + first note + unified contacts directory + an
-// office-room alert. Ingest only — no texting in v1 (drip is a later phase).
+// alerts-room post. Ingest only — no texting in v1 (drip is a later phase).
 //
 // Dedup is durable: every processed Google lead id is recorded in
 // `lsa_seen_leads` (keyed on company_id + google_lead_id). That ledger is the
@@ -24,7 +23,7 @@ import { getHubBotUserId } from '@/lib/guardian-post'
 //
 // Phone-call leads are SKIPPED by default: an LSA phone-call lead is a live call
 // that already rings the business line and shows up in the Dialer/call log, so a
-// tracker card + office post is just a redundant echo. Set
+// tracker card + alerts post is just a redundant echo. Set
 // GLSA_INGEST_PHONE_CALL_LEADS=true to ingest them anyway. Message/booking leads
 // (which carry a name) are always ingested.
 
@@ -32,12 +31,11 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
-const OFFICE_ROOM_ID = 'cebac7e5-caf8-400c-a15d-5eb9d81e1967'
 // Matches the existing Lead Tracker "Lead Source" dropdown option so the cell
 // shows selected (same trick as the Angi webhook's 'Angi Lead').
 const LEAD_SOURCE = process.env.GLSA_LEAD_SOURCE || 'Google (GBP / LSA)'
 // Phone-call LSA leads are live calls already captured by the Dialer/call log,
-// so by default we don't create a tracker card or office post for them.
+// so by default we don't create a tracker card or alerts post for them.
 // Reversible without a deploy: set GLSA_INGEST_PHONE_CALL_LEADS=true.
 const INGEST_PHONE_CALL_LEADS = process.env.GLSA_INGEST_PHONE_CALL_LEADS === 'true'
 
@@ -210,35 +208,18 @@ export async function POST(req: Request) {
         created_by: 'Google LSA',
       })
 
-      // Office-room alert so someone works the lead fast (speed-to-lead).
+      // Alerts-room post so someone works the lead fast (speed-to-lead).
+      // Headline names the caller + number; the rest goes in the thread.
       // Best-effort — a messaging hiccup must never fail the ingest.
-      try {
-        const leadName = [first, last].filter(Boolean).join(' ') || 'Unknown name'
-        const line2 = [phone, lead.leadType && `(${lead.leadType.replace(/_/g, ' ').toLowerCase()})`]
-          .filter(Boolean)
-          .join(' ')
-        const content = `📥 New Google LSA lead: ${leadName}${line2 ? `\n${line2}` : ''}\nOpen the Lead Tracker → /hub/tracker`
-        const botUserId = await getHubBotUserId(admin, companyId)
-        if (!botUserId) throw new Error(`no Hub bot for company ${companyId}`)
-        const { data: alertMsg } = await admin
-          .from('messages')
-          .insert({ company_id: companyId, room_id: OFFICE_ROOM_ID, sender_id: botUserId, content })
-          .select('id')
-          .single()
-        if (alertMsg) {
-          after(() =>
-            broadcastMessageInserted({
-              messageId: alertMsg.id,
-              roomId: OFFICE_ROOM_ID,
-              conversationId: null,
-              parentId: null,
-              senderId: botUserId,
-            }),
-          )
-        }
-      } catch (e) {
-        console.error('[lsa-poll] office-room alert failed:', (e as Error).message)
-      }
+      const leadName = [first, last].filter(Boolean).join(' ') || 'Unknown name'
+      await postOfficeAlert(admin, companyId, {
+        title: `📥 New Google LSA lead: ${leadName}${phone ? ` ${phone}` : ''}`,
+        details: [
+          lead.leadType && `Lead type: ${lead.leadType.replace(/_/g, ' ').toLowerCase()}`,
+          lead.email && `Email: ${lead.email}`,
+          'Open the Lead Tracker → /hub/tracker',
+        ],
+      })
 
       // Unified contacts directory (best-effort; never blocks the lead).
       after(() =>

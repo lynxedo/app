@@ -608,6 +608,19 @@ function HubTab() {
         </AdminOnly>
       </Section>
 
+      <Section title="Office Alerts">
+        <p>Automated alerts land in their own room called <strong className="text-white">Office Alerts</strong>, so the working <em>office</em> room stays for actual conversation. Three things post there: calls the AI receptionist takes, new Google Local Services (LSA) leads, and new Angi leads.</p>
+        <p className="mt-3"><strong className="text-white">Each alert is one line, with the detail in a thread.</strong> The post itself is just who it was and how to reach them — for example <em>📇 Customer service call from Sonia Belvin ((832) 567-0670)</em> — so the room reads as a scannable list of what came in. Tap <em>1 reply</em> under it to read the rest: what they wanted, the service and address, urgency, and the link to go work it.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-3">
+          <li><strong className="text-white">🔴 at the front</strong> means urgent — a complaint, or a call marked high urgency.</li>
+          <li><strong className="text-white">🔥 Soft commitment</strong> in the thread means the caller said yes to moving forward.</li>
+          <li>Alerts don&apos;t send a push or a DM — the room post is the only notification, so keep the room where you&apos;ll see it.</li>
+        </ul>
+        <AdminOnly>
+          <p>Membership is just the room&apos;s member list — whoever is in <strong className="text-white">Office Alerts</strong> sees the alerts. Add or remove people in <strong className="text-white">/admin/hub → Rooms</strong>. If the room is ever renamed or deleted, alerts fall back to the <em>office</em> room rather than disappearing.</p>
+        </AdminOnly>
+      </Section>
+
       <Section title="Direct Messages (DMs)">
         <p>DMs are private conversations between two people, or a small group.</p>
         <Step n={1}>Click <strong className="text-white">+ New DM</strong> in the sidebar.</Step>
