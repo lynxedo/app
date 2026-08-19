@@ -838,9 +838,13 @@ const DRILLDOWNS: DrillSpec[] = [
       )
       if (!wanted.size) return []
 
-      /* ⚠ Same cohort as every Sales card and as the commission bases: leads CREATED
-       * in the window. Filtering on sold_date instead would list a different set than
-       * the figure was computed from — §8.3's lesson, inverted. */
+      /* ⚠⚠ Filtered on SOLD_DATE, matching the commission bases. This used to filter
+       * `lead_creation_date` with a comment explaining that the bases did the same —
+       * and when the bases moved to close date the comment became the bug it was
+       * written to prevent, since a downloaded list quietly holding different rows
+       * than the total above it is the kind of thing nobody notices until it is in a
+       * spreadsheet. A won lead always has a sold date (checked: 0 of 474 in 2026 do
+       * not), so nothing falls out of the list by moving. */
       const rows = await fetchAllRows<{
         stage: string | null; salesperson: string | null; annual_value: number | null
         lead_creation_date: string | null; sold_date: string | null
@@ -849,10 +853,10 @@ const DRILLDOWNS: DrillSpec[] = [
         .from('leads')
         .select('stage, salesperson, annual_value, lead_creation_date, sold_date, first_name, last_name, base_program_sold')
         .eq('company_id', companyId)
-        .gte('lead_creation_date', win.start)
-        .lte('lead_creation_date', win.end)
+        .gte('sold_date', win.start)
+        .lte('sold_date', win.end)
         // Stable order so paging cannot drop or repeat a row at a page edge.
-        .order('lead_creation_date', { ascending: false }))
+        .order('sold_date', { ascending: false }))
 
       return rows
         .filter(r => {
