@@ -121,7 +121,6 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         // Collection rate, not raw dollars, decides the colour: $50k collected is
         // good or bad only relative to what was billed.
         tone: rate == null ? 'neutral' : rate >= 97 ? 'good' : rate >= 90 ? 'warn' : 'bad',
-        judged: true,
         sub: r && rate != null
           ? `${rate}% of what was invoiced ${win.phrase}`
           : 'Nothing invoiced yet',
@@ -197,7 +196,6 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Days to Payment',
         value: median != null ? (num(median) === 0 ? 'Same day' : `${num(median)} days`) : '—',
         tone: median == null ? 'neutral' : num(median) <= 7 ? 'good' : num(median) <= 30 ? 'warn' : 'bad',
-        judged: true,
         sub: r && r.avg_days_to_pay != null
           ? `Typical (median) of ${num(r.paid_count).toLocaleString()} paid · average ${num(r.avg_days_to_pay)} days`
           : 'Nothing paid yet in this period',

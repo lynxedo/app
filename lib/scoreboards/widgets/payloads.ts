@@ -22,19 +22,33 @@ export type KpiPayload = {
   sub?: string
   tone?: Tone
   /**
-   * True when `tone` is a VERDICT on this figure, not a colour choice.
+   * True when this tile's `tone` is a verdict the COMPANY would recognise — safe for
+   * the board narrator to repeat as a finding.
    *
-   * ⚠⚠ Added because the board narrator cannot tell the two apart and got it wrong:
-   * `kpi_commission_total` is amber because commission is money you owe, and
-   * `kpi_book_value` is green because a book is a good thing to have — neither is a
-   * judgement, yet a first pass read them as "flagged" and "reading well". Set this
-   * only where the tone is derived from the tile's OWN value against a threshold,
-   * which is the whole test.
+   * ⚠⚠ TWO ROUNDS OF GETTING THIS WRONG, both worth keeping. First the narrator read
+   * `tone` directly and reported "Flagged: Commission Owed $7,299" (amber because
+   * commission is money you owe) and "Reading well: WF Annual Value $284,288" (green
+   * because a book is a good thing to have). So this flag was added, set wherever the
+   * tone was COMPUTED from the tile's own value — and Ben immediately asked why the
+   * card was calling out a 14.9% add-on attach rate. Because `pct >= 25 ? 'good' :
+   * pct >= 10 ? 'warn'` is a threshold NOBODY AT THE COMPANY CHOSE. Computed is not
+   * the same as defensible.
    *
-   * ⚠ Absent means "don't read anything into the colour", so a tile that forgets it
-   * is merely left out of the narrative rather than described wrongly. Fail closed,
-   * because a card that invents a problem in front of the owner is far worse than one
-   * that stays quiet.
+   * ⚠⚠ THE RULE, therefore: set this only where the tone turns on a FACT — something
+   * either happened or it did not (a text failed, a voicemail is unheard, money is
+   * past due, an approved quote was never converted) — or on a comparison against
+   * something the company itself set (a target) or its own measured average. A
+   * comparison against a non-zero number picked by a developer is an opinion the
+   * product has no standing to assert, and the narrator must not launder it into a
+   * sentence. Asserted mechanically in the test suite.
+   *
+   * ⚠ A tile keeps its colour either way — this governs only whether the narrative
+   * SPEAKS for it. The way to make the narrative flag a figure is to set a target for
+   * it, which is what Goals & Targets is for.
+   *
+   * ⚠ Absent means "read nothing into the colour", so a tile that forgets this is
+   * left out rather than described wrongly. Fail closed: a card that invents a problem
+   * in front of the owner is far worse than one that stays quiet.
    */
   judged?: boolean
   /**

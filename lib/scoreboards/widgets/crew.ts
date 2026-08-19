@@ -108,7 +108,6 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Revenue per Labor Hour',
         value: v != null ? `${formatCurrency(num(v))}/hr` : '—',
         tone: v == null ? 'neutral' : num(v) >= 75 ? 'good' : num(v) >= 50 ? 'warn' : 'bad',
-        judged: true,
         sub: r && r.coverage.has_data
           ? `${formatCurrency(num(r.revenue))} of work ÷ ${num(r.hours).toLocaleString()} clocked hours · ${periodPhrase(r, win)}`
           : 'No timeclock data for this period',
@@ -179,7 +178,6 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: who ? `Revenue per Hour — ${who}` : 'Revenue per Hour — One Person',
         value: rate != null ? `${formatCurrency(rate)}/hr` : '—',
         tone: rate == null ? 'neutral' : rate >= 100 ? 'good' : rate >= 50 ? 'warn' : 'bad',
-        judged: true,
         sub: rate != null
           ? [
               `${formatCurrency(revenue)} of work ÷ ${hours.toLocaleString(undefined, { maximumFractionDigits: 1 })} clocked hours`,
@@ -236,7 +234,6 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
         value: p != null ? `${num(p)}%` : '—',
         // Field labor in this trade typically runs 25–35%; above 40 is a warning.
         tone: p == null ? 'neutral' : num(p) <= 30 ? 'good' : num(p) <= 40 ? 'warn' : 'bad',
-        judged: true,
         // ⚠ Named precisely: salaried staff don't clock, so this is field wages,
         // not total payroll. Calling it "labor cost" flat would overstate margin.
         sub: r
@@ -311,7 +308,6 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
         value: pct != null ? `${pct}%` : '—',
         // Same bands as the company card, so the two read on one scale.
         tone: pct == null ? 'neutral' : pct <= 30 ? 'good' : pct <= 40 ? 'warn' : 'bad',
-        judged: true,
         sub: pct != null
           ? [
               `${formatCurrency(cost)} in their wages ÷ ${formatCurrency(revenue)} of work credited to them`,
