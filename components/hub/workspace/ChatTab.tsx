@@ -12,14 +12,21 @@
  * (`hasMoreOlder` keys off `initialMessages.length >= page size`). The SELECT
  * mirrors the server room/DM page.
  *
- * ⚠ v1 simplifications (self-correcting, non-blocking): seeded rows carry
- * reply_count 0 + no forwarded-original preview (fix themselves via realtime /
- * opening a thread); the DM "read by" roster isn't seeded (server-admin-only) —
- * the live receipts channel still streams once mounted.
+ * ⚠ Reply counts ARE fetched here (second query below). They must be: the feed
+ * renders its "N replies" link from `reply_count`, and the in-feed increment
+ * only fires on a realtime NEW reply — so a seeded 0 hides every thread that
+ * already existed when the tab opened, permanently. The server room/DM pages
+ * fetch the same counts; a tab is the other data path into the same feed.
+ *
+ * ⚠ v1 simplifications (self-correcting, non-blocking): seeded rows carry no
+ * forwarded-original preview (fixes itself via realtime / opening a thread);
+ * the DM "read by" roster isn't seeded (server-admin-only) — the live receipts
+ * channel still streams once mounted.
  */
 
 import { useEffect, useState, type ComponentProps } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { selectInChunks } from '@/lib/supabase/chunked-in'
 import RoomView from '@/components/hub/RoomView'
 import type { HubMessage } from '@/components/hub/MessageFeed'
 
@@ -62,11 +69,23 @@ export default function ChatTab({
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .limit(50)
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         if (!alive) return
         const rows = ((data ?? []) as unknown as HubMessage[]).slice().reverse()
+
+        // Thread reply counts, mirroring the server room/DM pages. Chunked
+        // because PostgREST puts `.in()` ids in the URL.
+        const replyRows = await selectInChunks<{ parent_id: string }>(
+          rows.map(m => m.id),
+          batch => supabase.from('messages')
+            .select('parent_id').in('parent_id', batch).is('deleted_at', null),
+        )
+        if (!alive) return
+        const counts: Record<string, number> = {}
+        for (const r of replyRows) counts[r.parent_id] = (counts[r.parent_id] ?? 0) + 1
+
         for (const m of rows) {
-          m.reply_count = m.reply_count ?? 0
+          m.reply_count = counts[m.id] ?? 0
           m.forwarded_original = m.forwarded_original ?? null
         }
         setInitial(rows)
