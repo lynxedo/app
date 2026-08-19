@@ -49,6 +49,19 @@ function todayInBusinessTz(): { y: number; m: number; d: number } {
   return { y: get('year'), m: get('month'), d: get('day') }
 }
 
+/**
+ * Today on the business's clock, YYYY-MM-DD.
+ *
+ * Exported so the ONE definition of "today" is shared: the narrating widget has to
+ * know whether the last month on a chart is finished before it may call a fall a
+ * fall, and a second copy of this that drifted to UTC would get that wrong for six
+ * hours a day.
+ */
+export function businessToday(): string {
+  const t = todayInBusinessTz()
+  return ymd(t.y, t.m, t.d)
+}
+
 const pad = (n: number) => String(n).padStart(2, '0')
 const ymd = (y: number, m: number, d: number) => `${y}-${pad(m)}-${pad(d)}`
 function lastDayOfMonth(y: number, m: number): number {

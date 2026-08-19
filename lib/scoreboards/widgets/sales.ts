@@ -103,6 +103,7 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Close Rate',
         value: r?.close_rate != null ? `${num(r.close_rate)}%` : '—',
         tone: rateTone(r?.close_rate ?? null),
+        judged: true,
         /* Naming the denominator matters: it's decided leads, not all leads.
          * ⚠ And the numerator is `competed_won`, NOT `won` — `won` now includes the
          * stages marked "counts as a sale" (Heroes: Upsells) while `decided` does not,
@@ -164,6 +165,7 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Time to Close',
         value: m != null ? (num(m) === 0 ? 'Same day' : `${num(m)} days`) : '—',
         tone: m == null ? 'neutral' : num(m) <= 2 ? 'good' : num(m) <= 7 ? 'warn' : 'bad',
+        judged: true,
         sub: r && m != null
           ? `Typical (median) of ${num(r.close_time_sample).toLocaleString()} sales · average ${num(r.avg_days_to_close)} days`
           : 'Nothing closed yet',
@@ -368,6 +370,7 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
 
       return {
         kind: 'stacked',
+        format: 'currency',
         title: withPeopleTitle('Sales by Person over Time', f),
         sub: `${windowPhrase(w, cfg, periods.length)} · ${notes.join(' · ')}`,
         // ⚠ Magnitude, not normalised: a $12k month and a $60k month must not draw
@@ -570,6 +573,7 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
       })
       return {
         kind: 'stacked',
+        format: 'currency',
         title: 'New Business vs Upsells',
         // ⚠ 'magnitude', not the default 'share': normalising every month to 100%
         // would answer "what was the mix" while hiding that one month sold twice as

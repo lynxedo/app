@@ -302,6 +302,7 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: scopeTitle('Goals on track', scope, goals),
         value: `${good} of ${live.length}`,
         tone: good === live.length ? 'good' : good === 0 ? 'bad' : 'warn',
+        judged: true,
         sub: [
           withScope(`${win.phrase} · targets still open`, scope, goals),
           waiting ? `${waiting} not judged until the period ends` : null,
@@ -332,6 +333,7 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: scopeTitle('Targets hit', scope, goals),
         value: closed.length ? `${hit} of ${closed.length}` : '—',
         tone: closed.length === 0 ? 'neutral' : hit === closed.length ? 'good' : hit === 0 ? 'bad' : 'warn',
+        judged: true,
         // Only finished periods count here: judging a month that is half over
         // as "missed" would make every current target look like a failure.
         sub: closed.length
@@ -525,6 +527,32 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
     },
   },
 ]
+
+/* ── Shared with the board-level narrator ───────────────────────────────────
+ *
+ * ⚠⚠ Exported rather than reimplemented, and that is the whole point: a sentence
+ * saying "Mike is behind on work produced" sitting above a table that says "On
+ * track" is the worst thing this feature could do. One scope filter, one status
+ * word, one set of units — so the narrative cannot disagree with the card beside
+ * it, because it is reading the same code.
+ *
+ * Renamed on the way out only because names like `scoped`, `fmt` and `whose` are
+ * fine inside this file and useless in another.
+ */
+export {
+  goalsReq as goalRequest,
+  scoped as scopedGoals,
+  GOAL_SCOPE_CONFIG,
+  STATUS_TEXT as goalStatusText,
+  STATUS_TONE as goalStatusTone,
+  fmt as formatGoalValue,
+  fmtTarget as formatGoalTarget,
+  whose as goalOwner,
+  scopePhrase as goalScopePhrase,
+  emptyBecause as goalsEmptyBecause,
+  periodCell as goalPeriodCell,
+}
+export type { GoalScope }
 
 export const GOALS_REPORT_PRESET: { type: string; span: number }[] = [
   { type: 'kpi_goals_on_track', span: 3 },

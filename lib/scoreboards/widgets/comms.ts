@@ -101,6 +101,7 @@ export const COMMS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Missed Call Rate',
         value: p != null ? `${num(p)}%` : '—',
         tone: p == null ? 'neutral' : num(p) <= 10 ? 'good' : num(p) <= 25 ? 'warn' : 'bad',
+        judged: true,
         // The headline is honest only with the breakdown attached — a third of
         // these left a voicemail and are still reachable.
         sub: r
@@ -127,6 +128,7 @@ export const COMMS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Speed to Answer',
         value: m != null ? dur(m) : '—',
         tone: m == null ? 'neutral' : num(m) <= 15 ? 'good' : num(m) <= 30 ? 'warn' : 'bad',
+        judged: true,
         sub: r && m != null
           ? `Typical (median) of ${num(r.answer_sample).toLocaleString()} answered · average ${dur(r.avg_answer_sec)}`
           : 'Nothing answered in this period',
@@ -150,6 +152,7 @@ export const COMMS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Text Response Time',
         value: m != null ? dur(m) : '—',
         tone: m == null ? 'neutral' : num(m) <= 900 ? 'good' : num(m) <= 3600 ? 'warn' : 'bad',
+        judged: true,
         /* Median AND the slow tail: the middle reply is minutes while the slowest
          * tenth is hours, and only the second number tells you someone is waiting
          * overnight. One figure alone would hide whichever story matters. */
@@ -176,6 +179,7 @@ export const COMMS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Texts Sent',
         value: r ? num(r.texts_out).toLocaleString() : '—',
         tone: failed > 0 ? 'warn' : 'neutral',
+        judged: true,
         sub: r
           ? `${num(r.texts_in).toLocaleString()} received${failed > 0 ? ` · ⚠ ${failed} failed to deliver` : ''}`
           : 'No texts in this period',
@@ -199,6 +203,7 @@ export const COMMS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Voicemails',
         value: r ? num(r.voicemails).toLocaleString() : '—',
         tone: unheard > 0 ? 'bad' : 'good',
+        judged: true,
         sub: unheard > 0
           ? `⚠ ${unheard} still unheard`
           : 'All heard',

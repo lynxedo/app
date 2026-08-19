@@ -8,11 +8,23 @@
  * Second benefit, almost as valuable: a failing source no longer takes the whole
  * board down. Today one bad query returns 500 and the screen is blank; here the
  * widgets that needed it show an error and everything else still renders.
+ *
+ * There is one exception to the isolation, added last and deliberately narrow: a
+ * NARRATING widget (see `narrate` in ./types.ts) reads the finished payloads of the
+ * cards beside it, so it runs in a second pass after every ordinary metric. It
+ * fetches nothing of its own, and because a custom board drops widgets the viewer
+ * isn't entitled to before any of this runs, it can only ever describe cards that
+ * viewer can already see.
  */
 
 import { getWidgetDef } from './registry'
 import { getSourceExecutor, type SourceContext } from './sources'
-import { sourceKey, withDefaults, type BoardLayout, type SourceBag, type SourceRequest, type WindowSpec } from './types'
+import {
+  sourceKey, withDefaults,
+  type BoardLayout, type NarrativeBag, type NarrativeSibling, type SourceBag,
+  type SourceRequest, type WindowSpec,
+} from './types'
+import { businessToday } from './windows'
 import type { WidgetPayload } from './payloads'
 
 export type ResolvedBoard = {
@@ -41,15 +53,18 @@ export async function resolveBoard(
   /* 1 — collect declared requests, deduped by (source, sorted params). */
   const wanted = new Map<string, SourceRequest>()
   let requested = 0
-  const plans: { id: string; type: string }[] = []
+  const plans: { id: string; type: string; requests: SourceRequest[] }[] = []
+  /* Narrators are held back for pass 4 — their input is pass 3's output. */
+  const narrators: { id: string; type: string }[] = []
 
   for (const inst of layout.widgets) {
     const def = getWidgetDef(inst.type)
     if (!def) { errors[inst.id] = `Unknown widget "${inst.type}"`; continue }
+    if (def.narrate) { narrators.push({ id: inst.id, type: inst.type }); continue }
     const cfg = withDefaults(def.config, inst.config)
     let reqs: SourceRequest[]
     try {
-      reqs = def.sources(cfg, win)
+      reqs = def.sources ? def.sources(cfg, win) : []
     } catch (err) {
       errors[inst.id] = err instanceof Error ? err.message : 'Could not work out what this widget needs'
       continue
@@ -59,7 +74,7 @@ export async function resolveBoard(
       const k = sourceKey(r)
       if (!wanted.has(k)) wanted.set(k, r)
     }
-    plans.push({ id: inst.id, type: inst.type })
+    plans.push({ id: inst.id, type: inst.type, requests: reqs })
   }
 
   /* 2 — run each unique source once. A failure is recorded, not thrown, so one
@@ -95,11 +110,63 @@ export async function resolveBoard(
     }
 
     try {
+      if (!def.metric) { errors[inst.id] = `Widget "${plan.type}" has nothing to compute`; continue }
       const payload = def.metric(bag, cfg, win)
       if (missing.length) { errors[inst.id] = missing[0]; continue }
       data[inst.id] = payload
     } catch (err) {
       errors[inst.id] = err instanceof Error ? err.message : 'Could not build this widget'
+    }
+  }
+
+  /* 4 — the narrating widgets, now that every ordinary payload exists.
+   *
+   * ⚠ `siblings` deliberately excludes other narrators, so one board's two
+   * narrative cards each read the ordinary cards and neither describes the other.
+   * ⚠ A card that FAILED is passed with a null payload rather than dropped: the
+   * narrator's job includes saying what it could not read, and a card missing from
+   * the list is indistinguishable from a card it chose not to understand. */
+  if (narrators.length) {
+    const siblings: NarrativeSibling[] = plans.map(plan => {
+      const inst = layout.widgets.find(w => w.id === plan.id)
+      const def = getWidgetDef(plan.type)
+      return {
+        id: plan.id,
+        type: plan.type,
+        group: def?.group ?? '',
+        title: def?.title ?? plan.type,
+        config: def ? withDefaults(def.config, inst?.config) : (inst?.config ?? {}),
+        requests: plan.requests,
+        payload: data[plan.id] ?? null,
+      }
+    })
+
+    /* Reads only what pass 2 already fetched. `has` is what keeps "nothing asked
+     * for this" distinct from "this ran and found nothing" — see ./types.ts. */
+    const narrativeBag: NarrativeBag = {
+      has(req: SourceRequest): boolean {
+        return rowsByKey.has(sourceKey(req))
+      },
+      get<T>(req: SourceRequest): T[] {
+        return (rowsByKey.get(sourceKey(req)) ?? []) as T[]
+      },
+    }
+
+    const today = businessToday()
+
+    for (const n of narrators) {
+      const inst = layout.widgets.find(w => w.id === n.id)
+      const def = getWidgetDef(n.type)
+      if (!inst || !def?.narrate) continue
+      try {
+        data[n.id] = def.narrate(
+          { siblings, bag: narrativeBag, today },
+          withDefaults(def.config, inst.config),
+          win,
+        )
+      } catch (err) {
+        errors[n.id] = err instanceof Error ? err.message : 'Could not build this widget'
+      }
     }
   }
 

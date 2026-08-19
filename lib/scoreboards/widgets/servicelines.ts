@@ -105,6 +105,7 @@ export const SERVICE_LINE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Revenue After Labor',
         value: r ? formatCurrency(left) : '—',
         tone: pct == null ? 'neutral' : pctTone(pct),
+        judged: true,
         sub: r && pct != null
           ? `${pct}% of ${formatCurrency(rev)} · before materials, fuel and overhead`
           : 'No work in this period',
@@ -149,6 +150,7 @@ export const SERVICE_LINE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Weakest Line',
         value: worst ? lineName(worst.dept) : '—',
         tone: worst ? pctTone(num(worst.after_labor_pct)) : 'neutral',
+        judged: true,
         sub: worst
           ? `${formatCurrency(num(worst.rev_per_hour))} per labor hour · ${num(worst.after_labor_pct)}% left after wages`
           : 'Not enough data to compare',
@@ -175,6 +177,7 @@ export const SERVICE_LINE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Unassigned Field Time',
         value: r ? `${hrs.toLocaleString()} hrs` : '—',
         tone: pct >= 25 ? 'warn' : 'neutral',
+        judged: true,
         sub: r
           ? `${formatCurrency(num(r.unassigned_cost))} · ${pct}% of paid hours on days with no completed visit`
           : 'No hours in this period',

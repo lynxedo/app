@@ -328,6 +328,7 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
       const only = linePhrase(cfg)
       return {
         kind: 'stacked',
+        format: 'currency',
         title: only ? `Visit Revenue — ${only}` : 'Visit Revenue by Service Line',
         // The by-line series is computed at visit level with no technician
         // fan-out, so these bars sum EXACTLY to the company total — verified to
@@ -415,6 +416,7 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
 
       return {
         kind: 'stacked',
+        format: 'currency',
         title: 'Visit Revenue by Technician',
         sub: `${windowPhrase(w, cfg, periods.length)}${notes.length ? ` · ${notes.join(' · ')}` : credit === 'split' ? ' · shared visits split, so this adds up to company revenue' : ''}`,
         empty: filter.active

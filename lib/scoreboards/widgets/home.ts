@@ -218,6 +218,7 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Outstanding',
         value: formatCurrency(total),
         tone: overdue > 0 ? (share >= 50 ? 'bad' : 'warn') : 'good',
+        judged: true,
         sub: overdue > 0
           ? `${formatCurrency(overdue)} of it past due · as of today`
           : 'Nothing past due · as of today',
@@ -275,6 +276,7 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Close Rate',
         value: rate == null ? '—' : `${rate}%`,
         tone: rate == null ? 'neutral' : rate >= 50 ? 'good' : rate >= 30 ? 'warn' : 'bad',
+        judged: true,
         sub: rate == null
           ? `Only ${decided} decided ${decided === 1 ? 'lead' : 'leads'} — too few to rate fairly`
           : `${num(now?.won)} won of ${decided} decided · ${win.label}`,

@@ -228,6 +228,83 @@ export type SourceBag = {
   get<T = unknown>(req: SourceRequest): T[]
 }
 
+/* ── The second pass: a card that reads the rest of the board ──────────────
+ *
+ * Every widget above is isolated by design — the resolver hands each metric only
+ * its own rows and returns each payload under its own instance id. That is right
+ * for a card that answers one question, and it is exactly what a card SUMMARISING
+ * the board cannot live with, because its input IS the other cards' output.
+ *
+ * So a narrating widget declares `narrate` instead of `sources`/`metric`, and the
+ * resolver runs it in a second pass once every ordinary metric is done.
+ *
+ * ⚠⚠ Two properties make this safe rather than a hole in the widget gate:
+ *
+ *   It adds no queries. A narrator declares no sources at all, so it can only ever
+ *   speak about numbers already fetched for a card on screen.
+ *
+ *   It cannot widen access. Custom boards drop widgets the VIEWER isn't entitled to
+ *   BEFORE the resolver runs (see ./gating.ts), so a restricted card's payload never
+ *   exists and its sources are never fetched. A narrator therefore inherits the
+ *   viewer's own gate with no new plumbing: what it can see is what they can see.
+ *   That is why `bag` below can be handed over — it holds precisely the rows the
+ *   surviving cards asked for, and nothing else.
+ *
+ * ⚠ A narrator is never an input to itself, and never to another narrator. Two on
+ * one board each read the ordinary cards and neither reads the other.
+ */
+
+/** One other card on the board, as the narrator sees it. */
+export type NarrativeSibling = {
+  id: string
+  type: string
+  group: string
+  /** The widget's library title, not the rendered one. */
+  title: string
+  config: WidgetConfig
+  /**
+   * What this card asked the resolver for.
+   *
+   * Carried so the narrator can work out things about a card WITHOUT knowing its
+   * type — above all which period it covers. A book card requests no dates at all
+   * (it is a read of today), and a trailing-periods chart requests a different
+   * window from the tiles beside it. Both facts change what may honestly be said,
+   * and both are visible here rather than needing a hardcoded list of types.
+   */
+  requests: SourceRequest[]
+  /** What it drew. Null when the card failed to build. */
+  payload: unknown
+}
+
+/**
+ * Rows already fetched for this board.
+ *
+ * ⚠⚠ `has` is not a convenience — it is the difference between two things that must
+ * never be confused. An unrequested source returns an empty array, exactly like a
+ * source that ran and found nothing, so without this a narrator would say "no
+ * targets are set" about a board that simply has no Goals card on it. Ask `has`
+ * first, every time.
+ */
+export type NarrativeBag = {
+  has(req: SourceRequest): boolean
+  get<T = unknown>(req: SourceRequest): T[]
+}
+
+export type NarrativeInput = {
+  /** Ordinary cards only, in board order. Narrators are excluded. */
+  siblings: NarrativeSibling[]
+  bag: NarrativeBag
+  /**
+   * Today, business-local, YYYY-MM-DD.
+   *
+   * ⚠ A PARAMETER rather than a clock read inside the metric — the same choice
+   * `scoreboard_goal_periods` made, and for the same reason: whether the last month
+   * on a chart is finished decides whether a fall may be reported as a fall, and a
+   * rule that reads the clock cannot be tested at the boundary.
+   */
+  today: string
+}
+
 export type WidgetDef<D = unknown> = {
   /** Stable id stored in the layout. Renaming one orphans saved boards. */
   type: string
@@ -238,10 +315,15 @@ export type WidgetDef<D = unknown> = {
   blurb: string
   defaultSpan: number
   config: ConfigSchema
-  /** Declared so the resolver can batch. Must be a pure function of cfg + window. */
-  sources: (cfg: WidgetConfig, win: WindowSpec) => SourceRequest[]
+  /**
+   * Declared so the resolver can batch. Must be a pure function of cfg + window.
+   * Absent only on a narrating widget, which fetches nothing.
+   */
+  sources?: (cfg: WidgetConfig, win: WindowSpec) => SourceRequest[]
   /** Pure. Given the resolved rows, produce exactly what the component draws. */
-  metric: (bag: SourceBag, cfg: WidgetConfig, win: WindowSpec) => D
+  metric?: (bag: SourceBag, cfg: WidgetConfig, win: WindowSpec) => D
+  /** Second pass. See the note above. Exactly one of `metric` / `narrate` is set. */
+  narrate?: (input: NarrativeInput, cfg: WidgetConfig, win: WindowSpec) => D
   /** Set when the widget needs a source this tenant may not have connected. */
   requires?: string
 }

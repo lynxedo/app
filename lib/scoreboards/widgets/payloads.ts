@@ -6,6 +6,8 @@
  * lives in lib/format.ts rather than in each screen.
  */
 
+import { formatCurrency } from '@/lib/format'
+
 /** Semantic colour roles. Separate from the UI accent by design. */
 export type Tone =
   | 'good' | 'warn' | 'bad' | 'neutral'
@@ -19,6 +21,22 @@ export type KpiPayload = {
   value: string
   sub?: string
   tone?: Tone
+  /**
+   * True when `tone` is a VERDICT on this figure, not a colour choice.
+   *
+   * ⚠⚠ Added because the board narrator cannot tell the two apart and got it wrong:
+   * `kpi_commission_total` is amber because commission is money you owe, and
+   * `kpi_book_value` is green because a book is a good thing to have — neither is a
+   * judgement, yet a first pass read them as "flagged" and "reading well". Set this
+   * only where the tone is derived from the tile's OWN value against a threshold,
+   * which is the whole test.
+   *
+   * ⚠ Absent means "don't read anything into the colour", so a tile that forgets it
+   * is merely left out of the narrative rather than described wrongly. Fail closed,
+   * because a card that invents a problem in front of the owner is far worse than one
+   * that stays quiet.
+   */
+  judged?: boolean
   /**
    * Change against the immediately-preceding window of the same length.
    *
@@ -77,6 +95,13 @@ export type StackedPayload = {
   legend: { label: string; tone: Tone }[]
   empty?: string
   /**
+   * How to render a segment's own value in its hover tooltip. The row `caption`
+   * is already formatted by the widget; the tooltip was not, so hovering a
+   * revenue segment showed a bare number where every other figure on the card
+   * showed dollars.
+   */
+  format?: ValueFormat
+  /**
    * How the bars are scaled.
    *
    * `'share'` (the default, and what every widget written before this existed
@@ -99,6 +124,16 @@ export type DonutPayload = {
   kind: 'donut'
   title: string
   sub: string
+  /**
+   * How to render each slice's value in the legend.
+   *
+   * ⚠ Absent used to be the ONLY behaviour, and the legend printed the raw number
+   * — so the annual-value program mix read "Root Rot Recovery (164333.28)" and, on
+   * a slice whose value came out of floating-point arithmetic, "(75973.43999999999)".
+   * A dollar figure has to look like one. Absent still means a plain count, which
+   * is what every other donut here shows.
+   */
+  format?: ValueFormat
   parts: { label: string; value: number; tone: Tone }[]
   note?: string
   empty?: string
@@ -180,6 +215,35 @@ export type ListPayload = {
 }
 
 /**
+ * A read of a whole board, in sections.
+ *
+ * ⚠ Not a `list`. The nine domain insight cards each answer one question, so a flat
+ * run of bullets is right for them. This one answers three at once — how the targets
+ * are going, what went well, what is worth a look — and a reader has to be able to
+ * find the section they came for without reading all of it. Ben asked for those three
+ * headings by name.
+ *
+ * A section with nothing to say still renders, carrying `empty`: "no target was
+ * missed" is a result, and hiding the heading makes it indistinguishable from a
+ * narrator that could not read that part of the board.
+ */
+export type NarrativePayload = {
+  kind: 'narrative'
+  title: string
+  sub: string
+  sections: {
+    key: string
+    heading: string
+    /** Colours the heading and the bullets that don't override it. */
+    tone: Tone
+    lines: { text: string; tone?: Tone }[]
+    empty?: string
+  }[]
+  /** What the narrator could NOT read — see the widget's own header. */
+  foot?: string
+}
+
+/**
  * A map of circles, one per area, sized and coloured by a single measure.
  *
  * Circles at ZIP centre points rather than shaded ZIP boundaries: boundary polygons
@@ -208,6 +272,25 @@ export type GeoPayload = {
   drill?: DrillLink
 }
 
+/**
+ * Render a payload value in its declared units.
+ *
+ * ⚠ Lives here, beside the types, rather than in the renderer — the board narrator
+ * quotes figures out of chart payloads, and a second copy of this in `lib` that
+ * drifted from the client's would put a differently-formatted version of the same
+ * number in the sentence above the chart. The client's `formatValue` delegates here.
+ */
+export function formatPayloadValue(v: number | string | null | undefined, format: ValueFormat | undefined): string {
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof v === 'string') return v
+  switch (format) {
+    case 'percent': return `${v}%`
+    case 'currency': return formatCurrency(v)
+    case 'months': return `${v} mo`
+    default: return v.toLocaleString()
+  }
+}
+
 export type WidgetPayload =
   | KpiPayload | BarsPayload | StackedPayload | DonutPayload | TablePayload | ListPayload
-  | AttentionPayload | GeoPayload
+  | AttentionPayload | GeoPayload | NarrativePayload

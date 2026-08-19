@@ -128,6 +128,7 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Quote Win Rate',
         value: `${num(r.win_rate)}%`,
         tone: rateTone(num(r.win_rate)),
+        judged: true,
         sub: `${num(r.won).toLocaleString()} won of ${decided.toLocaleString()} decided · ${num(r.still_open).toLocaleString()} still open, not counted either way`,
       }
     },
@@ -152,6 +153,7 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Time to Win',
         value: d === 0 ? 'Same day' : `${d} days`,
         tone: d <= 3 ? 'good' : d <= 10 ? 'warn' : 'bad',
+        judged: true,
         sub: `Median across ${num(r.win_time_sample).toLocaleString()} won quotes ${win.phrase}`,
       }
     },
@@ -176,6 +178,7 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Open Quotes',
         value: num(o.open_total).toLocaleString(),
         tone: oldest > 30 ? 'warn' : 'neutral',
+        judged: true,
         sub: num(o.open_total) > 0
           ? `as of today · oldest sent ${oldest} days ago`
           : 'as of today · nothing waiting',
@@ -324,6 +327,7 @@ export const QUOTE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Approved, Not Yet A Job',
         value: n.toLocaleString(),
         tone: n === 0 ? 'good' : 'bad',
+        judged: true,
         sub: n === 0
           ? 'as of today · nothing approved is sitting unscheduled'
           : 'as of today · the customer said yes and it never became work',
