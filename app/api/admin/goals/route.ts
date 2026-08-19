@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({})) as {
     metric?: string; grain?: string; period_start?: string; target?: number | string
-    employee_id?: string | null
+    employee_id?: string | null; repeats?: boolean
   }
   const metric = String(body.metric || '').trim()
   const grain = String(body.grain || '').trim() as GoalGrain
@@ -37,6 +37,10 @@ export async function POST(request: Request) {
   const target = Number(body.target)
   // '' and 'company' both mean the company-wide target, so an empty select can
   // never be mistaken for a person.
+  // ⚠ Defaults to FALSE, not to the form's default. A caller that does not mention
+  // repetition is asking for one specific period, which is what every target stored
+  // before this existed meant.
+  const repeats = body.repeats === true
   const rawEmployee = String(body.employee_id ?? '').trim()
   const employeeId = rawEmployee && rawEmployee !== 'company' ? rawEmployee : null
 
@@ -118,10 +122,14 @@ export async function POST(request: Request) {
         period_end: bounds.end,
         target,
         employee_id: employeeId,
+        repeats,
         created_by: ctx.userId,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'company_id,metric,grain,period_start,employee_id' }
+      // ⚠ `repeats` is part of the key so a standing monthly target and an override for
+      // its own first month can coexist. See the migration for why both unique indexes
+      // exist while this rolls out.
+      { onConflict: 'company_id,metric,grain,period_start,employee_id,repeats' }
     )
   if (error) {
     // 23505 here means the pre-existing company-only unique index is still in
@@ -129,13 +137,16 @@ export async function POST(request: Request) {
     // both envs), which blocks a person target that shadows a company one for
     // the same measure and period. Say that plainly instead of a raw 500.
     if (error.code === '23505') {
+      // The older index, dropped in a follow-up migration once this code is live on
+      // both environments, still blocks a repeating target from sharing a start period
+      // with a one-off for the same measure. Say that plainly instead of a raw 500.
       return NextResponse.json({
-        error: 'A company-wide target already exists for that measure and period. Remove it first, or pick a different period.',
+        error: 'A target already exists for that measure and period. Remove it first, or pick a different period.',
       }, { status: 409 })
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-  return NextResponse.json({ ok: true, period: bounds })
+  return NextResponse.json({ ok: true, period: bounds, repeats })
 }
 
 export async function DELETE(request: Request) {

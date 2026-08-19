@@ -50,6 +50,8 @@ const CATALOG_REPORTS: Record<CatalogName, string[]> = {
   jobber_people: ['crew', 'sales'],
   // Commission is pay, so its picker answers to the same grant its cards do.
   commission_plan_people: ['crew'],
+  // The Goals widgets are the only ones that place this, and they answer to `goals`.
+  goal_people: ['goals'],
   /* The recurring-book pickers. Service lines are used by the book cards (Clients),
    * Ticket Size and the company revenue trend (Revenue) and the by-line chart
    * (Service Lines), so all three reports can offer them. Programs and add-ons are
@@ -214,6 +216,54 @@ export async function GET(request: Request) {
       // long-departed name with 2 hours is visibly not the person you meant.
       options: [...seen.entries()].sort(byCountThenName).map(([value, count]) => ({ value, label: value, count })),
     })
+  }
+
+  if (name === 'goal_people') {
+    /* The people who hold a target, for narrowing a Goals card to one person.
+     *
+     * ⚠⚠ The VALUE is the employee id, not the name — the one picker in the product
+     * that can do this, because a goal row carries `employee_id` while every chart
+     * elsewhere carries only a name. So a target keeps being filtered correctly after
+     * somebody's preferred name changes, which is the known weak spot of the
+     * name-matched pickers (see people-filter.ts). The name is the label only.
+     *
+     * ⚠ Bounded to people who actually hold a target — and read from `report_goals`
+     * rather than the whole roster for that reason.
+     */
+    const { data: rows, error } = await admin
+      .from('report_goals')
+      .select('employee_id')
+      .eq('company_id', profile.company_id)
+      .not('employee_id', 'is', null)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    const held = new Map<string, number>()
+    for (const r of rows ?? []) {
+      const id = r.employee_id as string | null
+      if (id) held.set(id, (held.get(id) ?? 0) + 1)
+    }
+    if (held.size === 0) return NextResponse.json({ options: [] })
+
+    const { data: emps, error: eErr } = await admin
+      .from('employees')
+      .select('id, first_name, last_name, preferred_name')
+      .eq('company_id', profile.company_id)
+      .in('id', [...held.keys()])
+    if (eErr) return NextResponse.json({ error: eErr.message }, { status: 500 })
+
+    const options = (emps ?? []).map(e => ({
+      value: e.id as string,
+      // Composed exactly as scoreboard_goals composes `person_name`, so the picker and
+      // the card call the same person the same thing.
+      label: [String(e.preferred_name || e.first_name || '').trim(), String(e.last_name || '').trim()]
+        .filter(Boolean).join(' ').trim() || 'Unnamed',
+      // How many targets they hold, so a name with 1 is visibly not the person with 6.
+      count: held.get(e.id as string) ?? 0,
+      // Same order as the other people pickers — most targets first, then by name —
+      // but sorted on the LABEL, since `byCountThenName` keys on a [name, count] tuple
+      // and this catalog's value is an id.
+    })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    return NextResponse.json({ options })
   }
 
   if (name === 'commission_plan_people') {

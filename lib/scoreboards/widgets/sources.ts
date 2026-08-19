@@ -87,6 +87,12 @@ export type DecidedLeadRow = {
 
 /** One target and how it is tracking. ⚠ `expected_by_now` is null for rate metrics. */
 export type GoalRow = {
+  /**
+   * ⚠ NOT always a bare row id. A repeating target produces one row per period from a
+   * single stored row, so those carry `<uuid>:<period_start>` — unique per rendered
+   * row, which is what the table needs. Never parse it; `employee_id` and
+   * `period_start` are the fields to read.
+   */
   id: string
   metric: string
   grain: 'month' | 'quarter' | 'year'
@@ -137,6 +143,13 @@ export type GoalRow = {
    * says whose it is instead of rendering an anonymous "no data" row.
    */
   person_name: string | null
+  /**
+   * True when this row came from a repeating target rather than being set for this
+   * period specifically. ⚠ Worth showing: "$50,000 · missed" reads differently when
+   * the number is the standing monthly target than when somebody chose it for that
+   * month.
+   */
+  repeating: boolean
 }
 
 export type GoalsRow = {

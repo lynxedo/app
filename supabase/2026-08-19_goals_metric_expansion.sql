@@ -2,6 +2,12 @@
 --   scoreboard_goals_expansion_2026_08_19  and  scoreboard_goals_data_floor_2026_08_19
 -- Recorded here so the schema history lives in the repo alongside the code.
 --
+-- A fourth migration, scoreboard_goals_use_period_expansion_2026_08_19, pointed the
+-- row source at scoreboard_goal_periods so a repeating target is judged once per
+-- period -- see 2026-08-19_goals_repeat_and_scope.sql. It was applied by patching the
+-- deployed definition in place, guarded to refuse unless each of its three anchors
+-- matched exactly once, and this file carries the result.
+--
 -- A third migration, scoreboard_goals_collection_rate_period_end_2026_08_19,
 -- moved collection_rate to 'period_end' after a real August payload showed the
 -- month-to-date rate reading 91.4% against a 95% target while July finished at
@@ -12,7 +18,7 @@
 --
 -- Verified against the deployed function rather than assumed: with comments
 -- stripped and whitespace and case normalised, this file and the live body are
--- byte-identical (md5 6767af05089706557a760578fd54874c, 9,200 chars). The two
+-- byte-identical (md5 0f7a45c0df8ecf0e907ab66d5d327200, 9,271 chars). The two
 -- differ only in comment prose.
 --
 -- Widens Goals & Targets from 7 measures to 23 (Ben: "There is nothing about
@@ -96,15 +102,15 @@ begin
     return null;
   end if;
 
+  -- ⚠ Counted from the SAME expansion the loop reads, so the truncation note can
+  -- never disagree with the list it describes.
   select count(*) into v_total
-  from report_goals
-  where company_id = p_company_id and period_start <= p_end and period_end >= p_start;
+  from public.scoreboard_goal_periods(p_company_id, p_start, p_end, v_today);
 
   for g in
-    select * from report_goals
-    where company_id = p_company_id
-      and period_start <= p_end
-      and period_end >= p_start
+    -- ⚠ Repeating targets are already expanded into one row per period here, so a
+    -- "monthly" target is judged month by month rather than once.
+    select * from public.scoreboard_goal_periods(p_company_id, p_start, p_end, v_today)
     -- ⚠ Period first, and this is load-bearing rather than cosmetic: every source
     -- cache below holds ONE period, so goals must arrive period-major or each
     -- would refill it. Company rows ahead of person rows so the table reads
@@ -361,7 +367,11 @@ begin
     end;
 
     v_rows := v_rows || jsonb_build_object(
-      'id', g.id,
+      -- ⚠ A repeating target yields several rows from ONE stored row, so the id has
+      -- to carry the period or the table would hand React duplicate keys.
+      'id', case when g.repeating then g.goal_id::text || ':' || g.period_start::text
+                 else g.goal_id::text end,
+      'repeating', g.repeating,
       'metric', g.metric,
       'grain', g.grain,
       'period_start', g.period_start,

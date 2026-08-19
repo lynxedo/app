@@ -122,6 +122,22 @@ export type CatalogName =
   | 'recurring_programs'
   /** Add-ons — programs flagged `is_auxiliary`. Drives the attach-rate card. */
   | 'recurring_addons'
+  /**
+   * The people who actually hold a target, for narrowing a Goals card to one person.
+   *
+   * ⚠⚠ A FIFTH catalog, and the only one whose VALUES are employee ids rather than
+   * names. Every other picker has to match on a name because that is all its chart
+   * carries; a goal row carries `employee_id`, so this one can key on the roster row
+   * the target is actually stored against. That makes it immune to a rename — the
+   * failure the name-based pickers accept knowingly (see people-filter.ts) — and it
+   * means two people who compose to the same name cannot merge. The name is only ever
+   * the label.
+   *
+   * ⚠ Bounded to people who hold a target, like `commission_plan_people`: a picker
+   * offering forty staff for a feature three of them have targets under is a worse
+   * tool than one offering three.
+   */
+  | 'goal_people'
 
 export type ConfigField =
   | { kind: 'number'; label: string; def: number; min: number; max: number; unit?: string; hint?: string }
