@@ -9,7 +9,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getWidgetDef, BOARD_8_PRESET, WIDGET_BOARD_SLUGS, REPORT_PRESETS, widgetGroups } from './registry'
 import { unmappedWidgetGroups } from './gating'
-import { clampSpan, sanitizeConfig, type BoardLayout, type WidgetInstance } from './types'
+import { clampSpan, sanitizeConfig, MAX_WIDGETS_PER_BOARD, type BoardLayout, type WidgetInstance } from './types'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -276,7 +276,7 @@ export async function saveLayoutWidgets(
 
   const clean = widgets
     .filter(w => !!getWidgetDef(w.type))
-    .slice(0, 60)                                   // a board nobody can read is not a feature
+    .slice(0, MAX_WIDGETS_PER_BOARD)                // a board nobody can read is not a feature
     .map((w, i) => {
       const def = getWidgetDef(w.type)!
       return {

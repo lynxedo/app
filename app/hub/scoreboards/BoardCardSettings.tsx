@@ -39,6 +39,9 @@ export default function BoardCardSettings({ slug, title }: { slug: string; title
           // name AND the share count, and the card shows both.
           onRenamed={() => router.refresh()}
           onDeleted={() => { setOpen(false); router.refresh() }}
+          // Straight into the copy. A real route here, so a push is right — it
+          // keeps the list a back-button away if the copy wasn't what they wanted.
+          onDuplicated={newSlug => { setOpen(false); router.push(`/hub/scoreboards/${newSlug}`) }}
         />
       ) : null}
     </>

@@ -14,10 +14,10 @@ import { randomBytes } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { CUSTOM_SLUG_PREFIX, isCustomBoardSlug } from './registry'
-import { loadBoardLayout } from './widgets/layouts'
-import { reportsForWidget } from './widgets/registry'
+import { loadBoardLayout, saveLayoutWidgets } from './widgets/layouts'
+import { getWidgetDef, reportsForWidget } from './widgets/registry'
 import { canUseWidget } from './widgets/gating'
-import type { BoardLayout } from './widgets/types'
+import { MAX_WIDGETS_PER_BOARD, type BoardLayout } from './widgets/types'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -243,7 +243,7 @@ export async function createCustomBoard(
   companyId: string,
   userId: string,
   title: string,
-): Promise<{ slug: string } | { error: string }> {
+): Promise<{ slug: string; id: string } | { error: string }> {
   const admin = createAdminClient()
 
   const { count } = await admin
@@ -260,7 +260,10 @@ export async function createCustomBoard(
   // not a silently shared board.
   for (let attempt = 0; attempt < 4; attempt++) {
     const slug = newCustomSlug()
-    const { error } = await admin.from('scoreboard_layouts').insert({
+    // The id comes back on the insert rather than from a follow-up read: cloning
+    // needs it immediately to write the copied cards, and re-reading by slug would
+    // be a second round trip to learn something we were just told.
+    const { data, error } = await admin.from('scoreboard_layouts').insert({
       company_id: companyId,
       slug,
       owner_user_id: null,          // shareable company object, not a private board
@@ -269,11 +272,109 @@ export async function createCustomBoard(
       created_by: userId,
       shared_all: false,
       updated_by: userId,
-    })
-    if (!error) return { slug }
-    if (error.code !== '23505') return { error: error.message }
+    }).select('id').maybeSingle()
+    if (!error && data?.id) return { slug, id: data.id as string }
+    if (error && error.code !== '23505') return { error: error.message }
+    if (!error) return { error: 'Could not create a scoreboard. Try again.' }
   }
   return { error: 'Could not create a scoreboard. Try again.' }
+}
+
+/**
+ * The name a copy gets: "Monday numbers (copy)".
+ *
+ * ⚠ The STEM is trimmed to make room for the suffix, not the finished string. Chop
+ * the whole thing at 80 and a long name loses the "(copy)" instead — leaving two
+ * boards with identical names and nothing on screen to say the duplicate worked.
+ */
+export function copyBoardTitle(base: string): string {
+  const suffix = ' (copy)'
+  const room = 80 - suffix.length
+  const stem = base.length > room ? base.slice(0, room).trimEnd() : base
+  return cleanBoardTitle(stem + suffix)
+}
+
+export type CloneOutcome =
+  | { slug: string; title: string; copied: number; skipped: number }
+  | { status: number; error: string }
+
+/**
+ * Copy a board somebody built: same cards, same settings on each card, new board.
+ *
+ * ⚠⚠ THE CARDS ARE COPIED; THE AUDIENCE IS NOT. The copy starts private to whoever
+ * made it, and that is the decision most worth stating out loud, because the
+ * obvious implementation copies the share rows too. Two reasons not to: sharing is
+ * an act, and duplicating a board would silently perform it on a list the copier
+ * may never have seen (a plain viewer isn't even told how many people a board is
+ * shared with — see `sharedWithCount`); and an audience inherited by accident is
+ * the kind of thing nobody notices until the wrong person is reading it. The
+ * Settings panel is one click away for anyone who does want the same list.
+ *
+ * ⚠ MANAGE, not view. Same gate as rename/share/delete, so there is one rule for
+ * "may I act on this board" rather than a second, looser one just for copying.
+ * Widening it later to "anyone who can open it" is a product decision, and it is
+ * safe on the data (every card re-checks the VIEWER's report access at render, so
+ * a copy can never show its new owner something the original didn't) — but it is
+ * not what was asked for, and the narrow rule is the reversible one.
+ */
+export async function cloneCustomBoard(
+  companyId: string,
+  userId: string,
+  isAdmin: boolean,
+  sourceSlug: string,
+  requestedTitle?: unknown,
+): Promise<CloneOutcome> {
+  const source = await resolveCustomBoard(companyId, sourceSlug, userId, isAdmin)
+  // 404 for "no such board" AND for one they can't see, matching the rest of the
+  // custom-board API: probing slugs teaches nothing about which ones exist.
+  if (!source.ok) return { status: 404, error: 'Not found' }
+  if (!source.canManage) {
+    return { status: 403, error: 'Only the person who built this scoreboard can duplicate it' }
+  }
+
+  const layout = await loadBoardLayout(companyId, sourceSlug, userId)
+  const sourceWidgets = layout?.widgets ?? []
+  // Same two filters the save applies, run here so the count reported back is what
+  // actually landed rather than what was attempted. A card whose type no longer
+  // exists in the registry is dropped by `saveLayoutWidgets` regardless; saying
+  // "9 of 10" beats a silent 9.
+  const usable = sourceWidgets
+    .filter(w => !!getWidgetDef(w.type))
+    .slice(0, MAX_WIDGETS_PER_BOARD)
+
+  const title = typeof requestedTitle === 'string' && requestedTitle.trim()
+    ? cleanBoardTitle(requestedTitle)
+    : copyBoardTitle(source.row.title)
+
+  const created = await createCustomBoard(companyId, userId, title)
+  if ('error' in created) return { status: 400, error: created.error }
+
+  if (usable.length) {
+    try {
+      await saveLayoutWidgets(
+        created.id,
+        companyId,
+        usable.map(w => ({ type: w.type, span: w.span, config: w.config })),
+        userId,
+      )
+    } catch (err) {
+      // Roll the empty board back. A duplicate that half-worked leaves a board
+      // named "… (copy)" with nothing on it, which reads as the feature being
+      // broken and has to be cleaned up by hand.
+      await deleteCustomBoard(created.id).catch(() => {})
+      return {
+        status: 500,
+        error: err instanceof Error ? err.message : 'Could not copy the cards onto the new scoreboard',
+      }
+    }
+  }
+
+  return {
+    slug: created.slug,
+    title,
+    copied: usable.length,
+    skipped: sourceWidgets.length - usable.length,
+  }
 }
 
 export async function renameCustomBoard(layoutId: string, title: string, actorUserId: string): Promise<void> {
