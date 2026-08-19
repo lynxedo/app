@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
+import { boardNotifyRecipients } from '@/lib/board-notify'
 
 type SB = Awaited<ReturnType<typeof createClient>>
 
@@ -124,34 +125,34 @@ export async function POST(
     assignees = m[(item as { id: string }).id] ?? []
   }
 
-  // Non-blocking: notify all board members (minus the creator) about the new task
-  ;(async () => {
+  // Tell the board about the new task, honouring each person's own settings
+  // (🔔 in the board header). after() rather than a bare detached promise so
+  // the work is guaranteed to run once the response is on its way.
+  after(async () => {
     try {
       const admin = createAdminClient()
-      const [{ data: boardRow }, { data: senderRow }, { data: memberRows }] = await Promise.all([
-        admin.from('boards').select('name, is_private, created_by').eq('id', boardId).single(),
-        admin.from('hub_users').select('display_name').eq('id', user.id).single(),
-        admin.from('board_members').select('user_id').eq('board_id', boardId),
-      ])
-      const recipientSet = new Set<string>()
-      if (boardRow?.created_by && boardRow.created_by !== user.id) recipientSet.add(boardRow.created_by)
-      for (const m of (memberRows ?? []) as { user_id: string }[]) {
-        if (m.user_id !== user.id) recipientSet.add(m.user_id)
-      }
-      const recipientIds = [...recipientSet]
-      if (recipientIds.length > 0) {
-        const senderName = senderRow?.display_name ?? 'Someone'
-        const boardName = boardRow?.name ?? 'a board'
-        await sendHubPush(recipientIds, {
-          title: `${senderName} added a task to ${boardName}`,
-          body: content.trim().slice(0, 120),
-          url: `/hub/board/${boardId}`,
-        })
-      }
+      const resolved = await boardNotifyRecipients(admin, {
+        boardId,
+        kind: 'new_tasks',
+        actorId: user.id,
+        involvedIds: ids, // "Only tasks assigned to me" → the people it landed on
+      })
+      if (!resolved || resolved.recipientIds.length === 0) return
+
+      const { data: senderRow } = await admin
+        .from('hub_users').select('display_name').eq('id', user.id).maybeSingle()
+      const senderName = senderRow?.display_name ?? 'Someone'
+
+      await sendHubPush(resolved.recipientIds, {
+        title: `${senderName} added a task to ${resolved.audience.name}`,
+        body: content.trim().slice(0, 120),
+        url: `/hub/board/${boardId}`,
+        type: 'board',
+      })
     } catch (err) {
       console.error('[board items] new-item push failed:', (err as Error).message)
     }
-  })()
+  })
 
   return NextResponse.json({ ...item, assignees, comment_count: 0, attachment_count: 0 }, { status: 201 })
 }

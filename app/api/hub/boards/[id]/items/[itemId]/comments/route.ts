@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
+import { boardNotifyRecipients, involvedOnItem } from '@/lib/board-notify'
 
 export async function GET(
   _req: Request,
@@ -56,49 +57,72 @@ export async function POST(
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Notify anyone @mentioned in the note. Mentions are plain `@FirstName`
-  // tokens matched against hub_users' first name within the same company —
-  // same convention as room/DM messages (app/api/hub/messages/route.ts).
-  const mentionedFirstNames = [...trimmed.matchAll(/@(\w+)/g)].map((m: RegExpMatchArray) => m[1].toLowerCase())
-  if (mentionedFirstNames.length > 0) {
-    const admin = createAdminClient()
-    const [{ data: senderRow }, { data: allUsers }, { data: boardRow }] = await Promise.all([
-      admin.from('hub_users').select('display_name').eq('id', user.id).single(),
-      admin.from('hub_users').select('id, display_name').eq('company_id', profile.company_id).not('id', 'eq', user.id),
-      admin.from('boards').select('name, is_private, created_by').eq('id', boardId).single(),
-    ])
-    let recipientIds = (allUsers ?? [])
-      .filter((u: { id: string; display_name: string }) =>
-        mentionedFirstNames.some(n => u.display_name.split(' ')[0].toLowerCase() === n),
-      )
-      .map((u: { id: string }) => u.id)
+  // Two notifications can come out of one note: an @mention (always sent — being
+  // named is a direct address) and a plain "someone replied" for people who
+  // asked for replies on this board. Nobody gets both.
+  after(async () => {
+    try {
+      const admin = createAdminClient()
 
-    // A private board is only visible to its creator + board_members — never
-    // notify someone who can't open the board (mirrors boards_select RLS).
-    if (boardRow?.is_private) {
-      const { data: members } = await admin
-        .from('board_members')
-        .select('user_id')
-        .eq('board_id', boardId)
-      const allowed = new Set<string>([
-        boardRow.created_by,
-        ...((members ?? []) as { user_id: string }[]).map(m => m.user_id),
+      const [{ data: senderRow }, involved] = await Promise.all([
+        admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
+        involvedOnItem(admin, itemId),
       ])
-      recipientIds = recipientIds.filter((id: string) => allowed.has(id))
-    }
-
-    if (recipientIds.length > 0) {
+      const resolved = await boardNotifyRecipients(admin, {
+        boardId,
+        kind: 'replies',
+        actorId: user.id,
+        involvedIds: involved, // decides "Only tasks I'm on"
+      })
+      if (!resolved) return
       const senderName = senderRow?.display_name ?? 'Someone'
-      const boardName = boardRow?.name ?? 'a board'
-      sendHubPush(recipientIds, {
-        title: `${senderName} mentioned you on ${boardName}`,
-        body: trimmed.slice(0, 120),
-        url: `/hub/board/${boardId}`,
-      }, { isMention: true }).catch((err: Error) =>
-        console.error('[board comments] mention push failed:', err.message),
-      )
+      const boardName = resolved.audience.name
+
+      // Mentions are plain `@FirstName` tokens matched against hub_users' first
+      // name within the same company — same convention as room/DM messages
+      // (app/api/hub/messages/route.ts).
+      const mentionedFirstNames = [...trimmed.matchAll(/@(\w+)/g)]
+        .map((m: RegExpMatchArray) => m[1].toLowerCase())
+      const mentionIds = new Set<string>()
+      if (mentionedFirstNames.length > 0) {
+        const { data: allUsers } = await admin
+          .from('hub_users')
+          .select('id, display_name')
+          .eq('company_id', profile.company_id)
+          .not('id', 'eq', user.id)
+        for (const u of (allUsers ?? []) as { id: string; display_name: string }[]) {
+          const first = u.display_name.split(' ')[0].toLowerCase()
+          // Never notify someone who can't open the board — a note quotes the
+          // task's own text (mirrors boards_select RLS).
+          if (mentionedFirstNames.includes(first) && resolved.audience.visibleIds.has(u.id)) {
+            mentionIds.add(u.id)
+          }
+        }
+      }
+
+      if (mentionIds.size > 0) {
+        await sendHubPush([...mentionIds], {
+          title: `${senderName} mentioned you on ${boardName}`,
+          body: trimmed.slice(0, 120),
+          url: `/hub/board/${boardId}`,
+          type: 'board',
+        }, { isMention: true })
+      }
+
+      // Mentioned people are dropped here so a mention never arrives twice.
+      const replyIds = resolved.recipientIds.filter(id => !mentionIds.has(id))
+      if (replyIds.length > 0) {
+        await sendHubPush(replyIds, {
+          title: `${senderName} replied on ${boardName}`,
+          body: trimmed.slice(0, 120),
+          url: `/hub/board/${boardId}`,
+          type: 'board',
+        })
+      }
+    } catch (err) {
+      console.error('[board comments] note push failed:', (err as Error).message)
     }
-  }
+  })
 
   return NextResponse.json(data, { status: 201 })
 }

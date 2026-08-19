@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useToast, useConfirm, Spinner, EmptyState } from '@/components/ui'
+import BoardNotifySettings from '@/components/hub/BoardNotifySettings'
 
 type HubUser = { id: string; display_name: string; avatar_url?: string | null; is_bot?: boolean }
 
@@ -540,16 +541,20 @@ export default function BoardView({
             {board.is_private && <span className="text-xs text-white/40 bg-white/10 px-2 py-0.5 rounded-full">Private</span>}
             {board.is_personal && <span className="text-xs text-white/40 bg-white/10 px-2 py-0.5 rounded-full">Personal</span>}
           </div>
-          <div className="flex bg-white/10 rounded-lg p-0.5 gap-0.5">
-            {(['open', 'all'] as const).map(f => (
-              <button
-                key={f}
-                onClick={e => { e.stopPropagation(); setFilter(f) }}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${filter === f ? 'bg-brand text-[#fff]' : 'text-white/50 hover:text-white'}`}
-              >
-                {f === 'open' ? 'Open' : 'All'}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <div className="flex bg-white/10 rounded-lg p-0.5 gap-0.5">
+              {(['open', 'all'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={e => { e.stopPropagation(); setFilter(f) }}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${filter === f ? 'bg-brand text-[#fff]' : 'text-white/50 hover:text-white'}`}
+                >
+                  {f === 'open' ? 'Open' : 'All'}
+                </button>
+              ))}
+            </div>
+            {/* Per-person notification settings — lives on the board, not in Settings */}
+            <BoardNotifySettings boardId={board.id} />
           </div>
         </div>
 
