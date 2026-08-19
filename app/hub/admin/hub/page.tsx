@@ -16,13 +16,22 @@ export default async function AdminHubPage() {
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin' && !profile?.can_admin_hub) redirect('/dashboard')
+  if (!profile.company_id) redirect('/dashboard')
 
   const admin = createAdminClient()
 
   const [roomsResult, hubUsersResult, settingsResult, activeAnnouncementsResult] = await Promise.all([
-    admin.from('rooms').select('id, name, description, is_private, archived_at, claude_enabled').order('name'),
+    // Track 1 — the admin client bypasses RLS (deliberately: an admin must see
+    // private rooms they aren't a member of). That also removes the company
+    // boundary, so scope the list to the caller's company here, the same way
+    // GET /api/hub/rooms does. Without this the panel lists every tenant's rooms.
+    admin
+      .from('rooms')
+      .select('id, name, description, is_private, archived_at, claude_enabled')
+      .eq('company_id', profile.company_id)
+      .order('name'),
     supabase.from('hub_users').select('id, display_name, claude_allowed').eq('is_bot', false).order('display_name'),
-    supabase.from('hub_settings').select('allow_member_room_creation').eq('company_id', profile.company_id!).maybeSingle(),
+    supabase.from('hub_settings').select('allow_member_room_creation').eq('company_id', profile.company_id).maybeSingle(),
     supabase
       .from('hub_announcements')
       .select('id, content, created_at, expires_at, type, archived_at, edited_at, created_by')
