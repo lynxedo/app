@@ -77,7 +77,7 @@ export async function getHubBotUserId(
 export async function postGuardianToRoom(
   roomId: string,
   body: string,
-  opts?: { admin?: SupabaseAdmin },
+  opts?: { admin?: SupabaseAdmin; parentId?: string },
 ): Promise<string | null> {
   const admin = opts?.admin ?? createAdminClient()
 
@@ -117,6 +117,10 @@ export async function postGuardianToRoom(
       room_id: roomId,
       sender_id: botUserId,
       content: body,
+      // A reply carries BOTH room_id and parent_id: the room feed selects
+      // `parent_id is null`, so a threaded reply stays out of the main feed
+      // while still belonging to the room.
+      parent_id: opts?.parentId ?? null,
     })
     .select('id')
     .single<{ id: string }>()

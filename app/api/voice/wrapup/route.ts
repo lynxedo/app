@@ -7,7 +7,8 @@ import {
   ensureInboundQueueConversation,
   findOrCreateContactByPhone,
 } from '@/lib/txt-inbound-queue'
-import { fanoutGuardianNotification, postGuardianToRoom } from '@/lib/guardian-post'
+import { fanoutGuardianNotification } from '@/lib/guardian-post'
+import { postOfficeAlert } from '@/lib/office-alerts'
 import { sendHubPush } from '@/lib/hub-push'
 import { formatPhone } from '@/lib/format'
 import { toE164 } from '@/lib/phone'
@@ -35,10 +36,8 @@ export const runtime = 'nodejs'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-// The Hub "office" room (matches the Angi webhook) + Ben's Hub user id (matches
-// the feedback route's notify default). Both env-overridable.
-const OFFICE_ROOM_ID =
-  process.env.VOICE_OFFICE_ROOM_ID || 'cebac7e5-caf8-400c-a15d-5eb9d81e1967'
+// Ben's Hub user id (matches the feedback route's notify default). The alerts
+// room is no longer pinned here — lib/office-alerts.ts resolves it per company.
 const DEFAULT_NOTIFY_USER_ID = '6939b706-5135-448d-a28a-7674ba17974e' // Ben
 
 function notifyUserIds(): string[] {
@@ -388,16 +387,17 @@ export async function POST(request: Request) {
         console.warn('[voice.wrapup] service queue ensure failed', (e as Error).message)
       }
 
-      // Notify the office with a single post in the "office" room (no Guardian
-      // DM, no push — per Ben, the room post is the one surface). Complaints get
-      // the 🔴 urgent flag inline.
+      // Notify the office with a single post in the "Office Alerts" room (no
+      // Guardian DM, no push — per Ben, the room post is the one surface). The
+      // headline is the whole post; the summary sits in its thread. Complaints
+      // get the 🔴 urgent flag inline.
       try {
-        const bodyText =
-          `${urgent ? '🔴 ' : ''}${meta.emoji} ${meta.label} from ${callerName}` +
-          `${callbackPhone ? ` (${formatPhone(callbackPhone) || callbackPhone})` : ''}` +
-          `\n${summary}` +
-          `\nWork it in the Hub Queue → /hub/txt`
-        await postGuardianToRoom(OFFICE_ROOM_ID, bodyText, { admin })
+        await postOfficeAlert(admin, companyId, {
+          title:
+            `${urgent ? '🔴 ' : ''}${meta.emoji} ${meta.label} from ${callerName}` +
+            `${callbackPhone ? ` (${formatPhone(callbackPhone) || callbackPhone})` : ''}`,
+          details: [summary, 'Work it in the Hub Queue → /hub/txt'],
+        })
       } catch (e) {
         console.warn('[voice.wrapup] service notify failed', (e as Error).message)
       }
@@ -495,25 +495,30 @@ export async function POST(request: Request) {
       console.warn('[voice.wrapup] queue ensure failed', (e as Error).message)
     }
 
-    // Notify the office with a single post in the "office" room (no Guardian
-    // DM, no push — per Ben, the room post is the one surface).
+    // Notify the office with a single post in the "Office Alerts" room (no
+    // Guardian DM, no push — per Ben, the room post is the one surface). The
+    // headline is the whole post; the call detail sits in its thread.
     try {
+      // The callback number is in the headline now, so it's left out here rather
+      // than printed twice.
       const line2 = [
-        callbackPhone && `Callback: ${formatPhone(callbackPhone) || callbackPhone}`,
         service && `Service: ${service}`,
         extracted?.address_or_area,
         `Urgency: ${urgency}`,
       ]
         .filter(Boolean)
         .join(' · ')
-      const bodyText =
-        `${urgentFlag ? '🔴 ' : ''}☎️ After-hours AI call: ${callerName}` +
-        `${extracted?.soft_commitment ? '\n🔥 Soft commitment — said YES to moving forward' : ''}` +
-        `${line2 ? `\n${line2}` : ''}` +
-        `\n${summary}` +
-        `\nOpen the Lead Tracker → /hub/tracker`
-
-      await postGuardianToRoom(OFFICE_ROOM_ID, bodyText, { admin })
+      await postOfficeAlert(admin, companyId, {
+        title:
+          `${urgentFlag ? '🔴 ' : ''}☎️ After-hours AI call: ${callerName}` +
+          `${callbackPhone ? ` (${formatPhone(callbackPhone) || callbackPhone})` : ''}`,
+        details: [
+          extracted?.soft_commitment && '🔥 Soft commitment — said YES to moving forward',
+          line2,
+          summary,
+          'Open the Lead Tracker → /hub/tracker',
+        ],
+      })
     } catch (e) {
       console.warn('[voice.wrapup] notify failed', (e as Error).message)
     }
