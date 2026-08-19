@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ScoreboardMeta } from '@/lib/scoreboards/registry'
 import type { WidgetCatalogEntry } from '@/lib/scoreboards/widgets/registry'
 import type { BoardLayout, WidgetConfig, WidgetInstance } from '@/lib/scoreboards/widgets/types'
-import { MIN_SPAN, MAX_SPAN, SPAN_STOPS } from '@/lib/scoreboards/widgets/types'
+import { MIN_SPAN, MAX_SPAN, SPAN_STOPS, MAX_WIDGETS_PER_BOARD, duplicateWidgetAt } from '@/lib/scoreboards/widgets/types'
 import type { WidgetPayload } from '@/lib/scoreboards/widgets/payloads'
 import { getReport } from '@/lib/reports/registry'
 import ScoreboardError from '@/components/hub/ScoreboardError'
@@ -146,12 +146,38 @@ export default function WidgetBoardView({
     setOpenId(null)
     if (gone) flash(`Removed “${defFor(gone.type)?.title ?? gone.type}”`)
   }
+  /** The board is full. Says so instead of letting the save quietly drop the tail. */
+  const atCapacity = () => {
+    if (widgets.length < MAX_WIDGETS_PER_BOARD) return false
+    flash(`A scoreboard holds ${MAX_WIDGETS_PER_BOARD} cards — remove one to make room`)
+    return true
+  }
+
   const addWidget = (type: string) => {
     const def = defFor(type)
     if (!def) return
+    if (atCapacity()) return
     setWidgets(list => [...list, { id: tempId(), type, span: def.defaultSpan, config: {} }])
     setPickerOpen(false)
     flash(`Added “${def.title}”`)
+  }
+
+  /**
+   * A second copy of a card, with its settings, landing next to the original.
+   *
+   * The picker can already add another of the same TYPE — what it can't do is bring
+   * the configuration, and the configuration is the work: "Book Size, WF only" then
+   * duplicated and switched to IR is two clicks, where re-adding it means finding
+   * the card and re-ticking everything. Straight after the original rather than at
+   * the end, so the pair can be compared without hunting.
+   */
+  const duplicateWidget = (index: number) => {
+    const src = widgets[index]
+    if (!src) return
+    if (atCapacity()) return
+    const id = tempId()
+    setWidgets(list => duplicateWidgetAt(list, index, id))
+    flash(`Duplicated “${defFor(src.type)?.title ?? src.type}” — change the copy in ⚙`)
   }
   const nudge = (index: number, by: number) => {
     setWidgets(list => {
@@ -410,7 +436,7 @@ export default function WidgetBoardView({
       {editing ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-amber-400/30 bg-amber-500/[0.13] px-5 py-2.5 text-[12px] text-[#fde3af]">
           <strong className="font-semibold text-amber-400">Editing.</strong>
-          <span>Drag a card to move it · drag its right edge to resize · ⚙ to change what it shows</span>
+          <span>Drag a card to move it · drag its right edge to resize · ⧉ to copy it · ⚙ to change what it shows</span>
           <div className="flex-1" />
           <button onClick={discard} className="rounded-lg border border-amber-400/45 px-3 py-1.5 text-[12px]">Discard</button>
           <button
@@ -452,6 +478,12 @@ export default function WidgetBoardView({
                         <div className="absolute right-3 top-3 z-[3] flex gap-1">
                           <button onClick={() => nudge(idx, -1)} aria-label="Move earlier" className="grid h-6 w-6 place-items-center rounded-md border border-amber-400/35 text-[12px] text-amber-200 hover:bg-amber-500 hover:text-[#291a00]">↑</button>
                           <button onClick={() => nudge(idx, 1)} aria-label="Move later" className="grid h-6 w-6 place-items-center rounded-md border border-amber-400/35 text-[12px] text-amber-200 hover:bg-amber-500 hover:text-[#291a00]">↓</button>
+                          {/* Not offered on a locked card: you'd get a second card
+                              you also can't read, and copying the settings of
+                              something you were never shown isn't a thing to offer. */}
+                          {!w.restricted ? (
+                            <button onClick={() => duplicateWidget(idx)} aria-label="Duplicate this card" title="Duplicate this card" className="grid h-6 w-6 place-items-center rounded-md border border-amber-400/35 text-[12px] text-amber-200 hover:bg-amber-500 hover:text-[#291a00]">⧉</button>
+                          ) : null}
                           <button onClick={() => setOpenId(w.id)} aria-label="Widget settings" className="grid h-6 w-6 place-items-center rounded-md border border-amber-400/35 text-[12px] text-amber-200 hover:bg-amber-500 hover:text-[#291a00]">⚙</button>
                         </div>
                         <div
@@ -597,6 +629,10 @@ export default function WidgetBoardView({
              rendered inside a kept-alive Workspace tab, where pushing a route
              leaves the tab mounted on a board that no longer exists. */
           onDeleted={() => window.location.assign('/hub/scoreboards')}
+          /* Full navigation for the same reason as onDeleted: inside a kept-alive
+             Workspace tab a router push renders the new board in the tab area
+             with no tab of its own, so it opens unnamed and unclosable. */
+          onDuplicated={newSlug => window.location.assign(`/hub/scoreboards/${newSlug}`)}
         />
       ) : null}
 

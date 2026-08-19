@@ -271,6 +271,51 @@ export const SPAN_STOPS: { label: string; span: number }[] = [
 export const MIN_SPAN = 2
 export const MAX_SPAN = 12
 
+/**
+ * How many cards one board may hold.
+ *
+ * ⚠ Lives here rather than in ./layouts.ts because BOTH ends need it: the save
+ * silently truncates past this (a board nobody can read is not a feature), so the
+ * editor has to stop you before you get there. Duplicating a card makes that easy
+ * to hit by accident, and "I added cards and they vanished when I saved" is the
+ * exact failure a client-side guard exists to prevent — but only while the two
+ * numbers agree, hence one constant.
+ */
+export const MAX_WIDGETS_PER_BOARD = 60
+
+/**
+ * Insert a copy of the widget at `index`, immediately after it.
+ *
+ * Pure and exported so the copying rule can be tested — the part that matters is
+ * invisible on screen until it goes wrong: the copy's config must be a DEEP copy.
+ * Config values are arrays as often as scalars (ticked service lines, chosen
+ * people), and a shallow copy hands both cards the same array — so narrowing the
+ * duplicate to irrigation would silently narrow the original too, which is the
+ * exact thing someone duplicates a card in order to avoid.
+ *
+ * `restricted` is deliberately not carried over: it isn't a property OF the card,
+ * it's this viewer's verdict on it, recomputed server-side on the next load.
+ */
+export function duplicateWidgetAt(
+  list: WidgetInstance[],
+  index: number,
+  newId: string,
+): WidgetInstance[] {
+  const src = list[index]
+  if (!src) return list
+  const copy: WidgetInstance = {
+    id: newId,
+    type: src.type,
+    span: src.span,
+    // JSON round-trip: a config is precisely what gets stored as jsonb, so there
+    // is nothing in it (no dates, no functions, no undefined) a stringify loses.
+    config: JSON.parse(JSON.stringify(src.config ?? {})) as WidgetConfig,
+  }
+  const next = [...list]
+  next.splice(index + 1, 0, copy)
+  return next
+}
+
 export function clampSpan(n: unknown): number {
   const v = Math.round(Number(n))
   if (!Number.isFinite(v)) return 4
