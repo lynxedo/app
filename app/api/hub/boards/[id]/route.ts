@@ -41,14 +41,14 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (!board) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (board.created_by !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  // Delete child rows first (in case DB doesn't CASCADE)
-  const { data: items } = await admin.from('board_items').select('id').eq('board_id', id)
-  if (items && items.length > 0) {
-    await admin.from('board_item_comments').delete().in('item_id', items.map(i => i.id))
-  }
-  await admin.from('board_items').delete().eq('board_id', id)
-  await admin.from('board_members').delete().eq('board_id', id)
-
+  // Child rows are cleaned up by the database, not here. Every FK down the chain
+  // is ON DELETE CASCADE: boards -> board_items + board_members, and
+  // board_items -> board_item_comments + board_item_attachments +
+  // board_item_assignees. Deleting a single item (items/[itemId] DELETE) already
+  // relies on exactly this. Don't hand-roll the deletes again - the version that
+  // was here covered one of the five child tables and named a column that
+  // doesn't exist, so it errored on every call and the cascade did the work
+  // regardless.
   const { error } = await admin.from('boards').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
