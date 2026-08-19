@@ -186,6 +186,24 @@ export type Person = {
     /** Annual value of the upsells alone. `sold_value` minus this is new business. */
     upsold_value: number
     avg_deal: number | null
+    /* ── The same four measures counted by the date the deal CLOSED ───────────
+     *
+     * ⚠⚠ Every figure above belongs to leads that ARRIVED in the window, which is
+     * the right cohort for a funnel — "of the leads that came in, how many closed"
+     * — and the wrong one for paying somebody. Ben: "we want close date not lead
+     * creation date." A lead that arrived in July and closed in August is August's
+     * work, and on his real August it was the difference between $4,285 and $7,945.
+     *
+     * ⚠ Added ALONGSIDE rather than replacing: close rate, lost reasons and the
+     * Sales report's own person chart legitimately want the arrival cohort, and
+     * redefining what an existing commission rule pays with nobody editing it is
+     * the worst way to be right in a pay feature. Commission reads these; every
+     * other card still reads the four above.
+     */
+    won_closed: number
+    upsold_closed: number
+    sold_value_closed: number
+    upsold_value_closed: number
   }
   field: {
     hours: number

@@ -225,28 +225,34 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
        * Sales report next to it. Floored at zero: if a stage were ever ticked "Sold"
        * AND counted as a competed win, the difference could go negative, and a
        * negative basis is not a smaller bonus, it is a broken one. */
+      /* ⚠⚠ The `_closed` figures, counted by the date the deal was SOLD — not the
+       * date its lead arrived, which is what every other Sales card uses. Ben: "we
+       * want close date not lead creation date." Paying on the arrival cohort puts a
+       * July lead closed in August into JULY's bonus; on his real August that moved
+       * $3,660 of basis, $292.80 of pay at 8%. The Sales report keeps the arrival
+       * cohort, because close rate is a question about leads that came in. */
       case 'new_sales_value':
-        amount = Math.max(0, num(person.sales.sold_value) - num(person.sales.upsold_value))
+        amount = Math.max(0, num(person.sales.sold_value_closed) - num(person.sales.upsold_value_closed))
         break
       case 'new_sales_count':
-        amount = Math.max(0, num(person.sales.won) - num(person.sales.upsold))
+        amount = Math.max(0, num(person.sales.won_closed) - num(person.sales.upsold_closed))
         break
       case 'upsell_value':
-        amount = num(person.sales.upsold_value)
+        amount = num(person.sales.upsold_value_closed)
         usesUpsells = true
         upsellOnly.add(person.name)
         break
       case 'upsell_count':
-        amount = num(person.sales.upsold)
+        amount = num(person.sales.upsold_closed)
         usesUpsells = true
         upsellOnly.add(person.name)
         break
       case 'sales_value':
-        amount = num(person.sales.sold_value)
+        amount = num(person.sales.sold_value_closed)
         includesUpsells.add(person.name)
         break
       case 'sales_count':
-        amount = num(person.sales.won)
+        amount = num(person.sales.won_closed)
         includesUpsells.add(person.name)
         break
       case 'revenue_produced':

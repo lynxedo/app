@@ -61,6 +61,15 @@ export type CommissionBasisDef = {
  *   upsell_value     the "Sold" stages only   — sold to a customer already on the book
  *   sales_value      both                     — what the original single basis meant
  *
+ * ⚠⚠ ALL SIX SALES BASES COUNT A DEAL IN THE PERIOD IT WAS SOLD, not the period its
+ * lead arrived. Ben, asked directly: "we want close date not lead creation date." The
+ * Sales report deliberately keeps the arrival cohort — close rate is a question about
+ * the leads that came in — so `scoreboard_people` carries both, and these read the
+ * `_closed` figures. Two consequences worth knowing: a deal that arrived in one month
+ * and closed in the next is paid in the month it closed (on Heroes' real August that
+ * was $3,660 of basis), and the value bases now agree with `item_count`, which has
+ * always counted by sold date and was quietly the odd one out.
+ *
  * `sales_value` is KEPT rather than redefined to mean new business. Redefining it would
  * silently change what an existing rule pays without anybody editing it, which in a pay
  * feature is the worst possible way to be right. Its caution says what it covers, and
@@ -74,7 +83,7 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
     group: 'Sales',
     noun: 'new-business value sold',
     unit: 'currency',
-    hint: 'Annual value of the deals they moved to Closed Won. Upsells are not counted — they have their own basis, so an upsell can pay a different rate.',
+    hint: 'Annual value of the deals they moved to Closed Won, counted in the period they were SOLD. Upsells are not counted — they have their own basis, so an upsell can pay a different rate.',
   },
   {
     key: 'new_sales_count',
@@ -82,7 +91,7 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
     group: 'Sales',
     noun: 'new-business sales',
     unit: 'count',
-    hint: 'How many deals they moved to Closed Won, rather than what those deals were worth. Upsells are not counted.',
+    hint: 'How many deals they moved to Closed Won, counted in the period they were sold, rather than what those deals were worth. Upsells are not counted.',
   },
   {
     key: 'upsell_value',
@@ -93,7 +102,7 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
     /* ⚠ "Upsell" is not hardcoded to a stage named Upsells. It is every stage ticked
      * "Sold" in Admin → Lead Tracker, which is the flag that exists precisely so a
      * tenant can say which of their own stages are sales-but-not-competed-wins. */
-    hint: 'Annual value of the deals in the stages you ticked as “Sold” in Admin → Lead Tracker — the Upsells section — rather than Closed Won.',
+    hint: 'Annual value of the deals in the stages you ticked as “Sold” in Admin → Lead Tracker — the Upsells section — rather than Closed Won, counted in the period they were sold.',
     caution: 'If no stage is ticked as “Sold”, this basis has nothing to count and every rule using it pays zero.',
   },
   {
@@ -102,7 +111,7 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
     group: 'Sales',
     noun: 'upsells sold',
     unit: 'count',
-    hint: 'How many upsells they closed — for a flat spiff per upsell rather than a percentage of its value.',
+    hint: 'How many upsells they closed in the period — for a flat spiff per upsell rather than a percentage of its value.',
     caution: 'If no stage is ticked as “Sold” in Admin → Lead Tracker, this basis has nothing to count and every rule using it pays zero.',
   },
   {
@@ -111,7 +120,7 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
     group: 'Sales',
     noun: 'value sold incl. upsells',
     unit: 'currency',
-    hint: 'Annual value of every deal credited to them, Closed Won and upsells together, paid at one rate.',
+    hint: 'Annual value of every deal credited to them, Closed Won and upsells together, counted in the period they were sold, paid at one rate.',
     caution: 'This already includes upsells. If the same person also has a rule paid on upsells, every upsell is paid twice — use “new business only” for one of them.',
   },
   {
@@ -120,7 +129,7 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
     group: 'Sales',
     noun: 'sales incl. upsells',
     unit: 'count',
-    hint: 'How many deals they closed in total, rather than what those deals were worth.',
+    hint: 'How many deals they closed in the period in total, rather than what those deals were worth.',
     caution: 'This already includes upsells. If the same person also has a rule paid on upsells, every upsell is counted twice — use “new business only” for one of them.',
   },
   {
@@ -309,7 +318,13 @@ export function describeRule(plan: CommissionPlan): string {
   const extra: string[] = []
   if (plan.basis === 'line_revenue' && plan.line_prefix) extra.push(`${plan.line_prefix} line`)
   if (plan.basis === 'item_count' && plan.items?.length) extra.push(plan.items.join(', '))
-  if (plan.threshold != null) extra.push(`nothing under $${plan.threshold.toLocaleString('en-US')}`)
+  /* ⚠ The unit, not a hardcoded "$". A threshold on a COUNT basis read "nothing under
+   * $3" on a live rule of Ben's that means "nothing under 3 upsells" — a dollar sign on
+   * a number of deals, which reads as a tiny money floor rather than a real one. */
+  if (plan.threshold != null) {
+    const n = plan.threshold.toLocaleString('en-US')
+    extra.push(def?.unit === 'count' ? `nothing under ${n} ${def.noun}` : `nothing under $${n}`)
+  }
   if (plan.cap != null) extra.push(`capped at $${plan.cap.toLocaleString('en-US')}`)
   return extra.length ? `${rule} · ${extra.join(' · ')}` : rule
 }
