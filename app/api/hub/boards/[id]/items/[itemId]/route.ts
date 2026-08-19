@@ -68,7 +68,7 @@ export async function PUT(
       const nextDue = advanceDueDate(ctx.due_date, ctx.recurrence)
       const { data: advanced, error: advErr } = await supabase
         .from('board_items')
-        .update({ done: false, done_at: null, due_date: nextDue, overdue_notified_at: null })
+        .update({ done: false, done_at: null, due_date: nextDue, overdue_notified_at: null, due_notified_at: null })
         .eq('id', itemId)
         .select(ITEM_COLS)
         .single()
@@ -85,10 +85,11 @@ export async function PUT(
     update.done_at = body.done ? new Date().toISOString() : null
   }
   if ('priority' in body) update.priority = body.priority
-  // Changing the due date/time re-arms the "overdue" notifier so Guardian can
-  // alert again for the new deadline (it only DMs once per deadline).
-  if ('due_date' in body) { update.due_date = body.due_date; update.overdue_notified_at = null }
-  if ('due_time' in body) { update.due_time = body.due_time; update.overdue_notified_at = null }
+  // Changing the due date/time re-arms BOTH deadline notifiers — the morning
+  // "due today" heads-up and the overdue alert — so a rescheduled task is
+  // announced again for its new deadline (each fires once per deadline).
+  if ('due_date' in body) { update.due_date = body.due_date; update.overdue_notified_at = null; update.due_notified_at = null }
+  if ('due_time' in body) { update.due_time = body.due_time; update.overdue_notified_at = null; update.due_notified_at = null }
   if ('recurrence' in body) update.recurrence = body.recurrence
   if ('content' in body) update.content = body.content
 

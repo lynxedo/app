@@ -803,7 +803,18 @@ function HubTab() {
           <li><strong className="text-white">Notes &amp; Files</strong> — open a task to comment (tag a teammate with <strong className="text-white">@name</strong>) or attach a photo/document. The 💬 and 📎 chips on the card show the counts.</li>
         </ul>
         <p className="mt-3"><strong className="text-white">My Tasks</strong> — the <strong className="text-white">My Tasks</strong> link in the sidebar gathers <em>every open task assigned to you</em> — plus everything on a board that&apos;s yours alone (a Personal board, or a Private board only you belong to, where every task is implicitly yours) — into one list, grouped Overdue / Today / Upcoming. Check tasks off right there. Use the <strong className="text-white">Boards</strong> button to choose which boards feed your list — that&apos;s personal to you and doesn&apos;t affect anyone else&apos;s.</p>
-        <p className="mt-3"><strong className="text-white">Overdue reminders</strong> — when a task with a due date passes its deadline, Guardian sends each assignee a one-time direct message so nothing slips.</p>
+        <p className="mt-3"><strong className="text-white">Deadline reminders</strong> — a task with a due date gets a heads-up on the morning it&rsquo;s due, and a second message if it goes past its deadline. Guardian sends each one as a direct message, once per deadline &mdash; change the due date and it&rsquo;ll remind you again for the new one.</p>
+
+        <p className="mt-3"><strong className="text-white">🔔 Notify me &mdash; your own settings, per board</strong></p>
+        <p>Every board has a <strong className="text-white">🔔</strong> in its top-right corner. What you pick there is <em>yours alone</em> &mdash; it changes nothing for anyone else on the board, and there&rsquo;s nothing an admin has to set up. Each of the four can be set to <strong className="text-white">everything</strong>, <strong className="text-white">only the tasks you&rsquo;re on</strong>, or <strong className="text-white">off</strong>:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">New tasks</strong> — someone adds a task. Starts on <em>Every task</em>, which is what boards did before.</li>
+          <li><strong className="text-white">Replies</strong> — someone writes a note on a task. Starts <em>Off</em>; turn it on if you want to follow the conversation.</li>
+          <li><strong className="text-white">Files</strong> — someone attaches a photo or document to a task. Starts <em>Off</em>.</li>
+          <li><strong className="text-white">Due &amp; overdue</strong> — the deadline reminders above. Starts on <em>Assigned to me</em>. Set it to <em>Every task</em> if you run the board and want to see everything slipping, not just your own.</li>
+        </ul>
+        <p className="mt-2">&ldquo;Tasks I&rsquo;m on&rdquo; means a task assigned to you, one you created, or one you&rsquo;ve already replied to &mdash; so answering a note keeps you in that conversation.</p>
+        <Note>Being <strong className="text-white">@mentioned</strong> in a note always reaches you, whatever you set above &mdash; someone using your name is talking to you directly. And you&rsquo;re only ever notified about a board you can actually open.</Note>
         <p className="mt-3"><strong className="text-white">Turn a message into a task</strong> — hover (or long-press on phone) any room, thread, or customer text message and choose <strong className="text-white">Add to Board</strong> to drop it onto a board.</p>
         <Note>You only ever see tasks on boards you have access to — a teammate&apos;s Personal or Private board never shows up in your My Tasks.</Note>
       </Section>

@@ -1,5 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { sendHubPush } from '@/lib/hub-push'
+import { boardNotifyRecipients, involvedOnItem } from '@/lib/board-notify'
 
 export async function GET(
   _req: Request,
@@ -24,7 +27,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string; itemId: string }> }
 ) {
-  const { itemId } = await params
+  const { id: boardId, itemId } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -56,6 +59,38 @@ export async function POST(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Tell whoever asked to hear about files on this board (🔔 in the board header).
+  after(async () => {
+    try {
+      const admin = createAdminClient()
+      const involved = await involvedOnItem(admin, itemId)
+      const resolved = await boardNotifyRecipients(admin, {
+        boardId,
+        kind: 'files',
+        actorId: user.id,
+        involvedIds: involved,
+      })
+      if (!resolved || resolved.recipientIds.length === 0) return
+
+      const [{ data: senderRow }, { data: itemRow }] = await Promise.all([
+        admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
+        admin.from('board_items').select('content').eq('id', itemId).maybeSingle(),
+      ])
+      const senderName = senderRow?.display_name ?? 'Someone'
+      const task = (itemRow?.content as string | undefined)?.slice(0, 60)
+
+      await sendHubPush(resolved.recipientIds, {
+        title: `${senderName} attached a file on ${resolved.audience.name}`,
+        body: task ? `${filename} — ${task}` : String(filename),
+        url: `/hub/board/${boardId}`,
+        type: 'board',
+      })
+    } catch (err) {
+      console.error('[board attachments] file push failed:', (err as Error).message)
+    }
+  })
+
   return NextResponse.json(data, { status: 201 })
 }
 

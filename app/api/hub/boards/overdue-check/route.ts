@@ -2,14 +2,35 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { getHubBotUserId } from '@/lib/guardian-post'
+import { selectInChunks } from '@/lib/supabase/chunked-in'
+import {
+  bucketDueItems,
+  loadBoardAudience,
+  loadBoardPrefs,
+  pickBoardRecipients,
+  type BoardAudience,
+  type BoardNotifyPrefs,
+} from '@/lib/board-notify'
 
 // Called by VPS cron (every ~15 min) — DOES send real Guardian DMs + pushes:
 //   curl -s -X POST https://lynxedo.com/api/hub/boards/overdue-check \
 //     -H "x-cron-secret: $CRON_SECRET"
-// Each overdue task DMs its assignees exactly once (overdue_notified_at marker);
-// changing a task's due date/time re-arms it (cleared in the item PUT route).
+//
+// Two alerts come out of here, each sent at most once per deadline:
+//   • a heads-up on the morning a task is DUE (from DUE_HEADS_UP_AT, Central)
+//   • the OVERDUE alert when the deadline itself passes
+// Changing a task's due date/time re-arms both (cleared in the item PUT route).
+//
+// Who hears about them is each person's own choice, made from the 🔔 in the
+// board header: every task on the board, only the ones they're on, or nothing.
+// The default is "only mine", which is exactly who this cron alerted before
+// that setting existed.
 
 type AdminClient = ReturnType<typeof createAdminClient>
+
+// Local time of day at which the "due today" heads-up goes out. Early enough to
+// act on before the working day, late enough not to arrive overnight.
+const DUE_HEADS_UP_AT = '07:00'
 
 // Find-or-create the 1:1 DM conversation between a user and their company's Hub bot.
 async function ensureGuardianDm(
@@ -80,6 +101,21 @@ function nowCentralKey(): string {
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`
 }
 
+type Item = {
+  id: string
+  content: string
+  due_date: string
+  due_time: string | null
+  board_id: string
+  overdue_notified_at: string | null
+  due_notified_at: string | null
+}
+
+type Bucket = 'overdue' | 'due_today'
+
+/** One person's share of one bucket. */
+type Pending = { items: Item[]; allMine: boolean }
+
 export async function POST(request: Request) {
   const secret = request.headers.get('x-cron-secret')
   if (!secret || secret !== process.env.CRON_SECRET) {
@@ -88,98 +124,165 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient()
 
-  // Candidate tasks: open, with a due date, not yet alerted.
+  // Open tasks with a deadline that still owe at least one of the two alerts.
   const { data: candidates, error } = await admin
     .from('board_items')
-    .select('id, content, due_date, due_time, board_id')
+    .select('id, content, due_date, due_time, board_id, overdue_notified_at, due_notified_at')
     .eq('done', false)
-    .is('overdue_notified_at', null)
     .not('due_date', 'is', null)
+    .or('overdue_notified_at.is.null,due_notified_at.is.null')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!candidates || candidates.length === 0) return NextResponse.json({ checked: 0, notified: 0 })
 
-  const nowKey = nowCentralKey()
-  type Item = { id: string; content: string; due_date: string; due_time: string | null; board_id: string }
-  const overdue = (candidates as Item[]).filter(it => {
-    const t = it.due_time ? it.due_time.slice(0, 5) : '23:59' // no time → due end of day
-    return `${it.due_date} ${t}` <= nowKey
-  })
-  if (overdue.length === 0) return NextResponse.json({ checked: candidates.length, notified: 0 })
+  const all = candidates as Item[]
+  // Disjoint by construction — a task past its time is overdue, never also a
+  // "due today" heads-up, so one deadline is never announced twice.
+  const { overdue, dueToday } = bucketDueItems(all, nowCentralKey(), DUE_HEADS_UP_AT)
 
-  const overdueIds = overdue.map(i => i.id)
+  if (overdue.length === 0 && dueToday.length === 0) {
+    return NextResponse.json({ checked: all.length, overdue: 0, due_today: 0, notified: 0 })
+  }
 
-  // Assignees + board names for the overdue set.
-  const [{ data: assigneeRows }, { data: boardRows }] = await Promise.all([
-    admin.from('board_item_assignees').select('board_item_id, user_id').in('board_item_id', overdueIds),
-    admin.from('boards').select('id, name').in('id', [...new Set(overdue.map(i => i.board_id))]),
-  ])
-  const boardName: Record<string, string> = {}
-  for (const b of (boardRows ?? []) as { id: string; name: string }[]) boardName[b.id] = b.name
+  const touched = [...overdue, ...dueToday]
+  const touchedIds = [...new Set(touched.map(i => i.id))]
 
-  // Group overdue tasks per assignee → one consolidated DM each.
-  const perUser: Record<string, Item[]> = {}
-  for (const row of (assigneeRows ?? []) as { board_item_id: string; user_id: string }[]) {
-    const it = overdue.find(i => i.id === row.board_item_id)
-    if (!it) continue
-    ;(perUser[row.user_id] ??= []).push(it)
+  // Assignees for everything in play — both the "Only tasks assigned to me"
+  // test and the wording of each DM depend on them. Chunked: the ids ride in
+  // the PostgREST URL, and a first run after a quiet spell can carry hundreds.
+  const assigneeRows = await selectInChunks<{ board_item_id: string; user_id: string }>(
+    touchedIds,
+    batch => admin.from('board_item_assignees').select('board_item_id, user_id').in('board_item_id', batch),
+  )
+  const assigneesByItem: Record<string, Set<string>> = {}
+  for (const r of assigneeRows) {
+    ;(assigneesByItem[r.board_item_id] ??= new Set()).add(r.user_id)
+  }
+
+  // One audience + prefs read per board, however many of its tasks are in play.
+  const boardCache = new Map<string, { audience: BoardAudience; prefs: Map<string, BoardNotifyPrefs> } | null>()
+  async function boardCtx(boardId: string) {
+    if (!boardCache.has(boardId)) {
+      const audience = await loadBoardAudience(admin, boardId)
+      boardCache.set(boardId, audience ? { audience, prefs: await loadBoardPrefs(admin, boardId) } : null)
+    }
+    return boardCache.get(boardId) ?? null
+  }
+
+  // bucket → userId → their pending items
+  const perUser: Record<Bucket, Record<string, Pending>> = { overdue: {}, due_today: {} }
+  const boardNameById: Record<string, string> = {}
+  const notifiedIds: Record<Bucket, Set<string>> = { overdue: new Set(), due_today: new Set() }
+
+  for (const [bucket, items] of [['overdue', overdue], ['due_today', dueToday]] as [Bucket, Item[]][]) {
+    for (const it of items) {
+      const ctx = await boardCtx(it.board_id)
+      if (!ctx) continue
+      boardNameById[it.board_id] = ctx.audience.name
+
+      const assignees = assigneesByItem[it.id] ?? new Set<string>()
+      // No actorId — nobody "did" a deadline passing, so an assignee who set
+      // the date still hears about it.
+      const recipients = pickBoardRecipients(ctx.audience, ctx.prefs, {
+        kind: 'due',
+        involvedIds: assignees,
+      })
+      if (recipients.length === 0) continue
+
+      for (const uid of recipients) {
+        const slot = (perUser[bucket][uid] ??= { items: [], allMine: true })
+        slot.items.push(it)
+        if (!assignees.has(uid)) slot.allMine = false
+      }
+      notifiedIds[bucket].add(it.id)
+    }
   }
 
   let notified = 0
-  // Assignees usually share a company, so resolve each company's Hub bot once.
+  // Recipients usually share a company, so resolve each company's Hub bot once.
   const botByCompany = new Map<string, string | null>()
-  for (const [userId, userItems] of Object.entries(perUser)) {
-    const { data: prof } = await admin.from('user_profiles').select('company_id').eq('id', userId).single()
-    if (!prof?.company_id) continue
 
-    const companyId = prof.company_id as string
-    if (!botByCompany.has(companyId)) {
-      botByCompany.set(companyId, await getHubBotUserId(admin, companyId))
-    }
-    const botUserId = botByCompany.get(companyId) ?? null
+  for (const bucket of ['overdue', 'due_today'] as Bucket[]) {
+    for (const [userId, { items: userItems, allMine }] of Object.entries(perUser[bucket])) {
+      const { data: prof } = await admin.from('user_profiles').select('company_id').eq('id', userId).maybeSingle()
+      if (!prof?.company_id) continue
 
-    const lines = userItems.map(it => `• ${it.content}${boardName[it.board_id] ? `  (${boardName[it.board_id]})` : ''}`)
-    const intro = userItems.length === 1
-      ? 'Heads up — a task of yours is overdue:'
-      : `Heads up — ${userItems.length} of your tasks are overdue:`
-    const content = `${intro}\n${lines.join('\n')}`
+      const companyId = prof.company_id as string
+      if (!botByCompany.has(companyId)) {
+        botByCompany.set(companyId, await getHubBotUserId(admin, companyId))
+      }
+      const botUserId = botByCompany.get(companyId) ?? null
 
-    // No bot for this company → skip the DM (the push below still goes out, so
-    // the person is still told; we just don't post as another tenant's bot).
-    const convId = botUserId
-      ? await ensureGuardianDm(admin, userId, companyId, botUserId)
-      : null
-    if (convId && botUserId) {
-      await admin.from('messages').insert({
-        company_id: companyId,
-        conversation_id: convId,
-        sender_id: botUserId,
-        content,
+      const n = userItems.length
+      const lines = userItems.map(it => {
+        const name = boardNameById[it.board_id]
+        return `• ${it.content}${name ? `  (${name})` : ''}`
       })
-      await admin
-        .from('conversation_members')
-        .update({ archived_at: null })
-        .eq('conversation_id', convId)
-        .eq('user_id', userId)
-        .not('archived_at', 'is', null)
+      // "of yours" only when every task listed really is theirs — someone who
+      // asked to hear about the whole board is not being told these are their
+      // tasks.
+      const whose = allMine ? (n === 1 ? 'a task of yours is' : `${n} of your tasks are`) : (n === 1 ? 'a task is' : `${n} tasks are`)
+      const state = bucket === 'overdue' ? 'overdue' : 'due today'
+      const content = `Heads up — ${whose} ${state}:\n${lines.join('\n')}`
+
+      // No bot for this company → skip the DM (the push below still goes out, so
+      // the person is still told; we just don't post as another tenant's bot).
+      const convId = botUserId
+        ? await ensureGuardianDm(admin, userId, companyId, botUserId)
+        : null
+      if (convId && botUserId) {
+        await admin.from('messages').insert({
+          company_id: companyId,
+          conversation_id: convId,
+          sender_id: botUserId,
+          content,
+        })
+        await admin
+          .from('conversation_members')
+          .update({ archived_at: null })
+          .eq('conversation_id', convId)
+          .eq('user_id', userId)
+          .not('archived_at', 'is', null)
+      }
+
+      const title = bucket === 'overdue'
+        ? (n === 1 ? 'A task is overdue' : `${n} tasks overdue`)
+        : (n === 1 ? 'A task is due today' : `${n} tasks due today`)
+
+      await sendHubPush([userId], {
+        title,
+        body: userItems.map(i => i.content).join(', ').slice(0, 120),
+        url: `/hub/board/${userItems[0].board_id}`,
+        type: 'board',
+      }, { isDm: true }).catch((e: Error) => console.error('[overdue-check] push failed:', e.message))
+
+      notified++
     }
-
-    await sendHubPush([userId], {
-      title: userItems.length === 1 ? 'A task is overdue' : `${userItems.length} tasks overdue`,
-      body: userItems.map(i => i.content).join(', ').slice(0, 120),
-      url: `/hub/board/${userItems[0].board_id}`,
-    }, { isDm: true }).catch((e: Error) => console.error('[overdue-check] push failed:', e.message))
-
-    notified++
   }
 
-  // Mark only the tasks we actually alerted on (those with ≥1 assignee), so an
-  // unassigned-but-overdue task still alerts once someone is assigned to it.
-  const notifiedItemIds = overdueIds.filter(id =>
-    (assigneeRows ?? []).some((r: { board_item_id: string }) => r.board_item_id === id),
+  // Mark only the tasks somebody was actually told about, so a task nobody has
+  // asked to hear about yet still alerts once someone opts in or is assigned.
+  // An overdue alert also stamps the due-today marker: the deadline has passed,
+  // so the morning heads-up for it is moot.
+  const stamp = new Date().toISOString()
+  await selectInChunks(
+    [...notifiedIds.overdue],
+    batch => admin.from('board_items')
+      .update({ overdue_notified_at: stamp, due_notified_at: stamp })
+      .in('id', batch)
+      .select('id'),
   )
-  if (notifiedItemIds.length > 0) {
-    await admin.from('board_items').update({ overdue_notified_at: new Date().toISOString() }).in('id', notifiedItemIds)
-  }
+  await selectInChunks(
+    [...notifiedIds.due_today],
+    batch => admin.from('board_items')
+      .update({ due_notified_at: stamp })
+      .in('id', batch)
+      .select('id'),
+  )
 
-  return NextResponse.json({ checked: candidates.length, overdue: overdue.length, notified })
+  return NextResponse.json({
+    checked: all.length,
+    overdue: overdue.length,
+    due_today: dueToday.length,
+    notified,
+  })
 }
