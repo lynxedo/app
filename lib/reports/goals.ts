@@ -45,6 +45,22 @@
  * question. Those metrics accept year targets only, and both the screen and the
  * API say so rather than storing a target nothing can measure.
  *
+ * ── Which DATE a sale belongs to ───────────────────────────────────────────
+ *
+ * ⚠⚠ The five "how much did you sell" measures — value sold (all / new business /
+ * upsells), deals won and average deal size — count a deal in the period it was
+ * SOLD, not the period its lead arrived. Ben, asked directly: "we want close date
+ * not lead creation date." A lead that came in during July and closed in August is
+ * August's work, and this is the same rule the commission bases use, so a sales
+ * target and the bonus paid on it cannot disagree.
+ *
+ * ⚠ `leads` and `close_rate` KEEP the arrival cohort, and that is not an oversight.
+ * A lead count is a question about arrivals by definition; and a close rate measured
+ * over the deals that closed would read 100% by construction, because there the
+ * cohort IS the denominator. The Sales report keeps the arrival cohort throughout for
+ * the same reason, which is why a target and that report can show different totals
+ * for one month and both be right.
+ *
  * ── The timeclock clamp: safe for rates, unsafe for totals ──────────────────
  *
  * ⚠⚠ `scoreboard_crew_labor` and `scoreboard_service_lines` CLAMP their window
@@ -206,7 +222,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     group: 'Sales',
     format: 'number',
     cumulative: true,
-    help: 'Leads created in the period, the same cohort the close rate uses.',
+    help: 'Leads created in the period, the same cohort the close rate uses. ⚠ This one counts ARRIVALS, unlike the value and count measures below, which count deals by the date they were sold — a lead count is a question about arrivals by definition.',
     perPerson: true,
   },
   {
@@ -216,7 +232,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     group: 'Sales',
     format: 'currency',
     cumulative: true,
-    help: 'Annual value of everything sold in the period — new business and upsells together.',
+    help: 'Annual value of everything sold in the period — new business and upsells together. Counted in the period the deal was SOLD, not the period its lead arrived, which is the same rule the commission bases use.',
     perPerson: true,
   },
   {
@@ -226,7 +242,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     group: 'Sales',
     format: 'currency',
     cumulative: true,
-    help: 'Value sold to customers you competed for, with upsells taken out. Worked out by subtraction from the same figures, so the two can never disagree about what a deal was.',
+    help: 'Value sold to customers you competed for, with upsells taken out, counted in the period the deal was sold. Worked out by subtraction from the same figures, so the two can never disagree about what a deal was.',
     perPerson: true,
   },
   {
@@ -236,7 +252,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     group: 'Sales',
     format: 'currency',
     cumulative: true,
-    help: 'Value of extra work sold to customers you already had. Counts every stage ticked as a sale in the Lead Tracker.',
+    help: 'Value of extra work sold to customers you already had, counted in the period it was sold. Counts every stage ticked as a sale in the Lead Tracker.',
     perPerson: true,
   },
   {
@@ -246,7 +262,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     group: 'Sales',
     format: 'number',
     cumulative: true,
-    help: 'How many leads were sold in the period, however big.',
+    help: 'How many deals were sold in the period, however big — counted by the date they were sold.',
     perPerson: true,
   },
   {
@@ -256,7 +272,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     group: 'Sales',
     format: 'currency',
     cumulative: false,
-    help: 'Value sold divided by deals won. A rate, so no pace is shown — and a slow month with two big jobs will swing it.',
+    help: 'Value sold divided by deals won, both counted by the date the deal was sold. A rate, so no pace is shown — and a slow month with two big jobs will swing it.',
     perPerson: true,
   },
   {
@@ -266,7 +282,7 @@ export const GOAL_METRICS: GoalMetric[] = [
     group: 'Sales',
     format: 'percent',
     cumulative: false,
-    help: 'Share of decided leads won. A rate, so no pace is shown — see the report.',
+    help: 'Share of decided leads won, out of the leads that ARRIVED in the period. ⚠ Deliberately not counted by close date like the value measures: over deals that closed, the share that closed would be 100% by construction — the cohort is the denominator. A rate, so no pace is shown.',
     perPerson: true,
   },
   {
@@ -477,6 +493,24 @@ export function rateMetricLabels(): string[] {
 /** The measures that can belong to one person, named. Derived for the same reason. */
 export function perPersonMetricLabels(): string[] {
   return PER_PERSON_GOAL_METRICS.map(m => m.label)
+}
+
+/**
+ * The measures counted by the date a deal was SOLD rather than the date its lead
+ * arrived. See the header note.
+ *
+ * ⚠ Declared as one list here and derived everywhere else, so the Goals card, the help
+ * text and the commission bases cannot end up naming different sets — a note claiming
+ * a measure uses close date while the SQL uses arrival date would be worse than no note.
+ */
+export const CLOSE_DATE_GOAL_METRICS = ['won_value', 'new_business_value', 'upsell_value', 'won_count', 'avg_deal'] as const
+
+export function isCloseDateMetric(key: string): boolean {
+  return (CLOSE_DATE_GOAL_METRICS as readonly string[]).includes(key)
+}
+
+export function closeDateMetricLabels(): string[] {
+  return GOAL_METRICS.filter(m => isCloseDateMetric(m.key)).map(m => m.label)
 }
 
 /** Measures where the target is a ceiling rather than a floor, named. */
