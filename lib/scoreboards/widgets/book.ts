@@ -314,6 +314,9 @@ export const BOOK_WIDGETS: WidgetDef<WidgetPayload>[] = [
         kind: 'donut',
         title: `Program Mix — ${scope}`,
         sub: `${byValue ? 'Annual value' : 'Jobs'} per program · ${AS_OF}`,
+        // Same rule as the Bars branch above: annual value is money, a job count
+        // is a count. Without this the legend printed raw dollars.
+        format: byValue ? 'currency' : 'number',
         parts: parts.map((p, i) => ({ label: p.label, value: p.value, tone: MIX_TONES[i % MIX_TONES.length] })),
         note,
         empty: `No active recurring jobs on ${scope}`,
@@ -383,6 +386,7 @@ export const BOOK_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: String(cfg.label).trim() || name,
         value: denom > 0 ? `${pct}%` : '—',
         tone: pct >= 25 ? 'good' : pct >= 10 ? 'warn' : 'neutral',
+        judged: true,
         sub: denom > 0
           ? `${hit} of ${denom} recurring job${denom === 1 ? '' : 's'} on ${scope} · ${AS_OF}`
           : `No active recurring jobs on ${scope}`,

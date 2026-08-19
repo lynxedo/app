@@ -27,6 +27,7 @@ import { REVENUE_TREND_WIDGETS } from './revenuetrend'
 import { TRACKED_ITEM_WIDGETS } from './trackeditems'
 import { BOOK_WIDGETS, TICKET_WIDGETS } from './book'
 import { COMMISSION_WIDGETS } from './commission'
+import { NARRATIVE_WIDGETS } from './narrative'
 import type { Tone, WidgetPayload } from './payloads'
 // Pure map + pure lookup. gating.ts pulls in lib/reports/registry, which is data
 // and pure functions only — safe in the browser bundle, and the picker wants the
@@ -196,6 +197,7 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Source Coverage',
         value: `${pct}%`,
         tone: pct >= 85 ? 'good' : pct >= 65 ? 'warn' : 'bad',
+        judged: true,
         sub: 'Share of the book with a known lead source',
       }
     },
@@ -445,7 +447,7 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
 ]
 
 /** Every widget in the library. One array per subject area, concatenated here. */
-const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...CLIENTS_GEO_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...QUOTE_WIDGETS, ...HOME_WIDGETS, ...PEOPLE_WIDGETS, ...GOALS_WIDGETS, ...REVENUE_TREND_WIDGETS, ...TRACKED_ITEM_WIDGETS, ...BOOK_WIDGETS, ...TICKET_WIDGETS, ...COMMISSION_WIDGETS]
+const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...CLIENTS_GEO_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...QUOTE_WIDGETS, ...HOME_WIDGETS, ...PEOPLE_WIDGETS, ...GOALS_WIDGETS, ...REVENUE_TREND_WIDGETS, ...TRACKED_ITEM_WIDGETS, ...BOOK_WIDGETS, ...TICKET_WIDGETS, ...COMMISSION_WIDGETS, ...NARRATIVE_WIDGETS]
 
 const BY_TYPE = new Map(ALL_WIDGETS.map(w => [w.type, w]))
 
@@ -455,6 +457,25 @@ if (BY_TYPE.size !== ALL_WIDGETS.length) {
   const seen = new Set<string>()
   const dupes = ALL_WIDGETS.map(w => w.type).filter(t => seen.size === seen.add(t).size)
   throw new Error(`Duplicate widget type(s) in the registry: ${[...new Set(dupes)].join(', ')}`)
+}
+
+/* Exactly one of `metric` / `narrate` — the resolver branches on which, and a def
+ * with neither would render as a permanently broken card while a def with both would
+ * compute a payload in pass 3 and silently throw it away in pass 4. Asserted at
+ * import for the same reason as the duplicate check above: this is a mistake made
+ * once, while writing a widget, and it costs nothing to catch there. */
+{
+  const wrong = ALL_WIDGETS.filter(w => (!!w.metric) === (!!w.narrate))
+  if (wrong.length) {
+    throw new Error(`Widget(s) must declare exactly one of metric / narrate: ${wrong.map(w => w.type).join(', ')}`)
+  }
+  const fetching = NARRATIVE_WIDGETS.filter(w => w.sources)
+  if (fetching.length) {
+    // The whole safety argument for the second pass is that a narrator reads only
+    // what other cards already fetched. One that declared a source of its own would
+    // quietly break that.
+    throw new Error(`A narrating widget must declare no sources: ${fetching.map(w => w.type).join(', ')}`)
+  }
 }
 
 export function getWidgetDef(type: string): WidgetDef<WidgetPayload> | null {

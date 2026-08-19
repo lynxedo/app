@@ -121,6 +121,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         // Collection rate, not raw dollars, decides the colour: $50k collected is
         // good or bad only relative to what was billed.
         tone: rate == null ? 'neutral' : rate >= 97 ? 'good' : rate >= 90 ? 'warn' : 'bad',
+        judged: true,
         sub: r && rate != null
           ? `${rate}% of what was invoiced ${win.phrase}`
           : 'Nothing invoiced yet',
@@ -146,6 +147,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Outstanding Now',
         value: r ? formatCurrency(num(r.total_ar)) : '—',
         tone: overdue > 0 ? 'bad' : 'good',
+        judged: true,
         sub: r
           ? `${num(r.open_count)} unpaid · ${formatCurrency(overdue)} past due · as of today, not the date range`
           : 'Nothing outstanding',
@@ -195,6 +197,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Days to Payment',
         value: median != null ? (num(median) === 0 ? 'Same day' : `${num(median)} days`) : '—',
         tone: median == null ? 'neutral' : num(median) <= 7 ? 'good' : num(median) <= 30 ? 'warn' : 'bad',
+        judged: true,
         sub: r && r.avg_days_to_pay != null
           ? `Typical (median) of ${num(r.paid_count).toLocaleString()} paid · average ${num(r.avg_days_to_pay)} days`
           : 'Nothing paid yet in this period',
@@ -221,6 +224,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Draft / Unsent',
         value: r ? formatCurrency(num(r.draft_value)) : '—',
         tone: n > 0 ? 'warn' : 'good',
+        judged: true,
         sub: n > 0
           ? `${n} invoice${n === 1 ? '' : 's'} never sent — nobody has been asked to pay this`
           : 'Nothing sitting in drafts',
@@ -256,6 +260,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
       })
       return {
         kind: 'stacked',
+        format: 'currency',
         title: 'Invoiced vs Collected by Month',
         sub: `${win.phrase} · bar length is what was billed, green is what came in`,
         rows,
@@ -320,6 +325,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         kind: 'donut',
         title: 'Recurring vs One-off',
         sub: `${win.phrase} · by dollars invoiced`,
+        format: 'currency',
         parts,
         note: share != null
           ? `${share}% of billed revenue comes from recurring work — the part you can count on next month. "Unlinked" is an invoice with no job attached, usually a manual one.`

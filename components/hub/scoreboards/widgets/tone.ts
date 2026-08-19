@@ -1,4 +1,4 @@
-import { formatCurrency } from '@/lib/format'
+import { formatPayloadValue } from '@/lib/scoreboards/widgets/payloads'
 import type { Tone, ValueFormat } from '@/lib/scoreboards/widgets/payloads'
 
 /* The one place a semantic tone becomes a colour.
@@ -22,13 +22,7 @@ export function toneColor(tone: Tone | undefined): string {
   return TONE_COLOR[tone ?? 'neutral']
 }
 
+/** One implementation, shared with the narrator — see formatPayloadValue. */
 export function formatValue(v: number | string | null, format: ValueFormat | undefined): string {
-  if (v === null || v === undefined || v === '') return '—'
-  if (typeof v === 'string') return v
-  switch (format) {
-    case 'percent': return `${v}%`
-    case 'currency': return formatCurrency(v)
-    case 'months': return `${v} mo`
-    default: return v.toLocaleString()
-  }
+  return formatPayloadValue(v, format)
 }

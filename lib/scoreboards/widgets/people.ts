@@ -219,6 +219,7 @@ export const PEOPLE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Your $ per hour',
         value: `${formatCurrency(mine)}/hr`,
         tone: avg == null ? 'neutral' : mine >= avg ? 'good' : 'warn',
+        judged: true,
         sub,
       }
     },

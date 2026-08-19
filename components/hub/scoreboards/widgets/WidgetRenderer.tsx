@@ -4,8 +4,8 @@ import { useMemo, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import type {
-  AttentionPayload, BarsPayload, CellLink, DonutPayload, DrillLink, GeoPayload, KpiPayload, ListPayload, StackedPayload,
-  TablePayload, WidgetPayload,
+  AttentionPayload, BarsPayload, CellLink, DonutPayload, DrillLink, GeoPayload, KpiPayload, ListPayload,
+  NarrativePayload, StackedPayload, TablePayload, WidgetPayload,
 } from '@/lib/scoreboards/widgets/payloads'
 import { formatValue, toneColor } from './tone'
 
@@ -208,7 +208,7 @@ function Stacked({ p }: { p: StackedPayload }) {
                         {r.parts.map((x, i) => (
                           <div
                             key={i}
-                            title={`${x.label}: ${x.value}`}
+                            title={`${x.label}: ${formatValue(x.value, p.format)}`}
                             style={{ width: `${(100 * x.value) / total}%`, background: toneColor(x.tone), opacity: 0.8 }}
                           />
                         ))}
@@ -259,7 +259,10 @@ function Donut({ p }: { p: DonutPayload }) {
       </div>
       <div>
         <Head title={p.title} sub={p.sub} />
-        <Legend items={p.parts.map(x => ({ label: `${x.label} (${x.value})`, tone: x.tone }))} />
+        {/* ⚠ formatValue, not the raw number: this legend used to print
+            "Root Rot Recovery (164333.28)" on a dollar donut, and floating-point
+            slice totals like "(75973.43999999999)". */}
+        <Legend items={p.parts.map(x => ({ label: `${x.label} (${formatValue(x.value, p.format)})`, tone: x.tone }))} />
         {p.note ? <div className="mt-3 text-[12px] leading-snug text-gray-400">{p.note}</div> : null}
         <DrillFooter drill={p.drill} className="mt-3" />
       </div>
@@ -378,6 +381,50 @@ function Table({ p }: { p: TablePayload }) {
   )
 }
 
+/* The board-wide read. Sections, because it answers three questions at once and a
+ * reader has to be able to find the one they came for.
+ *
+ * A bullet inherits its section's tone unless it carries its own — so "Worth a look"
+ * is amber throughout without every line having to say so, while a single genuinely
+ * bad line inside a mostly-amber section can still stand out. */
+function Narrative({ p }: { p: NarrativePayload }) {
+  return (
+    <>
+      <Head title={p.title} sub={p.sub} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {p.sections.map(sec => (
+          <section key={sec.key}>
+            <div
+              className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide"
+              style={{ color: toneColor(sec.tone) }}
+            >
+              <span className="h-2 w-2 rounded-full" style={{ background: toneColor(sec.tone) }} />
+              {sec.heading}
+            </div>
+            {sec.lines.length === 0
+              ? <div className="text-[12px] leading-snug text-gray-500">{sec.empty ?? 'Nothing to report.'}</div>
+              : (
+                <ul className="space-y-1.5">
+                  {sec.lines.map((line, i) => (
+                    <li key={i} className="flex gap-2 text-[12.5px] leading-snug text-gray-300">
+                      <span
+                        className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: toneColor(line.tone ?? sec.tone) }}
+                        aria-hidden="true"
+                      />
+                      <span>{line.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+          </section>
+        ))}
+      </div>
+      {p.foot ? <div className="mt-4 text-[10.5px] leading-snug text-gray-600">{p.foot}</div> : null}
+    </>
+  )
+}
+
 function List({ p }: { p: ListPayload }) {
   return (
     <>
@@ -408,5 +455,6 @@ export function WidgetRenderer({ payload }: { payload: WidgetPayload }) {
     case 'list': return <List p={payload} />
     case 'attention': return <Attention p={payload} />
     case 'geo': return <Geo p={payload} />
+    case 'narrative': return <Narrative p={payload} />
   }
 }

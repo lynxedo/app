@@ -94,6 +94,7 @@ export const RETENTION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Retention Rate',
         value: s?.retention_pct != null ? `${s.retention_pct}%` : '—',
         tone: retentionTone(s?.retention_pct ?? null),
+        judged: true,
         sub: s
           ? `${yearPhrase(win, year)} · kept ${s.book_size - s.churned_gross} of ${s.book_size} on the books`
           : 'No recurring book for this year',
@@ -118,6 +119,7 @@ export const RETENTION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Controllable Churn',
         value: s?.controllable_churn_pct != null ? `${s.controllable_churn_pct}%` : '—',
         tone: (s?.controllable_churn_pct ?? 0) >= 10 ? 'bad' : (s?.controllable_churn_pct ?? 0) >= 5 ? 'warn' : 'good',
+        judged: true,
         sub: s
           ? `${s.churned_controllable} of ${s.churned_gross} cancels${ctrl ? ` · ${formatCurrency(ctrl.annual_value)}/yr lost` : ''}`
           : 'Nothing cancelled yet',
@@ -161,6 +163,7 @@ export const RETENTION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Lost Annual Value',
         value: s ? formatCurrency(s.churned_annual_value) : '—',
         tone: (s?.churned_annual_value ?? 0) > 0 ? 'bad' : 'neutral',
+        judged: true,
         sub: s ? `${s.churned_gross} cancellations in ${yearPhrase(win, year)}` : 'Nothing cancelled',
         drill: drillTo('retention', 'cancellations', win, 'See who cancelled'),
       }
