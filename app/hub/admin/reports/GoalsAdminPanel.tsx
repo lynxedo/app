@@ -32,6 +32,8 @@ type Goal = {
   /** Null on a company-wide target. */
   employee_id: string | null
   person_name: string | null
+  /** True = the standing target for every period of this grain from period_start on. */
+  repeats: boolean
 }
 
 /** The company-wide option's value. Not '' so an unset select cannot look like it. */
@@ -63,6 +65,11 @@ const GRAIN_LABEL: Record<GoalGrain, string> = {
   month: 'Monthly', quarter: 'Quarterly', year: 'Yearly',
 }
 
+/** "month" / "quarter" / "year", for sentences about repetition. */
+const GRAIN_NOUN: Record<GoalGrain, string> = {
+  month: 'month', quarter: 'quarter', year: 'year',
+}
+
 /** This month, as the period a new goal defaults to. */
 function thisMonthISO(): string {
   const now = new Date()
@@ -81,6 +88,12 @@ export default function GoalsAdminPanel(
   const [periodStart, setPeriodStart] = useState(thisMonthISO())
   const [target, setTarget] = useState('')
   const [who, setWho] = useState<string>(COMPANY)
+  /* ⚠ Defaults ON, which is the whole point of the change. Ben: "It seems like we
+   * would need to set a goal for each month if we choose month? That could come in
+   * handy but also very repetitive." So the common case — one number that stands until
+   * you change it — is the default, and a target for one specific period is the
+   * deliberate exception. */
+  const [repeats, setRepeats] = useState(true)
   const [saving, setSaving] = useState(false)
 
   const selected = metrics.find(m => m.key === metric) ?? null
@@ -119,7 +132,8 @@ export default function GoalsAdminPanel(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        metric, grain: effectiveGrain, period_start: periodStart, target: value, employee_id: employeeId,
+        metric, grain: effectiveGrain, period_start: periodStart, target: value,
+        employee_id: employeeId, repeats,
       }),
     })
     setSaving(false)
@@ -138,7 +152,9 @@ export default function GoalsAdminPanel(
     const owner = g.employee_id ? `${g.person_name || 'that person'}'s ` : ''
     const ok = await confirm({
       title: 'Remove this target?',
-      message: `${owner}${label} for ${periodLabel(g.grain, g.period_start)} will no longer appear on the Goals report. Nothing else changes.`,
+      message: g.repeats
+        ? `${owner}${label} will no longer apply to any ${GRAIN_NOUN[g.grain]} from ${periodLabel(g.grain, g.period_start)} onward. Targets you set for one specific ${GRAIN_NOUN[g.grain]} are not affected.`
+        : `${owner}${label} for ${periodLabel(g.grain, g.period_start)} will no longer appear on the Goals report. Nothing else changes.`,
       confirmText: 'Remove',
       danger: true,
     })
@@ -245,6 +261,22 @@ export default function GoalsAdminPanel(
           </label>
         </div>
 
+        <label className="flex items-start gap-2 mt-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={repeats}
+            onChange={e => setRepeats(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span className="text-sm">
+            This is the target for <strong className="text-gray-300">every {GRAIN_NOUN[effectiveGrain]}</strong>
+            <span className="text-gray-500">
+              {' '}&mdash; set it once and it applies to each {GRAIN_NOUN[effectiveGrain]} from here on, judged
+              separately. Untick to set a target for one {GRAIN_NOUN[effectiveGrain]} only.
+            </span>
+          </span>
+        </label>
+
         {selected && <p className="text-gray-500 text-xs mt-3">{selected.help}</p>}
         {/* ⚠ A ceiling is the one thing about this form that can be misread as its
             opposite, so it is stated in the label, here, and again on the saved row. */}
@@ -277,7 +309,17 @@ export default function GoalsAdminPanel(
         )}
         {bounds && (
           <p className="text-sky-300/80 text-xs mt-1">
-            This target will cover <strong>{periodLabel(effectiveGrain, bounds.start)}</strong> &mdash; {bounds.start} to {bounds.end}.
+            {repeats ? (
+              <>
+                This target will cover <strong>{periodLabel(effectiveGrain, bounds.start)}</strong> ({bounds.start} to {bounds.end}){' '}
+                <strong>and every {GRAIN_NOUN[effectiveGrain]} after it</strong>. Each one is judged on its own, and you
+                can still set a different number for a single {GRAIN_NOUN[effectiveGrain]} later &mdash; that one wins.
+              </>
+            ) : (
+              <>
+                This target will cover <strong>{periodLabel(effectiveGrain, bounds.start)}</strong> only &mdash; {bounds.start} to {bounds.end}.
+              </>
+            )}
           </p>
         )}
 
@@ -305,7 +347,12 @@ export default function GoalsAdminPanel(
                   <div className="min-w-0">
                     <div className="text-sm font-medium truncate">
                       {m?.label ?? g.metric}
-                      <span className="text-gray-500 font-normal"> · {periodLabel(g.grain, g.period_start)}</span>
+                      <span className="text-gray-500 font-normal">
+                        {' · '}
+                        {g.repeats
+                          ? `every ${GRAIN_NOUN[g.grain]} from ${periodLabel(g.grain, g.period_start)}`
+                          : periodLabel(g.grain, g.period_start)}
+                      </span>
                     </div>
                     <div className="text-xs mt-0.5">
                       {g.employee_id

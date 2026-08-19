@@ -81,7 +81,7 @@ export default async function ReportsAdminPage() {
   // report, and what the business is AIMING at on one of them.
   const { data: goalRows } = await admin
     .from('report_goals')
-    .select('id, metric, grain, period_start, period_end, target, employee_id')
+    .select('id, metric, grain, period_start, period_end, target, employee_id, repeats')
     .eq('company_id', company)
     .order('period_start', { ascending: false })
     .limit(200)
@@ -214,6 +214,7 @@ export default async function ReportsAdminPage() {
           period_end: g.period_end as string,
           target: Number(g.target),
           employee_id: (g.employee_id as string | null) ?? null,
+          repeats: g.repeats === true,
           // Resolved here from the same roster the picker offers, so the list and
           // the picker cannot disagree about what somebody is called.
           person_name: g.employee_id ? (empName.get(g.employee_id as string) ?? null) : null,
