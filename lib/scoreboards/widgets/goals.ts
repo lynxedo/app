@@ -30,6 +30,7 @@ import { formatCurrency, formatDurationSec } from '@/lib/format'
 import {
   GOAL_METRICS, getGoalMetric, periodLabel, nameList,
   rateMetricLabels, perPersonMetricLabels, lowerIsBetterMetricLabels,
+  isCloseDateMetric, closeDateMetricLabels,
 } from '@/lib/reports/goals'
 import type { GoalRow, GoalsRow } from './sources'
 import type { SourceBag, WidgetConfig, WidgetDef, WindowSpec } from './types'
@@ -475,6 +476,13 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
       if (goals.some(g => g.direction === 'lower')) {
         items.push(
           `Some targets are ceilings rather than floors — ${nameList(lowerIsBetterMetricLabels())} are hit by coming in at or BELOW the number, and are shown with a "≤". Their progress is worked out the other way up, so 92% means over budget, not nearly there.`,
+        )
+      }
+      // Only when such a target is actually on screen — same rule as every other note
+      // here. A board of revenue targets should not be taught how sales are dated.
+      if (goals.some(g => isCloseDateMetric(g.metric))) {
+        items.push(
+          `${nameList(closeDateMetricLabels())} count a deal in the period it was SOLD, not the period its lead came in \u2014 so a July enquiry closed in August belongs to August. That is the same rule commission is paid on, so a target and the bonus riding on it cannot disagree. \u26a0 The Sales report groups by the month a lead ARRIVED instead, because that is what a close rate means, so the two can show different totals for one month and both be right.`,
         )
       }
       if (goals.some(g => g.repeating)) {
