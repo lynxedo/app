@@ -5,45 +5,147 @@
  * report function that already owns that number — so a goal can never disagree
  * with the report it is judged against.
  *
- * ⚠⚠ `cumulative` is the important field, not the label.
+ * ⚠⚠ ADDING A METRIC HERE IS HALF THE JOB. The actual is computed in the
+ * `scoreboard_goals` database function, which is the only place that can read
+ * the report sources. A key listed here but absent from that function's metric
+ * properties block reads "No data" on the report — deliberately loud, rather
+ * than being judged by whatever the defaults happen to be.
  *
- * Pace — "you should be at X by now" — only means anything for something that
- * accumulates. Invoiced, collected and leads pile up through a period, so being
- * 40% through the month with 40% of the target is on track. A close RATE does
- * not work that way: 40% through the month does not mean you should have 40% of
- * your close rate. Prorating a rate target would produce confident nonsense, so
- * rate metrics get attainment and no pace at all, and the card says why.
+ * ── The four fields that decide whether a verdict is honest ─────────────────
  *
- * ⚠⚠ `perPerson` is the second load-bearing field, and it is a statement about
- * the DATA rather than a product preference.
+ * ⚠⚠ `cumulative` — pace, "you should be at X by now", only means anything for
+ * something that piles up through a period. Invoiced, collected and leads do, so
+ * being 40% through the month with 40% of the target is on track. A close RATE
+ * does not: 40% through the month does not mean 40% of your close rate.
+ * Prorating a rate would produce confident nonsense, so rate metrics get
+ * attainment and no pace at all, and the card says why.
  *
+ * ⚠⚠ `direction` — every metric here used to be higher-is-better, and the status
+ * logic simply assumed it. Labour cost %, missed calls and reply time are the
+ * opposite: hitting a 22% labour target means coming in AT OR BELOW it. Without
+ * this field a cost overrun would be reported as an achievement, which is the
+ * worst way for a target to be wrong. Attainment is inverted for these too
+ * (target ÷ actual), so 23.8% against a 22% target reads 92%, not 108%.
+ *
+ * ⚠⚠ `judge` — retention and churn can only be read as a year-to-date share of
+ * the whole year's book, so they start near-perfect in January and only worsen.
+ * Scored the normal way, an annual retention target would read "Hit" from the
+ * first week and only turn red in December. `judge: 'period_end'` shows the
+ * running figure but withholds the verdict until the period is over.
+ *
+ * Collection rate is deferred for the same reason, found by rendering a real
+ * August payload: month-to-date it read 91.4% against a 95% target while July
+ * finished at 99.98%. ⚠ Quote win rate deliberately keeps the running verdict
+ * despite a milder version of the bias (a quote sent yesterday is still open),
+ * because close rate has always behaved that way and making its twin behave
+ * differently would be a surprise rather than a fix.
+ *
+ * ⚠ `grains` — retention and churn come from a function that takes a YEAR, not a
+ * date range, so a monthly retention target is not a smaller version of the same
+ * question. Those metrics accept year targets only, and both the screen and the
+ * API say so rather than storing a target nothing can measure.
+ *
+ * ── The timeclock clamp: safe for rates, unsafe for totals ──────────────────
+ *
+ * ⚠⚠ `scoreboard_crew_labor` and `scoreboard_service_lines` CLAMP their window
+ * to the days timeclock data exists for, because they divide revenue by clocked
+ * hours and half a ratio would be a lie. That clamp is safe for a RATE — both
+ * halves move together — and unsafe for a TOTAL, where it silently shortens the
+ * period and the target reads behind for a reason that has nothing to do with
+ * the work. So:
+ *   • rates from Crew (`labor_pct`, `rev_per_visit`, `rev_per_labor_hour`) read
+ *     that source, and their help text names the clamp.
+ *   • `visit_revenue`, a cumulative total, reads `scoreboard_visit_revenue`,
+ *     which does not clamp. The two agree to the cent on today's data — the
+ *     unclamped source is protection, not a different number.
+ * The same rule is why there is no "revenue after labour" target: it is a
+ * cumulative total that can only be built from the clamped source.
+ *
+ * ── Considered and deliberately absent ─────────────────────────────────────
+ *
+ *   recurring book value / size — `scoreboard_recurring_book` takes no dates at
+ *     all; it is what is on the books RIGHT NOW. A "grow the book to $400k"
+ *     target would be judged against today's book whatever period was picked, so
+ *     a finished year would be scored on a number from after it ended. Honest
+ *     version needs a monthly book snapshot to measure against; worth building.
+ *   visits completed — the only visit COUNT the reports expose comes from the
+ *     clamped Crew source, so a throughput target would read low whenever the
+ *     timeclock lags. See the clamp rule above.
+ *   revenue after labour — same reason: a cumulative total off a clamped source.
+ *   cost per lead / marketing spend — no ad spend is held anywhere.
+ *   anything per-person from calls or texts — `scoreboard_people` has no comms
+ *     block, so a person's answer rate or reply time cannot be computed. (The
+ *     People report refuses a personal answer rate for a deeper reason: the
+ *     `handled_by` stamp is written before a call is offered to anyone.)
+ *
+ * ── Why only some measures can belong to one person ────────────────────────
+ *
+ * ⚠⚠ `perPerson` is a statement about the DATA rather than a product preference.
  * A target can be set for one person only where that person's actual can be
- * computed honestly. Four can: leads, value sold and close rate all come from
- * `scoreboard_people.sales`, and revenue per labour hour from its `field` block
- * — both halves of that ratio belong to the person, which is why it works here
- * while the company-wide Crew ratios cannot be split at all (§9's person filter
- * found exactly the same asymmetry).
+ * computed honestly — which means it comes out of `scoreboard_people`, the same
+ * composer the People report and commission are built on.
  *
- * Three cannot, and the reason is attribution, not effort:
+ * Nine can: leads, deals won, value sold, new-business value, upsell value,
+ * average deal and close rate all come from that source's `sales` block, and
+ * work produced and revenue per hour from its `field` block — where both halves
+ * of the ratio belong to the person, which is why it works here while the
+ * company-wide Crew ratios cannot be split at all (§9's person filter found
+ * exactly the same asymmetry).
+ *
+ * The rest cannot, and the reason is attribution, not effort:
  *   invoiced      — `invoices.salesperson_external_id` is set on roughly a third
  *                   of rows, so a person's billed total would omit most of it.
  *   collected     — a payment records no salesperson whatsoever.
  *   new_customers — the Clients report has no per-person breakdown, and deriving
  *                   one from leads would produce a different number than the
  *                   report shows, which is the one thing §8.11 exists to prevent.
+ *   quotes        — the Quotes source breaks down by salesperson, but that name
+ *                   is not carried into `scoreboard_people`, so a person's quote
+ *                   figure would come from a different composer than every other
+ *                   personal number on the report.
+ *   Crew rates, comms and retention — company-wide by construction.
  *
- * Offering those three per person would render "no data" forever, or worse, show
- * the COMPANY figure beside somebody's name. So the target screen hides them for
- * a person and the API refuses them.
+ * Offering those per person would render "no data" forever, or worse, show the
+ * COMPANY figure beside somebody's name. So the target screen hides them for a
+ * person and the API refuses them.
  */
+
+export const GOAL_GRAINS = ['month', 'quarter', 'year'] as const
+export type GoalGrain = (typeof GOAL_GRAINS)[number]
+
+/** Groups the target picker, which is far too long to read as one flat list. */
+export const GOAL_METRIC_GROUPS = [
+  'Money in',
+  'Sales',
+  'Work produced',
+  'Efficiency',
+  'Customers',
+  'Answering the phone',
+] as const
+export type GoalMetricGroup = (typeof GOAL_METRIC_GROUPS)[number]
 
 export type GoalMetric = {
   key: string
   label: string
-  /** How the target and actual are rendered. */
-  format: 'currency' | 'number' | 'percent'
+  /** Which section of the picker this sits in. */
+  group: GoalMetricGroup
+  /** How the target and actual are rendered. `duration` is a count of seconds. */
+  format: 'currency' | 'number' | 'percent' | 'duration'
   /** Accumulates through the period, so pace is meaningful. See the header. */
   cumulative: boolean
+  /**
+   * Which way is good. ⚠ 'lower' means the target is a ceiling — hit by coming in
+   * at or below it — and inverts attainment. See the header.
+   */
+  direction: 'higher' | 'lower'
+  /**
+   * When a verdict can be given. 'period_end' shows the running figure but no
+   * pass/fail until the period is over, for measures that can only be read as a
+   * share of the whole period. See the header.
+   */
+  judge: 'running' | 'period_end'
+  /** Period lengths this can be set for. Absent means all of them. */
+  grains?: readonly GoalGrain[]
   /** What the number actually counts, for the target-setting screen. */
   help: string
   /** Can be set for ONE person, not only the company. See the header. */
@@ -56,19 +158,27 @@ export type GoalMetric = {
   perPersonBlocker?: string
 }
 
+/** Defaults every metric shares, so each entry states only what is unusual. */
+const base = { direction: 'higher', judge: 'running' } as const
+
 export const GOAL_METRICS: GoalMetric[] = [
+  // ── Money in ───────────────────────────────────────────────────────────────
   {
+    ...base,
     key: 'invoiced',
     label: 'Invoiced',
+    group: 'Money in',
     format: 'currency',
     cumulative: true,
     help: 'Work billed in the period, excluding drafts. Matches the Revenue report.',
     perPerson: false,
-    perPersonBlocker: 'Invoices name a salesperson on only about a third of rows, so one person\u2019s billed total would leave most of it out.',
+    perPersonBlocker: 'Invoices name a salesperson on only about a third of rows, so one person’s billed total would leave most of it out.',
   },
   {
+    ...base,
     key: 'collected',
     label: 'Cash collected',
+    group: 'Money in',
     format: 'currency',
     cumulative: true,
     help: 'Payments received against invoices in the period.',
@@ -76,8 +186,165 @@ export const GOAL_METRICS: GoalMetric[] = [
     perPersonBlocker: 'A payment does not record who sold the work, so it cannot be credited to a person.',
   },
   {
+    ...base,
+    key: 'collection_rate',
+    label: 'Collection rate',
+    group: 'Money in',
+    format: 'percent',
+    cumulative: false,
+    judge: 'period_end',
+    help: 'Share of what you billed in the period that has been paid. Judged when the period ends: an invoice raised three days ago has not failed to be collected, so the figure always reads low mid-period and climbs as the money arrives.',
+    perPerson: false,
+    perPersonBlocker: 'Neither half of this can be credited to a person — invoices name a salesperson on about a third of rows and payments name nobody.',
+  },
+
+  // ── Sales ──────────────────────────────────────────────────────────────────
+  {
+    ...base,
+    key: 'leads',
+    label: 'Leads',
+    group: 'Sales',
+    format: 'number',
+    cumulative: true,
+    help: 'Leads created in the period, the same cohort the close rate uses.',
+    perPerson: true,
+  },
+  {
+    ...base,
+    key: 'won_value',
+    label: 'Value sold (all)',
+    group: 'Sales',
+    format: 'currency',
+    cumulative: true,
+    help: 'Annual value of everything sold in the period — new business and upsells together.',
+    perPerson: true,
+  },
+  {
+    ...base,
+    key: 'new_business_value',
+    label: 'Value sold — new business',
+    group: 'Sales',
+    format: 'currency',
+    cumulative: true,
+    help: 'Value sold to customers you competed for, with upsells taken out. Worked out by subtraction from the same figures, so the two can never disagree about what a deal was.',
+    perPerson: true,
+  },
+  {
+    ...base,
+    key: 'upsell_value',
+    label: 'Value sold — upsells',
+    group: 'Sales',
+    format: 'currency',
+    cumulative: true,
+    help: 'Value of extra work sold to customers you already had. Counts every stage ticked as a sale in the Lead Tracker.',
+    perPerson: true,
+  },
+  {
+    ...base,
+    key: 'won_count',
+    label: 'Deals won',
+    group: 'Sales',
+    format: 'number',
+    cumulative: true,
+    help: 'How many leads were sold in the period, however big.',
+    perPerson: true,
+  },
+  {
+    ...base,
+    key: 'avg_deal',
+    label: 'Average deal size',
+    group: 'Sales',
+    format: 'currency',
+    cumulative: false,
+    help: 'Value sold divided by deals won. A rate, so no pace is shown — and a slow month with two big jobs will swing it.',
+    perPerson: true,
+  },
+  {
+    ...base,
+    key: 'close_rate',
+    label: 'Close rate',
+    group: 'Sales',
+    format: 'percent',
+    cumulative: false,
+    help: 'Share of decided leads won. A rate, so no pace is shown — see the report.',
+    perPerson: true,
+  },
+  {
+    ...base,
+    key: 'quotes_sent',
+    label: 'Quotes sent',
+    group: 'Sales',
+    format: 'number',
+    cumulative: true,
+    help: 'Jobber quotes sent in the period. An activity target — quotes carry no value until a customer approves what they want.',
+    perPerson: false,
+    perPersonBlocker: 'Quotes name a salesperson, but that name is not carried into the People report, so a person’s quote figure would come from a different place than the rest of their numbers.',
+  },
+  {
+    ...base,
+    key: 'quote_win_rate',
+    label: 'Quote win rate',
+    group: 'Sales',
+    format: 'percent',
+    cumulative: false,
+    help: 'Share of decided quotes approved. Reads "no data" in a period with too few decisions to rate fairly, rather than a rate built on two or three.',
+    perPerson: false,
+    perPersonBlocker: 'Quotes name a salesperson, but that name is not carried into the People report, so a person’s quote figure would come from a different place than the rest of their numbers.',
+  },
+
+  // ── Work produced ──────────────────────────────────────────────────────────
+  {
+    ...base,
+    key: 'visit_revenue',
+    label: 'Work produced',
+    group: 'Work produced',
+    format: 'currency',
+    cumulative: true,
+    help: 'Revenue from visits actually completed in the period — work done, not work billed. This is the number that moves when the crews are busy.',
+    perPerson: true,
+  },
+  {
+    ...base,
+    key: 'rev_per_visit',
+    label: 'Revenue per visit',
+    group: 'Work produced',
+    format: 'currency',
+    cumulative: false,
+    help: 'Work produced divided by visits completed. A rate, and measured over the days timeclock data covers.',
+    perPerson: false,
+    perPersonBlocker: 'The visit count behind this is not broken down per person, so one person’s figure cannot be worked out.',
+  },
+
+  // ── Efficiency ─────────────────────────────────────────────────────────────
+  {
+    ...base,
+    key: 'rev_per_labor_hour',
+    label: 'Revenue per labour hour',
+    group: 'Efficiency',
+    format: 'currency',
+    cumulative: false,
+    help: 'Revenue divided by clocked hours. A rate, and clamped to where timeclock data exists.',
+    perPerson: true,
+  },
+  {
+    ...base,
+    key: 'labor_pct',
+    direction: 'lower',
+    label: 'Labour cost as a share of revenue',
+    group: 'Efficiency',
+    format: 'percent',
+    cumulative: false,
+    help: 'Wages as a percentage of the work produced. A ceiling, not a floor — the target is hit by coming in at or below it. Measured over the days timeclock data covers.',
+    perPerson: false,
+    perPersonBlocker: 'This divides wages by COMPANY revenue, which is not fanned out per person — narrowing only the wages half would report a figure that means nothing. Add the "Labour cost % — one technician" widget to a scoreboard instead.',
+  },
+
+  // ── Customers ──────────────────────────────────────────────────────────────
+  {
+    ...base,
     key: 'new_customers',
     label: 'New customers',
+    group: 'Customers',
     format: 'number',
     cumulative: true,
     help: 'Customers added in the period. Matches the Clients report.',
@@ -85,41 +352,82 @@ export const GOAL_METRICS: GoalMetric[] = [
     perPersonBlocker: 'The Clients report does not break new customers down by person, and working one out separately would disagree with it.',
   },
   {
-    key: 'leads',
-    label: 'Leads',
-    format: 'number',
-    cumulative: true,
-    help: 'Leads created in the period, the same cohort the close rate uses.',
-    perPerson: true,
-  },
-  {
-    key: 'won_value',
-    label: 'Value sold',
-    format: 'currency',
-    cumulative: true,
-    help: 'Annual value of leads won in the period.',
-    perPerson: true,
-  },
-  {
-    key: 'close_rate',
-    label: 'Close rate',
+    ...base,
+    key: 'retention_pct',
+    label: 'Customer retention (year)',
+    group: 'Customers',
     format: 'percent',
     cumulative: false,
-    help: 'Share of decided leads won. A rate, so no pace is shown — see the report.',
-    perPerson: true,
+    judge: 'period_end',
+    grains: ['year'],
+    help: 'Share of the year’s recurring book kept. Yearly only — the retention figure is a share of the whole year, so a month is not a smaller version of it. The running figure is shown all year but no pass or fail is given until the year is over, because cancellations have not happened yet in January.',
+    perPerson: false,
+    perPersonBlocker: 'Retention is a property of the customer book, not of a person.',
   },
   {
-    key: 'rev_per_labor_hour',
-    label: 'Revenue per labour hour',
-    format: 'currency',
+    ...base,
+    key: 'controllable_churn_pct',
+    direction: 'lower',
+    label: 'Controllable churn (year)',
+    group: 'Customers',
+    format: 'percent',
     cumulative: false,
-    help: 'Revenue divided by clocked hours. A rate, and clamped to where timeclock data exists.',
-    perPerson: true,
+    judge: 'period_end',
+    grains: ['year'],
+    help: 'Share of the book lost for reasons you could have changed — price, quality, service — excluding moves and sales. A ceiling: hit by coming in at or below it. Yearly only, and judged when the year is over.',
+    perPerson: false,
+    perPersonBlocker: 'Churn is a property of the customer book, not of a person.',
+  },
+
+  // ── Answering the phone ────────────────────────────────────────────────────
+  {
+    ...base,
+    key: 'missed_call_pct',
+    direction: 'lower',
+    label: 'Missed-call rate',
+    group: 'Answering the phone',
+    format: 'percent',
+    cumulative: false,
+    help: 'Share of inbound calls nobody answered. A ceiling: hit by coming in at or below it. Every missed call is a customer who may just ring the next company.',
+    perPerson: false,
+    perPersonBlocker: 'The People report holds no call figures for a person, and the routing stamp on a call is written before it is offered to anyone — so it cannot say who missed it.',
+  },
+  {
+    ...base,
+    key: 'answer_seconds',
+    direction: 'lower',
+    label: 'Time to answer a call (median)',
+    group: 'Answering the phone',
+    format: 'duration',
+    cumulative: false,
+    help: 'The middle call’s wait before somebody picked up. Set the target in SECONDS — 20 means twenty seconds. A ceiling: hit by coming in at or below it.',
+    perPerson: false,
+    perPersonBlocker: 'The People report holds no call figures for a person.',
+  },
+  {
+    ...base,
+    key: 'reply_seconds',
+    direction: 'lower',
+    label: 'Text reply time (median)',
+    group: 'Answering the phone',
+    format: 'duration',
+    cumulative: false,
+    help: 'The middle customer text’s wait for a reply. Set the target in SECONDS — 300 means five minutes. A ceiling: hit by coming in at or below it.',
+    perPerson: false,
+    perPersonBlocker: 'The People report holds no text figures for a person.',
+  },
+  {
+    ...base,
+    key: 'outbound_calls',
+    label: 'Outbound calls made',
+    group: 'Answering the phone',
+    format: 'number',
+    cumulative: true,
+    help: 'Calls the team placed in the period. An activity target for follow-up discipline.',
+    perPerson: false,
+    perPersonBlocker: 'The People report holds no call figures for a person.',
   },
 ]
-
-export const GOAL_GRAINS = ['month', 'quarter', 'year'] as const
-export type GoalGrain = (typeof GOAL_GRAINS)[number]
 
 export function getGoalMetric(key: string): GoalMetric | null {
   return GOAL_METRICS.find(m => m.key === key) ?? null
@@ -136,6 +444,51 @@ export const PER_PERSON_GOAL_METRICS = GOAL_METRICS.filter(m => m.perPerson)
  */
 export function metricSupportsPerson(key: string): boolean {
   return getGoalMetric(key)?.perPerson === true
+}
+
+/**
+ * Whether this measure can be set for a period of this length.
+ *
+ * ⚠ An unknown key answers false, for the same reason as above: a metric nothing
+ * recognises must not become settable at every grain by default.
+ */
+export function metricAllowsGrain(key: string, grain: GoalGrain): boolean {
+  const m = getGoalMetric(key)
+  if (!m) return false
+  return (m.grains ?? GOAL_GRAINS).includes(grain)
+}
+
+/** The grains this measure accepts, for the screen to offer. */
+export function grainsForMetric(key: string): readonly GoalGrain[] {
+  return getGoalMetric(key)?.grains ?? GOAL_GRAINS
+}
+
+/**
+ * The measures that get no pace figure, named.
+ *
+ * ⚠ Derived, never written out. The report used to say "blank for close rate and
+ * revenue per hour" in three places; with a dozen rate measures that sentence
+ * became false the moment one was added, while still reading as authoritative.
+ */
+export function rateMetricLabels(): string[] {
+  return GOAL_METRICS.filter(m => !m.cumulative).map(m => m.label)
+}
+
+/** The measures that can belong to one person, named. Derived for the same reason. */
+export function perPersonMetricLabels(): string[] {
+  return PER_PERSON_GOAL_METRICS.map(m => m.label)
+}
+
+/** Measures where the target is a ceiling rather than a floor, named. */
+export function lowerIsBetterMetricLabels(): string[] {
+  return GOAL_METRICS.filter(m => m.direction === 'lower').map(m => m.label)
+}
+
+/** Join a list of names the way a sentence would. */
+export function nameList(items: string[]): string {
+  if (items.length === 0) return ''
+  if (items.length === 1) return items[0]
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 }
 
 /**

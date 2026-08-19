@@ -3,12 +3,18 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useToast, useConfirm } from '@/components/ui'
-import { periodLabel, periodBounds, type GoalGrain } from '@/lib/reports/goals'
+import { periodLabel, periodBounds, GOAL_METRIC_GROUPS, type GoalGrain, type GoalMetricGroup } from '@/lib/reports/goals'
 
 type Metric = {
   key: string
   label: string
-  format: 'currency' | 'number' | 'percent'
+  /** Which section of the picker it sits in. 23 measures is too many for a flat list. */
+  group: GoalMetricGroup
+  format: 'currency' | 'number' | 'percent' | 'duration'
+  /** ⚠ 'lower' means the target is a CEILING — the form has to say so before saving. */
+  direction: 'higher' | 'lower'
+  /** Period lengths this measure can be set for. */
+  grains: GoalGrain[]
   help: string
   /** Can this measure be set for one person? See lib/reports/goals.ts. */
   perPerson: boolean
@@ -31,10 +37,30 @@ type Goal = {
 /** The company-wide option's value. Not '' so an unset select cannot look like it. */
 const COMPANY = 'company'
 
-function fmtTarget(format: Metric['format'], v: number): string {
-  if (format === 'currency') return `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-  if (format === 'percent') return `${v}%`
-  return v.toLocaleString()
+function fmtTarget(m: Metric, v: number): string {
+  const n = m.format === 'currency'
+    ? `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+    : m.format === 'percent'
+      ? `${v}%`
+      : m.format === 'duration'
+        ? v >= 60 ? `${Math.floor(v / 60)}m ${v % 60}s` : `${v}s`
+        : v.toLocaleString()
+  // ⚠ A ceiling reads "at most". Without it a 22% labour target looks like
+  // something to reach for, which is the opposite of what it means.
+  return m.direction === 'lower' ? `at most ${n}` : n
+}
+
+/** What the Target box is counted in. */
+function targetUnit(m: Metric | null): string {
+  if (!m) return ''
+  if (m.format === 'currency') return ' ($)'
+  if (m.format === 'percent') return ' (%)'
+  if (m.format === 'duration') return ' (seconds)'
+  return ''
+}
+
+const GRAIN_LABEL: Record<GoalGrain, string> = {
+  month: 'Monthly', quarter: 'Quarterly', year: 'Yearly',
 }
 
 /** This month, as the period a new goal defaults to. */
@@ -72,9 +98,15 @@ export default function GoalsAdminPanel(
   const personAllowed = selected?.perPerson === true
   const effectiveWho = personAllowed ? who : COMPANY
   const employeeId = effectiveWho === COMPANY ? null : effectiveWho
+  // ⚠ Same reasoning as the person picker above: a measure that only accepts
+  // yearly targets snaps the period picker instead of letting you build a request
+  // the API will refuse. Retention is the one that needs it — it comes from a
+  // function that takes a year, so a monthly retention target is unmeasurable.
+  const allowedGrains = selected?.grains ?? (['month', 'quarter', 'year'] as GoalGrain[])
+  const effectiveGrain: GoalGrain = allowedGrains.includes(grain) ? grain : allowedGrains[0]
   // Shown before saving, because "which period is this?" is the thing an admin
   // gets wrong — a quarter set from a mid-quarter date is still that quarter.
-  const bounds = /^\d{4}-\d{2}-\d{2}$/.test(periodStart) ? periodBounds(grain, periodStart) : null
+  const bounds = /^\d{4}-\d{2}-\d{2}$/.test(periodStart) ? periodBounds(effectiveGrain, periodStart) : null
 
   async function save() {
     const value = Number(target)
@@ -87,7 +119,7 @@ export default function GoalsAdminPanel(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        metric, grain, period_start: periodStart, target: value, employee_id: employeeId,
+        metric, grain: effectiveGrain, period_start: periodStart, target: value, employee_id: employeeId,
       }),
     })
     setSaving(false)
@@ -143,7 +175,16 @@ export default function GoalsAdminPanel(
               onChange={e => setMetric(e.target.value)}
               className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"
             >
-              {metrics.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+              {/* Grouped: a flat list of 23 measures is unreadable, and the groups
+                  are how somebody actually looks for one ("something about the
+                  phone"). Order follows the catalog. */}
+              {GOAL_METRIC_GROUPS.filter(gr => metrics.some(m => m.group === gr)).map(gr => (
+                <optgroup key={gr} label={gr}>
+                  {metrics.filter(m => m.group === gr).map(m => (
+                    <option key={m.key} value={m.key}>{m.label}</option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </label>
 
@@ -167,13 +208,14 @@ export default function GoalsAdminPanel(
           <label className="block">
             <span className="text-xs text-gray-400">Period</span>
             <select
-              value={grain}
+              value={effectiveGrain}
               onChange={e => setGrain(e.target.value as GoalGrain)}
-              className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"
+              disabled={allowedGrains.length === 1}
+              className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm disabled:opacity-60"
             >
-              <option value="month">Monthly</option>
-              <option value="quarter">Quarterly</option>
-              <option value="year">Yearly</option>
+              {allowedGrains.map(gr => (
+                <option key={gr} value={gr}>{GRAIN_LABEL[gr]}</option>
+              ))}
             </select>
           </label>
 
@@ -189,7 +231,7 @@ export default function GoalsAdminPanel(
 
           <label className="block">
             <span className="text-xs text-gray-400">
-              Target{selected?.format === 'currency' ? ' ($)' : selected?.format === 'percent' ? ' (%)' : ''}
+              {selected?.direction === 'lower' ? 'Target — at most' : 'Target'}{targetUnit(selected)}
             </span>
             <input
               type="number"
@@ -204,6 +246,24 @@ export default function GoalsAdminPanel(
         </div>
 
         {selected && <p className="text-gray-500 text-xs mt-3">{selected.help}</p>}
+        {/* ⚠ A ceiling is the one thing about this form that can be misread as its
+            opposite, so it is stated in the label, here, and again on the saved row. */}
+        {selected?.direction === 'lower' && (
+          <p className="text-amber-300/80 text-xs mt-1">
+            This one is a <strong className="text-gray-300">ceiling, not a goal to reach</strong> &mdash; it counts as hit
+            when the figure comes in at or below the number you type.
+          </p>
+        )}
+        {selected?.format === 'duration' && (
+          <p className="text-gray-500 text-xs mt-1">
+            Type this in <strong className="text-gray-300">seconds</strong>: 30 is thirty seconds, 300 is five minutes.
+          </p>
+        )}
+        {selected && selected.grains.length < 3 && (
+          <p className="text-gray-500 text-xs mt-1">
+            Only available {selected.grains.map(gr => GRAIN_LABEL[gr].toLowerCase()).join(' or ')}.
+          </p>
+        )}
         {selected && !selected.perPerson && (
           <p className="text-amber-300/80 text-xs mt-1">
             Company-wide only. {selected.perPersonBlocker}
@@ -217,7 +277,7 @@ export default function GoalsAdminPanel(
         )}
         {bounds && (
           <p className="text-sky-300/80 text-xs mt-1">
-            This target will cover <strong>{periodLabel(grain, bounds.start)}</strong> &mdash; {bounds.start} to {bounds.end}.
+            This target will cover <strong>{periodLabel(effectiveGrain, bounds.start)}</strong> &mdash; {bounds.start} to {bounds.end}.
           </p>
         )}
 
@@ -253,7 +313,7 @@ export default function GoalsAdminPanel(
                         : <span className="text-gray-500">The whole company</span>}
                     </div>
                     <div className="text-xs text-gray-500 mt-0.5">
-                      {m ? fmtTarget(m.format, g.target) : g.target}
+                      {m ? fmtTarget(m, g.target) : g.target}
                       {!m && ' · this measure is no longer available and will show as unknown on the report'}
                     </div>
                   </div>

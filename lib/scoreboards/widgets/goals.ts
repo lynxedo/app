@@ -26,11 +26,17 @@
  * cannot, and both the API and the target screen refuse them.
  */
 
-import { formatCurrency } from '@/lib/format'
-import { getGoalMetric, periodLabel } from '@/lib/reports/goals'
+import { formatCurrency, formatDurationSec } from '@/lib/format'
+import {
+  GOAL_METRICS, getGoalMetric, periodLabel, nameList,
+  rateMetricLabels, perPersonMetricLabels, lowerIsBetterMetricLabels,
+} from '@/lib/reports/goals'
 import type { GoalRow, GoalsRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
+
+/** How many measures accumulate, for the foot note's arithmetic. */
+const GOAL_CUMULATIVE_COUNT = GOAL_METRICS.filter(m => m.cumulative).length
 
 const goalsReq = (win: WindowSpec) => ({
   source: 'goals' as const,
@@ -53,6 +59,9 @@ function fmt(metricKey: string, v: number | null | undefined): string {
   if (!m) return String(v)
   if (m.format === 'currency') return formatCurrency(num(v))
   if (m.format === 'percent') return `${num(v)}%`
+  // Held in seconds so it matches the report's own figure; read back as a time,
+  // because "300" beside a reply-time target tells nobody it means five minutes.
+  if (m.format === 'duration') return formatDurationSec(num(v), { style: 'verbose', seconds: true })
   return num(v).toLocaleString()
 }
 
@@ -68,6 +77,18 @@ function whose(g: GoalRow): string {
   return g.person_name || 'Someone no longer on the roster'
 }
 
+/**
+ * The target as it should read.
+ *
+ * ⚠ A ceiling is marked "≤". Without it a labour-cost row showing "22%" beside an
+ * actual of 23.8% looks like a target that was beaten, since every other row on
+ * the table is a floor.
+ */
+function fmtTarget(g: GoalRow): string {
+  const t = fmt(g.metric, g.target)
+  return g.direction === 'lower' ? `≤ ${t}` : t
+}
+
 const STATUS_TEXT: Record<GoalRow['status'], string> = {
   hit: 'Hit',
   missed: 'Missed',
@@ -76,6 +97,11 @@ const STATUS_TEXT: Record<GoalRow['status'], string> = {
   // A rate is judged against the target itself, so it is "under", not "behind" —
   // behind implies a pace it does not have.
   under: 'Under target',
+  // ⚠ The ceiling twin of "under". Being under a cost target is the GOOD outcome,
+  // so the two verdicts cannot share a word.
+  over: 'Over target',
+  // ⚠ The figure is real; the verdict is not due yet. See the header.
+  pending: 'Too early to call',
   open: 'Not started',
   unknown: 'No data',
 }
@@ -86,6 +112,9 @@ const STATUS_TONE: Record<GoalRow['status'], Tone> = {
   on_track: 'good',
   behind: 'warn',
   under: 'warn',
+  over: 'warn',
+  // Neutral, deliberately: an unfinished retention year is not a warning.
+  pending: 'neutral',
   open: 'neutral',
   unknown: 'unknown',
 }
@@ -101,7 +130,19 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
     sources: (_cfg, win) => [goalsReq(win)],
     metric: (bag, _cfg, win) => {
       const r = data(bag, win)
-      const live = (r?.goals ?? []).filter(g => !g.closed)
+      // ⚠ A target with no verdict due yet is left out of BOTH halves rather than
+      // counted against you. An annual retention goal reads 'pending' all year, so
+      // scoring it as "not on track" would make this tile say 3 of 4 for a business
+      // doing nothing wrong.
+      const open = (r?.goals ?? []).filter(g => !g.closed)
+      // ⚠ Two kinds of target are left out of BOTH halves rather than counted
+      // against you: one whose verdict is not due yet, and one nothing can measure.
+      // Found by rendering a real board — a stale measure and an unfinished
+      // retention year were both being scored as "not on track", so the tile read
+      // 2 of 8 for a business that was failing neither.
+      const live = open.filter(g => g.status !== 'pending' && g.status !== 'unknown')
+      const waiting = open.filter(g => g.status === 'pending').length
+      const unmeasured = open.filter(g => g.status === 'unknown').length
       const good = live.filter(g => g.status === 'hit' || g.status === 'on_track').length
       if (!r || live.length === 0) {
         return {
@@ -110,7 +151,9 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
           value: '—',
           sub: r && r.total_in_window === 0
             ? 'No targets set for this period'
-            : 'No targets still open in this period',
+            : waiting || unmeasured
+              ? `${waiting + unmeasured} target${waiting + unmeasured === 1 ? '' : 's'} open, none of them judgeable yet`
+              : 'No targets still open in this period',
         }
       }
       return {
@@ -118,7 +161,11 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Goals on track',
         value: `${good} of ${live.length}`,
         tone: good === live.length ? 'good' : good === 0 ? 'bad' : 'warn',
-        sub: `${win.phrase} · targets still open`,
+        sub: [
+          `${win.phrase} · targets still open`,
+          waiting ? `${waiting} not judged until the period ends` : null,
+          unmeasured ? `${unmeasured} with no data to measure` : null,
+        ].filter(Boolean).join(' · '),
       }
     },
   },
@@ -133,7 +180,11 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
     sources: (_cfg, win) => [goalsReq(win)],
     metric: (bag, _cfg, win) => {
       const r = data(bag, win)
-      const closed = (r?.goals ?? []).filter(g => g.closed)
+      // ⚠ Same rule as the tile beside it: a finished target nothing could measure
+      // is not a target that was missed.
+      const finished = (r?.goals ?? []).filter(g => g.closed)
+      const closed = finished.filter(g => g.status !== 'unknown')
+      const unmeasured = finished.length - closed.length
       const hit = closed.filter(g => g.status === 'hit').length
       return {
         kind: 'kpi',
@@ -142,7 +193,12 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         tone: closed.length === 0 ? 'neutral' : hit === closed.length ? 'good' : hit === 0 ? 'bad' : 'warn',
         // Only finished periods count here: judging a month that is half over
         // as "missed" would make every current target look like a failure.
-        sub: closed.length ? 'Periods that have finished' : 'No period has finished yet',
+        sub: closed.length
+          ? ['Periods that have finished', unmeasured ? `${unmeasured} had no data` : null]
+              .filter(Boolean).join(' · ')
+          : unmeasured
+            ? `${unmeasured} finished target${unmeasured === 1 ? '' : 's'} had no data to measure`
+            : 'No period has finished yet',
       }
     },
   },
@@ -165,7 +221,7 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
             metric: m?.label ?? g.metric,
             who: whose(g),
             period: periodLabel(g.grain, g.period_start),
-            target: fmt(g.metric, g.target),
+            target: fmtTarget(g),
             actual: fmt(g.metric, g.actual),
             attainment: g.attainment_pct,
             // Blank, not zero, for a rate metric — see the header.
@@ -200,7 +256,11 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         foot: truncated
           // Never let a capped list read as the whole list.
           ? `Showing ${r!.shown} of ${r!.total_in_window} targets in this range.`
-          : '"Should be at" is the target prorated to today, and is blank for close rate and revenue per hour — a rate does not build up through a period, so there is no honest half-way number.',
+          // ⚠ This used to name close rate and revenue per hour, which was true when
+          // they were the only two rates. With a dozen, the rule is the honest form
+          // — a list here goes stale the moment a measure is added while still
+          // reading as authoritative.
+          : `"Should be at" is the target prorated to today. It is blank for any measure that is a rate rather than a running total (${rateMetricLabels().length} of the ${rateMetricLabels().length + GOAL_CUMULATIVE_COUNT} are): a rate does not build up through a period, so there is no honest half-way number.`,
       }
     },
   },
@@ -257,16 +317,30 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
       const items = [
         'Each target is measured over its OWN period. An August target is judged against August, whatever range you pick above — the range only decides which targets are listed.',
         'Every actual comes from the report that owns that number, so a goal can never disagree with the report it is measured against.',
-        '"Should be at" prorates the target to today. It is blank for close rate and revenue per hour: a rate does not accumulate through a period, so there is no honest half-way figure.',
+        '"Should be at" prorates the target to today. It is blank for any measure that is a rate rather than a running total: a rate does not accumulate through a period, so there is no honest half-way figure.',
       ]
+      // ⚠ Each of the next three notes appears only when the thing it explains is
+      // actually on screen. A board of plain revenue targets should not be taught
+      // the rules for ceilings, people or retention it is not using.
+      const goals = r?.goals ?? []
+      if (goals.some(g => g.direction === 'lower')) {
+        items.push(
+          `Some targets are ceilings rather than floors — ${nameList(lowerIsBetterMetricLabels())} are hit by coming in at or BELOW the number, and are shown with a "≤". Their progress is worked out the other way up, so 92% means over budget, not nearly there.`,
+        )
+      }
+      if (goals.some(g => g.status === 'pending')) {
+        items.push(
+          'A target reading "Too early to call" is being measured, but no pass or fail is given until its period ends. Retention and churn can only be read as a share of a whole year, so early in the year they always look good — almost nobody has cancelled yet.',
+        )
+      }
       // Only explain the person rules when a person's target is actually on
       // screen — a company-only board should not be told about a scope it is
       // not using.
-      const people = (r?.goals ?? []).filter(g => g.employee_id)
+      const people = goals.filter(g => g.employee_id)
       if (people.length > 0) {
         items.push(
           "A person's figures come from the People report, so an individual's target cannot disagree with the report it is judged against.",
-          'Only leads, value sold, close rate and revenue per hour can be set for one person. Invoiced, cash collected and new customers cannot be split by person honestly, so they are company-only.',
+          `Only these can be set for one person: ${nameList(perPersonMetricLabels())}. Everything else cannot be split by person honestly — billing, payments, quotes and phone figures do not record who the work belongs to — so they are company-only.`,
           'A person is credited only with leads assigned to them, so individual targets will not add up to a company one — unassigned leads belong to nobody.',
         )
       }

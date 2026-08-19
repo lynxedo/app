@@ -110,8 +110,19 @@ export type GoalRow = {
    * behind, so it is compared straight to the target. 'open' means only that
    * the period has not begun — it used to also catch rates mid-period, which
    * made a live target read "Not started".
+   *
+   * ⚠⚠ 'over' is the CEILING equivalent of 'under', and the two cannot share a
+   * word: being under a labour-cost target is the good outcome. 'pending' means
+   * the figure is real but no verdict is due yet — retention can only be read as
+   * a share of the whole year, so it would otherwise read "Hit" every January.
    */
-  status: 'hit' | 'missed' | 'on_track' | 'behind' | 'under' | 'open' | 'unknown'
+  status: 'hit' | 'missed' | 'on_track' | 'behind' | 'under' | 'over' | 'pending' | 'open' | 'unknown'
+  /**
+   * Which way is good. ⚠ 'lower' means the target is a CEILING — hit by coming in
+   * at or below it — and `attainment_pct` is inverted to match, so 23.8% labour
+   * against a 22% target reads 92% rather than 108%.
+   */
+  direction: 'higher' | 'lower' | null
   /**
    * Null on a company-wide target; set when this target belongs to one person.
    *
