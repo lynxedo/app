@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getBasis, rateKindAllowed, normalizeTiers } from '@/lib/reports/commission'
+import {
+  RATIO_UNITS, getBasis, isBandedKind, isTargetKind, normalizeTiers, rateKindAllowed,
+} from '@/lib/reports/commission'
 
 // Admin-only: the bonus rules behind the Commission cards.
 //
@@ -51,23 +53,46 @@ export async function POST(request: Request) {
   // could only ever produce a nonsense number should not be saveable.
   if (!rateKindAllowed(basis, rateKind)) {
     return NextResponse.json({
-      error: basisDef.unit === 'count'
-        ? `“${basisDef.label}” is a count, so it pays a flat amount per unit rather than a percentage`
-        : `“${basisDef.label}” is a dollar figure, so it pays a percentage rather than an amount per unit`,
+      error: RATIO_UNITS.has(basisDef.unit)
+        ? `“${basisDef.label}” is a ratio, so it pays a flat bonus for hitting a target rather than a rate applied to it`
+        : basisDef.unit === 'count'
+          ? `“${basisDef.label}” is a count, so it pays a flat amount per unit rather than a percentage`
+          : `“${basisDef.label}” is a dollar figure, so it pays a percentage rather than an amount per unit`,
     }, { status: 400 })
   }
 
+  const target = isTargetKind(rateKind)
+
   let rate: number | null = null
   let tiers: { from: number; rate: number }[] | null = null
-  if (rateKind === 'tiered') {
+  if (isBandedKind(rateKind)) {
     tiers = normalizeTiers(body.tiers)
     if (!tiers.length) {
-      return NextResponse.json({ error: 'A tiered rule needs at least one band' }, { status: 400 })
+      return NextResponse.json({
+        error: target
+          ? 'A stepped bonus needs at least one band — a target and the amount it pays'
+          : 'A tiered rule needs at least one band',
+      }, { status: 400 })
+    }
+    /* ⚠ On a target rule a band's `rate` is DOLLARS, not a percentage, so the "over 100
+     * is a typo" rule below must not apply to it — a $500 bonus band is ordinary. What
+     * IS worth catching is a band paying nothing, which reads on the card as a target
+     * that was hit and paid zero. */
+    if (target && tiers.some(t => t.rate <= 0)) {
+      return NextResponse.json({ error: 'Every band has to pay something — a band worth $0 looks like a bug on the card' }, { status: 400 })
+    }
+    /* ⚠ A band starting at zero is a band nobody can miss. On a higher-is-better figure
+     * it pays unconditionally; on a lower-is-better one it can never be reached. Either
+     * way the number on screen would not be describing what the rule does. */
+    if (target && tiers.some(t => t.from <= 0)) {
+      return NextResponse.json({ error: 'Every band needs a target above zero — a band at zero either always pays or never can' }, { status: 400 })
     }
   } else {
     const n = Number(body.rate)
     if (!Number.isFinite(n) || n <= 0) {
-      return NextResponse.json({ error: 'Rate must be a number above zero' }, { status: 400 })
+      return NextResponse.json({
+        error: target ? 'The bonus amount must be a number above zero' : 'Rate must be a number above zero',
+      }, { status: 400 })
     }
     if (rateKind === 'percent' && n > 100) {
       return NextResponse.json({ error: 'A percentage above 100 is almost certainly a typo' }, { status: 400 })
@@ -76,8 +101,37 @@ export async function POST(request: Request) {
   }
 
   const threshold = optionalAmount(body.threshold)
-  const cap = optionalAmount(body.cap)
   if (threshold === undefined) return NextResponse.json({ error: 'Threshold must be zero or more' }, { status: 400 })
+
+  /* ⚠⚠ ON A FLAT TARGET RULE THE THRESHOLD IS THE TARGET, AND IT IS REQUIRED. Saved
+   * blank, there is no line to be on the right side of, and the only comparison a
+   * missing line can produce is one everybody passes — so the rule would pay its full
+   * amount to every holder, every period, and read as though the targets were being
+   * smashed. The database refuses this too; this is the message that explains it. */
+  if (rateKind === 'target_flat' && (threshold == null || threshold <= 0)) {
+    return NextResponse.json({
+      error: basisDef.better === 'lower'
+        ? 'Set the ceiling this bonus pays under — a blank or zero ceiling either pays every period or never can'
+        : 'Set the target this bonus pays at — a blank or zero target pays every period',
+    }, { status: 400 })
+  }
+  // A percentage target above 100 is a typo the same way a 200% commission rate is: it
+  // would mean paying more in wages than the work was worth and calling it a win.
+  if (target && basisDef.unit === 'percent') {
+    const over = [
+      ...(threshold != null ? [threshold] : []),
+      ...(tiers ?? []).map(t => t.from),
+    ].filter(v => v > 100)
+    if (over.length) {
+      return NextResponse.json({ error: 'A payroll share above 100% is almost certainly a typo' }, { status: 400 })
+    }
+  }
+
+  /* ⚠ A cap is meaningless on a target rule — the flat amount IS the payout, so a cap
+   * either does nothing or silently pays less than the rule says it does. Dropped
+   * rather than rejected, so a rule edited from a rate basis to a target basis saves
+   * instead of erroring about a field the editor no longer shows. */
+  const cap = target ? null : optionalAmount(body.cap)
   if (cap === undefined) return NextResponse.json({ error: 'Cap must be zero or more' }, { status: 400 })
 
   let linePrefix: string | null = null

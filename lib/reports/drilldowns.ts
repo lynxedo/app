@@ -775,7 +775,7 @@ const DRILLDOWNS: DrillSpec[] = [
      * difference between a list that is narrower than the card and a list that looks
      * like it disagrees with it. */
     description:
-      'Every Lead Tracker deal credited to the people who hold a commission rule, in this date range — the deals the sales-based rules are paid on. Each row says whether it was new business (Closed Won) or an upsell, so the two halves can be added up separately. Rules paid on revenue produced, on a whole service line, or on particular things sold are NOT represented here: those figures have no deal list behind them.',
+      'Every Lead Tracker deal credited to the people who hold a commission rule, in this date range — the deals the sales-based rules are paid on. Grouped by the person credited, newest sale first, so each block adds up to that person’s own figure on the card. Each row says whether it was new business (Closed Won) or an upsell, so the two halves can be added up separately. Rules paid on revenue produced, on a whole service line, on particular things sold, or on an efficiency target (revenue per labour hour, payroll as a share of revenue) are NOT represented here: those figures have no deal list behind them.',
     reports: ['crew'],
     /* ⚠ The customer is a plain NAME, not a link to their file, and that is the
      * established rule rather than an omission: `leads` carries no client id at all
@@ -877,7 +877,17 @@ const DRILLDOWNS: DrillSpec[] = [
           sold: r.sold_date,
           value: num(r.annual_value),
         }))
-        .sort((a, b) => Number(b.value) - Number(a.value))
+        /* ⚠ ORDERED THE WAY THE CARD IS READ, which is the whole point of opening it.
+         * Sorting by value alone — what this did — interleaves five people's deals into
+         * one undifferentiated list, so the one question somebody actually has here
+         * ("which deals make up Mike's $2,164?") needs a spreadsheet to answer. Ben's
+         * report was that it was "not sorted in any logically order". Person first so
+         * each block reconciles to one row of the card, newest sale first inside it,
+         * value as the tie-break. */
+        .sort((a, b) =>
+          String(a.salesperson).localeCompare(String(b.salesperson))
+          || String(b.sold ?? '').localeCompare(String(a.sold ?? ''))
+          || Number(b.value) - Number(a.value))
     },
   },
 ]

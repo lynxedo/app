@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useToast, useConfirm } from '@/components/ui'
 import {
-  BASIS_GROUPS, COMMISSION_BASES, describeRule, getBasis, rateKindsFor,
-  type CommissionPlan, type RateKind,
+  BASIS_GROUPS, COMMISSION_BASES, describeRule, formatBasisAmount, getBasis,
+  isBandedKind, isTargetKind, rateKindsFor,
+  type CommissionBasisDef, type CommissionPlan, type RateKind,
 } from '@/lib/reports/commission'
 
 type Employee = { id: string; name: string; department: string | null; is_active: boolean }
@@ -15,6 +16,33 @@ const RATE_KIND_LABEL: Record<RateKind, string> = {
   percent: 'A percentage of it',
   per_unit: 'A flat amount per unit',
   tiered: 'Tiered percentages',
+  target_flat: 'A flat bonus for hitting a target',
+  target_tiered: 'Stepped bonuses — the best band reached',
+}
+
+/**
+ * The target field's label, in the direction the basis actually pays.
+ *
+ * ⚠ Read from the basis, exactly as `payout()` reads it. A ceiling labelled "pay when
+ * it reaches" would invite somebody to type 25 meaning "keep it under 25" and get a
+ * bonus that pays only in the worst months — the arithmetic would be right and the
+ * screen would have lied about it.
+ */
+function targetLabel(def: CommissionBasisDef | null): string {
+  return def?.better === 'lower' ? 'Pay when it is at or below' : 'Pay when it reaches'
+}
+
+/** "$100.00/hr" / "25%" — a real example in this basis's own units. */
+function targetPlaceholder(def: CommissionBasisDef | null): string {
+  return def?.unit === 'percent' ? '25' : '100'
+}
+
+/** The bands hint, written in the units and direction of the basis in hand. */
+function bandHint(def: CommissionBasisDef | null): string {
+  if (def?.better === 'lower') {
+    return '30:100, 25:250 pays $100 at or below 30% and $250 at or below 25% — the best band only, never both.'
+  }
+  return '90:200, 100:400 pays $200 at $90 an hour and $400 at $100 an hour — the best band only, never both.'
 }
 
 const input = 'w-full rounded-md border border-gray-700 bg-gray-900 px-2.5 py-1.5 text-sm text-gray-100 focus:border-indigo-500 focus:outline-none'
@@ -40,6 +68,13 @@ export default function CommissionAdminPanel({
   const [rateKind, setRateKind] = useState<RateKind>('percent')
   const [rate, setRate] = useState('')
   const [tierText, setTierText] = useState('0:3, 50000:5')
+  /* ⚠ A SECOND band field rather than reusing the first. The two mean different things
+   * — "from:percent" against a running total, versus "target:dollars" against a ratio —
+   * and the tiered default of `0:3, 50000:5` would read as "pay $3 at 0 an hour", which
+   * the API rejects. Kept apart so switching basis can never carry the wrong numbers
+   * across, and started EMPTY because a prefilled target is a target somebody didn't
+   * choose, in the wrong direction half the time. */
+  const [targetBandText, setTargetBandText] = useState('')
   const [threshold, setThreshold] = useState('')
   const [cap, setCap] = useState('')
   const [linePrefix, setLinePrefix] = useState(lines[0] ?? '')
@@ -52,8 +87,8 @@ export default function CommissionAdminPanel({
   // so the selector is corrected here rather than letting the server reject the save.
   const effectiveKind: RateKind = allowedKinds.includes(rateKind) ? rateKind : allowedKinds[0]
 
-  function parseTiers(): { from: number; rate: number }[] {
-    return tierText
+  function parseTiers(text: string): { from: number; rate: number }[] {
+    return text
       .split(',')
       .map(part => part.split(':'))
       .filter(p => p.length === 2)
@@ -73,10 +108,16 @@ export default function CommissionAdminPanel({
         label: label.trim(),
         basis,
         rate_kind: effectiveKind,
-        rate: effectiveKind === 'tiered' ? undefined : rate,
-        tiers: effectiveKind === 'tiered' ? parseTiers() : undefined,
+        // ⚠ Both banded kinds put their numbers in `tiers`, not just the old one. Sending
+        // `rate` for a stepped target would fail the database's rate-present check.
+        rate: isBandedKind(effectiveKind) ? undefined : rate,
+        tiers: isBandedKind(effectiveKind)
+          ? parseTiers(isTargetKind(effectiveKind) ? targetBandText : tierText)
+          : undefined,
         threshold: threshold === '' ? null : threshold,
-        cap: cap === '' ? null : cap,
+        // A cap cannot narrow a flat bonus into anything meaningful, so the field is
+        // hidden for target rules and nothing is sent.
+        cap: isTargetKind(effectiveKind) || cap === '' ? null : cap,
         line_prefix: def?.needs === 'line' ? linePrefix : undefined,
         items: def?.needs === 'items' ? picked : undefined,
       }),
@@ -88,7 +129,7 @@ export default function CommissionAdminPanel({
       return
     }
     toast.success('Rule saved')
-    setLabel(''); setRate(''); setThreshold(''); setCap(''); setPicked([])
+    setLabel(''); setRate(''); setThreshold(''); setCap(''); setPicked([]); setTargetBandText('')
     router.refresh()
   }
 
@@ -128,7 +169,10 @@ export default function CommissionAdminPanel({
       <h2 className="text-lg font-bold tracking-tight text-white">Commission plans</h2>
       <p className="mt-1 max-w-3xl text-sm text-gray-400">
         One rule per line. A person can have several — that is how &ldquo;5% of irrigation sales
-        <em> plus</em> $50 a controller&rdquo; is set up. These feed the <strong className="text-gray-200">Commission</strong>
+        <em> plus</em> $50 a controller&rdquo; is set up. Rules under <strong className="text-gray-200">Efficiency</strong>
+        {' '}work differently: they pay a flat bonus for <em>hitting a target</em> — revenue per labour
+        hour, or payroll as a share of production revenue — because there is no sensible percentage
+        of a ratio. These feed the <strong className="text-gray-200">Commission</strong>
         {' '}cards you can add to any scoreboard; they are not a page of their own.
       </p>
       <p className="mt-2 max-w-3xl text-sm text-amber-300/80">
@@ -185,7 +229,7 @@ export default function CommissionAdminPanel({
         )}
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {effectiveKind === 'tiered' ? (
+          {effectiveKind === 'tiered' && (
             <div className="lg:col-span-2">
               <label className={lbl} htmlFor="cp-tiers">Bands</label>
               <input id="cp-tiers" className={input} value={tierText} onChange={e => setTierText(e.target.value)}
@@ -195,14 +239,28 @@ export default function CommissionAdminPanel({
                 first $50,000 and 5% on everything above it — marginal, not a cliff.
               </p>
             </div>
-          ) : (
+          )}
+          {effectiveKind === 'target_tiered' && (
+            <div className="lg:col-span-2">
+              <label className={lbl} htmlFor="cp-target-bands">Bands</label>
+              <input id="cp-target-bands" className={input} value={targetBandText}
+                onChange={e => setTargetBandText(e.target.value)}
+                placeholder={def?.better === 'lower' ? '30:100, 25:250' : '90:200, 100:400'} />
+              <p className="mt-1 text-xs text-gray-500">
+                <code>target:bonus</code>, comma separated. {bandHint(def)}
+              </p>
+            </div>
+          )}
+          {!isBandedKind(effectiveKind) && (
             <div>
               <label className={lbl} htmlFor="cp-rate">
-                {effectiveKind === 'percent' ? 'Percentage' : 'Amount per unit'}
+                {effectiveKind === 'percent' ? 'Percentage'
+                  : effectiveKind === 'target_flat' ? 'Bonus amount ($)'
+                    : 'Amount per unit'}
               </label>
               <input id="cp-rate" className={input} type="number" min="0" step="0.01"
                 value={rate} onChange={e => setRate(e.target.value)}
-                placeholder={effectiveKind === 'percent' ? '5' : '50'} />
+                placeholder={effectiveKind === 'percent' ? '5' : effectiveKind === 'target_flat' ? '500' : '50'} />
             </div>
           )}
 
@@ -216,17 +274,48 @@ export default function CommissionAdminPanel({
             </div>
           )}
 
-          <div>
-            <label className={lbl} htmlFor="cp-threshold">Nothing until (optional)</label>
-            <input id="cp-threshold" className={input} type="number" min="0" step="1"
-              value={threshold} onChange={e => setThreshold(e.target.value)} placeholder="—" />
-          </div>
-          <div>
-            <label className={lbl} htmlFor="cp-cap">Cap the payout at (optional)</label>
-            <input id="cp-cap" className={input} type="number" min="0" step="1"
-              value={cap} onChange={e => setCap(e.target.value)} placeholder="—" />
-          </div>
+          {/* ⚠⚠ ON A FLAT TARGET RULE THIS FIELD *IS* THE TARGET, and it is required.
+              Left blank there is no line to clear, and a comparison against no line is
+              one everybody passes — the rule would quietly pay its full amount to every
+              holder every period. On a stepped rule the bands carry the targets, so the
+              field is hidden rather than left to contradict them. */}
+          {effectiveKind !== 'target_tiered' && (
+            <div>
+              <label className={lbl} htmlFor="cp-threshold">
+                {effectiveKind === 'target_flat'
+                  ? `${targetLabel(def)}${def?.unit === 'percent' ? ' (%)' : ' ($/hr)'}`
+                  : 'Nothing until (optional)'}
+              </label>
+              <input id="cp-threshold" className={input} type="number" min="0" step={effectiveKind === 'target_flat' ? '0.01' : '1'}
+                value={threshold} onChange={e => setThreshold(e.target.value)}
+                placeholder={effectiveKind === 'target_flat' ? targetPlaceholder(def) : '—'} />
+              {effectiveKind === 'target_flat' && threshold !== '' && Number(threshold) > 0 && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Pays {rate === '' ? 'the bonus' : `$${Number(rate).toLocaleString('en-US')}`} when{' '}
+                  {def?.noun} is {def?.better === 'lower' ? 'at or below' : 'at or above'}{' '}
+                  {formatBasisAmount(def, Number(threshold))}.
+                </p>
+              )}
+            </div>
+          )}
+          {/* A cap cannot narrow a flat bonus into anything meaningful — it would either
+              do nothing or silently pay less than the rule says. Not offered. */}
+          {!isTargetKind(effectiveKind) && (
+            <div>
+              <label className={lbl} htmlFor="cp-cap">Cap the payout at (optional)</label>
+              <input id="cp-cap" className={input} type="number" min="0" step="1"
+                value={cap} onChange={e => setCap(e.target.value)} placeholder="—" />
+            </div>
+          )}
         </div>
+        {isTargetKind(effectiveKind) && (
+          <p className="mt-3 text-xs text-amber-300/80">
+            ⚠ A target is all-or-nothing on purpose. Nothing is prorated and nothing is
+            marginal: {def?.better === 'lower' ? 'a hair over the ceiling' : 'a cent under the target'} pays
+            zero{effectiveKind === 'target_tiered' ? ', and only the best band reached is paid — never two at once' : ''}.
+            The card shows the figure against the target so a miss reads as a miss rather than as a broken number.
+          </p>
+        )}
 
         {def?.needs === 'items' && (
           <div className="mt-3">
