@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
 import { getDrilldown, parseDrillPeople, type DrillColumn, type DrillRow } from '@/lib/reports/drilldowns'
-import { resolveWindow } from '@/lib/scoreboards/widgets/windows'
+import { windowFromParams } from '@/lib/scoreboards/widgets/windows'
 import { formatCurrency } from '@/lib/format'
 
 export const metadata = { title: 'Report detail' }
@@ -120,7 +120,15 @@ export default async function ReportDetailPage({
   if (!profile?.company_id) notFound()
 
   const one = (k: string) => { const v = sp[k]; return Array.isArray(v) ? v[0] : v }
-  const win = resolveWindow(one('range') ?? report.defaultRange, one('start'), one('end'))
+  /* ⚠⚠ `windowFromParams`, not `resolveWindow`. Every drill-down link in the widget
+   * library arrives here as `?start=…&end=…` with NO range, and `resolveWindow` reads
+   * explicit dates only under `range=custom` — so the dates were thrown away and this
+   * page showed the REPORT'S DEFAULT window instead of the card's. A one-month card
+   * opened a year-to-date list, which is precisely the "list that disagrees with the
+   * number above it" the drill-down registry opens by warning about. */
+  const { win, range: effectiveRange } = windowFromParams(
+    one('range'), one('start'), one('end'), report.defaultRange,
+  )
 
   let rows: DrillRow[] = []
   let loadError: string | null = null
@@ -130,12 +138,20 @@ export default async function ReportDetailPage({
     loadError = e instanceof Error ? e.message : 'Could not load these rows'
   }
 
+  /* ⚠ The RESOLVED range travels onward, not the raw parameter. Arriving with bare
+   * dates and passing bare dates back would send the reader to a report page that
+   * applies the same discard — they would land on a different window from the one they
+   * were just reading, having pressed a link that says "back". */
   const qs = new URLSearchParams()
-  if (one('range')) qs.set('range', one('range') as string)
+  qs.set('range', effectiveRange)
   if (one('start')) qs.set('start', one('start') as string)
   if (one('end')) qs.set('end', one('end') as string)
-  const backHref = `/hub/reports/${slug}${qs.toString() ? `?${qs}` : ''}`
+  const backHref = `/hub/reports/${slug}?${qs}`
 
+  /* ⚠ Same story, and this one is worse when it goes wrong: the export route resolves
+   * its window with the identical rule, so a download taken from a filtered one-month
+   * list used to contain a whole year — a spreadsheet that looks authoritative and is
+   * not the rows on screen. Carrying `range` fixes it without touching that route. */
   const exportQs = new URLSearchParams(qs)
   exportQs.set('report', slug)
   exportQs.set('drill', detail)
