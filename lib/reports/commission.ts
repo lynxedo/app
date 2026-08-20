@@ -1,3 +1,5 @@
+import { formatCurrency } from '@/lib/format'
+
 /* Commission plans — what a bonus rule is, and how it pays.
  *
  * Shared by the admin editor (Admin → Reports) and the commission widgets, so the
@@ -26,14 +28,28 @@ export type CommissionBasis =
   | 'revenue_produced'
   | 'line_revenue'
   | 'item_count'
+  | 'rev_per_hour'
+  | 'company_rev_per_hour'
+  | 'labor_pct'
+  | 'company_labor_pct'
 
-export type RateKind = 'percent' | 'per_unit' | 'tiered'
+export type RateKind = 'percent' | 'per_unit' | 'tiered' | 'target_flat' | 'target_tiered'
 
-/** Money or a tally — decides which rate kinds even make sense. */
-export type BasisUnit = 'currency' | 'count'
+/**
+ * What kind of number the basis IS — which decides what can honestly be done to it.
+ *
+ * ⚠⚠ `money_per_hour` and `percent` are RATIOS, and a ratio cannot take a rate. 5% of
+ * "$91.84 per labour hour" is $4.59, which is not a small bonus, it is a category
+ * error — the figure is a speed, not an amount, and a share of a speed means nothing.
+ * Ratios are paid by hitting a TARGET instead; see `rateKindsFor`.
+ */
+export type BasisUnit = 'currency' | 'count' | 'money_per_hour' | 'percent'
 
-/** Heading the editor files this basis under. Nine options in one flat list is a wall. */
-export type BasisGroup = 'Sales' | 'Work done' | 'Products'
+/** The units paid by hitting a target rather than by a rate applied to them. */
+export const RATIO_UNITS = new Set<BasisUnit>(['money_per_hour', 'percent'])
+
+/** Heading the editor files this basis under. Thirteen options in one flat list is a wall. */
+export type BasisGroup = 'Sales' | 'Work done' | 'Efficiency' | 'Products'
 
 export type CommissionBasisDef = {
   key: CommissionBasis
@@ -46,6 +62,23 @@ export type CommissionBasisDef = {
   hint: string
   /** An extra field this basis cannot work without. */
   needs?: 'line' | 'items'
+  /**
+   * Which direction is good, on a ratio basis. Revenue per hour is meant to go UP;
+   * payroll as a share of revenue is meant to come DOWN, so its target is a CEILING
+   * and not a floor.
+   *
+   * ⚠⚠ Declared here and nowhere else. The editor's wording, `payout()`'s comparison
+   * and `describeRule()`'s sentence all read this one field, so a target can never be
+   * described one way and paid the other — and getting the labour percentage backwards
+   * would pay every bonus in the company's worst month and none in its best.
+   */
+  better?: 'higher' | 'lower'
+  /**
+   * True when the figure is the COMPANY's, not this person's. Said on the card and in
+   * the editor, because two rules can read identically on a payslip and mean entirely
+   * different things — one is what they did, the other is what everybody did.
+   */
+  companyWide?: boolean
   /** Shown as a warning in the editor — a real caveat about paying on this figure. */
   caution?: string
 }
@@ -156,6 +189,73 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
     hint: 'The department’s revenue, not this person’s — for a lead who is paid on how their line performs.',
     needs: 'line',
   },
+  /* ── Efficiency: the two ratios off the Crew & Labor report ─────────────────
+   *
+   * Ben: "Need the ability to set up a commission/bonus for hitting a revenue per
+   * hour figure and one for the payroll to production revenue %."
+   *
+   * ⚠⚠ THESE ARE PAID BY TARGET, NOT BY RATE, and that is not a UI convenience — it
+   * is the only honest arithmetic. Every basis above is an AMOUNT, so a percentage or
+   * a per-unit rate scales with it. These two are RATIOS: $91.84 an hour and 23.4% of
+   * revenue. There is no rate you can apply to a ratio that produces a bonus, so the
+   * rule instead names a line and a flat amount for clearing it.
+   *
+   * ⚠⚠ BOTH SCOPES EXIST ON PURPOSE. A technician's own revenue per hour is a
+   * statement about their day; the company's is a statement about the business, and a
+   * crew lead or GM is paid on the second. `line_revenue` already set this precedent —
+   * "the department's revenue, not this person's". The labels say which is which,
+   * because the two are indistinguishable on a payslip and completely different bets.
+   *
+   * ⚠ Both figures come from Crew & Labor, which CLAMPS its window to where timeclock
+   * data exists. That is safe here and would not be for a total: a ratio measured over
+   * a shorter period is still the right ratio, whereas a shortened total is just a
+   * smaller number. The card names the days it actually measured.
+   */
+  {
+    key: 'rev_per_hour',
+    label: 'Their revenue per labour hour — hitting a target',
+    group: 'Efficiency',
+    noun: 'their revenue per labour hour',
+    unit: 'money_per_hour',
+    better: 'higher',
+    hint: 'The completed work credited to them divided by the hours they clocked — the per-person figure on the Crew & Labor report. Pays a flat bonus for reaching a target, because a percentage of a $/hour figure is not a number anybody can use.',
+    caution: 'Different services carry different price tags, so a fair target for an irrigation tech is not a fair target for a mowing crew. Nobody with no clocked hours is paid — the rule says so rather than reading zero.',
+  },
+  {
+    key: 'company_rev_per_hour',
+    label: 'The COMPANY’S revenue per labour hour — hitting a target',
+    group: 'Efficiency',
+    noun: 'the company’s revenue per labour hour',
+    unit: 'money_per_hour',
+    better: 'higher',
+    companyWide: true,
+    hint: 'The whole crew’s completed work divided by the whole crew’s clocked hours — the headline figure on Crew & Labor. For a lead or manager paid on how the business performs rather than on their own day.',
+    caution: 'Everybody holding this rule is paid on the same number, so it either pays all of them or none of them.',
+  },
+  {
+    key: 'labor_pct',
+    label: 'Their payroll as a % of the revenue they produced — staying under a target',
+    group: 'Efficiency',
+    noun: 'their payroll as a share of the revenue they produced',
+    unit: 'percent',
+    better: 'lower',
+    hint: 'Their regular pay, overtime and commission divided by the completed work credited to them. LOWER is better, so the target is a ceiling: the bonus pays when they are at or below it.',
+    /* ⚠ Bonnie Simpson reads 80% on Heroes' live book — not because she is expensive
+     * but because almost no completed work is credited to her. A share is only a
+     * statement about efficiency when the denominator is that person's actual output. */
+    caution: 'Only meaningful for people whose completed work is credited to them. Office and support staff clock real hours against almost no credited revenue, so their percentage looks catastrophic and means nothing — on Heroes’ own book one reads 80%.',
+  },
+  {
+    key: 'company_labor_pct',
+    label: 'The COMPANY’S payroll as a % of production revenue — staying under a target',
+    group: 'Efficiency',
+    noun: 'the company’s payroll as a share of production revenue',
+    unit: 'percent',
+    better: 'lower',
+    companyWide: true,
+    hint: 'Field payroll — regular, overtime and commission — divided by the revenue the crew completed, the Labor Cost % figure on Crew & Labor. LOWER is better, so the target is a ceiling.',
+    caution: 'Holiday pay, PTO, bonuses, tips and every salaried person are OUT of this figure, so true payroll load is higher than the percentage a bonus is paid on. Everybody holding this rule is paid on the same number.',
+  },
   {
     key: 'item_count',
     label: 'Particular things they sold',
@@ -168,7 +268,7 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
 ]
 
 /** The editor's optgroups, in the order they are offered. */
-export const BASIS_GROUPS: BasisGroup[] = ['Sales', 'Work done', 'Products']
+export const BASIS_GROUPS: BasisGroup[] = ['Sales', 'Work done', 'Efficiency', 'Products']
 
 /**
  * Bases that already contain upsells, so pairing one with an upsell rule double-pays.
@@ -192,13 +292,51 @@ export function getBasis(key: string): CommissionBasisDef | null {
  * in one place and the editor offers only the valid options.
  */
 export function rateKindsFor(unit: BasisUnit): RateKind[] {
+  // A ratio takes neither: it is paid for being on the right side of a line.
+  if (RATIO_UNITS.has(unit)) return ['target_flat', 'target_tiered']
   return unit === 'currency' ? ['percent', 'tiered'] : ['per_unit']
+}
+
+/** Rate kinds that pay a flat amount for clearing a line rather than a rate on a figure. */
+export const TARGET_RATE_KINDS = new Set<RateKind>(['target_flat', 'target_tiered'])
+/** Rate kinds whose numbers live in `tiers` rather than in `rate`. */
+export const BANDED_RATE_KINDS = new Set<RateKind>(['tiered', 'target_tiered'])
+
+export function isTargetKind(kind: string): boolean {
+  return TARGET_RATE_KINDS.has(kind as RateKind)
+}
+export function isBandedKind(kind: string): boolean {
+  return BANDED_RATE_KINDS.has(kind as RateKind)
 }
 
 export function rateKindAllowed(basis: string, kind: string): boolean {
   const def = getBasis(basis)
   if (!def) return false
   return (rateKindsFor(def.unit) as string[]).includes(kind)
+}
+
+/**
+ * The figure a rule rides on, written the way its own report writes it.
+ *
+ * ⚠⚠ ONE COLUMN, FOUR UNITS. "$7.00" where the truth is "7 controllers" is a wrong
+ * number rather than a formatting quirk, and "$91.84" where the truth is "$91.84 an
+ * hour" is worse — it reads as a trivial figure instead of a good one. Every place
+ * that prints a basis amount goes through here so they cannot disagree.
+ */
+export function formatBasisAmount(def: CommissionBasisDef | null, n: number): string {
+  const v = Number.isFinite(n) ? n : 0
+  switch (def?.unit) {
+    case 'money_per_hour': return `${formatCurrency(v, { decimals: 2 })}/hr`
+    // One decimal, matching the Crew & Labor card: 23.4%, not 23.42% and not 23%.
+    case 'percent': return `${Math.round(v * 10) / 10}%`
+    case 'currency': return formatCurrency(v)
+    default: return v.toLocaleString('en-US')
+  }
+}
+
+/** A bonus amount. Cents only when there are cents — "$500.00" reads like a form field. */
+function money(n: number): string {
+  return formatCurrency(n, { decimals: Number.isInteger(n) ? 0 : 2 })
 }
 
 export type CommissionTier = { from: number; rate: number }
@@ -250,10 +388,63 @@ export type Payout = {
   gross: number
   /** What it actually pays. */
   paid: number
-  /** Set when the payout was reduced, so a card can say why rather than just showing a smaller number. */
-  limitedBy?: 'threshold' | 'cap'
+  /**
+   * Set when the payout was reduced, so a card can say why rather than just showing a
+   * smaller number. `target` means the figure never reached the line at all — kept
+   * separate from `threshold` because they read differently to the person being paid:
+   * a threshold is "not yet", a missed target is "not this period".
+   */
+  limitedBy?: 'threshold' | 'cap' | 'target'
   /** Set when the rule cannot compute — a mismatched rate kind, or missing bands. */
   problem?: string
+}
+
+/** Cents-rounded, and reduced to the cap when one is set. Shared by every rate kind. */
+function capped(plan: CommissionPlan, gross: number): Payout {
+  const g = Math.round(gross * 100) / 100
+  if (plan.cap != null && g > plan.cap) {
+    return { gross: g, paid: Math.round(plan.cap * 100) / 100, limitedBy: 'cap' }
+  }
+  return { gross: g, paid: g }
+}
+
+/**
+ * A target bonus: a flat amount, paid only for being on the right side of a line.
+ *
+ * ⚠⚠ NOTHING IS PRORATED AND NOTHING IS MARGINAL, and unlike the tiered percentages
+ * above that is the correct behaviour rather than a compromise. "$500 for hitting $100
+ * an hour" pays $500 at $100.01 and nothing at $99.99. That IS what a target is; a
+ * smooth version of it would be a different bonus from the one being described, and
+ * quietly paying a fraction for nearly hitting it would be inventing a rule nobody
+ * agreed to. The card shows the figure against the target so the cliff is visible.
+ *
+ * ⚠⚠ THE DIRECTION COMES FROM THE BASIS, NEVER FROM THE RULE. Revenue per hour has to
+ * REACH its target; payroll-as-a-share has to stay AT OR BELOW it. Reading a ceiling as
+ * a floor would pay the labour-percentage bonus in the company's worst month and
+ * withhold it in its best — a wrong number that looks like a working feature.
+ */
+function targetPayout(plan: CommissionPlan, def: CommissionBasisDef, base: number): Payout {
+  const hit = (target: number) => def.better === 'lower' ? base <= target : base >= target
+
+  if (plan.rate_kind === 'target_flat') {
+    // ⚠ No target means no line to be on the right side of. Paying anyway would pay
+    // everybody every period; paying zero silently would read as "nobody hit it".
+    if (plan.threshold == null) return { gross: 0, paid: 0, problem: 'no target set' }
+    if (!hit(plan.threshold)) return { gross: 0, paid: 0, limitedBy: 'target' }
+    return capped(plan, Number(plan.rate) || 0)
+  }
+
+  const tiers = normalizeTiers(plan.tiers)
+  if (!tiers.length) return { gross: 0, paid: 0, problem: 'no bands set' }
+  /* The BEST band reached, paid ONCE — not the sum of every band cleared. Ordered so
+   * the hardest band is last and therefore wins: ascending when higher is better,
+   * descending when lower is better. Stacking the bands instead would pay $600 for a
+   * "$200 at 90, $400 at 100" rule, which is not what either number says. */
+  const hardestLast = def.better === 'lower' ? [...tiers].reverse() : tiers
+  let amount = 0
+  for (const t of hardestLast) if (hit(t.from)) amount = t.rate
+  if (!amount) return { gross: 0, paid: 0, limitedBy: 'target' }
+  return capped(plan, amount)
 }
 
 /** What one rule pays on a given basis amount. Pure arithmetic. */
@@ -264,13 +455,21 @@ export function payout(plan: CommissionPlan, amount: number): Payout {
     return {
       gross: 0,
       paid: 0,
-      problem: def.unit === 'count'
-        ? 'a count needs a flat amount per unit, not a percentage'
-        : 'a dollar figure needs a percentage, not an amount per unit',
+      problem: RATIO_UNITS.has(def.unit)
+        ? 'a ratio is paid for hitting a target, not by a rate applied to it'
+        : def.unit === 'count'
+          ? 'a count needs a flat amount per unit, not a percentage'
+          : 'a dollar figure needs a percentage, not an amount per unit',
     }
   }
 
   const base = Number.isFinite(amount) ? Math.max(0, amount) : 0
+
+  /* ⚠ Ratio bases leave here. Everything below applies a RATE to an amount, and the
+   * generic threshold gate below is a floor — on a lower-is-better figure a floor is
+   * exactly backwards, which is why the comparison lives in `targetPayout` where the
+   * basis's own direction is in scope. */
+  if (isTargetKind(plan.rate_kind)) return targetPayout(plan, def, base)
 
   // ⚠ The threshold gates on the BASIS, not on the payout — "nothing until you sell
   // $20k" is a statement about sales, and applying it to the commission instead would
@@ -295,17 +494,42 @@ export function payout(plan: CommissionPlan, amount: number): Payout {
     }
   }
 
-  gross = Math.round(gross * 100) / 100
-  if (plan.cap != null && gross > plan.cap) {
-    return { gross, paid: Math.round(plan.cap * 100) / 100, limitedBy: 'cap' }
+  return capped(plan, gross)
+}
+
+/**
+ * "$500 when their revenue per labour hour is at or above $100.00/hr" — the sentence
+ * for a target rule.
+ *
+ * ⚠ "at or above" / "at or below" is read from the basis, the same field `payout()`
+ * compares on, so the sentence and the arithmetic cannot drift. Bands are printed
+ * HARDEST FIRST, because that is the number the rule is really about.
+ */
+function describeTarget(plan: CommissionPlan, def: CommissionBasisDef | null): string {
+  const dir = def?.better === 'lower' ? 'at or below' : 'at or above'
+  const of = def ? def.noun : plan.basis
+
+  if (plan.rate_kind === 'target_flat') {
+    if (plan.threshold == null) return `flat bonus on ${of} — no target set`
+    return `${money(Number(plan.rate) || 0)} when ${of} is ${dir} ${formatBasisAmount(def, plan.threshold)}`
   }
-  return { gross, paid: gross }
+
+  const tiers = normalizeTiers(plan.tiers)
+  if (!tiers.length) return `stepped bonus on ${of} — no bands set`
+  const hardestFirst = def?.better === 'lower' ? tiers : [...tiers].reverse()
+  const bands = hardestFirst
+    .map(t => `${money(t.rate)} ${dir} ${formatBasisAmount(def, t.from)}`)
+    .join(', ')
+  return `${bands} — best band only, on ${of}`
 }
 
 /** "5% of value they sold", "$50 per controller sold" — one line, for a card or the editor. */
 export function describeRule(plan: CommissionPlan): string {
   const def = getBasis(plan.basis)
   const of = def ? def.noun : plan.basis
+  // A target rule has no rate to apply and no floor to add — its whole sentence is
+  // the target, so it is written in one piece rather than assembled from clauses.
+  if (isTargetKind(plan.rate_kind)) return describeTarget(plan, def)
   let rule: string
   if (plan.rate_kind === 'percent') rule = `${plan.rate ?? 0}% of ${of}`
   else if (plan.rate_kind === 'per_unit') rule = `$${plan.rate ?? 0} per unit of ${of}`
@@ -322,8 +546,9 @@ export function describeRule(plan: CommissionPlan): string {
    * $3" on a live rule of Ben's that means "nothing under 3 upsells" — a dollar sign on
    * a number of deals, which reads as a tiny money floor rather than a real one. */
   if (plan.threshold != null) {
-    const n = plan.threshold.toLocaleString('en-US')
-    extra.push(def?.unit === 'count' ? `nothing under ${n} ${def.noun}` : `nothing under $${n}`)
+    extra.push(def?.unit === 'count'
+      ? `nothing under ${plan.threshold.toLocaleString('en-US')} ${def.noun}`
+      : `nothing under ${formatBasisAmount(def, plan.threshold)}`)
   }
   if (plan.cap != null) extra.push(`capped at $${plan.cap.toLocaleString('en-US')}`)
   return extra.length ? `${rule} · ${extra.join(' · ')}` : rule

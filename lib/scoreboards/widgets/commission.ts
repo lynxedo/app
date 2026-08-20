@@ -27,15 +27,15 @@
  */
 
 import type {
-  CommissionPlanRow, LeadItemsRow, PeopleRow, Person, RevenueTrendRow,
+  CommissionPlanRow, CrewLaborRow, CrewPerson, LeadItemsRow, PeopleRow, Person, RevenueTrendRow,
 } from './sources'
 import type { SourceBag, SourceRequest, WidgetConfig, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
 import { formatCurrency } from '@/lib/format'
 import { keepPerson, peopleField, peoplePhrase, personFilter, withPeopleTitle, type PersonFilter } from './people-filter'
 import {
-  type CommissionPlan, type CommissionBasis, type RateKind,
-  describeRule, getBasis, normalizeTiers, payout,
+  type BasisUnit, type CommissionPlan, type CommissionBasis, type RateKind,
+  describeRule, formatBasisAmount, getBasis, normalizeTiers, payout,
 } from '@/lib/reports/commission'
 
 const num = (v: unknown): number => {
@@ -80,6 +80,25 @@ const lineRevReq = (win: WindowSpec): SourceRequest => ({
   source: 'visit_revenue_trend',
   params: { start: win.start, end: win.end, grain: 'month', tech_credit: 'each' },
 })
+/**
+ * Revenue per labour hour and payroll-as-a-share, for the two Efficiency bases.
+ *
+ * ⚠⚠ THE SHAPE MATCHES `crew.ts`' OWN REQUEST EXACTLY — same source key, same two
+ * params, nothing extra. That is what makes the resolver dedupe it: a commission card
+ * on a board that already carries any Crew & Labor card costs ZERO extra round trips.
+ * Adding a third param "for clarity" would silently double the query.
+ *
+ * ⚠ No new gate. These widgets are already Crew & Labor group, and `crew_labor` is the
+ * source every card in that group reads — the wage figures behind it are exactly the
+ * data this group exists to fence off, so nothing widens by reading it here.
+ *
+ * ⚠ This RPC CLAMPS its window to where timeclock and processed-payroll data exist. For
+ * a RATIO that is safe — a rate measured over fewer days is still the right rate — and
+ * it is the reason the Efficiency bases are ratios and not totals. The cards name the
+ * days actually measured rather than the days asked for.
+ */
+const crewReq = (win: WindowSpec): SourceRequest =>
+  ({ source: 'crew_labor', params: { start: win.start, end: win.end } })
 const itemsReq = (cfg: WidgetConfig, win: WindowSpec): SourceRequest => ({
   source: 'lead_items',
   params: {
@@ -91,16 +110,16 @@ const itemsReq = (cfg: WidgetConfig, win: WindowSpec): SourceRequest => ({
 })
 
 /**
- * All four, always.
+ * All five, always.
  *
  * ⚠ `sources()` must be a pure function of (cfg, window) — the resolver's dedupe key
  * depends on it — so it cannot look at the plans to decide which bases are actually in
- * use. Declaring all four is the cost of that purity; on a board that already carries
- * People, Service Line or Tracked Item cards, three of them are already being fetched
- * and cost nothing extra.
+ * use. Declaring all five is the cost of that purity; on a board that already carries
+ * People, Crew & Labor, Service Line or Tracked Item cards, four of them are already
+ * being fetched and cost nothing extra.
  */
 const ALL_SOURCES = (cfg: WidgetConfig, win: WindowSpec): SourceRequest[] =>
-  [plansReq(), peopleReq(win), lineRevReq(win), itemsReq(cfg, win)]
+  [plansReq(), peopleReq(win), lineRevReq(win), itemsReq(cfg, win), crewReq(win)]
 
 /**
  * ⚠ This setting affects ONE basis — "particular things they sold" — and nothing
@@ -147,11 +166,17 @@ export type EarnedLine = {
   department: string | null
   /** The figure the rule was applied to. */
   amount: number
-  /** Whether that figure is money or a tally — decides how a cell is formatted. */
-  unit: 'currency' | 'count'
+  /**
+   * What kind of number that figure is — decides how the cell is formatted.
+   * ⚠ Four units now, not two: a $/hour figure printed as plain dollars reads as a
+   * trivial amount rather than a good rate.
+   */
+  unit: BasisUnit
   paid: number
   gross: number
-  limitedBy?: 'threshold' | 'cap'
+  /** ⚠ Mirrors `Payout['limitedBy']`. `target` is a MISS, not a reduction — a target
+   *  rule that fell short pays nothing rather than less. */
+  limitedBy?: 'threshold' | 'cap' | 'target'
   /** Why this line pays nothing, when that is a configuration problem rather than a zero. */
   problem?: string
 }
@@ -177,9 +202,16 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
   const peopleRow = bag.get<PeopleRow>(peopleReq(win))[0] ?? null
   const trend = bag.get<RevenueTrendRow>(lineRevReq(win))[0] ?? null
   const itemsRow = bag.get<LeadItemsRow>(itemsReq(cfg, win))[0] ?? null
+  const crewRow = bag.get<CrewLaborRow>(crewReq(win))[0] ?? null
 
   const byEmployee = new Map<string, Person>()
   for (const p of peopleRow?.people ?? []) byEmployee.set(p.employee_id, p)
+  /* ⚠ Keyed on `employee_id`, the same key a plan is keyed on — never on the name.
+   * Crew & Labor composes names as "Angel Morin" while People Performance composes
+   * them as "Angel", and matching on either would credit an efficiency figure to the
+   * wrong person or to nobody. The id is the one thing both sources agree on. */
+  const crewByEmployee = new Map<string, CrewPerson>()
+  for (const c of crewRow?.people ?? []) crewByEmployee.set(c.employee_id, c)
 
   // Line revenue, summed over the window from the unclamped trend.
   const lineRevenue = new Map<string, number>()
@@ -195,6 +227,10 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
   let filteredOut = 0
   let sharedVisitRisk = false
   let usesUpsells = false
+  /** Any Efficiency rule at all — decides whether the clamped-window note applies. */
+  let usesEfficiency = false
+  /** Any rule paid on the COMPANY's figure rather than this person's. */
+  let usesCompanyWide = false
   const unattributable: string[] = []
   /* Who holds a rule paid on the combined figure, and who holds an upsell-only rule.
    * A person in BOTH sets is paid for their upsells twice. */
@@ -270,6 +306,84 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
       case 'line_revenue':
         amount = lineRevenue.get(plan.line_prefix ?? '') ?? 0
         break
+
+      /* ── the two Efficiency ratios, at both scopes ─────────────────────────
+       *
+       * ⚠⚠ EVERY BRANCH HERE GUARDS ITS DENOMINATOR BEFORE IT DIVIDES, and on a
+       * lower-is-better target that is not tidiness — it is the difference between a
+       * working feature and one that pays every bonus for free. A person with no
+       * credited revenue divides to 0%, and 0% is at or below any ceiling you can
+       * name, so an unguarded labour-share rule would pay in full precisely when
+       * somebody produced nothing at all. A named problem beats a plausible number.
+       */
+      case 'rev_per_hour': {
+        usesEfficiency = true
+        const cp = crewByEmployee.get(plan.employee_id)
+        if (!cp) {
+          problem = 'they have no row in the Crew & Labor figures for this period'
+        } else if (!cp.attributable) {
+          problem = 'no Jobber user matches them, so no completed work can be credited'
+          unattributable.push(person.name)
+        } else if (!cp.rankable) {
+          // Salaried staff and anyone under an hour. The Crew & Labor report publishes
+          // no $/hour for them either, and inventing one here would disagree with it.
+          problem = 'they are salaried or clocked under an hour, so no revenue-per-hour figure exists for them'
+        } else if (cp.rev_per_hour == null) {
+          problem = 'Crew & Labor shows no hourly figure for them in this period'
+        } else {
+          amount = num(cp.rev_per_hour)
+        }
+        break
+      }
+      case 'labor_pct': {
+        usesEfficiency = true
+        const cp = crewByEmployee.get(plan.employee_id)
+        const rev = num(cp?.revenue)
+        const cost = num(cp?.labor_cost)
+        if (!cp) {
+          problem = 'they have no row in the Crew & Labor figures for this period'
+        } else if (!cp.attributable) {
+          problem = 'no Jobber user matches them, so no completed work can be credited'
+          unattributable.push(person.name)
+        } else if (rev <= 0) {
+          // ⚠⚠ THE GUARD THAT MATTERS. Divide by this and the answer is 0% — a perfect
+          // score handed to somebody with no output at all.
+          problem = 'no completed work is credited to them in this period, so their pay cannot be expressed as a share of it'
+        } else if (cost <= 0) {
+          // ⚠ 0% labour cost does not happen to somebody who worked. It means no
+          // processed payroll reaches them — a gap, not an achievement.
+          problem = 'no processed field payroll covers them in this period, so there is no percentage to measure'
+        } else {
+          amount = cost / rev * 100
+        }
+        break
+      }
+      case 'company_rev_per_hour': {
+        usesEfficiency = true
+        usesCompanyWide = true
+        if (!crewRow?.coverage.has_data) {
+          problem = 'no timeclock or payroll data covers this period, so the company figure cannot be worked out'
+        } else if (crewRow.rev_per_hour == null || num(crewRow.hours) <= 0) {
+          problem = 'the crew clocked no hours in this period, so there is no company revenue per hour'
+        } else {
+          amount = num(crewRow.rev_per_hour)
+        }
+        break
+      }
+      case 'company_labor_pct': {
+        usesEfficiency = true
+        usesCompanyWide = true
+        if (!crewRow?.coverage.has_data) {
+          problem = 'no timeclock or payroll data covers this period, so the company figure cannot be worked out'
+        } else if (crewRow.labor_pct == null || num(crewRow.revenue) <= 0) {
+          problem = 'no completed work is recorded in this period, so payroll cannot be expressed as a share of it'
+        } else if (num(crewRow.labor_cost) <= 0) {
+          problem = 'no processed field payroll covers this period yet, so there is no percentage to measure'
+        } else {
+          amount = num(crewRow.labor_pct)
+        }
+        break
+      }
       case 'item_count': {
         const wanted = new Set((plan.items ?? []).map(itemKey))
         // Their name as the Lead Tracker spells it — matched the way scoreboard_people
@@ -325,7 +439,35 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
     notes.push('no Lead Tracker stage is ticked as “Sold”, so every upsell rule pays nothing until one is — Admin → Lead Tracker')
   }
   if (unattributable.length) {
-    notes.push(`${[...new Set(unattributable)].join(', ')} have no matching Jobber user, so no produced revenue can be credited to them`)
+    notes.push(`${[...new Set(unattributable)].join(', ')} have no matching Jobber user, so no completed work can be credited to them`)
+  }
+  /* ⚠⚠ A company-wide rule is not a variant of a personal one, it is a different bet,
+   * and on a payslip the two are indistinguishable. Said outright because the failure
+   * mode is silent: a technician paid on the company's revenue per hour cannot move
+   * their own bonus, and would spend a quarter trying. */
+  if (usesCompanyWide) {
+    notes.push('rules marked as the COMPANY’S figure ride on the whole crew’s number, not the individual’s — everyone holding one is paid on the same result')
+  }
+  /* ⚠⚠ The Efficiency bases come from Crew & Labor, which narrows its window to where
+   * timeclock AND processed payroll both exist. For a ratio that is the correct thing
+   * to do — a rate over fewer days is still the right rate — but a target compared
+   * against a window nobody asked for has to say so, or a missed bonus looks arbitrary. */
+  if (usesEfficiency) {
+    const c = crewRow?.coverage
+    if (!c?.has_data) {
+      notes.push('no timeclock or payroll data covers this period, so no revenue-per-hour or payroll-share target can be judged')
+    } else {
+      if (c.clamped && c.effective_start && c.effective_end) {
+        notes.push(`revenue-per-hour and payroll-share targets were judged on ${c.effective_start} to ${c.effective_end} only, because that is where timeclock and payroll data exist`)
+      }
+      /* The right edge, and it is the reason a target can flip after the fact: cost is
+       * real money from a processed payroll, so clocked days past the last payroll are
+       * held back rather than priced at hours x rate. */
+      const tail = c.unpaid_tail_days ?? 0
+      if (tail > 0) {
+        notes.push(`the last ${tail} clocked day${tail === 1 ? '' : 's'} are not in these figures yet — no processed payroll reaches them, so a target can still move when the next payroll runs`)
+      }
+    }
   }
   /* ⚠ People's revenue comes from the timeclock-clamped crew source. If the window
    * got clamped, the commission was computed over a SHORTER period than the one on
@@ -365,13 +507,48 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
  * same way the card did. Names are comma-joined; a name containing a comma would
  * split, which is why the drill-down re-derives its own total and the page states
  * who it covers rather than trusting the caller.
+ *
+ * ⚠⚠ AND SO IS THE WINDOW, which it was not. Without `start`/`end` the detail page
+ * falls back to the Crew & Labor report's DEFAULT range, so a card showing one month
+ * opened a year-to-date list — Ben's report of this was "it has everything YTD".
+ * That is precisely the failure this registry's opening note warns about: a list that
+ * disagrees with the number above it makes a correct figure look broken. Every other
+ * widget file has a `drillTo` helper doing exactly this; this one was written without
+ * one and quietly lost the dates.
  */
-function commissionDrill(a: Assembled): { href: string; label: string } {
-  const qs = a.filter.active ? `?people=${encodeURIComponent(a.filter.names.join(','))}` : ''
+function commissionDrill(a: Assembled, win: WindowSpec): { href: string; label: string } {
+  const qs = new URLSearchParams({ start: win.start, end: win.end })
+  if (a.filter.active) qs.set('people', a.filter.names.join(','))
   return {
-    href: `/hub/reports/crew/commission-deals${qs}`,
+    href: `/hub/reports/crew/commission-deals?${qs}`,
     label: 'See the deals behind these figures',
   }
+}
+
+/**
+ * "$56.27/hr against a target of $100.00/hr" — why a target rule paid nothing.
+ *
+ * ⚠ A target bonus that misses pays exactly zero, and zero next to a rule called
+ * "Efficiency bonus" reads as a broken card rather than as a miss. Both numbers are
+ * printed so the row answers "by how much" without opening anything.
+ *
+ * ⚠ For a stepped rule the number quoted is the EASIEST band — the one they had to
+ * clear to earn anything at all. Quoting the hardest would describe a bonus nobody was
+ * chasing yet.
+ */
+function targetMiss(l: EarnedLine): string {
+  const def = getBasis(l.plan.basis)
+  const lower = def?.better === 'lower'
+  let target: number | null = l.plan.threshold
+  if (l.plan.rate_kind === 'target_tiered') {
+    const tiers = normalizeTiers(l.plan.tiers)
+    // `normalizeTiers` sorts ascending, so the easiest band is the LAST one when lower
+    // is better (the loosest ceiling) and the FIRST when higher is better.
+    target = (lower ? tiers[tiers.length - 1]?.from : tiers[0]?.from) ?? null
+  }
+  const figure = formatBasisAmount(def, l.amount)
+  if (target == null) return `${figure} — no target set on this rule, so nothing can be paid`
+  return `${figure} against ${lower ? 'a ceiling of' : 'a target of'} ${formatBasisAmount(def, target)} — nothing paid`
 }
 
 const NO_PLANS = 'No commission plans set up yet — an admin adds them in Admin → Reports.'
@@ -460,12 +637,12 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
             person: l.person,
             rule: l.plan.label,
             measures: describeRule(l.plan),
-            // ⚠ One column holding two units. A count basis must not be rendered as
-            // dollars — "$7.00" where the truth is "7 controllers" is a wrong number,
-            // not a formatting quirk — so the cell is pre-formatted text.
-            amount: l.unit === 'currency'
-              ? formatCurrency(l.amount)
-              : l.amount.toLocaleString('en-US'),
+            /* ⚠ One column holding FOUR units. A count must not be rendered as dollars
+             * — "$7.00" where the truth is "7 controllers" is a wrong number, not a
+             * formatting quirk — and a $/hour figure rendered as plain dollars reads as
+             * a trivial amount rather than a good rate. One shared formatter owns the
+             * decision so the card, the editor and the rule sentence agree. */
+            amount: formatBasisAmount(getBasis(l.plan.basis), l.amount),
             paid: l.paid,
           },
           tones: {
@@ -477,7 +654,9 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
               ? { text: `capped — the rule earned ${formatCurrency(l.gross)}`, tone: 'warn' as Tone }
               : l.limitedBy === 'threshold'
                 ? { text: 'under the threshold, so it pays nothing yet', tone: 'neutral' as Tone }
-                : undefined,
+                : l.limitedBy === 'target'
+                  ? { text: targetMiss(l), tone: 'neutral' as Tone }
+                  : undefined,
         }))
       return {
         kind: 'table',
@@ -502,7 +681,7 @@ export const COMMISSION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         /* ⚠⚠ The filter travels in the href. A drill-down must reproduce its card's
          * filter exactly — a list disagreeing with the number above it makes a correct
          * figure look broken. Only offered when there is something to open. */
-        drill: a.lines.length ? commissionDrill(a) : undefined,
+        drill: a.lines.length ? commissionDrill(a, win) : undefined,
         empty: emptyLine(a),
       }
     },
