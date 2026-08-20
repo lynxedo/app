@@ -7,7 +7,11 @@ export const dynamic = 'force-dynamic'
  *
  * GET  → { boards: CustomBoardSummary[] }
  * POST { title }                → { slug }                              a new empty board
- * POST { cloneFrom, title? }    → { slug, title, copied, skipped }      a copy of one
+ * POST { cloneFrom, title?, forEmployeeId? }
+ *      → { slug, title, copied, skipped, repointed? }                a copy of one,
+ *        with every person filter re-pointed at `forEmployeeId` where it can be —
+ *        see lib/scoreboards/person-map.ts for what "can be" means and why two of
+ *        the five naming systems have to be answered by a human rather than guessed.
  *
  * Duplicating goes through the CREATE route rather than a verb of its own on the
  * board: both make a board, and both have to answer to the same ceiling on how many
@@ -52,11 +56,14 @@ export async function POST(request: Request) {
   }
   const { caller } = resolved
 
-  const body = await request.json().catch(() => ({})) as { title?: unknown; cloneFrom?: unknown }
+  const body = await request.json().catch(() => ({})) as {
+    title?: unknown; cloneFrom?: unknown; forEmployeeId?: unknown
+  }
 
   if (typeof body.cloneFrom === 'string' && body.cloneFrom) {
     const cloned = await cloneCustomBoard(
       caller.companyId, caller.userId, caller.isAdmin, body.cloneFrom, body.title,
+      typeof body.forEmployeeId === 'string' && body.forEmployeeId ? body.forEmployeeId : null,
     )
     // The lib decides the status — 404 for a board this person can't see, 403 for
     // one they can see but don't own — so the route doesn't re-derive a rule that

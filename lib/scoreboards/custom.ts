@@ -15,6 +15,11 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { CUSTOM_SLUG_PREFIX, isCustomBoardSlug } from './registry'
 import { loadBoardLayout, saveLayoutWidgets } from './widgets/layouts'
+import {
+  analyseBoardPeople, loadPersonDirectory, repointCards,
+  type BoardCard, type BoardPersonUse, type PersonDirectory,
+  type RepointBlock, type RepointChange,
+} from './person-map'
 import { getWidgetDef } from './widgets/registry'
 import { MAX_WIDGETS_PER_BOARD, type BoardLayout } from './widgets/types'
 
@@ -343,8 +348,143 @@ export function copyBoardTitle(base: string): string {
 }
 
 export type CloneOutcome =
-  | { slug: string; title: string; copied: number; skipped: number }
+  | {
+      slug: string
+      title: string
+      copied: number
+      skipped: number
+      /** Present only when the copy was pointed at somebody. */
+      repointed?: { to: string; changed: RepointChange[]; blocked: RepointBlock[] }
+    }
   | { status: number; error: string }
+
+/**
+ * What duplicating WOULD do, worked out without writing anything.
+ *
+ * ⚠ The dialog shows this before the button commits, because re-pointing a board is
+ * the kind of thing you want to read once rather than undo eleven times.
+ */
+export type ClonePlan = {
+  source: {
+    title: string
+    /** Who the board appears to be about, busiest first. */
+    people: BoardPersonUse['people']
+    unrecognised: BoardPersonUse['unrecognised']
+    everyoneCards: number
+    filteredCards: number
+    cards: number
+  }
+  /** Everyone a board could be re-pointed to. */
+  roster: PersonDirectory['roster']
+  /** Filled in only when a target person was named. */
+  repoint: {
+    fromEmployeeId: string
+    fromLabel: string
+    toEmployeeId: string
+    toLabel: string
+    changed: RepointChange[]
+    blocked: RepointBlock[]
+  } | null
+}
+
+/**
+ * The half of duplicating that both the preview and the real thing need: check the
+ * caller may copy this board, and load the cards they would be copying.
+ *
+ * ⚠ Shared deliberately. A preview computed from a different set of cards than the
+ * copy writes is a preview that lies, and it would lie exactly when somebody edited
+ * the board between opening the dialog and pressing the button.
+ */
+async function loadCloneSource(
+  companyId: string,
+  userId: string,
+  isAdmin: boolean,
+  sourceSlug: string,
+): Promise<{ title: string; usable: BoardCard[]; total: number } | { status: number; error: string }> {
+  const source = await resolveCustomBoard(companyId, sourceSlug, userId, isAdmin)
+  // 404 for "no such board" AND for one they can't see, matching the rest of the
+  // custom-board API: probing slugs teaches nothing about which ones exist.
+  if (!source.ok) return { status: 404, error: 'Not found' }
+  if (!source.canManage) {
+    return { status: 403, error: 'Only the person who built this scoreboard can duplicate it' }
+  }
+  const layout = await loadBoardLayout(companyId, sourceSlug, userId)
+  const all = layout?.widgets ?? []
+  return {
+    title: source.row.title,
+    usable: all
+      .filter(w => !!getWidgetDef(w.type))
+      .slice(0, MAX_WIDGETS_PER_BOARD)
+      .map(w => ({ type: w.type, span: w.span, config: w.config })),
+    total: all.length,
+  }
+}
+
+/**
+ * Filters that will not move because nobody knows who the name refers to.
+ *
+ * ⚠⚠ Without this they are reported as NEITHER changed nor blocked, and that is the
+ * quietest possible failure. `repointCards` works from one employee to another, so a
+ * value it cannot tie to the source person is simply skipped — on Lucas's real board
+ * that is the three Jobber cards, because a Jobber user has no roster link until
+ * somebody records one. They would have stayed pointed at Lucas and gone unmentioned
+ * in the very summary written to catch that. The dialog offers to place these names;
+ * until it is answered, they are listed as left behind.
+ */
+function unplaceableBlocks(use: BoardPersonUse): RepointBlock[] {
+  return use.unrecognised.map(u => ({
+    catalog: u.catalog,
+    value: u.value,
+    cards: u.cards,
+    reason: `nobody has said who “${u.value}” is`,
+  }))
+}
+
+/** What a duplicate would do, without doing it. */
+export async function planCustomBoardClone(
+  companyId: string,
+  userId: string,
+  isAdmin: boolean,
+  sourceSlug: string,
+  forEmployeeId?: string | null,
+): Promise<ClonePlan | { status: number; error: string }> {
+  const src = await loadCloneSource(companyId, userId, isAdmin, sourceSlug)
+  if ('error' in src) return src
+
+  const dir = await loadPersonDirectory(companyId)
+  const use = analyseBoardPeople(src.usable, dir)
+
+  const plan: ClonePlan = {
+    source: {
+      title: src.title,
+      people: use.people,
+      unrecognised: use.unrecognised,
+      everyoneCards: use.everyoneCards,
+      filteredCards: use.filteredCards,
+      cards: src.usable.length,
+    },
+    roster: dir.roster,
+    repoint: null,
+  }
+
+  // ⚠ The person the board is currently about is the one the MOST cards name, not
+  // a stored property — boards predate this feature and nothing recorded it. Ties
+  // and mixtures are visible to the caller in `source.people`, which is why that
+  // list is returned whole rather than reduced to a single answer here.
+  const from = use.people[0]
+  if (forEmployeeId && from && forEmployeeId !== from.employeeId) {
+    const { changed, blocked } = repointCards(src.usable, dir, from.employeeId, forEmployeeId)
+    plan.repoint = {
+      fromEmployeeId: from.employeeId,
+      fromLabel: from.label,
+      toEmployeeId: forEmployeeId,
+      toLabel: dir.label.get(forEmployeeId) ?? 'Unnamed',
+      changed,
+      blocked: [...blocked, ...unplaceableBlocks(use)],
+    }
+  }
+  return plan
+}
 
 /**
  * Copy a board somebody built: same cards, same settings on each card, new board.
@@ -371,28 +511,45 @@ export async function cloneCustomBoard(
   isAdmin: boolean,
   sourceSlug: string,
   requestedTitle?: unknown,
+  forEmployeeId?: string | null,
 ): Promise<CloneOutcome> {
-  const source = await resolveCustomBoard(companyId, sourceSlug, userId, isAdmin)
-  // 404 for "no such board" AND for one they can't see, matching the rest of the
-  // custom-board API: probing slugs teaches nothing about which ones exist.
-  if (!source.ok) return { status: 404, error: 'Not found' }
-  if (!source.canManage) {
-    return { status: 403, error: 'Only the person who built this scoreboard can duplicate it' }
-  }
-
-  const layout = await loadBoardLayout(companyId, sourceSlug, userId)
-  const sourceWidgets = layout?.widgets ?? []
-  // Same two filters the save applies, run here so the count reported back is what
-  // actually landed rather than what was attempted. A card whose type no longer
-  // exists in the registry is dropped by `saveLayoutWidgets` regardless; saying
+  const src = await loadCloneSource(companyId, userId, isAdmin, sourceSlug)
+  if ('error' in src) return src
+  // `loadCloneSource` already applied the two filters the save applies, so the count
+  // reported back is what actually landed rather than what was attempted — saying
   // "9 of 10" beats a silent 9.
-  const usable = sourceWidgets
-    .filter(w => !!getWidgetDef(w.type))
-    .slice(0, MAX_WIDGETS_PER_BOARD)
+  let usable = src.usable
+
+  /* Re-point every person filter at whoever this copy is for.
+   *
+   * ⚠⚠ Done HERE rather than in the editor afterwards, because the window between
+   * copying a personal board and fixing its filters is exactly when it gets shared.
+   * What cannot be re-pointed keeps the original person and is reported — see the
+   * three rules on `repointCards`. Nothing is ever blanked: an empty filter means
+   * everyone, so clearing one would turn a board about one person into the whole
+   * company's figures.
+   */
+  let repointed: { to: string; changed: RepointChange[]; blocked: RepointBlock[] } | undefined
+  if (forEmployeeId) {
+    const dir = await loadPersonDirectory(companyId)
+    const use = analyseBoardPeople(usable, dir)
+    const from = use.people[0]
+    // No `from` means no card names anybody the roster recognises, so there is
+    // nothing to re-point and a copy is just a copy.
+    if (from && from.employeeId !== forEmployeeId) {
+      const result = repointCards(usable, dir, from.employeeId, forEmployeeId)
+      usable = result.cards
+      repointed = {
+        to: dir.label.get(forEmployeeId) ?? 'Unnamed',
+        changed: result.changed,
+        blocked: [...result.blocked, ...unplaceableBlocks(use)],
+      }
+    }
+  }
 
   const title = typeof requestedTitle === 'string' && requestedTitle.trim()
     ? cleanBoardTitle(requestedTitle)
-    : copyBoardTitle(source.row.title)
+    : copyBoardTitle(src.title)
 
   const created = await createCustomBoard(companyId, userId, title)
   if ('error' in created) return { status: 400, error: created.error }
@@ -421,7 +578,8 @@ export async function cloneCustomBoard(
     slug: created.slug,
     title,
     copied: usable.length,
-    skipped: sourceWidgets.length - usable.length,
+    skipped: src.total - usable.length,
+    repointed,
   }
 }
 

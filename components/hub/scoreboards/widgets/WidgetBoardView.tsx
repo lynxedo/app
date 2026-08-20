@@ -12,6 +12,7 @@ import { WidgetRenderer } from './WidgetRenderer'
 import { WidgetSettings } from './WidgetSettings'
 import { WidgetPicker } from './WidgetPicker'
 import { CustomBoardManager } from './CustomBoardManager'
+import { MixedPeopleBanner } from './MixedPeopleBanner'
 
 /* A scoreboard rendered from a saved list of widgets.
  *
@@ -432,6 +433,8 @@ export default function WidgetBoardView({
           </button>
         ) : null}
       </div>
+
+      <MixedPeopleBanner slug={meta.slug} canManage={!!res?.custom?.canManage} />
 
       {editing ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-amber-400/30 bg-amber-500/[0.13] px-5 py-2.5 text-[12px] text-[#fde3af]">
