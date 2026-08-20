@@ -362,7 +362,11 @@ export type CrewPerson = {
   is_active: boolean
   pay_type: string
   hours: number
+  /** Regular + overtime + commission, from payroll. NOT gross pay — no holiday,
+   *  vacation/sick, bonus or tips. Named `labor_cost` for continuity. */
   labor_cost: number | null
+  /** The commission portion of `labor_cost`, so a card can show what drives it. */
+  commission?: number | null
   /** False when nobody in Jobber matches them, so no work can be credited. */
   attributable: boolean
   /** False for salaried staff and anyone under an hour — no $/hour is shown. */
@@ -386,9 +390,19 @@ export type CrewLaborRow = {
     backfilled?: boolean
     /** Last day the payroll backfill covers; the timeclock takes over the next day. */
     backfill_until?: string | null
+    /** Last day covered by a PROCESSED payroll — the hard right edge of the window,
+     *  because cost is real money now and cannot be estimated past it. */
+    payroll_through?: string | null
+    /** Clocked days after `payroll_through` that carry hours but no pay, and are
+     *  therefore excluded rather than priced at hours x rate. */
+    unpaid_tail_days?: number
   }
   hours: number
+  /** Regular + overtime + commission across the crew. Excludes holiday, PTO,
+   *  bonus, tips and all salaried staff. */
   labor_cost: number
+  /** The commission portion of `labor_cost`. */
+  commission?: number
   revenue: number
   visits: number
   rev_per_hour: number | null

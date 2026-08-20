@@ -221,7 +221,7 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
     type: 'kpi_labor_cost_pct',
     group: 'Crew & Labor',
     title: 'Labor Cost % of Revenue',
-    blurb: 'Share of the work that went to field wages',
+    blurb: 'Share of the work that went to field pay — hourly, overtime and commission',
     defaultSpan: 3,
     config: {},
     sources: (_cfg, win) => [crewReq(win)],
@@ -234,11 +234,20 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
         value: p != null ? `${num(p)}%` : '—',
         // Field labor in this trade typically runs 25–35%; above 40 is a warning.
         tone: p == null ? 'neutral' : num(p) <= 30 ? 'good' : num(p) <= 40 ? 'warn' : 'bad',
-        // ⚠ Named precisely: salaried staff don't clock, so this is field wages,
-        // not total payroll. Calling it "labor cost" flat would overstate margin.
+        /* ⚠⚠ SAY WHAT IS IN THE NUMBER, NOT JUST WHO IS OUT. This card used to read
+         * "in hourly field wages · salaried staff not included", which named the one
+         * omission that did NOT matter and hid the four that did. Ben checked Mike
+         * Cyplik against Gusto in Aug 2026 and found $27,056 where payroll said
+         * $34,908.80 — the gap was commission, holiday, PTO and bonus, none of it
+         * mentioned anywhere on the card. Commission is now IN (it is pay for
+         * producing this very revenue); holiday, vacation/sick, bonus and tips are
+         * out. Both halves are stated, because a caveat that points at the wrong
+         * omission is worse than no caveat at all. */
         sub: r
-          ? `${formatCurrency(num(r.labor_cost))} in hourly field wages · salaried staff not included`
-          : 'No timeclock data for this period',
+          ? `${formatCurrency(num(r.labor_cost))} in field pay — hourly, overtime and commission`
+            + `${num(r.commission) > 0 ? ` (${formatCurrency(num(r.commission))} of it commission)` : ''}`
+            + ` · excludes holiday, PTO, bonus and salaried staff`
+          : 'No payroll or timeclock data for this period',
       }
     },
   },
@@ -247,7 +256,7 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
     type: 'kpi_person_labor_cost_pct',
     group: 'Crew & Labor',
     title: 'Labor Cost % — One Person',
-    blurb: 'What share of one technician’s own production went to their wages',
+    blurb: 'What share of one technician’s own production went to their pay',
     defaultSpan: 3,
     /**
      * Ben asked to "dial down" Labor Cost % of Revenue to technicians.
@@ -310,7 +319,7 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
         tone: pct == null ? 'neutral' : pct <= 30 ? 'good' : pct <= 40 ? 'warn' : 'bad',
         sub: pct != null
           ? [
-              `${formatCurrency(cost)} in their wages ÷ ${formatCurrency(revenue)} of work credited to them`,
+              `${formatCurrency(cost)} in their pay — hourly, overtime and commission — ÷ ${formatCurrency(revenue)} of work credited to them`,
               periodPhrase(r, win),
               ...(picked.length > 1 ? [`combined across ${picked.map(p => p.name).join(', ')}`] : []),
               /* ⚠ States which way the error runs. A visit worked by two people credits
@@ -320,7 +329,7 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
               'a visit worked by two people is credited to both, so a shared visit makes this read slightly low',
               ...(skipped.length ? [`not counted: ${skipped.map(p => p.name).join(', ')}`] : []),
             ].join(' · ')
-          : `Nobody ticked has both wages and attributed work in this period${skipped.length ? ` — ${skipped.map(p => p.name).join(', ')} cannot be measured` : ''}`,
+          : `Nobody ticked has both pay and attributed work in this period${skipped.length ? ` — ${skipped.map(p => p.name).join(', ')} cannot be measured` : ''}`,
       }
     },
   },
@@ -401,9 +410,9 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
           label: p.name,
           value: num(p.hours),
           tone: (p.is_active ? 'neutral' : 'unknown') as Tone,
-          detail: p.labor_cost != null
-            ? `${formatCurrency(num(p.labor_cost))} in wages${p.is_active ? '' : ' · no longer employed'}`
-            : 'Salaried — hours logged but not costed here',
+          detail: num(p.labor_cost) > 0
+            ? `${formatCurrency(num(p.labor_cost))} in pay${p.is_active ? '' : ' · no longer employed'}`
+            : 'No payroll matched to these hours yet',
         }))
       return {
         kind: 'bars',
@@ -451,7 +460,7 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
     type: 'crew_labor_table',
     group: 'Crew & Labor',
     title: 'Crew Detail',
-    blurb: 'Hours, wages and work per person',
+    blurb: 'Hours, pay and work per person',
     defaultSpan: 12,
     config: PEOPLE_FIELD,
     sources: (_cfg, win) => [crewReq(win)],
@@ -487,7 +496,9 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
           { key: 'name', label: 'Person', align: 'left' },
           { key: 'department', label: 'Department', align: 'left' },
           { key: 'hours', label: 'Hours', align: 'right', format: 'number', sortable: true },
-          { key: 'cost', label: 'Wages', align: 'right', format: 'currency' },
+          /* "Wages" read as gross pay to the one person who checked it against
+           * Gusto. Named for what it holds. */
+          { key: 'cost', label: 'Pay (hrly+OT+comm)', align: 'right', format: 'currency' },
           { key: 'revenue', label: 'Work completed', align: 'right', format: 'currency' },
           { key: 'perhour', label: '$ / hour', align: 'right', format: 'currency', sortable: true },
         ],
@@ -527,13 +538,19 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
        * headline number silently answers a different question than the one the
        * date picker implies. */
       if (r.coverage.clamped) {
-        items.push(`These figures cover ${pretty(r.coverage.effective_start)} – ${pretty(r.coverage.effective_end)}, not the full range you picked. The timeclock only has data from ${pretty(r.coverage.timeclock_first)}, and dividing a longer stretch of revenue by a shorter stretch of hours would overstate revenue per hour — badly.`)
+        items.push(`These figures cover ${pretty(r.coverage.effective_start)} – ${pretty(r.coverage.effective_end)}, not the full range you picked. Dividing a longer stretch of revenue by a shorter stretch of hours would overstate revenue per hour — badly.`)
+      }
+      /* Why the window stops short of today even on a to-date range: pay comes from
+       * processed payroll now, and estimating the last few days from hours x rate
+       * cannot see a commission at all, so it would drag the ratio down. */
+      if (num(r.coverage.unpaid_tail_days) > 0) {
+        items.push(`Pay is counted through ${pretty(r.coverage.payroll_through)}, the last payroll run. There ${num(r.coverage.unpaid_tail_days) === 1 ? 'is 1 more day' : `are ${num(r.coverage.unpaid_tail_days)} more days`} of clocked hours after that with no payroll yet, so ${num(r.coverage.unpaid_tail_days) === 1 ? 'it is' : 'they are'} left out rather than estimated.`)
       }
 
       items.push(`${formatCurrency(num(r.revenue))} of completed work against ${num(r.hours).toLocaleString()} clocked hours — ${r.rev_per_hour != null ? formatCurrency(num(r.rev_per_hour)) : '—'} per labor hour, across ${num(r.visits).toLocaleString()} visits.`)
 
       if (r.labor_pct != null) {
-        items.push(`Hourly field wages were ${formatCurrency(num(r.labor_cost))}, or ${num(r.labor_pct)}% of the work completed. Salaried staff aren't in that figure, so true payroll load is higher.`)
+        items.push(`Field pay — hourly, overtime and commission — was ${formatCurrency(num(r.labor_cost))}, or ${num(r.labor_pct)}% of the work completed. Holiday, PTO, bonuses and salaried staff aren't in that figure, so true payroll load is higher.`)
       }
 
       const ranked = rankable(r).slice().sort((a, b) => num(b.rev_per_hour) - num(a.rev_per_hour))
