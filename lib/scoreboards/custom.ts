@@ -15,15 +15,24 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { CUSTOM_SLUG_PREFIX, isCustomBoardSlug } from './registry'
 import { loadBoardLayout, saveLayoutWidgets } from './widgets/layouts'
-import { getWidgetDef, reportsForWidget } from './widgets/registry'
-import { canUseWidget } from './widgets/gating'
+import { getWidgetDef } from './widgets/registry'
 import { MAX_WIDGETS_PER_BOARD, type BoardLayout } from './widgets/types'
 
 type Admin = ReturnType<typeof createAdminClient>
 
 /* ── who is asking ───────────────────────────────────────────────────────── */
 
-export type ScoreboardCaller = { userId: string; companyId: string; isAdmin: boolean }
+export type ScoreboardCaller = {
+  userId: string
+  companyId: string
+  isAdmin: boolean
+  /**
+   * May they CREATE a board? Holding `can_access_scoreboards` (or admin). Someone
+   * who is only here because a board was shared with them may read it and nothing
+   * else — see `resolveScoreboardCaller`.
+   */
+  canBuild: boolean
+}
 
 /**
  * The Scoreboards section gate, resolved once.
@@ -33,8 +42,9 @@ export type ScoreboardCaller = { userId: string; companyId: string; isAdmin: boo
  * — no separate "may build" flag, because Ben's rule puts the real limit on the
  * widgets (./widgets/gating.ts), not on the container.
  */
-export async function resolveScoreboardCaller():
-  Promise<{ caller: ScoreboardCaller } | { status: number; error: string }> {
+export async function resolveScoreboardCaller(
+  opts: { allowSharedViewer?: boolean } = {},
+): Promise<{ caller: ScoreboardCaller } | { status: number; error: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { status: 401, error: 'Unauthorized' }
@@ -47,10 +57,21 @@ export async function resolveScoreboardCaller():
   if (!profile?.company_id) return { status: 404, error: 'Profile not found' }
 
   const isAdmin = profile.role === 'admin'
-  if (!isAdmin && profile.can_access_scoreboards !== true) {
-    return { status: 403, error: 'Forbidden' }
+  const companyId = profile.company_id as string
+  const canBuild = isAdmin || profile.can_access_scoreboards === true
+
+  /* ⚠ Defaults CLOSED. Only a caller that passes `allowSharedViewer` lets a
+   * flag-less person through, and then only if a board really is shared with them —
+   * that is the READ path (listing what you can open). Creating, renaming, sharing
+   * and deleting leave this untouched and still want the section flag, so being
+   * handed one board never turns into permission to make your own. */
+  if (!canBuild) {
+    if (!opts.allowSharedViewer) return { status: 403, error: 'Forbidden' }
+    if (!(await hasViewableCustomBoard(companyId, user.id, isAdmin))) {
+      return { status: 403, error: 'Forbidden' }
+    }
   }
-  return { caller: { userId: user.id, companyId: profile.company_id as string, isAdmin } }
+  return { caller: { userId: user.id, companyId, isAdmin, canBuild } }
 }
 
 /** A board somebody built, as the index and the sidebar list it. */
@@ -157,6 +178,33 @@ async function allCustomRows(admin: Admin, companyId: string): Promise<CustomLay
     .order('updated_at', { ascending: false })
     .limit(MAX_CUSTOM_BOARDS + 50)
   return (data ?? []) as CustomLayoutRow[]
+}
+
+/**
+ * Does this person have at least one custom board they may open?
+ *
+ * The "is there anything inside" test for the Scoreboards section, the same shape
+ * as `canOpenReportsSection` in lib/reports/registry.ts. Being shared a board is
+ * ITSELF the grant: without this, sharing would take a second trip to Admin to
+ * flip `can_access_scoreboards` for every person shared with, which is exactly the
+ * multi-step share Ben asked us to remove.
+ *
+ * ⚠ Goes through `canViewCustomBoard` rather than counting share rows, because a
+ * `shared_all` board carries NO row of its own — a row count would hide the
+ * section from everybody it was shared with that way. Same reason `listCustomBoards`
+ * uses it: the list must BE the gate, and so must this.
+ */
+export async function hasViewableCustomBoard(
+  companyId: string,
+  userId: string,
+  isAdmin: boolean,
+): Promise<boolean> {
+  const admin = createAdminClient()
+  const [rows, shared] = await Promise.all([
+    allCustomRows(admin, companyId),
+    sharedLayoutIdsFor(admin, userId),
+  ])
+  return rows.some(r => canViewCustomBoard(r, userId, isAdmin, shared, r.id))
 }
 
 /** The custom boards this person may open, newest-touched first. */
@@ -452,48 +500,33 @@ export async function loadCustomLayout(
 export type AudienceMember = {
   id: string
   name: string
-  /** Can open the Scoreboards section at all — sharing with anyone else is a no-op. */
-  canOpenScoreboards: boolean
-  /** Widgets on this board they would NOT be shown, because of Report access. */
-  hiddenWidgetCount: number
-  /** The reports they'd need, so the message can name them. */
-  neededReports: string[]
 }
 
 /**
- * What each teammate would actually see if this board were shared with them.
+ * Who this board can be shared WITH: the live roster, minus bots and anyone off it.
  *
- * This exists because the widget gate is applied to the VIEWER (./widgets/gating.ts),
- * which is the right security answer and a terrible surprise: share a board with a
- * technician, they open it, half the cards say "hidden", and it looks broken. Telling
- * the author at share time — "Kathryn won't see 3 of these (needs Crew & Labor)" —
- * turns a confusing outcome into an informed choice.
+ * ⚠ Used to also work out, per person, which cards their Report access would hide —
+ * that is gone, and deliberately. Sharing a board now shows the whole board to
+ * everyone ticked (Ben, Aug 20 2026: "I want them to see the widgets no matter if
+ * they have access to reports or not"), so there is nothing left to warn about, and
+ * a panel that still said "won't see 3 cards" would be telling the author something
+ * untrue about their own board. Being shared a board also carries access to the
+ * Scoreboards section, so the old "can't open Scoreboards" note went with it.
  */
 export async function previewBoardAudience(
   companyId: string,
   layoutId: string,
 ): Promise<AudienceMember[]> {
+  void layoutId // the audience no longer depends on what is ON the board
   const admin = createAdminClient()
 
-  const [{ data: widgetRows }, { data: profiles }, { data: grants }, { data: hubUsers }] = await Promise.all([
-    admin.from('scoreboard_layout_widgets').select('widget_type').eq('layout_id', layoutId),
+  const [{ data: profiles }, { data: hubUsers }] = await Promise.all([
     admin.from('user_profiles')
-      .select('id, role, can_access_reports, can_access_scoreboards, can_access_coaching, deactivated_at, locked_at')
+      .select('id, deactivated_at, locked_at')
       .eq('company_id', companyId),
-    admin.from('report_access').select('user_id, report_slug').eq('company_id', companyId),
     admin.from('hub_users').select('id, display_name, is_bot').eq('company_id', companyId),
   ])
 
-  const types = [...new Set((widgetRows ?? []).map(w => w.widget_type as string))]
-  const widgetReports = types.map(t => ({ type: t, reports: reportsForWidget(t) }))
-
-  const grantsByUser = new Map<string, string[]>()
-  for (const g of grants ?? []) {
-    const k = g.user_id as string
-    const list = grantsByUser.get(k) ?? []
-    list.push(g.report_slug as string)
-    grantsByUser.set(k, list)
-  }
   const names = new Map<string, { name: string; isBot: boolean }>()
   for (const u of hubUsers ?? []) {
     names.set(u.id as string, { name: (u.display_name as string) || 'Teammate', isBot: u.is_bot === true })
@@ -507,25 +540,7 @@ export async function previewBoardAudience(
     // offered as an audience.
     if (!who || who.isBot) continue
     if (p.deactivated_at || p.locked_at) continue
-
-    const isAdmin = p.role === 'admin'
-    const perms = {
-      isAdmin,
-      canAccessReports: p.can_access_reports === true,
-      allowedReportSlugs: grantsByUser.get(id) ?? [],
-      canAccessCoaching: p.can_access_coaching === true,
-    }
-    const hidden = widgetReports.filter(w => !canUseWidget(perms, w.reports))
-    const needed = new Set<string>()
-    for (const h of hidden) for (const r of h.reports) needed.add(r)
-
-    out.push({
-      id,
-      name: who.name,
-      canOpenScoreboards: isAdmin || p.can_access_scoreboards === true,
-      hiddenWidgetCount: hidden.length,
-      neededReports: [...needed],
-    })
+    out.push({ id, name: who.name })
   }
   out.sort((a, b) => a.name.localeCompare(b.name))
   return out
