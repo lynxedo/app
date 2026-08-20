@@ -150,6 +150,45 @@ export function resolveWindow(
 }
 
 /**
+ * The window a URL is asking for, when that URL may name a range, or give two dates,
+ * or both.
+ *
+ * ⚠⚠ THIS EXISTS FOR ONE CASE: TWO DATES AND NO RANGE. `resolveWindow` honours
+ * `customStart`/`customEnd` only under `range === 'custom'`, which is exactly right
+ * for a picker — but every drill-down link in the widget library is built as
+ * `?start=…&end=…` with no range at all (five `drillTo` helpers, ten call sites, plus
+ * the commission link). So the dates were parsed, discarded, and replaced by the
+ * report's own default range: a card showing one month opened a year-to-date list,
+ * and the Excel download alongside it contained the same wrong slice. Ben's report of
+ * it was "it has everything YTD and not sorted in any logical order".
+ *
+ * Inferring `custom` from a COMPLETE pair of dates is what every one of those links
+ * already means. Fixed here, in the one place both readers share, rather than in six
+ * link builders where the next one written would reintroduce it.
+ *
+ * ⚠ The resolved key is returned as well as the window, because a page that received
+ * bare dates has to pass `range=custom` onward — its own "back to the report" link and
+ * its Excel export are parsed by the same rule, and dropping the key there would land
+ * the user back on the default window they had just navigated away from.
+ */
+export function windowFromParams(
+  range: string | null | undefined,
+  start: string | null | undefined,
+  end: string | null | undefined,
+  /** What to use when the URL names nothing and gives no dates. Optional, because a
+   *  report may declare no default of its own; `resolveWindow` treats an absent key as
+   *  year-to-date, which is the same answer this used to give by accident. */
+  fallback?: string | null,
+): { win: WindowSpec; range: string } {
+  // Both dates must be real. A half-given pair is not a custom range, and treating it
+  // as one would silently swap the whole period for a YTD fallback under a `custom`
+  // label — a window whose name and contents disagree.
+  const bothGiven = !!(parseDate(start) && parseDate(end))
+  const key = range || (bothGiven ? 'custom' : fallback) || 'ytd'
+  return { win: resolveWindow(key, start, end), range: key }
+}
+
+/**
  * The window of the same length immediately before this one — what "vs last"
  * compares against on the Home tiles.
  *
