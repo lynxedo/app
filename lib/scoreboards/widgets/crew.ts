@@ -322,11 +322,19 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
               `${formatCurrency(cost)} in their pay — hourly, overtime and commission — ÷ ${formatCurrency(revenue)} of work credited to them`,
               periodPhrase(r, win),
               ...(picked.length > 1 ? [`combined across ${picked.map(p => p.name).join(', ')}`] : []),
-              /* ⚠ States which way the error runs. A visit worked by two people credits
-               * its full value to BOTH, so a shared visit inflates the denominator and
-               * this percentage reads a little LOW — i.e. it flatters the technician,
-               * which is the direction nobody questions. */
-              'a visit worked by two people is credited to both, so a shared visit makes this read slightly low',
+              /* ⚠ STATES WHICH WAY THE ERROR RUNS, and the answer changed on
+               * 2026-08-20. A shared visit still credits its full value to BOTH techs,
+               * so it inflates the denominator and flatters the technician — the
+               * direction nobody questions. But multi-day INSTALLS no longer work that
+               * way: `install_labor_credits` carries a per-crew-day fractional share
+               * that sums to the job total, so for those jobs there is no double count
+               * in either direction. Saying "shared visits make this read low" with no
+               * qualifier would now be false for exactly the jobs that dominate an
+               * irrigation tech's number, which is worse than saying nothing. */
+              ...(num(r?.coverage?.install_credits_applied ?? 0) > 0
+                ? ['multi-day installs are credited by crew-day share, so they are counted once across the crew']
+                : []),
+              'a shared service visit is credited to both techs, so it makes this read slightly low',
               ...(skipped.length ? [`not counted: ${skipped.map(p => p.name).join(', ')}`] : []),
             ].join(' · ')
           : `Nobody ticked has both pay and attributed work in this period${skipped.length ? ` — ${skipped.map(p => p.name).join(', ')} cannot be measured` : ''}`,

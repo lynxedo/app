@@ -375,8 +375,12 @@ export const GOAL_METRICS: GoalMetric[] = [
     /* ⚠⚠ THE COMPANY TARGET AND A PERSON'S TARGET ARE DIFFERENT QUESTIONS sharing
      * one name. The company figure divides field pay by ALL completed work,
      * including work no technician is credited with; a person's divides their pay
-     * by the work credited to them, and a visit worked by two people credits BOTH
+     * by the work credited to them, and a shared SERVICE visit credits BOTH techs
      * — so personal figures do not add up to the company one and read slightly low.
+     * (Multi-day installs are the exception since 2026-08-20: those come from
+     * `install_labor_credits` as a crew-day share that sums to the job total, so they
+     * neither double-count nor short the helper. Nothing to do here — this metric
+     * reads `scoreboard_crew_labor`, so it inherits that automatically.)
      * Heroes' July 2026: company 27.2%, the six measurable people 12.7% to 89.5%.
      * Carrying one target across to the other sets a bar nobody can be judged
      * against, which is why the help text says so before a number is typed.

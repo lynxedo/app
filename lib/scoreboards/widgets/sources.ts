@@ -407,6 +407,12 @@ export type CrewLaborRow = {
     /** Clocked days after `payroll_through` that carry hours but no pay, and are
      *  therefore excluded rather than priced at hours x rate. */
     unpaid_tail_days?: number
+    /** Rows of `install_labor_credits` in play for this window. Non-zero means at
+     *  least one multi-day install had its per-technician split taken from Ben's
+     *  crew-day reconstruction instead of from Jobber's visit assignments — so the
+     *  usual "shared visits make this read low" caveat does not apply to those
+     *  jobs, and the card must not claim it does. */
+    install_credits_applied?: number
   }
   hours: number
   /** Regular + overtime + commission across the crew. Excludes holiday, PTO,

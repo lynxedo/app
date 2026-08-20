@@ -389,10 +389,16 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
 
       /* ⚠ The honesty line, and the reason this widget exists in this shape.
        * With 'Credit each tech', a visit worked by two people credits BOTH, so the
-       * bars total MORE than company revenue — measured at $16,331 (3.8%) across
-       * 20 visits on Heroes' 2026 book, because shared visits are the big
-       * irrigation tickets. Stated in dollars rather than left for someone to
-       * discover by adding the segments up. Silent when there is no overlap. */
+       * bars total MORE than company revenue — measured at $15,334 across 19 visits
+       * on Heroes' 2026 book, because shared visits are the big irrigation tickets.
+       * Stated in dollars rather than left for someone to discover by adding the
+       * segments up. Silent when there is no overlap.
+       * ⚠ This was $16,331 across 20 visits until 2026-08-20, when multi-day installs
+       * moved onto `install_labor_credits` and stopped double-counting. The source
+       * excludes credited jobs from `gaps` for exactly that reason — otherwise the one
+       * sentence whose job is to say how much the chart overstates was itself
+       * overstating, by $997. If this figure ever exceeds the real gap between the
+       * segments and the line totals, that exclusion is what to check first. */
       const overlap = num(r?.shared_overlap)
       const sharedVisits = num(r?.shared_visits)
       const unattributed = num(r?.unattributed_revenue)
