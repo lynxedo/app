@@ -20,6 +20,9 @@ type Metric = {
   perPerson: boolean
   /** Why not, shown to the admin instead of the option just being absent. */
   perPersonBlocker: string | null
+  /** Shown ONLY once a person is picked: this measure is allowed per person but
+   *  is not meaningful for every person. See lib/reports/goals.ts. */
+  perPersonCaution: string | null
 }
 type Employee = { id: string; name: string; department: string | null; is_active: boolean }
 type Goal = {
@@ -306,6 +309,13 @@ export default function GoalsAdminPanel(
             Measured from this person&rsquo;s own figures on the People report. They are credited only with work
             assigned to them, so individual targets will not add up to a company one.
           </p>
+        )}
+        {/* ⚠ Fires only once somebody is actually picked. A measure can be honest for a
+            technician and meaningless for an office role, and the difference is invisible
+            until you choose which. Amber, not red: this is a "know who this fits" note,
+            not a refusal. */}
+        {employeeId && selected?.perPersonCaution && (
+          <p className="text-amber-300/80 text-xs mt-1">{selected.perPersonCaution}</p>
         )}
         {bounds && (
           <p className="text-sky-300/80 text-xs mt-1">

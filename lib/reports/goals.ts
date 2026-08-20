@@ -101,12 +101,22 @@
  * computed honestly — which means it comes out of `scoreboard_people`, the same
  * composer the People report and commission are built on.
  *
- * Nine can: leads, deals won, value sold, new-business value, upsell value,
- * average deal and close rate all come from that source's `sales` block, and
- * work produced and revenue per hour from its `field` block — where both halves
- * of the ratio belong to the person, which is why it works here while the
- * company-wide Crew ratios cannot be split at all (§9's person filter found
- * exactly the same asymmetry).
+ * Ten can: leads, deals won, value sold, new-business value, upsell value,
+ * average deal and close rate all come from that source's `sales` block, and work
+ * produced, revenue per hour and labour cost % from its `field` block — where BOTH
+ * HALVES of the ratio belong to the person, which is the whole test. A ratio passes
+ * it or it does not: revenue per visit fails, because the visit COUNT behind it is
+ * never fanned out, and no amount of filtering the other half fixes that (§9's
+ * person filter found exactly the same asymmetry).
+ *
+ * ⚠ Labour cost % joined this list on Aug 20 2026 and is the reason the test is
+ * worth restating. It had been refused on the grounds that it "divides wages by
+ * COMPANY revenue" — true of the company calculation, and true of nothing else.
+ * Each person's pay and each person's credited revenue had been sitting side by
+ * side in `scoreboard_crew_labor` the whole time; `scoreboard_people` simply did
+ * not carry the pay half through. The lesson is that "cannot be split" and "is not
+ * currently carried across" look identical from the metric catalog, and only the
+ * first is a reason to refuse.
  *
  * The rest cannot, and the reason is attribution, not effort:
  *   invoiced      — `invoices.salesperson_external_id` is set on roughly a third
@@ -119,7 +129,10 @@
  *                   is not carried into `scoreboard_people`, so a person's quote
  *                   figure would come from a different composer than every other
  *                   personal number on the report.
- *   Crew rates, comms and retention — company-wide by construction.
+ *   rev_per_visit — its denominator is a visit COUNT, which the Crew source only
+ *                   ever states company-wide. The one Crew rate that genuinely
+ *                   cannot be split, now that labour cost % can.
+ *   comms and retention — company-wide by construction.
  *
  * Offering those per person would render "no data" forever, or worse, show the
  * COMPANY figure beside somebody's name. So the target screen hides them for a
@@ -172,6 +185,15 @@ export type GoalMetric = {
    * file it as a bug and re-add it without the reason.
    */
   perPersonBlocker?: string
+  /**
+   * A warning shown ONLY once a person is picked, for a measure that is per-person
+   * capable but not per-person meaningful for everybody. Distinct from
+   * `perPersonBlocker`, which refuses the option outright: this one allows it and
+   * says who it will lie about. Labour cost % is the case that forced it — the
+   * figure is exact for a technician and worthless for an office role whose work
+   * nobody credits.
+   */
+  perPersonCaution?: string
 }
 
 /** Defaults every metric shares, so each entry states only what is unusual. */
@@ -350,9 +372,24 @@ export const GOAL_METRICS: GoalMetric[] = [
     group: 'Efficiency',
     format: 'percent',
     cumulative: false,
-    help: 'Wages as a percentage of the work produced. A ceiling, not a floor — the target is hit by coming in at or below it. Measured over the days timeclock data covers.',
-    perPerson: false,
-    perPersonBlocker: 'This divides wages by COMPANY revenue, which is not fanned out per person — narrowing only the wages half would report a figure that means nothing. Add the "Labour cost % — one technician" widget to a scoreboard instead.',
+    /* ⚠⚠ THE COMPANY TARGET AND A PERSON'S TARGET ARE DIFFERENT QUESTIONS sharing
+     * one name. The company figure divides field pay by ALL completed work,
+     * including work no technician is credited with; a person's divides their pay
+     * by the work credited to them, and a visit worked by two people credits BOTH
+     * — so personal figures do not add up to the company one and read slightly low.
+     * Heroes' July 2026: company 27.2%, the six measurable people 12.7% to 89.5%.
+     * Carrying one target across to the other sets a bar nobody can be judged
+     * against, which is why the help text says so before a number is typed.
+     *
+     * This was company-only until Aug 20 2026 on the grounds that it "divides wages
+     * by COMPANY revenue, which is not fanned out per person". True of the company
+     * calculation and of nothing else: `scoreboard_crew_labor` has always held each
+     * person's pay beside their credited revenue — `kpi_person_labor_cost_pct` puts
+     * it on a board and the commission engine PAYS on it. The only thing missing was
+     * that `scoreboard_people` dropped the pay figure on the way through. */
+    help: 'Wages as a percentage of the work produced. A ceiling, not a floor — the target is hit by coming in at or below it. Measured over the days timeclock data covers. Set for one person it becomes their own pay over the work credited to them — a different number from the company one, so do not reuse the same target for both.',
+    perPerson: true,
+    perPersonCaution: 'Only meaningful for someone whose completed work is credited to them. Office and support staff clock real hours against almost no credited revenue, so their percentage looks catastrophic and means nothing — on the live book one reads 89.5%. Anyone with no credited work at all reads “No data” rather than a flattering 0%.',
   },
 
   // ── Customers ──────────────────────────────────────────────────────────────

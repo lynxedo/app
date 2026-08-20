@@ -205,6 +205,7 @@ export default async function ReportsAdminPage() {
           key: m.key, label: m.label, group: m.group, format: m.format, help: m.help,
           direction: m.direction, grains: [...(m.grains ?? GOAL_GRAINS)],
           perPerson: m.perPerson, perPersonBlocker: m.perPersonBlocker ?? null,
+          perPersonCaution: m.perPersonCaution ?? null,
         }))}
         goals={(goalRows ?? []).map(g => ({
           id: g.id as string,

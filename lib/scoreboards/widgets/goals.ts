@@ -512,9 +512,18 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
       if (people.length > 0) {
         items.push(
           "A person's figures come from the People report, so an individual's target cannot disagree with the report it is judged against.",
-          `Only these can be set for one person: ${nameList(perPersonMetricLabels())}. Everything else cannot be split by person honestly — billing, payments, quotes and phone figures do not record who the work belongs to — so they are company-only.`,
+          `Only these can be set for one person: ${nameList(perPersonMetricLabels())}. Everything else cannot be split by person honestly — billing, payments, quotes and phone figures do not record who the work belongs to, and revenue per visit has no per-person visit count — so they are company-only.`,
           'A person is credited only with leads assigned to them, so individual targets will not add up to a company one — unassigned leads belong to nobody.',
         )
+      }
+      /* ⚠ Only when BOTH scopes of this one measure are on the board. Two labour
+       * percentages under one name, one 27% and one 13%, read as a contradiction
+       * unless the board says they are different questions. */
+      if (people.some(g => g.metric === 'labor_pct') && goals.some(g => !g.employee_id && g.metric === 'labor_pct')) {
+        items.push('The two labour cost targets here are different calculations, not the same one at two sizes: the company figure divides field pay by all completed work, a person\u2019s divides their own pay by the work credited to them.')
+      }
+      if (people.some(g => g.metric === 'labor_pct' && g.actual == null)) {
+        items.push('A personal labour cost target reads "no data" for anyone with no completed work credited to them — a share of nothing is unmeasurable, not 0%.')
       }
       if (people.some(g => g.metric === 'close_rate' && g.actual == null)) {
         items.push('A close rate reads "no data" until that person has enough decided leads to rate fairly — the same floor the People report uses, rather than a rate built on two or three deals.')

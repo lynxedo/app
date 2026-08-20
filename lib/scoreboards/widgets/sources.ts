@@ -209,6 +209,17 @@ export type Person = {
     hours: number
     revenue: number | null
     rev_per_hour: number | null
+    /** Their regular pay, overtime and commission. NOT gross pay — no holiday,
+     *  vacation/sick, bonus or tips. The same figure Crew & Labor shows for them. */
+    labor_cost: number | null
+    /** Their pay as a share of the work credited to THEM — both halves belong to
+     *  the same person, which is why this can be a personal target while the
+     *  company ratio cannot be split.
+     *  ⚠ Null unless `rankable` AND they have credited revenue: a share of nothing
+     *  is unmeasurable, not 0%, and 0% is a perfect score handed to someone with
+     *  no output. ⚠ Reads slightly LOW — a visit worked by two people credits both
+     *  in full, so the denominator is generous. */
+    labor_pct: number | null
     /** False for salaried staff and anyone under an hour. */
     rankable: boolean
     /** False when nobody in Jobber matches them, so no work can be credited. */
