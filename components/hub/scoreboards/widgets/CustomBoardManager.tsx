@@ -1,38 +1,26 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { getReport } from '@/lib/reports/registry'
 import { useConfirm } from '@/components/ui'
 
 /* Rename, share and delete a scoreboard somebody built.
  *
- * The share list is the point of the panel, and the per-person note under each
- * name is the reason it's worth a panel rather than a checkbox list: the widget
- * gate is applied to the VIEWER, so a card reading somebody's wages simply won't
- * render for a technician. Saying that here — "won't see 3 of these (needs Crew &
- * Labor)" — turns a board that looks broken on their screen into a choice made
- * with the facts.
+ * The share list is the point of the panel. It used to carry a per-person note —
+ * "won't see 3 of these (needs Crew & Labor)" — because the widget gate was applied
+ * to the viewer. That gate is gone for people a board is shared with (Ben, Aug 20
+ * 2026), so those notes came out: everyone ticked sees the whole board, read-only,
+ * and the panel says that once instead of hedging under every name.
  */
 
 type AudienceMember = {
   id: string
   name: string
-  canOpenScoreboards: boolean
-  hiddenWidgetCount: number
-  neededReports: string[]
 }
 
 type Detail = {
   board: { slug: string; title: string; sharedAll: boolean }
   viewers: string[]
   audience: AudienceMember[]
-}
-
-function neededLabel(slugs: string[]): string {
-  const titles = slugs.map(s => getReport(s)?.title).filter(Boolean) as string[]
-  if (!titles.length) return 'reports they don’t have'
-  if (titles.length <= 2) return titles.join(' and ')
-  return `${titles[0]} and ${titles.length - 1} others`
 }
 
 export function CustomBoardManager({
@@ -216,12 +204,21 @@ export function CustomBoardManager({
                   className="mt-0.5 h-4 w-4 accent-sky-400"
                 />
                 <span>
-                  <span className="block text-[12.5px] font-semibold text-gray-200">Everyone who can open Scoreboards</span>
+                  <span className="block text-[12.5px] font-semibold text-gray-200">Everyone in the company</span>
                   <span className="mt-0.5 block text-[10.5px] text-gray-500">
                     Keeps working as people join and leave — no re-sharing.
                   </span>
                 </span>
               </label>
+
+              {/* Said once, here, rather than hedged under every name. Sharing is the
+                  whole grant now: no Reports access needed, and no way for them to
+                  change the board or its filters. */}
+              <p className="mt-3 text-[10.5px] text-gray-500">
+                Anyone you tick sees <strong className="text-gray-300">every card on the board</strong>, exactly as you
+                set it up — no Reports access needed. They can&apos;t change the board, its cards, or who they&apos;re
+                filtered to.
+              </p>
 
               <div className={`mt-3 space-y-1.5 ${sharedAll ? 'opacity-50' : ''}`}>
                 {detail.audience.length === 0 ? (
@@ -240,20 +237,6 @@ export function CustomBoardManager({
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[12.5px] text-gray-200">{m.name}</span>
-                      {/* Two different "this won't work" cases, kept apart because the
-                          fix differs: no Scoreboards access at all vs. no access to
-                          the reports behind particular cards. */}
-                      {!m.canOpenScoreboards ? (
-                        <span className="mt-0.5 block text-[10.5px] text-amber-400">
-                          Can’t open Scoreboards — an admin needs to grant that first
-                        </span>
-                      ) : m.hiddenWidgetCount > 0 ? (
-                        <span className="mt-0.5 block text-[10.5px] text-gray-500">
-                          Won’t see {m.hiddenWidgetCount} {m.hiddenWidgetCount === 1 ? 'card' : 'cards'} — needs {neededLabel(m.neededReports)}
-                        </span>
-                      ) : (
-                        <span className="mt-0.5 block text-[10.5px] text-green-400/70">Sees the whole board</span>
-                      )}
                     </span>
                   </label>
                 ))}

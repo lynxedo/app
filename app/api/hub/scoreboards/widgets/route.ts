@@ -42,6 +42,11 @@ type Caller = {
   isAdmin: boolean
   /** Editing a board the whole company shares is a manager-and-up action. */
   canEditShared: boolean
+  /**
+   * `can_access_scoreboards`. Gates the PRESET boards only — a custom board is
+   * gated by its own share list, so being shared one is enough to open it.
+   */
+  hasSectionFlag: boolean
   /** Report entitlements, which decide which WIDGETS are available on a custom board. */
   reportPerms: ReportPerms
 }
@@ -59,15 +64,20 @@ async function resolveCaller(): Promise<{ caller: Caller } | { error: NextRespon
   if (!profile?.company_id) return { error: NextResponse.json({ error: 'Profile not found' }, { status: 404 }) }
 
   const isAdmin = profile.role === 'admin'
-  if (!isAdmin && !profile.can_access_scoreboards) {
-    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
-  }
+  /* ⚠ No blanket section-flag 403 here any more. A board shared with someone is
+   * itself their grant to open it (Ben, Aug 20 2026), and this check fired before
+   * authorizeBoard could look at the share list — so a person handed a board still
+   * got a 403 until an admin made a second trip to Admin → People. Nothing is
+   * widened: authorizeBoard checks the share list for a custom board and the flag
+   * PLUS a per-board grant for a preset one, so every board still answers to a
+   * real grant, just to its own. */
 
   return {
     caller: {
       userId: user.id,
       companyId: profile.company_id,
       isAdmin,
+      hasSectionFlag: profile.can_access_scoreboards === true,
       // Editing a SHARED preset board changes it for everyone who can see it, so
       // it is a manager-and-up action. A CUSTOM board is instead editable by the
       // person who built it — resolved per board in authorizeBoard.
@@ -113,6 +123,9 @@ async function authorizeBoard(caller: Caller, slug: string): Promise<BoardAuth> 
   if (slug === COACHING_SLUG) return forbidden
   if (!getScoreboard(slug)) return forbidden
   if (caller.isAdmin) return { ok: true, kind: 'preset', canEdit: caller.canEditShared }
+  // The section flag still guards the shipped boards. Only the custom path above
+  // is opened by a share, so preset access is unchanged by that.
+  if (!caller.hasSectionFlag) return forbidden
 
   const supabase = await createClient()
   const allowed = await getGrantedBoardSlugs(supabase, caller.userId)
@@ -123,20 +136,45 @@ async function authorizeBoard(caller: Caller, slug: string): Promise<BoardAuth> 
 /**
  * Widgets on a CUSTOM board that this viewer isn't entitled to see.
  *
- * ⚠⚠ This is the enforcement, not a display nicety. Without it a shared board is
- * a side door around `report_access`: build a board with the $/labour-hour card,
- * share it with a technician, and they read four colleagues' wages — the exposure
- * the Aug-12 session closed at the RPC layer, reopened one level up. The restricted
- * widgets are dropped BEFORE the resolver runs, so their numbers are never
- * fetched, let alone sent.
+ * ⚠⚠ Read this before re-tightening it. Ben's rule (Aug 20 2026) is that SHARING A
+ * BOARD IS THE AUTHORISATION: "when I share a scoreboard with someone, I want them
+ * to see the widgets no matter if they have access to reports or not." So the gate
+ * turns on whether the viewer OWNS the board, not on which reports they hold:
+ *
+ *   shared with them (canManage false) — no gate. The sharer already decided, by
+ *     putting the card on the board and naming them to it. They cannot reshape it
+ *     either: PUT 403s a non-manager, so they cannot re-point a person filter at
+ *     somebody else. Read-only, exactly as shared.
+ *
+ *   their own board (canManage true)   — the gate still applies, and this is the
+ *     half that keeps `report_access` meaningful. It bounds what a non-admin may
+ *     BUILD and therefore what they may pass on: you can only share a card you can
+ *     read yourself. It is also what still revokes a card from an author whose
+ *     grant is withdrawn (see the grandfathering note in PUT) — dropping it here
+ *     would let a revoked author keep reading wage cards off their old board.
+ *
+ * Net effect: the technician in the old warning still cannot go and read four
+ * colleagues' wages, because they cannot put that card on a board of their own.
+ * What changed is that someone entitled to it may now hand them a view of it
+ * deliberately — which is the feature.
+ *
+ * Restricted widgets are dropped BEFORE the resolver runs, so their numbers are
+ * never fetched, let alone sent.
  *
  * ⚠ Applies to custom boards ONLY. The eight shipped boards keep their per-board
  * grant and the preset Reports keep theirs; extending this to Board 8 would revoke
  * marketing cards from everyone who can see that board today.
  */
-function restrictedWidgetIds(caller: Caller, layout: BoardLayout, kind: 'preset' | 'custom'): Set<string> {
+function restrictedWidgetIds(
+  caller: Caller,
+  layout: BoardLayout,
+  kind: 'preset' | 'custom',
+  canManage: boolean,
+): Set<string> {
   const out = new Set<string>()
   if (kind !== 'custom') return out
+  // Shared with them, not theirs: the share is the grant. Nothing is withheld.
+  if (!canManage) return out
   for (const w of layout.widgets) {
     if (!canUseWidget(caller.reportPerms, reportsForWidget(w.type))) out.add(w.id)
   }
@@ -190,7 +228,7 @@ export async function GET(request: Request) {
       : NextResponse.json({ migrated: false }, { status: 200 })
   }
 
-  const restricted = restrictedWidgetIds(caller, layout, auth.kind)
+  const restricted = restrictedWidgetIds(caller, layout, auth.kind, auth.canEdit)
   const { resolvable, visible } = applyRestrictions(layout, restricted)
 
   const supabase = await createClient()
@@ -315,7 +353,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ migrated: true, layout: null, data: {}, errors: {}, stats: { requested: 0, executed: 0, ms: 0 } })
   }
 
-  const restricted = restrictedWidgetIds(caller, fresh, auth.kind)
+  const restricted = restrictedWidgetIds(caller, fresh, auth.kind, auth.canEdit)
   const { resolvable, visible } = applyRestrictions(fresh, restricted)
   const resolvedBoard = await resolveBoard({
     supabase,

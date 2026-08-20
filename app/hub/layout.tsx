@@ -22,6 +22,7 @@ import { getBetaFlags } from '@/lib/beta-flags'
 import type { RailPermissions } from '@/components/hub/railCatalog'
 import { REPORTS, PEOPLE_TEAM_SLUG } from '@/lib/reports/registry'
 import { SCOREBOARDS } from '@/lib/scoreboards/registry'
+import { hasViewableCustomBoard } from '@/lib/scoreboards/custom'
 
 export const metadata: Metadata = {
   title: 'Hub',
@@ -252,7 +253,15 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       ? ((await admin.from('scoreboard_board_access').select('board_slug').eq('user_id', user.id)).data ?? [])
           .map(r => r.board_slug as string)
       : []
-  const canAccessScoreboards = isAdmin || (rawCanAccessScoreboards && scoreboardSlugs.length > 0)
+  /* The rail icon shows when there is something behind it. A custom board shared
+   * with someone counts — being shared one is the grant, so it must not need the
+   * section flag or a preset-board grant to be reachable. The existence check only
+   * runs when the preset test came up empty, so the common case costs no query.
+   * Same shape as canReachInbox above. */
+  let canAccessScoreboards = isAdmin || (rawCanAccessScoreboards && scoreboardSlugs.length > 0)
+  if (!canAccessScoreboards) {
+    canAccessScoreboards = await hasViewableCustomBoard(companyId, user.id, isAdmin)
+  }
   // Per-report view access (Admin -> Reports), the same shape as the boards above:
   // admins see all, non-admins see only what they're granted, and the rail icon is
   // hidden entirely when they have none — an icon that opens an empty page is worse

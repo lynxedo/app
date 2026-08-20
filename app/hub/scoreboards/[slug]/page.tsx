@@ -47,12 +47,17 @@ export default async function ScoreboardPage({
   const { businessName } = await getBusinessProfile(admin, profile?.company_id ?? null)
 
   /* A board somebody built. Its own share list decides who may open it — see
-   * lib/scoreboards/custom.ts — and the widget-level Report gate is applied by the
-   * data route, so a viewer without (say) Crew & Labor gets a locked card and no
-   * numbers. The section flag still comes first: a custom board cannot be a way
-   * into Scoreboards for someone who has no access to it. */
+   * lib/scoreboards/custom.ts — and that is the WHOLE test: being shared a board
+   * is the grant, so the cards render with numbers whatever reports the viewer
+   * holds, and no `can_access_scoreboards` flag is needed either. Sharing is one
+   * step, which was the ask (Ben, Aug 20 2026).
+   *
+   * ⚠ What keeps this from being a side door is on the other side of the share:
+   * a non-admin can only put a card on a board if their OWN report grants cover it
+   * (the save-side gate in the widgets route), and a viewer cannot edit the board
+   * at all — PUT 403s a non-manager — so they cannot re-point a person filter at
+   * somebody else. You may pass on a view of what you can already read. */
   if (isCustomBoardSlug(slug)) {
-    if (!isAdmin && profile?.can_access_scoreboards !== true) redirect('/hub')
     if (!profile?.company_id) redirect('/hub')
     const board = await resolveCustomBoard(profile.company_id, slug, user.id, !!isAdmin)
     // Not-shared and not-found land in the same place on purpose: probing slugs

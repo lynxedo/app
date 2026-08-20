@@ -14,18 +14,24 @@ export const dynamic = 'force-dynamic'
  * a company keeps. A second entry point is a second place for that check to be
  * forgotten.
  *
- * Gate is the Scoreboards section itself (`can_access_scoreboards`, admins bypass).
+ * Gate is the Scoreboards section itself (`can_access_scoreboards`, admins bypass)
+ * for CREATING — plus, for the GET list only, anyone a board has been shared with.
  * No new permission flag, deliberately: Ben's rule is that anyone can build a
- * scoreboard and share it, and what they may put ON it is decided per-widget by
- * their Report access (lib/scoreboards/widgets/gating.ts). A second flag would gate
- * the container while the real limit lives on the contents.
+ * scoreboard and share it, what they may put ON it is decided per-widget by their
+ * Report access (lib/scoreboards/widgets/gating.ts), and sharing it is what lets
+ * the other person read it. A second flag would gate the container while the real
+ * limit lives on the contents.
  *
  * Reshaping a board goes through /api/hub/scoreboards/widgets like every other
  * board; this route owns only the board's existence and its sharing.
  */
 
 export async function GET() {
-  const resolved = await resolveScoreboardCaller()
+  /* Reading the list is open to someone a board was shared with, flag or not —
+   * the sidebar and the Workspace tab both read this, and a board that doesn't
+   * appear in either is indistinguishable from one that wasn't shared. `listCustomBoards`
+   * still applies the per-board visibility rule, so they see only theirs. */
+  const resolved = await resolveScoreboardCaller({ allowSharedViewer: true })
   if ('error' in resolved) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status })
   }

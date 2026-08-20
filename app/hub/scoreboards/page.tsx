@@ -29,9 +29,6 @@ export default async function ScoreboardsIndexPage() {
   const { data: coach } = await admin
     .from('user_profiles').select('can_access_coaching').eq('id', user.id).single()
   const canAccessCoaching = coach?.can_access_coaching === true
-  // Section-level access: admin, the can_access_scoreboards flag, or coaching.
-  const hasSectionAccess = isAdmin || !!profile?.can_access_scoreboards || canAccessCoaching
-  if (!hasSectionAccess) redirect('/hub')
 
   const perms = {
     isAdmin,
@@ -41,12 +38,25 @@ export default async function ScoreboardsIndexPage() {
   }
   const boards = boardsForUser(perms)
 
-  // Anyone who can open Scoreboards can build one. Coaching-only access is not
-  // Scoreboards access, so it doesn't come with a build button.
-  const canBuild = isAdmin || !!profile?.can_access_scoreboards
-  const custom = canBuild && profile?.company_id
+  /* Custom boards are listed for ANYONE with a company, not just flag-holders:
+   * `listCustomBoards` applies the visibility rule itself, and being shared a board
+   * is the grant to see it. Gating this on the flag meant a shared board silently
+   * did not appear until an admin also flipped `can_access_scoreboards`. */
+  const custom = profile?.company_id
     ? await listCustomBoards(profile.company_id, user.id, !!isAdmin)
     : []
+
+  /* Section-level access: admin, the flag, coaching — or a board somebody shared
+   * with you. Checked AFTER the lists are built, because "a board was shared with
+   * me" is one of the ways in and it is the list that knows. */
+  const hasSectionAccess =
+    isAdmin || !!profile?.can_access_scoreboards || canAccessCoaching || custom.length > 0
+  if (!hasSectionAccess) redirect('/hub')
+
+  // Anyone who can open Scoreboards can build one. Coaching-only access is not
+  // Scoreboards access, and neither is having been shared somebody else's board,
+  // so neither comes with a build button.
+  const canBuild = isAdmin || !!profile?.can_access_scoreboards
   // Split on AUTHORSHIP, not on canManage. An admin can manage every custom board in
   // the company, so grouping by canManage would file nine other people's boards under
   // "Your scoreboards" — a heading that would then be simply untrue.
