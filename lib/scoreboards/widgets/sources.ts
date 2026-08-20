@@ -523,6 +523,25 @@ export type RevenueTrendRow = {
   lines: { b: string; k: string; total: number }[]
   /** One row per (bucket, technician). `k` is the Jobber user id. */
   techs: { b: string; k: string; name: string; total: number }[]
+  /**
+   * One row per (bucket, service line, technician) — the cross-tab `lines` and
+   * `techs` cannot reconstruct between them, since each collapses the other's
+   * dimension. `d` is the department code, `k` the Jobber user id.
+   *
+   * ⚠ Honours `tech_credit` exactly as `techs` does: with 'each' a visit worked by
+   * two people credits both, so summing a line's technicians OVERSHOOTS that line's
+   * own total (IR on Heroes' 2026 book: $255,903 against $239,572). With 'split' it
+   * closes on `lines` to the cent for every department — asserted after the
+   * migration, and the reason a card built on this states which mode it used.
+   *
+   * ⚠ Unassigned work IS present, as a row with `k: null` and the name
+   * `NO_TECH` ('Nobody assigned'), because the technician picker offers that as a
+   * tickable option and unassigned visits never enter the per-tech roll-up otherwise.
+   * Today those visits carry $0.00 (7 of them in 2026), so this is not correcting a
+   * visible figure — it is why money landing on one later cannot go missing from a
+   * technician-filtered card.
+   */
+  line_techs: { b: string; d: string; k: string | null; name: string; total: number }[]
   shared_visits: number
   /** Dollars the per-tech series counts more than once. 0 when credit is 'split'. */
   shared_overlap: number
