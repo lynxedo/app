@@ -481,4 +481,123 @@ export const REVENUE_TREND_WIDGETS: WidgetDef<WidgetPayload>[] = [
       }
     },
   },
+
+  {
+    type: 'kpi_visit_revenue_by_tech',
+    /**
+     * ⚠⚠ 'Crew & Labor', NOT 'Revenue', and the group IS the access decision — it is
+     * what `gating.ts` maps to a report grant. This card can state what one named
+     * technician produced, which is per-technician production data; that already
+     * lives behind the Crew & Labor grant on `visit_revenue_by_tech`, and the
+     * `jobber_people` catalog that feeds its picker is itself gated to crew-or-sales.
+     * Filing it under Revenue would have let a Revenue-only holder read a figure the
+     * Crew report withholds — a side door of exactly the kind gating.ts exists to
+     * keep shut. `canUseWidget` is an OR over reports, so it cannot express "needs
+     * both grants"; picking the narrower of the two is the honest reading.
+     *
+     * The plain company/service-line total stays on `kpi_visit_revenue` under
+     * Revenue, unchanged.
+     */
+    group: 'Crew & Labor',
+    title: 'Visit Revenue — Filtered',
+    blurb: 'One figure for completed work, narrowed to a service line and/or a technician',
+    defaultSpan: 3,
+    /**
+     * Ben, building Lukas' board: "a widget that tells me the total revenue that the
+     * irrigation department has done between reoccurring and one-off, and then I also
+     * would like that to be narrowed down by technician as well in the filters."
+     *
+     * The first half already worked — `kpi_visit_revenue` with the line filter on IR
+     * reads $239,571.92 for 2026 YTD, and it does span both halves of the book
+     * ($197,249.17 one-off + $42,322.75 recurring, verified against the raw tables).
+     * The second half was not buildable: the payload carried revenue-by-line and
+     * revenue-by-tech as two roll-ups with no shared dimension, so no amount of
+     * client-side work could cross them. Hence the `line_techs` cross-tab.
+     */
+    config: {
+      lines: LINE_FILTER,
+      people: peopleField('jobber_people', 'technicians'),
+      shared: {
+        kind: 'enum' as const,
+        label: 'Visits with two techs',
+        def: 'Credit each tech',
+        opts: ['Credit each tech', 'Split between them'],
+        hint: 'Credit each answers “what did this person produce”. Split makes the technicians add up to the service-line total.',
+      },
+      label: {
+        kind: 'text' as const,
+        label: 'Name on the card',
+        def: '',
+        placeholder: 'e.g. IR Revenue — Lucas',
+        hint: 'Leave blank and the card names the filters itself.',
+      },
+    },
+    // Grain is irrelevant to a total but the source needs one; month is the cheaper
+    // bucketing and the sum is identical either way. Sharing the request shape with
+    // kpi_visit_revenue means an unfiltered and a filtered card cost ONE round trip
+    // when both use 'each'.
+    sources: (cfg, win) => [{
+      source: 'visit_revenue_trend',
+      params: {
+        start: win.start, end: win.end, grain: 'month',
+        tech_credit: String(cfg.shared) === 'Split between them' ? 'split' : 'each',
+      },
+    }],
+    metric: (bag, cfg, win) => {
+      const credit = String(cfg.shared) === 'Split between them' ? 'split' : 'each'
+      const r = bag.get<RevenueTrendRow>({
+        source: 'visit_revenue_trend',
+        params: { start: win.start, end: win.end, grain: 'month', tech_credit: credit },
+      })[0] ?? null
+
+      const lineSel = new Set(asArray(cfg.lines))
+      const filter = personFilter(cfg)
+      const only = linePhrase(cfg)
+      const who = peoplePhrase(filter)
+
+      /* Three ways to reach the number, and which one is correct depends on which
+       * filters are set. Reading the cross-tab when no technician is picked would be
+       * WRONG under 'Credit each tech': it double-counts shared visits, so an
+       * unfiltered card would sit above the true total. Fall back to the roll-up
+       * that has no person dimension whenever the person filter is off. */
+      let total: number
+      if (filter.active) {
+        total = (r?.line_techs ?? [])
+          .filter(t => (!lineSel.size || lineSel.has(t.d)) && keepPerson(filter, t.name, NO_TECH))
+          .reduce((s, t) => s + num(t.total), 0)
+      } else if (lineSel.size) {
+        total = (r?.lines ?? [])
+          .filter(l => lineSel.has(l.k))
+          .reduce((s, l) => s + num(l.total), 0)
+      } else {
+        total = num(r?.total)
+      }
+
+      /* ⚠ Every caveat below is stated only when it is true OF THIS CARD. A note
+       * measured company-wide, printed beneath one technician's figure, reads as
+       * though it were measured for them — worse than no note at all. */
+      const notes: string[] = ['not invoices']
+      if (only) notes.push(`${only} only`)
+      if (who) notes.push(who)
+      if (filter.active && credit === 'each' && filter.names.length > 1) {
+        notes.push('a visit worked by two of them counts for both')
+      }
+      /* Unattributed revenue is company-wide in the payload, so it can only be
+       * quoted on a card that is company-wide too. On a filtered card the money is
+       * either included (they ticked 'Nobody assigned') or excluded by construction,
+       * and in both cases the sentence would be about something else. */
+      if (!filter.active && !lineSel.size && num(r?.unattributed_revenue) > 0.5) {
+        notes.push(`${money(num(r.unattributed_revenue))} sits on visits with nobody assigned`)
+      }
+
+      const autoName = [only, who].filter(Boolean).join(' · ')
+      return {
+        kind: 'kpi',
+        label: String(cfg.label).trim() || (autoName ? `Visit Revenue — ${autoName}` : 'Visit Revenue'),
+        value: formatCurrency(total),
+        tone: 'good',
+        sub: [`Completed work in ${win.phrase}`, ...notes].join(' · '),
+      }
+    },
+  },
 ]
