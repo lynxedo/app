@@ -60,13 +60,25 @@ const CATALOG_REPORTS: Record<CatalogName, string[]> = {
   service_lines: ['clients', 'revenue', 'service-lines'],
   recurring_programs: ['clients'],
   recurring_addons: ['clients'],
+  /* Line-item names, for Ticket Size's item picker. Ticket Size is a Revenue widget
+   * and is the only card that places this, so the gate is Revenue alone — the same
+   * "any report that places this widget" rule applied narrowly rather than
+   * generously. ⚠ These are product names and their invoiced totals, so widening
+   * this to every report holder would be a side door around `report_access`, which
+   * is the thing this file exists to keep shut. */
+  line_items: ['revenue'],
 }
 
 /** Every value, however old. The picker must offer a product sold once last year. */
 const ALL_TIME_START = '1900-01-01'
 const ALL_TIME_END = '2999-12-31'
 
-type Option = { value: string; label: string; count: number | null }
+/* `note` is display-only — a second, right-aligned hint in the picker row. The
+ * VALUE is always what the widget matches on; a note can never change what a
+ * selection means. Added for the line-item picker, where the count of lines does
+ * not tell you the one thing you need in order to choose ("is this an install?")
+ * and the dollar total does. */
+type Option = { value: string; label: string; count: number | null; note?: string }
 
 function byCountThenName(a: [string, number], b: [string, number]): number {
   return b[1] - a[1] || a[0].localeCompare(b[0])
@@ -125,6 +137,50 @@ export async function GET(request: Request) {
   }
 
   const admin = createAdminClient()
+
+  if (name === 'line_items') {
+    /* Every line-item name ever invoiced, with its line count and dollar total.
+     *
+     * ⚠⚠ AN RPC, NOT A `.from('line_items').select('name')`. Heroes has 26,998
+     * line-item rows and PostgREST caps a read at 1000, so the plain select would
+     * build the picker from whatever 1000 rows it happened to read first and offer a
+     * short, plausible, silently-incomplete list — the failure you would not notice,
+     * because a picker missing 60% of its options still looks like a picker. The RPC
+     * aggregates in SQL and returns one row per distinct name (266 for Heroes).
+     *
+     * ⚠ No date bound, like the tracked-item picker: a line item billed twice last
+     * winter is precisely the thing you are trying to make a decision about, and a
+     * window would hide it from the list while the card still counted it.
+     */
+    const { data, error } = await admin.rpc('scoreboard_line_item_names', {
+      p_company_id: profile.company_id,
+    })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    type NameRow = { name: string; dept_prefix: string | null; lines: number | null; total_value: number | null }
+    const rows = (data ?? []) as NameRow[]
+    const money = (n: number) =>
+      `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('en-US')}`
+
+    return NextResponse.json({
+      options: rows.map(r => ({
+        // ⚠ The VALUE is the raw name, byte-for-byte as the rows carry it, because
+        // that is what the widget matches on. Everything else here is decoration.
+        value: r.name,
+        // The service-line code leads the label so typing "IR" narrows 266 names to
+        // 144 — for a tenant whose item names do not already start with the code,
+        // this is the only thing making the list navigable.
+        label: r.dept_prefix ? `${r.dept_prefix} · ${r.name}` : r.name,
+        count: Math.round(Number(r.lines ?? 0)),
+        // ⚠ The dollar total is the whole reason this picker is usable. Choosing
+        // repair items means telling an install from a repair, and a line count
+        // cannot: "Irrigation Installation" has 11 lines and "Nozzles" has 124, so
+        // by count the install looks like the rounding error. By money it is $81,045
+        // against $1,605.
+        note: money(Number(r.total_value ?? 0)),
+      })),
+    })
+  }
 
   if (name === 'service_lines' || name === 'recurring_programs' || name === 'recurring_addons') {
     /* Three pickers, ONE book read.

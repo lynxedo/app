@@ -33,10 +33,6 @@ import { formatCurrency } from '@/lib/format'
 const asArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(String).filter(Boolean) : []
 
-/** A comma-separated text field, as a clean list. */
-const asList = (v: unknown): string[] =>
-  String(v ?? '').split(',').map(s => s.trim()).filter(Boolean)
-
 const num = (v: number | string | null | undefined): number => {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
@@ -408,6 +404,9 @@ export const BOOK_WIDGETS: WidgetDef<WidgetPayload>[] = [
 const TICKET_MEDIAN = 'Median (typical job)'
 const TICKET_AVERAGE = 'Average'
 
+const ITEMS_INCLUDE = 'The only ones to count'
+const ITEMS_EXCLUDE = 'The ones to leave out'
+
 export const TICKET_WIDGETS: WidgetDef<WidgetPayload>[] = [
   {
     type: 'kpi_ticket_size',
@@ -418,29 +417,61 @@ export const TICKET_WIDGETS: WidgetDef<WidgetPayload>[] = [
      */
     group: 'Revenue',
     title: 'Ticket Size',
-    blurb: 'What one completed job is worth — the repair-ticket measure, for any line',
+    blurb: 'What one completed job is worth — tick the line items that count as a repair',
     defaultSpan: 3,
     config: {
       lines: {
         ...LINES_FIELD,
-        hint: 'Leave every box unticked for the whole company. Tick one line to answer “what does a typical irrigation repair bill”.',
+        hint: 'Leave every box unticked for the whole company. Tick one line, then choose its line items below, to answer “what does a typical irrigation repair bill”.',
       },
       /**
-       * ⚠ Free text, not a pick-list, and that is the right shape rather than a
-       * shortcut: these are matched as FRAGMENTS anywhere in a line-item name, so one
-       * entry ("Installation") stands in for a dozen exact names and keeps working
-       * when a new one is added. A pick-list would have to be re-ticked every time
-       * somebody invents a line item.
+       * ⚠⚠ A PICK-LIST, replacing the free-text fragment box this field used to be.
        *
-       * No default, because a default here would be Heroes' three exclusions baked
-       * into the library. The hint carries them as an example instead.
+       * The old shape asked for comma-separated fragments matched with ILIKE, on the
+       * argument that one entry ("Installation") stands in for a dozen exact names
+       * and survives somebody inventing a new one. That argument is real, and it lost
+       * to three things:
+       *
+       *  1. It asks you to guess spellings against a list you cannot see — 266
+       *     distinct names for Heroes, 144 on irrigation alone.
+       *  2. It fails in the direction that looks right. "Installation" does not match
+       *     "IR - Zone install", so the single most obvious word to type still leaks
+       *     an install into a repair average, and nothing says so.
+       *  3. ⚠ The filter removes matching LINE ITEMS, not whole visits. An install
+       *     visit therefore leaves its unmatched lines behind as a phantom "repair" —
+       *     measured on Heroes' Jan–Aug 2026 irrigation, 24 install visits left
+       *     $16,263 of residue (High Efficiency Upgrade, Design and Permit Fee, new
+       *     controllers) counting as 24 repair tickets averaging $678. Fragments can
+       *     only fix that by ALSO guessing every one of those names. A tick list is
+       *     showing them to you.
+       *
+       * The maintenance cost the old comment warned about is real and does not go
+       * away — it is answered instead by `off_list_value` on the card's own face, so
+       * a list that has fallen behind says so out loud.
        */
-      exclude: {
-        kind: 'text' as const,
-        label: 'Leave these out',
-        def: '',
-        placeholder: 'Service Plan, Installation, Drainage',
-        hint: 'Comma-separated, matched anywhere in the line-item name. What you exclude IS the measure: leaving out service plans, installs and drainage is what turns “a job” into “a repair”.',
+      items: {
+        kind: 'catalog' as const,
+        label: 'Which line items',
+        def: [] as string[],
+        catalog: 'line_items' as const,
+        // 400, not the default 60: choosing repairs by ticking them means ticking most
+        // of a service line, and Heroes alone has 144 irrigation names. A cap that
+        // silently drops the 61st tick would be the same class of bug this replaced.
+        max: 400,
+        hint: 'Each row shows what it has billed in total — that is how you tell an install from a repair. Leave every box unticked for every line item.',
+      },
+      itemsMode: {
+        kind: 'enum' as const,
+        label: 'The ticked items are',
+        def: ITEMS_INCLUDE,
+        opts: [ITEMS_INCLUDE, ITEMS_EXCLUDE],
+        /* ⚠ Defaults to "the only ones to count" for a reason beyond matching how the
+         * question is usually asked. The two modes fail in opposite directions when
+         * somebody invents a line item in Jobber: counting only what is ticked MISSES
+         * a new repair type, while counting all but what is ticked SILENTLY ADMITS a
+         * new install. Missing a repair shortens the list; admitting one $9,000
+         * install rewrites the average. The safer failure is the default. */
+        hint: '“The ones to leave out” is fewer ticks when you want everything except installs and plans — but a line item invented later then counts as a repair until you come back and tick it.',
       },
       measure: {
         kind: 'enum' as const,
@@ -464,7 +495,38 @@ export const TICKET_WIDGETS: WidgetDef<WidgetPayload>[] = [
       const n = num(row?.ticket_count)
       const scope = scopePhrase(cfg)
       const other = median ? num(row?.avg_value) : num(row?.median_value)
-      const excluded = asList(cfg.exclude)
+      const picked = asArray(cfg.items)
+      const including = String(cfg.itemsMode) !== ITEMS_EXCLUDE
+      const offLines = num(row?.off_list_lines)
+      const offValue = num(row?.off_list_value)
+
+      /* How the card describes its own filter.
+       *
+       * ⚠ Names the COUNT of items, not the items themselves. The old card listed
+       * every fragment inline, which worked at three and is unreadable at thirty —
+       * and thirty is the normal size of "everything except installs and plans".
+       */
+      const filterPhrase = picked.length
+        ? including
+          ? `counting only ${picked.length} chosen line item${picked.length === 1 ? '' : 's'}`
+          : `leaving out ${picked.length} line item${picked.length === 1 ? '' : 's'}`
+        : 'every line item'
+
+      /* ⚠⚠ THE HONESTY LINE. An item filter's blind spot is invisible by
+       * construction: what it left out is, by definition, not in the number. Saying
+       * the weight of it is the only thing that makes "the list has fallen behind"
+       * visible — a new repair type nobody has ticked shows up here as money the card
+       * is not counting, rather than as a quietly low average. Silent when nothing was
+       * filtered, so an unfiltered card stays clean.
+       *
+       * ⚠ Deliberately not a share-of-total: the excluded money can easily exceed
+       * what is counted (an install-heavy line makes a repair card's off-list bigger
+       * than its total), and "121% excluded" reads as a bug rather than as the plain
+       * fact that installs are worth more than repairs. */
+      const honesty = offLines > 0
+        ? `${formatCurrency(offValue)} on ${offLines.toLocaleString('en-US')} line item${offLines === 1 ? '' : 's'} not counted here`
+        : null
+
       return {
         kind: 'kpi',
         label: String(cfg.label).trim() || `${median ? 'Typical' : 'Average'} Ticket — ${scope}`,
@@ -475,9 +537,16 @@ export const TICKET_WIDGETS: WidgetDef<WidgetPayload>[] = [
               `${n.toLocaleString('en-US')} completed job${n === 1 ? '' : 's'} on ${scope} in ${win.phrase}`,
               `${median ? 'average' : 'median'} ${formatCurrency(other)}`,
               `${formatCurrency(num(row?.total_value))} in total`,
-              ...(excluded.length ? [`leaving out ${excluded.join(', ')}`] : []),
+              filterPhrase,
+              ...(honesty ? [honesty] : []),
             ].join(' · ')
-          : `No completed jobs on ${scope} in ${win.phrase}`,
+          : [
+              `No completed jobs on ${scope} in ${win.phrase}`,
+              // ⚠ When the answer is nothing, the filter is the first thing to
+              // suspect — an include-list with the wrong items ticked produces a
+              // perfectly honest-looking zero.
+              ...(picked.length && including ? [`${filterPhrase} — check the ticked items`] : []),
+            ].join(' · '),
       }
     },
   },
@@ -486,6 +555,18 @@ export const TICKET_WIDGETS: WidgetDef<WidgetPayload>[] = [
 function ticketReq(cfg: WidgetConfig, win: WindowSpec): SourceRequest {
   // Sorted so two cards ticking the same things in a different order share one query.
   const lines = [...asArray(cfg.lines)].sort().join(',')
-  const exclude = [...asList(cfg.exclude)].sort().join(',')
-  return { source: 'ticket_size', params: { start: win.start, end: win.end, lines, exclude } }
+  /* ⚠⚠ JSON, not a comma-join like `lines`. A line-item name is free text off the
+   * tenant's own invoices and "Valve, 1 inch" is an ordinary thing to call a part;
+   * comma-joining would split one ticked name into two that match nothing and the
+   * card would count less than it was told to, silently. See the matching note in
+   * sources.ts. */
+  const items = JSON.stringify([...asArray(cfg.items)].sort())
+  const itemsMode = String(cfg.itemsMode) === ITEMS_EXCLUDE ? 'exclude' : 'include'
+  return {
+    source: 'ticket_size',
+    // `exclude` is gone from the settings panel but stays on the request as an empty
+    // string: the RPC still honours the fragment path, and a tenant migrating from a
+    // saved fragment card should not have its query key change shape.
+    params: { start: win.start, end: win.end, lines, exclude: '', items, itemsMode },
+  }
 }

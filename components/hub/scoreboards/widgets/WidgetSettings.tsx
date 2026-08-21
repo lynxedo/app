@@ -38,7 +38,7 @@ const inputCls = 'w-full rounded-lg border border-sky-400/15 bg-[#020c16]/60 px-
 const pillCls = (on: boolean) =>
   `rounded-full border px-2.5 py-1 text-[11px] ${on ? 'border-sky-400/50 bg-sky-400/15 text-sky-200' : 'border-sky-400/15 text-gray-400 hover:text-sky-200'}`
 
-type CatalogOption = { value: string; label: string; count: number | null }
+type CatalogOption = { value: string; label: string; count: number | null; note?: string }
 
 /**
  * Options for a `catalog` field, fetched once per catalog name and shared by every
@@ -151,6 +151,12 @@ function CatalogField({
             className="flex w-full items-center gap-2 border-b border-sky-400/10 px-2.5 py-1.5 text-left text-[11.5px] text-gray-300 last:border-0 hover:bg-sky-400/10 hover:text-sky-200"
           >
             <span className="flex-1 truncate">{o.label}</span>
+            {/* ⚠ The note sits BEFORE the count and is never truncated: on the
+              * line-item picker it carries the dollar total, which is the field you
+              * are actually choosing on. Truncating it away would leave the picker
+              * looking complete while withholding the one number that distinguishes
+              * an $81k install from a $1.6k box of nozzles. */}
+            {o.note ? <span className="shrink-0 text-[10.5px] tabular-nums text-sky-300/70">{o.note}</span> : null}
             {/* The count is what makes two spellings of one product visible. */}
             {o.count != null ? <span className="shrink-0 text-[10.5px] text-gray-500">{o.count}</span> : null}
           </button>

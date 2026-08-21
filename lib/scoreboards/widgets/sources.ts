@@ -803,6 +803,16 @@ export type TicketSizeRow = {
   avg_value: number | string | null
   median_value: number | string | null
   total_value: number | string | null
+  /* What the item filter REMOVED, in lines and dollars.
+   *
+   * ⚠⚠ These exist because an item pick-list has a blind spot that is invisible by
+   * construction: a line item nobody has ticked yet — including one somebody invented
+   * in Jobber last week — is simply not counted, and a card that under-counts looks
+   * exactly like a card that is right. Reporting the excluded weight is what turns
+   * "your list is out of date" into something visible on the card's own face instead
+   * of something discovered a quarter later. */
+  off_list_lines: number | null
+  off_list_value: number | string | null
   by_line: {
     line: string
     ticket_count: number
@@ -1353,12 +1363,33 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
       String(v ?? '').split(',').map(s => s.trim()).filter(Boolean)
     const lines = split(params.lines)
     const exclude = split(params.exclude)
+    /* ⚠⚠ `items` arrives JSON-encoded, NOT comma-joined like `lines` and `exclude`,
+     * and the difference is deliberate. Those two carry short codes ("IR") and
+     * fragments the person typed into a comma-separated box, so a comma genuinely is
+     * their separator. `items` carries whole line-item names straight off the
+     * tenant's own invoices, and a name is free text: "Valve, 1 inch" is an ordinary
+     * thing for somebody to call a part. Comma-joining it would split one ticked name
+     * into two names that match nothing, and the card would quietly count less than
+     * it was told to with no error anywhere. Heroes has no comma in any of its 266
+     * names TODAY, which is exactly the kind of fact that stops being true without
+     * anyone noticing. */
+    const items = ((): string[] => {
+      const raw = params.items
+      if (typeof raw !== 'string' || !raw.trim()) return []
+      try {
+        const parsed: unknown = JSON.parse(raw)
+        return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
+      } catch { return [] }
+    })()
+    const mode = String(params.itemsMode ?? 'include') === 'exclude' ? 'exclude' : 'include'
     const { data, error } = await ctx.rpcClient.rpc('scoreboard_ticket_size', {
       p_company_id: ctx.companyId,
       p_start: String(params.start),
       p_end: String(params.end),
       p_lines: lines.length ? lines : null,
       p_exclude: exclude.length ? exclude : null,
+      p_items: items.length ? items : null,
+      p_items_mode: mode,
     })
     if (error) throw new Error(`ticket_size: ${error.message}`)
     return data ? [data as TicketSizeRow] : []

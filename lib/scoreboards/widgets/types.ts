@@ -123,6 +123,22 @@ export type CatalogName =
   /** Add-ons — programs flagged `is_auxiliary`. Drives the attach-rate card. */
   | 'recurring_addons'
   /**
+   * Every line-item name the tenant has ever invoiced, with how many lines carry it
+   * and what they add up to. Drives Ticket Size's "which line items count" picker.
+   *
+   * ⚠⚠ THE REASON THIS EXISTS RATHER THAN A TEXT BOX. Ticket Size used to take
+   * comma-separated name FRAGMENTS, matched with ILIKE. That asks somebody to guess
+   * spellings against a list they cannot see — 266 distinct names for Heroes, 144 on
+   * irrigation alone — and it fails in the direction that looks correct: the obvious
+   * fragment "Installation" does not match "IR - Zone install", so the one word you
+   * would certainly type still leaks an install into a repair average. Worse, the
+   * filter drops matching LINE ITEMS rather than whole visits, so an install visit
+   * leaves its unmatched lines behind as a phantom repair — 24 of them carrying
+   * $16,263 on Heroes' Jan–Aug 2026 irrigation. A tick list cannot mis-spell and
+   * cannot miss a name it is showing you.
+   */
+  | 'line_items'
+  /**
    * The people who actually hold a target, for narrowing a Goals card to one person.
    *
    * ⚠⚠ A FIFTH catalog, and the only one whose VALUES are employee ids rather than
