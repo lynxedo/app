@@ -60,13 +60,17 @@ const CATALOG_REPORTS: Record<CatalogName, string[]> = {
   service_lines: ['clients', 'revenue', 'service-lines'],
   recurring_programs: ['clients'],
   recurring_addons: ['clients'],
-  /* Line-item names, for Ticket Size's item picker. Ticket Size is a Revenue widget
-   * and is the only card that places this, so the gate is Revenue alone — the same
-   * "any report that places this widget" rule applied narrowly rather than
-   * generously. ⚠ These are product names and their invoiced totals, so widening
-   * this to every report holder would be a side door around `report_access`, which
-   * is the thing this file exists to keep shut. */
-  line_items: ['revenue'],
+  /* Line-item names, for the item picker on all three ticket cards.
+   *
+   * ⚠⚠ BOTH slugs, because three widgets place this and they do not share a group:
+   * `kpi_ticket_size` is Revenue, while `kpi_ticket_size_by_tech` and
+   * `ticket_size_by_tech_chart` are Crew & Labor (per-technician production data).
+   * Leaving this at Revenue alone would have handed a Crew-only holder a card whose
+   * item picker answers 403 — a feature that looks broken rather than withheld. This
+   * is the documented "any report that places this widget" rule, which is the same
+   * OR that `canUseWidget` applies; it does not widen anything, because a holder of
+   * either report can already see ticket figures for the line items in question. */
+  line_items: ['revenue', 'crew'],
 }
 
 /** Every value, however old. The picker must offer a product sold once last year. */

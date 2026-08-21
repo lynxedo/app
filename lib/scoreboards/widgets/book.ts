@@ -25,10 +25,11 @@
  * was relabelled "Recovery".
  */
 
-import type { RecurringBookRow, TicketSizeRow } from './sources'
+import type { RecurringBookRow, TicketByTechRow, TicketSizeRow } from './sources'
 import type { SourceBag, SourceRequest, WidgetConfig, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
 import { formatCurrency } from '@/lib/format'
+import { peopleField, personFilter } from './people-filter'
 
 const asArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(String).filter(Boolean) : []
@@ -407,6 +408,100 @@ const TICKET_AVERAGE = 'Average'
 const ITEMS_INCLUDE = 'The only ones to count'
 const ITEMS_EXCLUDE = 'The ones to leave out'
 
+const CREDIT_EACH = 'Credit each tech'
+const CREDIT_SPLIT = 'Split between them'
+
+const TECH_CHART_BARS = 'Bars'
+const TECH_CHART_TABLE = 'Table'
+
+/* The item picker and its direction, shared by all three ticket cards so a board
+ * carrying the Revenue card and both crew cards offers the same list three times
+ * rather than three subtly different ones. */
+const TICKET_ITEMS_FIELD = {
+  kind: 'catalog' as const,
+  label: 'Which line items',
+  def: [] as string[],
+  catalog: 'line_items' as const,
+  max: 400,
+  hint: 'Each row shows what it has billed in total — that is how you tell an install from a repair. Leave every box unticked for every line item.',
+}
+
+const TICKET_ITEMS_MODE_FIELD = {
+  kind: 'enum' as const,
+  label: 'The ticked items are',
+  def: ITEMS_INCLUDE,
+  opts: [ITEMS_INCLUDE, ITEMS_EXCLUDE],
+  hint: '“The ones to leave out” is fewer ticks when you want everything except installs and plans — but a line item invented later then counts as a repair until you come back and tick it.',
+}
+
+const TICKET_CREDIT_FIELD = {
+  kind: 'enum' as const,
+  label: 'Tickets with two techs',
+  def: CREDIT_EACH,
+  opts: [CREDIT_EACH, CREDIT_SPLIT],
+  hint: '“Credit each” answers “what does this person’s repair bill”. “Split” makes the technicians add up to the service-line total.',
+}
+
+/** Shared request, so the drill-down card and the chart cost ONE query when their
+ *  filters agree — which on a real board they usually do. */
+function techReq(cfg: WidgetConfig, win: WindowSpec): SourceRequest {
+  const lines = [...asArray(cfg.lines)].sort().join(',')
+  // JSON for both name lists — see the note in sources.ts.
+  const items = JSON.stringify([...asArray(cfg.items)].sort())
+  const techs = JSON.stringify([...asArray(cfg.people)].sort())
+  return {
+    source: 'ticket_size_by_tech',
+    params: {
+      start: win.start, end: win.end, lines, items,
+      itemsMode: String(cfg.itemsMode) === ITEMS_EXCLUDE ? 'exclude' : 'include',
+      techs,
+      techCredit: String(cfg.credit) === CREDIT_SPLIT ? 'split' : 'each',
+    },
+  }
+}
+
+/** The two sentences every ticket card owes the reader about its own filter. */
+function ticketNotes(cfg: WidgetConfig, row: TicketByTechRow | null): string[] {
+  const picked = asArray(cfg.items)
+  const including = String(cfg.itemsMode) !== ITEMS_EXCLUDE
+  const offLines = num(row?.off_list_lines)
+  const offValue = num(row?.off_list_value)
+  const out: string[] = [
+    picked.length
+      ? including
+        ? `counting only ${picked.length} chosen line item${picked.length === 1 ? '' : 's'}`
+        : `leaving out ${picked.length} line item${picked.length === 1 ? '' : 's'}`
+      : 'every line item',
+  ]
+  // Same honesty line the Revenue card carries — an item filter's blind spot is
+  // invisible unless the card states the weight of what it dropped.
+  if (offLines > 0) {
+    out.push(`${formatCurrency(offValue)} on ${offLines.toLocaleString('en-US')} line item${offLines === 1 ? '' : 's'} not counted here`)
+  }
+  return out
+}
+
+/**
+ * ⚠⚠ Why a shared-ticket sentence is not optional.
+ *
+ * Under 'each' the per-person figures deliberately do NOT reconcile with the
+ * company card: a two-tech ticket is counted once for each of them, so the crew
+ * card reads 463 tickets and $142,230 where the Revenue card reads 448 and
+ * $136,393 — a $5,837 gap that is entirely the 15 shared tickets. That is the right
+ * answer to "what does Lucas's repair bill" and the wrong answer to "what did
+ * irrigation bill", and somebody putting the two cards side by side will otherwise
+ * read the difference as a bug. Under 'split' it is silent, because there is nothing
+ * to explain.
+ */
+function sharedNote(cfg: WidgetConfig, row: TicketByTechRow | null): string[] {
+  const shared = num(row?.shared_tickets)
+  if (shared <= 0) return []
+  if (String(cfg.credit) === CREDIT_SPLIT) {
+    return [`${shared} ticket${shared === 1 ? '' : 's'} split between two techs`]
+  }
+  return [`${shared} ticket${shared === 1 ? '' : 's'} had two techs and count for each, so the people total more than the line`]
+}
+
 export const TICKET_WIDGETS: WidgetDef<WidgetPayload>[] = [
   {
     type: 'kpi_ticket_size',
@@ -449,30 +544,18 @@ export const TICKET_WIDGETS: WidgetDef<WidgetPayload>[] = [
        * away — it is answered instead by `off_list_value` on the card's own face, so
        * a list that has fallen behind says so out loud.
        */
-      items: {
-        kind: 'catalog' as const,
-        label: 'Which line items',
-        def: [] as string[],
-        catalog: 'line_items' as const,
-        // 400, not the default 60: choosing repairs by ticking them means ticking most
-        // of a service line, and Heroes alone has 144 irrigation names. A cap that
-        // silently drops the 61st tick would be the same class of bug this replaced.
-        max: 400,
-        hint: 'Each row shows what it has billed in total — that is how you tell an install from a repair. Leave every box unticked for every line item.',
-      },
-      itemsMode: {
-        kind: 'enum' as const,
-        label: 'The ticked items are',
-        def: ITEMS_INCLUDE,
-        opts: [ITEMS_INCLUDE, ITEMS_EXCLUDE],
-        /* ⚠ Defaults to "the only ones to count" for a reason beyond matching how the
-         * question is usually asked. The two modes fail in opposite directions when
-         * somebody invents a line item in Jobber: counting only what is ticked MISSES
-         * a new repair type, while counting all but what is ticked SILENTLY ADMITS a
-         * new install. Missing a repair shortens the list; admitting one $9,000
-         * install rewrites the average. The safer failure is the default. */
-        hint: '“The ones to leave out” is fewer ticks when you want everything except installs and plans — but a line item invented later then counts as a repair until you come back and tick it.',
-      },
+      /* ⚠ 400, not the default 60: choosing repairs by ticking them means ticking most
+       * of a service line, and Heroes alone has 144 irrigation names. A cap silently
+       * dropping the 61st tick would be the same class of bug this replaced.
+       *
+       * ⚠ Defaults to "the only ones to count" for a reason beyond matching how the
+       * question is usually asked. The two modes fail in opposite directions when
+       * somebody invents a line item in Jobber: counting only what is ticked MISSES a
+       * new repair type, while counting all but what is ticked SILENTLY ADMITS a new
+       * install. Missing a repair shortens the list; admitting one $9,000 install
+       * rewrites the average. The safer failure is the default. */
+      items: TICKET_ITEMS_FIELD,
+      itemsMode: TICKET_ITEMS_MODE_FIELD,
       measure: {
         kind: 'enum' as const,
         label: 'Show',
@@ -547,6 +630,185 @@ export const TICKET_WIDGETS: WidgetDef<WidgetPayload>[] = [
               // perfectly honest-looking zero.
               ...(picked.length && including ? [`${filterPhrase} — check the ticked items`] : []),
             ].join(' · '),
+      }
+    },
+  },
+
+  {
+    type: 'kpi_ticket_size_by_tech',
+    /**
+     * ⚠⚠ 'Crew & Labor', NOT 'Revenue', and the group IS the access decision — it is
+     * what gating.ts maps to a report grant. This card states what one named
+     * technician's typical job is worth, which is per-person production data; that
+     * lives behind Crew & Labor, and the `jobber_people` catalog feeding its picker is
+     * itself gated to crew-or-sales. Filing it under Revenue would let a Revenue-only
+     * holder read a figure the Crew report withholds. `canUseWidget` is an OR over
+     * reports so it cannot express "needs both", and picking the narrower of the two
+     * is the honest reading. The plain Ticket Size card stays under Revenue, unchanged
+     * — the same split the product already makes for Visit Revenue.
+     */
+    group: 'Crew & Labor',
+    title: 'Ticket Size — One Technician',
+    blurb: 'What one technician’s typical job is worth, for the line items you tick',
+    defaultSpan: 3,
+    config: {
+      lines: {
+        ...LINES_FIELD,
+        hint: 'Leave every box unticked for the whole company. Tick one line, then its line items below.',
+      },
+      items: TICKET_ITEMS_FIELD,
+      itemsMode: TICKET_ITEMS_MODE_FIELD,
+      people: peopleField('jobber_people', 'technicians'),
+      credit: TICKET_CREDIT_FIELD,
+      measure: {
+        kind: 'enum' as const,
+        label: 'Show',
+        def: TICKET_MEDIAN,
+        opts: [TICKET_MEDIAN, TICKET_AVERAGE],
+        hint: 'Median is the typical job. One large install drags an average a long way.',
+      },
+      label: {
+        kind: 'text' as const,
+        label: 'Name on the card',
+        def: '',
+        placeholder: 'e.g. Lucas — Typical Repair',
+      },
+    },
+    sources: (cfg, win) => [techReq(cfg, win)],
+    metric: (bag, cfg, win): WidgetPayload => {
+      const row = bag.get<TicketByTechRow>(techReq(cfg, win))[0] ?? null
+      const median = String(cfg.measure) === TICKET_MEDIAN
+      const value = median ? num(row?.median_value) : num(row?.avg_value)
+      const other = median ? num(row?.avg_value) : num(row?.median_value)
+      const n = num(row?.ticket_count)
+      const filter = personFilter(cfg)
+      const scope = scopePhrase(cfg)
+      const who = filter.active ? filter.names.join(' + ') : 'every technician'
+
+      return {
+        kind: 'kpi',
+        label: String(cfg.label).trim()
+          || `${median ? 'Typical' : 'Average'} Ticket — ${filter.active ? filter.names.join(' + ') : scope}`,
+        value: n > 0 ? formatCurrency(value) : '—',
+        tone: 'good',
+        sub: n > 0
+          ? [
+              `${n.toLocaleString('en-US')} job${n === 1 ? '' : 's'} for ${who} on ${scope} in ${win.phrase}`,
+              `${median ? 'average' : 'median'} ${formatCurrency(other)}`,
+              `${formatCurrency(num(row?.total_value))} in total`,
+              ...ticketNotes(cfg, row),
+              ...sharedNote(cfg, row),
+            ].join(' · ')
+          : [
+              `No completed jobs for ${who} on ${scope} in ${win.phrase}`,
+              /* ⚠ Two filters can each produce an honest-looking zero here, so when
+               * the answer is nothing the card names them both rather than leaving
+               * somebody to guess which one emptied it. */
+              ...(filter.active ? ['check the ticked technicians'] : []),
+              ...(asArray(cfg.items).length && String(cfg.itemsMode) !== ITEMS_EXCLUDE
+                ? ['check the ticked line items'] : []),
+            ].join(' · '),
+      }
+    },
+  },
+
+  {
+    type: 'ticket_size_by_tech_chart',
+    // Crew & Labor for the same reason as the card above — this one names everybody.
+    group: 'Crew & Labor',
+    title: 'Ticket Size by Technician',
+    blurb: 'Every technician’s typical job side by side, for the line items you tick',
+    defaultSpan: 6,
+    config: {
+      lines: {
+        ...LINES_FIELD,
+        hint: 'Leave every box unticked for the whole company. Tick one line, then its line items below.',
+      },
+      items: TICKET_ITEMS_FIELD,
+      itemsMode: TICKET_ITEMS_MODE_FIELD,
+      people: {
+        ...peopleField('jobber_people', 'technicians'),
+        label: 'Limit to these technicians',
+        hint: 'Optional. Leave every box unticked to show everyone who did the work.',
+      },
+      credit: TICKET_CREDIT_FIELD,
+      measure: {
+        kind: 'enum' as const,
+        label: 'Compare on',
+        def: TICKET_MEDIAN,
+        opts: [TICKET_MEDIAN, TICKET_AVERAGE],
+        hint: 'Median is the fairer comparison between people — one big job moves an average, not a median.',
+      },
+      chart: {
+        kind: 'enum' as const,
+        label: 'Draw as',
+        def: TECH_CHART_BARS,
+        opts: [TECH_CHART_BARS, TECH_CHART_TABLE],
+        hint: 'Bars compare at a glance. Table shows median, average, count and total together.',
+      },
+    },
+    sources: (cfg, win) => [techReq(cfg, win)],
+    metric: (bag, cfg, win): WidgetPayload => {
+      const row = bag.get<TicketByTechRow>(techReq(cfg, win))[0] ?? null
+      const median = String(cfg.measure) === TICKET_MEDIAN
+      const scope = scopePhrase(cfg)
+      const rows = (row?.by_tech ?? []).slice()
+      /* ⚠ Ordered by the figure being COMPARED, not by ticket count as the SQL
+       * returns it. A chart whose bars are not sorted by their own length makes the
+       * reader do the comparison the chart exists to do. */
+      rows.sort((a, b) =>
+        (median ? num(b.median_value) - num(a.median_value) : num(b.avg_value) - num(a.avg_value))
+        || a.tech.localeCompare(b.tech))
+
+      const sub = [
+        `${median ? 'Median' : 'Average'} job value per technician on ${scope} in ${win.phrase}`,
+        ...ticketNotes(cfg, row),
+        ...sharedNote(cfg, row),
+      ].join(' · ')
+      const empty = `No completed jobs on ${scope} in ${win.phrase}`
+
+      if (String(cfg.chart) === TECH_CHART_TABLE) {
+        return {
+          kind: 'table',
+          title: `Ticket Size by Technician — ${scope}`,
+          sub,
+          columns: [
+            { key: 'tech', label: 'Technician', align: 'left' },
+            { key: 'median', label: 'Median', align: 'right', format: 'currency', sortable: true },
+            { key: 'avg', label: 'Average', align: 'right', format: 'currency', sortable: true },
+            { key: 'n', label: 'Jobs', align: 'right', format: 'number', sortable: true },
+            { key: 'total', label: 'Total', align: 'right', format: 'currency', sortable: true },
+          ],
+          rows: rows.map(r => ({
+            key: r.tech,
+            cells: {
+              tech: r.tech,
+              median: num(r.median_value),
+              avg: num(r.avg_value),
+              n: num(r.ticket_count),
+              total: num(r.total_value),
+            },
+          })),
+          empty,
+        }
+      }
+
+      return {
+        kind: 'bars',
+        title: `Ticket Size by Technician — ${scope}`,
+        sub,
+        format: 'currency',
+        rows: rows.map((r, i) => ({
+          label: r.tech,
+          value: median ? num(r.median_value) : num(r.avg_value),
+          tone: MIX_TONES[i % MIX_TONES.length],
+          /* ⚠ The count belongs ON the bar. A $248 median off 7 jobs and a $164
+           * median off 228 are not comparable claims, and a bar chart flattens that
+           * difference into equal-looking rows unless the sample size travels with
+           * it. */
+          detail: `${num(r.ticket_count).toLocaleString('en-US')} job${num(r.ticket_count) === 1 ? '' : 's'} · ${median ? 'avg' : 'median'} ${formatCurrency(median ? num(r.avg_value) : num(r.median_value))}`,
+        })),
+        empty,
       }
     },
   },

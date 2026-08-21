@@ -823,6 +823,36 @@ export type TicketSizeRow = {
 }
 
 /**
+ * Ticket size broken out per technician. From `scoreboard_ticket_size_by_tech`.
+ *
+ * ⚠⚠ A SEPARATE ROW TYPE AND A SEPARATE SOURCE, not extra keys on TicketSizeRow,
+ * because a median is the one statistic that cannot be recombined from roll-ups: you
+ * cannot average two people's medians into the median of their combined tickets. Each
+ * `by_tech` median therefore has to be computed in SQL over that person's own
+ * tickets, and the headline median has to be computed over exactly the SELECTED
+ * people — which is why the person filter is a query parameter here rather than
+ * something the widget applies to a payload it already has.
+ */
+export type TicketByTechRow = {
+  ticket_count: number
+  avg_value: number | string | null
+  median_value: number | string | null
+  total_value: number | string | null
+  off_list_lines: number | null
+  off_list_value: number | string | null
+  /** Tickets carrying more than one technician — what 'each' double-counts. */
+  shared_tickets: number | null
+  credit_mode: 'each' | 'split' | string
+  by_tech: {
+    tech: string
+    ticket_count: number
+    avg_value: number | string | null
+    median_value: number | string | null
+    total_value: number | string | null
+  }[]
+}
+
+/**
  * One bonus rule. See lib/reports/commission.ts for what each field means and how it
  * pays; this is only the row shape.
  *
@@ -1393,6 +1423,38 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`ticket_size: ${error.message}`)
     return data ? [data as TicketSizeRow] : []
+  },
+
+  ticket_size_by_tech: async (ctx, params) => {
+    const split = (v: unknown) =>
+      String(v ?? '').split(',').map(s => s.trim()).filter(Boolean)
+    /* ⚠ Both `items` and `techs` arrive JSON-encoded rather than comma-joined. Item
+     * names are free text off the tenant's invoices ("Valve, 1 inch"), and a person's
+     * name can carry a comma too ("Smith, Jr"). Comma-joining either would split one
+     * value into two that match nothing, and the card would quietly narrow further
+     * than it was told to with no error anywhere. */
+    const json = (v: unknown): string[] => {
+      if (typeof v !== 'string' || !v.trim()) return []
+      try {
+        const parsed: unknown = JSON.parse(v)
+        return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
+      } catch { return [] }
+    }
+    const lines = split(params.lines)
+    const items = json(params.items)
+    const techs = json(params.techs)
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_ticket_size_by_tech', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+      p_lines: lines.length ? lines : null,
+      p_items: items.length ? items : null,
+      p_items_mode: String(params.itemsMode ?? 'include') === 'exclude' ? 'exclude' : 'include',
+      p_techs: techs.length ? techs : null,
+      p_tech_credit: String(params.techCredit ?? 'each') === 'split' ? 'split' : 'each',
+    })
+    if (error) throw new Error(`ticket_size_by_tech: ${error.message}`)
+    return data ? [data as TicketByTechRow] : []
   },
 }
 

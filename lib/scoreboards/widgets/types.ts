@@ -68,6 +68,7 @@ export type SourceKey =
   // Average and median value of a single completed job, per service line. The IR
   // repair-ticket card generalised.
   | 'ticket_size'
+  | 'ticket_size_by_tech'
   // The bonus rules themselves — one row per (person, rule). A tiny table read, kept
   // as its own source so the commission cards stay pure metrics over existing data
   // rather than needing a function of their own.
