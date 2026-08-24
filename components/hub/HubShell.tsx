@@ -974,6 +974,7 @@ export default function HubShell({
             onTextSizeChange={setTextSize}
             initialPinnedIds={initialPinnedIds ?? []}
             canAccessTracker={canAccessTracker}
+            canAdminAi={grants.ai}
             canAccessCallLog={canAccessCallLog}
             canAccessLawn={canAccessLawn}
             canAccessZoneSizer={canAccessZoneSizer}

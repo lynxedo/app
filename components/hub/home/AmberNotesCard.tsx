@@ -66,8 +66,12 @@ function todayYmd(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date())
 }
 
-export default function AmberNotesCard() {
+export default function AmberNotesCard({ variant = 'card' }: { variant?: 'card' | 'page' } = {}) {
   const [data, setData] = useState<Payload | null>(null)
+  // Distinguishes "still loading" from "the load failed". Returning null for both was
+  // survivable as a card tucked under the time clock; on its own Hub screen it renders
+  // a blank page with no hint that anything went wrong.
+  const [loadFailed, setLoadFailed] = useState(false)
   const [draft, setDraft] = useState<Draft>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -85,10 +89,16 @@ export default function AmberNotesCard() {
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/hub/voice-notes')
-      if (!res.ok) return
+      if (!res.ok) {
+        setLoadFailed(true)
+        return
+      }
       setData((await res.json()) as Payload)
+      setLoadFailed(false)
     } catch {
-      // leave the card as-is; a failed refresh must not blank out what's on screen
+      setLoadFailed(true)
+      // Existing data is deliberately left on screen — a failed REFRESH must not blank
+      // out notes the user can still read and cancel.
     }
   }, [])
 
@@ -142,7 +152,17 @@ export default function AmberNotesCard() {
     }
   }
 
-  if (!data) return null
+  if (!data) {
+    return (
+      <section className="mb-8">
+        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5 text-sm text-gray-500">
+          {loadFailed
+            ? "Couldn't load Amber's instructions. Refresh the page to try again."
+            : 'Loading Amber\u2019s instructions\u2026'}
+        </div>
+      </section>
+    )
+  }
 
   const live = data.live
   // "All services" can only close a day — a positive number has to name one, because the
@@ -154,10 +174,12 @@ export default function AmberNotesCard() {
       <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-white/40">
-              ☎️ Amber — right now
-            </h2>
-            <p className="mt-1 text-sm text-gray-400">
+            {variant === 'card' && (
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-white/40">
+                ☎️ Amber — right now
+              </h2>
+            )}
+            <p className={`text-sm text-gray-400${variant === 'card' ? ' mt-1' : ''}`}>
               {live.length === 0
                 ? 'Running on her standard instructions.'
                 : `${live.length} ${live.length === 1 ? 'instruction' : 'instructions'} in effect — these override her knowledge base.`}

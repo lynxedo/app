@@ -99,6 +99,7 @@ export default function HubSidebar({
   onTextSizeChange,
   initialPinnedIds = [],
   canAccessTracker = false,
+  canAdminAi = false,
   canAccessCallLog = false,
   canAccessLawn = false,
   canAccessZoneSizer = false,
@@ -125,6 +126,8 @@ export default function HubSidebar({
   onTextSizeChange?: (size: string) => void
   initialPinnedIds?: string[]
   canAccessTracker?: boolean
+  /** can_admin_ai (or super-admin) — gates the Amber "Right Now" entry. */
+  canAdminAi?: boolean
   canAccessCallLog?: boolean
   canAccessLawn?: boolean
   canAccessZoneSizer?: boolean
@@ -323,6 +326,21 @@ export default function HubSidebar({
 
   useEffect(() => { loadConversations() }, [loadConversations])
   useEffect(() => { loadBoards() }, [loadBoards])
+
+  // Amber "Right Now" — how many temporary instructions are in force. Shown as a badge
+  // so an active override ("we're booked today") is visible from anywhere in Hub rather
+  // than only to whoever thinks to open the screen. A forgotten note quietly stops the
+  // company taking bookings, so this is the safety net, not decoration.
+  const [amberNoteCount, setAmberNoteCount] = useState(0)
+  useEffect(() => {
+    if (!canAdminAi) return
+    let cancelled = false
+    fetch('/api/hub/voice-notes?count=1')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setAmberNoteCount(Number(d.count) || 0) })
+      .catch(() => { /* a badge is not worth surfacing an error for */ })
+    return () => { cancelled = true }
+  }, [canAdminAi, pathname])
 
   // Refresh conversations when Quick Compose creates a new one
   useEffect(() => {
@@ -1242,6 +1260,33 @@ export default function HubSidebar({
             </svg>
             <span className="truncate">My Tasks</span>
           </Link>
+
+          {/* Amber — Right Now: temporary instructions for the AI receptionist.
+              Admin-gated, so most people never see this row. */}
+          {canAdminAi && (
+            <Link
+              href="/hub/amber"
+              onClick={() => onClose?.()}
+              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                pathname === '/hub/amber'
+                  ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30'
+                  : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <svg className="w-4 h-4 flex-none text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              </svg>
+              <span className="truncate flex-1">Amber</span>
+              {amberNoteCount > 0 && (
+                <span
+                  className="flex-none rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 ring-1 ring-inset ring-amber-400/30"
+                  title={`${amberNoteCount} temporary ${amberNoteCount === 1 ? 'instruction' : 'instructions'} in effect`}
+                >
+                  {amberNoteCount}
+                </span>
+              )}
+            </Link>
+          )}
 
           {/* Boards */}
           <div>

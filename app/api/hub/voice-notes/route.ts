@@ -73,12 +73,26 @@ async function displayNames(
   return out
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await requireAdminArea('ai')
   if (!auth.ok || !auth.company_id) return bad('forbidden', 403)
   const admin = createAdminClient()
   const companyId = auth.company_id
   const nowIso = new Date().toISOString()
+
+  // ?count=1 — just how many notes are in force. The Hub sidebar badge calls this on
+  // every navigation; the full payload drags in the service list, the people list and
+  // the history, none of which a badge needs.
+  if (new URL(request.url).searchParams.get('count')) {
+    const { count } = await admin
+      .from('voice_receptionist_notes')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .is('cancelled_at', null)
+      .lte('starts_at', nowIso)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+    return NextResponse.json({ count: count ?? 0 })
+  }
 
   const [liveRes, recentRes, services, people] = await Promise.all([
     admin
