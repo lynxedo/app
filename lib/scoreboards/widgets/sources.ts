@@ -799,6 +799,52 @@ export type RecurringBookRow = {
 }
 
 /**
+ * One row per marketing channel: what it generated (Lead Tracker) and what it billed
+ * (Jobber), plus hand-entered spend. From `scoreboard_channel_scorecard`.
+ *
+ * ⚠ Every spend-derived figure is NULL rather than 0 when spend has not been entered.
+ * A channel nobody has recorded a cost for must not out-rank one that reports its
+ * costs honestly, and a 0 denominator would do exactly that.
+ *
+ * ⚠ `close_rate` is closed_won / (closed_won + closed_lost) — upsell-type stages are
+ * returned separately as `sold_other` and deliberately never move the rate, matching
+ * the rule the Sales report and Help already state.
+ */
+export type ChannelRow = {
+  credit_rule: 'acquisition' | 'recent_touch'
+  leads: number | null
+  closed_won: number | null
+  closed_lost: number | null
+  revenue: number | string | null
+  customers: number | null
+  spend: number | string | null
+  /** False when nothing has been entered at all — the card hides the money columns. */
+  has_spend: boolean
+  by_source: {
+    source: string
+    source_group: string
+    cost_type: string
+    leads: number | null
+    closed_won: number | null
+    closed_lost: number | null
+    sold_other: number | null
+    still_open: number | null
+    close_rate: number | string | null
+    customers: number | null
+    invoices: number | null
+    revenue: number | string | null
+    collected: number | string | null
+    tracker_value_sold: number | string | null
+    spend: number | string | null
+    spend_months: number | null
+    revenue_per_lead: number | string | null
+    cost_per_lead: number | string | null
+    cost_per_customer: number | string | null
+    roas: number | string | null
+  }[]
+}
+
+/**
  * Invoiced revenue split by lead source. From `scoreboard_revenue_by_source`.
  *
  * ⚠ `credit_rule` is echoed back by the function rather than assumed from the
@@ -1429,6 +1475,31 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * queries, by design. `sourceKey` includes the param, so same-rule cards still
    * share one.
    */
+  /**
+   * The channel scorecard — jobs from the Tracker, dollars from Jobber, spend from
+   * `marketing_spend`.
+   *
+   * ⚠ `close_rate_by_source` reads this too, which is a deliberate trade. It is a
+   * heavier query than the raw `leads` read it replaced (~100ms, because it also does
+   * the invoice/client join it does not need), and the reason is correctness: the raw
+   * read normalised nothing, so Heroes' "Angi Lead" and "Angi Leads" drew as two
+   * channels. On a board carrying both cards this costs nothing at all — same params,
+   * one cache slot.
+   */
+  channel_scorecard: async (ctx, params) => {
+    const rule = String(params.creditRule ?? 'acquisition') === 'recent_touch'
+      ? 'recent_touch'
+      : 'acquisition'
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_channel_scorecard', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+      p_credit_rule: rule,
+    })
+    if (error) throw new Error(`channel_scorecard: ${error.message}`)
+    return data ? [data as ChannelRow] : []
+  },
+
   revenue_by_source: async (ctx, params) => {
     const rule = String(params.creditRule ?? 'acquisition') === 'recent_touch'
       ? 'recent_touch'

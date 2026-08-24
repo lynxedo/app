@@ -6,6 +6,7 @@ import ReportAccessPanel from './ReportAccessPanel'
 import GoalsAdminPanel from './GoalsAdminPanel'
 import CommissionAdminPanel from './CommissionAdminPanel'
 import RecurringProgramsPanel, { type ProgramRow, type UnmappedRow } from './RecurringProgramsPanel'
+import MarketingSpendPanel, { type SpendRow } from './MarketingSpendPanel'
 import { GOAL_METRICS, GOAL_GRAINS } from '@/lib/reports/goals'
 import { normalizeTiers, type CommissionBasis, type RateKind } from '@/lib/reports/commission'
 
@@ -126,6 +127,26 @@ export default async function ReportsAdminPage() {
     admin.rpc('recurring_unmapped_line_items', { p_company_id: company }),
   ])
 
+  /* Marketing spend, and the channel list it must be filed against.
+   *
+   * ⚠ Read with the service-role client because `marketing_spend` has RLS on with no
+   * policies — what the company pays for leads is not readable off the REST API by
+   * every Hub user. See the migration.
+   */
+  const [{ data: spendRows }, { data: masterRows }] = await Promise.all([
+    admin
+      .from('marketing_spend')
+      .select('id, source, period_start, amount, notes')
+      .eq('company_id', company)
+      .order('period_start', { ascending: false })
+      .limit(500),
+    admin
+      .from('lead_sources_master')
+      .select('master_source')
+      .eq('company_id', company)
+      .order('master_source', { ascending: true }),
+  ])
+
   const employees = (empRows ?? []).map(e => ({
     id: e.id as string,
     // Composed the way the roster composes it, so the editor and Admin → People agree
@@ -223,6 +244,16 @@ export default async function ReportsAdminPage() {
         employees={employees}
       />
       <CommissionAdminPanel employees={employees} plans={plans} lines={lines} items={items} />
+      <MarketingSpendPanel
+        sources={[...new Set((masterRows ?? []).map(r => String(r.master_source)).filter(Boolean))]}
+        rows={(spendRows ?? []).map(r => ({
+          id: r.id as string,
+          source: r.source as string,
+          period_start: r.period_start as string,
+          amount: Number(r.amount),
+          notes: (r.notes as string | null) ?? null,
+        })) as SpendRow[]}
+      />
       <RecurringProgramsPanel programs={programs} unmapped={unmapped} lines={lines} />
     </div>
   )

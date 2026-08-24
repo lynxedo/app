@@ -77,6 +77,13 @@ export type SourceKey =
   // than shaping in the metric, because the rule decides which LABEL each client
   // gets — a relabelling the payload cannot undo after the fact. See sources.ts.
   | 'revenue_by_source'
+  /**
+   * The channel scorecard: Lead Tracker JOBS and Jobber DOLLARS on one row, plus
+   * hand-entered ad spend. Backs the marketing-ROI cards and, since Aug 24 2026,
+   * `close_rate_by_source` — which previously read `leads` raw and therefore split
+   * one channel across every spelling of its name.
+   */
+  | 'channel_scorecard'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 

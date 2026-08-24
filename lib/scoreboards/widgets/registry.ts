@@ -10,7 +10,7 @@
  * SAME source, which is the batching case in miniature.
  */
 
-import type { ScorecardRow, DecidedLeadRow } from './sources'
+import type { ScorecardRow, ChannelRow } from './sources'
 import type { SourceBag, WidgetConfig, WidgetDef, WindowSpec } from './types'
 import { RETENTION_WIDGETS, RETENTION_REPORT_PRESET } from './retention'
 import { REVENUE_WIDGETS, REVENUE_REPORT_PRESET } from './revenue'
@@ -27,6 +27,7 @@ import { REVENUE_TREND_WIDGETS } from './revenuetrend'
 import { TRACKED_ITEM_WIDGETS } from './trackeditems'
 import { BOOK_WIDGETS, TICKET_WIDGETS } from './book'
 import { REVENUE_SOURCE_WIDGETS } from './revsource'
+import { CHANNEL_WIDGETS } from './channels'
 import { COMMISSION_WIDGETS } from './commission'
 import { NARRATIVE_WIDGETS } from './narrative'
 import type { Tone, WidgetPayload } from './payloads'
@@ -277,19 +278,47 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
       // agree with the one it replaces before anyone trusts it.
       topN: { kind: 'number', label: 'Show top', def: 8, min: 3, max: 20, unit: 'sources' },
     },
-    sources: (_cfg, win) => [{ source: 'leads_decided', params: { start: win.start, end: win.end } }],
+    /* ⚠⚠ READS `channel_scorecard`, NOT `leads` DIRECTLY — fixed 2026-08-24.
+     *
+     * This card used to read the `leads` table raw and bucket by `l.lead_source`
+     * verbatim. `lead_source` is free text, so one channel drew as several bars:
+     * Heroes' 2026 leads carry "Angi Leads" (108) AND "Angi Lead" (28) — 21% of Angi
+     * in a second bar that sorted somewhere else entirely — plus Google split across
+     * "Google (GBP / LSA)" (163), "Google" (1) and "GLSA" (1), and "Referral" apart
+     * from "Customer Referral". Every OTHER card in this group already normalised
+     * through `churn_normalize_source`; this one was simply missed, and the failure is
+     * invisible unless you know the alias table exists.
+     *
+     * ⚠ The numbers on this card CHANGE as a result, and that is the fix, not a
+     * regression: Angi's close rate was being computed off 82 of its 136 decided
+     * leads.
+     *
+     * ⚠ Close rate still counts closed_won against closed_won + closed_lost only —
+     * upsell-type stages are returned separately by the source and deliberately never
+     * move the rate. Unchanged behaviour, now enforced in SQL rather than here.
+     *
+     * ⚠⚠ THIS CARD IS MARKETING-GATED WHILE ITS SOURCE CARRIES REVENUE AND AD SPEND,
+     * and that is safe for exactly one reason: the resolver serialises only each
+     * widget's COMPUTED PAYLOAD (`data[inst.id]`), never the source rows, which stay
+     * in the server-side bag and are discarded. So a marketing-only holder causes the
+     * revenue figures to be fetched and thrown away, never sent.
+     *
+     * ⚠ The rule that follows, for whoever edits this next: do NOT add revenue,
+     * customers or spend to THIS card's payload. Doing so would publish Revenue-gated
+     * figures through a Marketing-gated card — the widget group is the access
+     * decision, and this payload is the boundary. If the close-rate card ever needs
+     * money on it, it belongs in the Revenue group instead. */
+    sources: (_cfg, win) => [{ source: 'channel_scorecard', params: { start: win.start, end: win.end, creditRule: 'acquisition' } }],
     metric: (bag, cfg, win) => {
-      const leads = bag.get<DecidedLeadRow>({ source: 'leads_decided', params: { start: win.start, end: win.end } })
-      const agg: Record<string, { won: number; lost: number }> = {}
-      for (const l of leads) {
-        if (l.stage !== 'closed_won' && l.stage !== 'closed_lost') continue
-        const src = (l.lead_source || '').trim() || UNKNOWN_SOURCE
-        const slot = (agg[src] ??= { won: 0, lost: 0 })
-        if (l.stage === 'closed_won') slot.won++
-        else slot.lost++
-      }
-      const rows = Object.entries(agg)
-        .map(([label, c]) => ({ label, ...c, decided: c.won + c.lost }))
+      const row = bag.get<ChannelRow>({ source: 'channel_scorecard', params: { start: win.start, end: win.end, creditRule: 'acquisition' } })[0] ?? null
+      const rows = (row?.by_source ?? [])
+        .map(r => ({
+          label: r.source,
+          won: Number(r.closed_won) || 0,
+          lost: Number(r.closed_lost) || 0,
+        }))
+        .map(r => ({ ...r, decided: r.won + r.lost }))
+        .filter(r => r.decided > 0)
         .sort((a, b) => b.decided - a.decided)
         .slice(0, Number(cfg.topN))
       return {
@@ -447,7 +476,7 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
 ]
 
 /** Every widget in the library. One array per subject area, concatenated here. */
-const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...CLIENTS_GEO_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...QUOTE_WIDGETS, ...HOME_WIDGETS, ...PEOPLE_WIDGETS, ...GOALS_WIDGETS, ...REVENUE_TREND_WIDGETS, ...TRACKED_ITEM_WIDGETS, ...BOOK_WIDGETS, ...TICKET_WIDGETS, ...REVENUE_SOURCE_WIDGETS, ...COMMISSION_WIDGETS, ...NARRATIVE_WIDGETS]
+const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...CLIENTS_GEO_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...QUOTE_WIDGETS, ...HOME_WIDGETS, ...PEOPLE_WIDGETS, ...GOALS_WIDGETS, ...REVENUE_TREND_WIDGETS, ...TRACKED_ITEM_WIDGETS, ...BOOK_WIDGETS, ...TICKET_WIDGETS, ...REVENUE_SOURCE_WIDGETS, ...CHANNEL_WIDGETS, ...COMMISSION_WIDGETS, ...NARRATIVE_WIDGETS]
 
 const BY_TYPE = new Map(ALL_WIDGETS.map(w => [w.type, w]))
 
