@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getRoutingDirectory, matchRoutingEntry } from '@/lib/voice-routing'
+import { getActiveVoiceNotes, coverageMap, applyCoverageToRoutingEntries } from '@/lib/voice-notes'
 
 // AI Voice Receptionist — Level 5 frontline routing tool endpoint.
 //
@@ -47,7 +48,15 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
 
   const query = (body.entry || '').trim()
-  const dir = await getRoutingDirectory(admin, companyId)
+  // Coverage notes re-point 'user' destinations, matching what the brain already told
+  // Amber the directory looks like. If only the brain applied coverage she would offer
+  // to connect the caller to the person covering, and this would then record the
+  // person who is out as the transfer target.
+  const notes = await getActiveVoiceNotes(admin, companyId).catch(() => [])
+  const dir = applyCoverageToRoutingEntries(
+    await getRoutingDirectory(admin, companyId),
+    coverageMap(notes),
+  )
   const match = matchRoutingEntry(dir, query)
 
   // No match → tell the assistant to take a message instead (she will NOT emit

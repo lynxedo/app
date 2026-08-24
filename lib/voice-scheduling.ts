@@ -214,14 +214,27 @@ export function candidateDays(opts: {
   return out
 }
 
-/** Earliest candidate day whose existing booking count is under the per-day cap. */
+/** Earliest candidate day whose existing booking count is under the per-day cap.
+ *
+ *  `capOverrides` ({ 'YYYY-MM-DD': maxJobs }) lets a "Right Now" note replace the
+ *  service's standing `max_per_day` for specific days — Ben's *"you can schedule up to
+ *  4 irrigation service calls for Monday the 31st"* and *"we are booked for today, do
+ *  not book any more"*. A day capped at 0 is skipped entirely, so the availability tool
+ *  never offers it and can never hand Amber a slot that contradicts the note she is
+ *  reading. Empty overrides = exactly the previous behaviour.
+ *  See lib/voice-notes.ts bookingCapsForService for how the caps are resolved. */
 export function firstOpenDay(
   candidates: string[],
   countByDay: Record<string, number>,
   maxPerDay: number,
+  capOverrides: Record<string, number> = {},
 ): string | null {
   for (const ymd of candidates) {
-    if ((countByDay[ymd] ?? 0) < maxPerDay) return ymd
+    const cap = capOverrides[ymd] ?? maxPerDay
+    // A cap of 0 closes the day outright. Spelled out rather than left to the
+    // comparison below, because "0 means closed" is the whole point of the feature.
+    if (cap <= 0) continue
+    if ((countByDay[ymd] ?? 0) < cap) return ymd
   }
   return null
 }

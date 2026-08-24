@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import HomeTimeClockCard, { type HomeTimeClockInitial } from '@/components/hub/home/HomeTimeClockCard'
+import AmberNotesCard from '@/components/hub/home/AmberNotesCard'
 import LandingActivity from '@/components/hub/home/LandingActivity'
 import AnnouncementAckGate from '@/components/hub/home/AnnouncementAckGate'
 
@@ -56,7 +57,7 @@ export default async function HubHomePage() {
       .gt('expires_at', nowIso)
       .order('created_at', { ascending: false })
       .limit(10),
-    supabase.from('user_profiles').select('can_access_timesheet').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('can_access_timesheet, can_admin_ai, role').eq('id', user.id).single(),
     supabase
       .from('employees')
       .select('id, first_name, last_name, preferred_name, job_title')
@@ -66,6 +67,14 @@ export default async function HubHomePage() {
 
   // Time clock initial state — only fetched + rendered if user has timesheet access AND a linked employee record
   const canAccessTimesheet = profileResult.data?.can_access_timesheet ?? false
+
+  // Amber's "Right Now" card is an ADMIN control living on a page everyone sees. A note
+  // set here can stop the company taking bookings or re-point the phone, so it is shown
+  // only to people who could already change how the assistant behaves (same grant as
+  // Admin → AI). Everyone else's Home is untouched. The API re-checks this — the page
+  // gate decides what to render, not what is allowed.
+  const profileRow = profileResult.data as { can_admin_ai?: boolean; role?: string } | null
+  const canManageAmberNotes = profileRow?.role === 'admin' || profileRow?.can_admin_ai === true
   let timeClockInitial: HomeTimeClockInitial | null = null
   if (canAccessTimesheet && employeeResult.data) {
     const { data: lastPunch } = await supabase
@@ -107,6 +116,8 @@ export default async function HubHomePage() {
         </div>
 
         {timeClockInitial && <HomeTimeClockCard initial={timeClockInitial} />}
+
+        {canManageAmberNotes && <AmberNotesCard />}
 
         <section className="mb-10">
           <h2 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">📢 Announcements</h2>

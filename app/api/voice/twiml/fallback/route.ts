@@ -12,6 +12,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { filterNonDndUserIds } from '@/lib/dialer-conference-connect'
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { getCompanyVoicemailGreeting, getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import { applyCoverageToTransfer } from '@/lib/voice-notes'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -85,6 +86,10 @@ export async function POST(request: NextRequest) {
   if (endReason === 'transfer_requested') {
     const admin = createAdminClient()
     const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+    // This is the route that actually DIALS. A coverage note ("Kathryn is off today,
+    // transfer calls to me") has to land here, not just in Amber's prompt — otherwise
+    // she says "let me get Ben" and this rings Kathryn.
+    const coveredTransfer = await applyCoverageToTransfer(admin, HEROES_COMPANY_ID, settings)
     const callerFrom = lower.from || ''
     const callSid = lower.callsid || ''
 
@@ -173,10 +178,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (settings.transferMethod === 'softphone' && settings.transferUserIds.length > 0) {
+    if (settings.transferMethod === 'softphone' && coveredTransfer.transferUserIds.length > 0) {
       // Honor Do Not Disturb: ring only recipients who aren't DND right now
       // (same checks as the dialer ring groups). Everyone DND → voicemail below.
-      const identities = await filterNonDndUserIds(admin, settings.transferUserIds)
+      const identities = await filterNonDndUserIds(admin, coveredTransfer.transferUserIds)
       if (identities.length > 0) {
         // Single known recipient → attribute the call to them on answer (?u=).
         const action =
@@ -201,8 +206,8 @@ export async function POST(request: NextRequest) {
     // and drops the caller to voicemail once the list is exhausted. callerId is
     // OUR Twilio number (this is an outbound PSTN leg).
     if (settings.transferMethod === 'cell') {
-      const withCell = settings.transferUserIds
-        .map((uid) => ({ uid, cell: settings.transferCellNumbers[uid] }))
+      const withCell = coveredTransfer.transferUserIds
+        .map((uid) => ({ uid, cell: coveredTransfer.transferCellNumbers[uid] }))
         .filter((r) => Boolean(r.cell))
       // Honor Do Not Disturb here too — a DND recipient's cell shouldn't ring.
       const notDnd = await filterNonDndUserIds(admin, withCell.map((r) => r.uid))

@@ -554,6 +554,22 @@ function HubTab() {
         <p><strong className="text-white">Auto-return to Home after long gaps</strong> — if it&apos;s been more than 14 hours since you last opened Hub, the next time you open it you&apos;ll land on Home instead. The idea: after an overnight gap you probably want to see the announcements and clock in first, not jump straight into whatever room you closed yesterday.</p>
       </Section>
 
+      <Section title="Amber — Right Now (temporary instructions)">
+        <p>A card on the Home screen for telling the AI receptionist something that&apos;s only true for today (or this week) — without editing her knowledge base. Things like <em>&ldquo;we&apos;re booked today, don&apos;t book any more&rdquo;</em> or <em>&ldquo;Kathryn&apos;s off, send her calls to me.&rdquo;</em> Every note has an expiry and disappears on its own.</p>
+        <AdminOnly>
+          <p>The card only appears for people who can manage AI (the same access as <em>Admin → AI</em>) — a note here can stop the company taking bookings or re-point the phone, so it isn&apos;t open to everyone. It&apos;s both where you write the notes and the list of what&apos;s currently in force, with a <strong className="text-white">Remove</strong> on each one.</p>
+          <p><strong className="text-white">These beat the knowledge base.</strong> That&apos;s the point of them. Anything you put here is the last thing Amber reads, and she&apos;s told it outranks her standing instructions and company knowledge. She won&apos;t read the list out loud — if a caller asks, she explains it in her own words.</p>
+          <p><strong className="text-white">Three kinds, and the difference matters:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong className="text-white">Tell her something</strong> — free text, for anything that changes what she <em>says</em>. Pick an expiry: today, tomorrow, a date, or until you remove it.</li>
+            <li><strong className="text-amber-300">Booking limit</strong> — a day, a service, and a number. This one changes what she can actually <em>do</em>: she won&apos;t offer or book past the limit, because the limit is applied to the real availability check, not just mentioned to her. Choosing <em>All services</em> closes the day entirely (she&apos;ll still offer a later day); a specific number has to name one service, since each service is counted against its own limit. It expires by itself at the end of that day.</li>
+            <li><strong className="text-violet-300">Someone&apos;s out</strong> — who&apos;s out and who covers. Transfers aimed at that person go to whoever is covering instead, on the real phone, not just in what Amber says. Your saved transfer list in Admin is untouched — when the note expires, calls go back to normal on their own.</li>
+          </ul>
+          <p><strong className="text-white">When it takes effect.</strong> On her next call. Amber loads her instructions the moment a call connects, so a call already in progress finishes on the instructions it started with — seconds, not minutes.</p>
+          <p><strong className="text-white">Recently used.</strong> Expired and removed notes stay in a short list at the bottom of the card, so a note you set often (&ldquo;we&apos;re booked today&rdquo;) can be re-added with one tap. Booking limits aren&apos;t re-addable that way — they&apos;re tied to a specific date, so you pick the day fresh.</p>
+        </AdminOnly>
+      </Section>
+
       <Section title="Navigation — rail + sidebars">
         <p>Hub is organized around a thin <strong className="text-white">icon rail</strong> on the left edge of the screen (or as a bottom tab bar on phones). Each icon opens its own sidebar with that section&apos;s contents.</p>
         <p className="font-medium text-white mt-3">Desktop rail — fixed icons</p>

@@ -14,9 +14,9 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
+import { companyJobberUserId } from '@/lib/jobber'
+import { countBookedVisitsByDay } from '@/lib/voice-capacity'
 import {
-  addDaysYmd,
   candidateDays,
   centralYmd,
   dateLabelForSpeech,
@@ -26,6 +26,7 @@ import {
   matchSchedulableService,
   type TimeFrame,
 } from '@/lib/voice-scheduling'
+import { getActiveVoiceNotes, bookingCapsForService, isDayFullyBlocked } from '@/lib/voice-notes'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,21 +42,6 @@ function bearerAuthorized(request: Request): boolean {
   const b = Buffer.from(secret)
   return a.length === b.length && crypto.timingSafeEqual(a, b)
 }
-
-const PRODUCT_IDS_QUERY = `
-  query AmberProductIds { productOrServices(first: 200) { nodes { id name } } }
-`
-
-// Root visits query, same shape the nightly sync uses. Filtered server-side to
-// UPCOMING + a startAt window + (when resolvable) the specific product/service,
-// so we count only this service's future bookings.
-const VISITS_QUERY = `
-  query AmberAvailability($filter: VisitFilterAttributes) {
-    visits(first: 100, filter: $filter) {
-      nodes { id startAt }
-    }
-  }
-`
 
 function to12h(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number)
@@ -153,50 +139,23 @@ export async function POST(request: Request) {
     )
   }
 
-  // Resolve the product/service id so the capacity count is scoped to THIS
-  // service (best-effort; if it can't be resolved we still offer the earliest
-  // allowed day — request mode has a human check before it's confirmed).
-  let productId: string | null = null
-  try {
-    const p = await jobberGraphQLAdmin<{ data: { productOrServices: { nodes: { id: string; name: string }[] } } }>(
-      userId,
-      PRODUCT_IDS_QUERY,
-      {},
-    )
-    const nm = svc.line_item.toLowerCase()
-    productId = p.data?.productOrServices?.nodes?.find((n) => n.name.toLowerCase() === nm)?.id ?? null
-  } catch {
-    // leave productId null → count falls back to unscoped/skip
-  }
+  const countByDay = await countBookedVisitsByDay({
+    jobberUserId: userId,
+    serviceLineItem: svc.line_item,
+    fromYmd: days[0],
+    toYmd: days[days.length - 1],
+  })
 
-  // Count existing UPCOMING visits per Central day across the window (one query;
-  // pad the UTC bounds a day each side, then bucket by Central calendar date).
-  const countByDay: Record<string, number> = {}
-  try {
-    const filter: Record<string, unknown> = {
-      status: 'UPCOMING',
-      startAt: {
-        after: `${addDaysYmd(days[0], -1)}T00:00:00Z`,
-        before: `${addDaysYmd(days[days.length - 1], 1)}T23:59:59Z`,
-      },
-    }
-    if (productId) filter.productOrServiceId = productId
-    const resp = await jobberGraphQLAdmin<{ data: { visits: { nodes: { id: string; startAt: string | null }[] } } }>(
-      userId,
-      VISITS_QUERY,
-      { filter },
-    )
-    for (const v of resp.data?.visits?.nodes ?? []) {
-      if (!v.startAt) continue
-      const ymd = centralYmd(new Date(v.startAt))
-      countByDay[ymd] = (countByDay[ymd] ?? 0) + 1
-    }
-  } catch (err) {
-    console.error('[voice.availability] visits query failed', err)
-    // Fall through with empty counts — request mode's human step catches conflicts.
-  }
+  // "Right Now" notes can replace max_per_day for specific days — Ben's *"up to 4
+  // irrigation service calls for Monday the 31st"* and *"we are booked for today"*.
+  // WITHOUT this the tool would compute an opening from the standing cap and hand
+  // Amber a sentence telling her to book it, directly contradicting the note she is
+  // reading in her own prompt. Non-fatal: a notes failure leaves caps empty, which is
+  // the pre-feature behaviour.
+  const notes = await getActiveVoiceNotes(admin, companyId).catch(() => [])
+  const capOverrides = bookingCapsForService(notes, svc.line_item)
 
-  const openDay = firstOpenDay(days, countByDay, svc.max_per_day)
+  const openDay = firstOpenDay(days, countByDay, svc.max_per_day, capOverrides)
   if (!openDay) {
     return ok(
       `We're fully booked for ${svc.line_item} within the next ${svc.horizon_days} days. Take the caller's details so a specialist can find the next opening.`,
@@ -204,13 +163,25 @@ export async function POST(request: Request) {
     )
   }
 
+  // A day the office closed by note is SKIPPED, not treated as "no availability" — a
+  // caller phoning at 2pm on a full day should still be able to book Wednesday. Ben's
+  // *"we are booked for today. Do not book any more"* reads as "nothing else onto
+  // TODAY", not "stop booking work". When that skip is why the offer moved, say so, so
+  // she frames it as today being full rather than the next slot being a week out for
+  // no stated reason.
+  const skippedToday = days[0] !== openDay && isDayFullyBlocked(notes, days[0])
+
   const label = dateLabelForSpeech(openDay)
   const windowPhrase = formatWindows(svc.time_frames)
   const firstWin = svc.time_frames[0]
   // Machine hint so the model books with exact args (not by re-parsing the spoken
   // date). It's a bracketed directive the model acts on, not speech.
   const bookHint = ` [When the caller agrees, call book_appointment with service="${svc.line_item}", date="${openDay}"${firstWin ? `, start="${firstWin.start}", end="${firstWin.end}"` : ''}.]`
+  const fullPrefix = skippedToday
+    ? "Today's schedule is full, so don't offer today. "
+    : ''
   const answer =
+    fullPrefix +
     (windowPhrase
       ? `The first opening for ${svc.line_item} is ${label}, with ${windowPhrase}. If that works, confirm the details with the caller and then book it.`
       : `The first opening for ${svc.line_item} is ${label}. If that works, confirm the details with the caller and then book it.`) + bookHint

@@ -18,6 +18,13 @@ import {
   type ReceptionistLevel,
 } from '@/lib/voice-receptionist'
 import { getRoutingDirectory } from '@/lib/voice-routing'
+import {
+  getActiveVoiceNotes,
+  buildNotesBlock,
+  coverageMap,
+  applyCoverageToTransfer,
+  applyCoverageToRoutingEntries,
+} from '@/lib/voice-notes'
 import { startCallRecording, isWithinBusinessHours, BusinessHoursSchedule } from '@/lib/twilio-voice'
 import { findOrCreateTxtContact, lookupByPhone } from '@/lib/dialer-lookup'
 import { getAiTextBotUserId } from '@/lib/ai-text-identity'
@@ -73,6 +80,14 @@ export async function POST(request: Request) {
   // Load the company's editable receptionist settings (Admin -> Dialer -> AI
   // Receptionist), falling back to the code defaults when a field is blank.
   const settings = await getEffectiveVoiceReceptionistSettings(admin, companyId)
+
+  // "Right Now" notes — Ben's temporary instructions, which supersede the Knowledge
+  // Base. Loaded once and used three ways below: the spoken block appended to the very
+  // end of the prompt, and (for coverage notes) the transfer list + routing directory
+  // that Amber's transfer tools actually resolve against. Non-fatal by construction —
+  // getActiveVoiceNotes returns [] on any failure, which is the pre-feature behaviour.
+  const notes = await getActiveVoiceNotes(admin, companyId)
+  const covMap = coverageMap(notes)
 
   // Log the call + start recording.
   //
@@ -213,10 +228,16 @@ export async function POST(request: Request) {
   // "reachable" also means the recipient has a number on file — otherwise
   // there's no one to ring. When everyone is DND, Amber gets the "no transfer"
   // instruction and takes a message instead of promising a hand-off.
+  // Coverage notes re-point transfers before we decide whether one is even on offer —
+  // otherwise "Kathryn is off, send her calls to me" would leave Amber deciding
+  // availability from Kathryn's reachability and then ringing Kathryn anyway.
+  const coveredTransfer = await applyCoverageToTransfer(admin, companyId, settings, notes)
   const candidateRecipientIds =
     settings.transferMethod === 'cell'
-      ? settings.transferUserIds.filter((id) => Boolean(settings.transferCellNumbers[id]))
-      : settings.transferUserIds
+      ? coveredTransfer.transferUserIds.filter((id) =>
+          Boolean(coveredTransfer.transferCellNumbers[id]),
+        )
+      : coveredTransfer.transferUserIds
   let transferAvailable = false
   if (settings.transferMethod !== 'off' && candidateRecipientIds.length > 0) {
     try {
@@ -277,7 +298,10 @@ export async function POST(request: Request) {
   let routingNote = ''
   if (frontlineActive) {
     try {
-      const dir = (await getRoutingDirectory(admin, companyId)).filter((e) => e.enabled)
+      const dir = applyCoverageToRoutingEntries(
+        (await getRoutingDirectory(admin, companyId)).filter((e) => e.enabled),
+        covMap,
+      )
       const userDestIds = dir.filter((e) => e.dest_kind === 'user').map((e) => e.dest_value).filter(Boolean)
       const notDnd = userDestIds.length ? await filterNonDndUserIds(admin, userDestIds) : []
       const reachable = dir.filter((e) => e.dest_kind !== 'user' || notDnd.includes(e.dest_value))
@@ -301,6 +325,14 @@ export async function POST(request: Request) {
     frontlineActive ? FRONTLINE_INSTRUCTION : null,
     frontlineActive ? routingNote : buildTransferInstruction(transferAvailable),
     callContext,
+    // LAST on purpose. buildGuardianSystem lays the prompt out as
+    //   core → COMPANY IDENTITY → knowledge base docs → task
+    // so anything at the end of `task` is the final word in the whole system prompt —
+    // after every KB doc and after the standing receptionist instructions. That
+    // position, plus the explicit precedence header inside the block, is what makes
+    // Ben's *"temporary instructions are meant to supersede what is in the knowledge
+    // base"* actually true rather than merely stated.
+    buildNotesBlock(notes),
   ]
     .filter(Boolean)
     .join('\n\n')

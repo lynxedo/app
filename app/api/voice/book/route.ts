@@ -20,6 +20,7 @@ import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { lookupByPhone } from '@/lib/dialer-lookup'
 import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
+import { countBookedVisitsByDay } from '@/lib/voice-capacity'
 import {
   SCHEDULING_TZ,
   dateLabelForSpeech,
@@ -27,6 +28,7 @@ import {
   getSchedulingEnabled,
   matchSchedulableService,
 } from '@/lib/voice-scheduling'
+import { getActiveVoiceNotes, bookingCapsForService } from '@/lib/voice-notes'
 
 export const dynamic = 'force-dynamic'
 
@@ -103,6 +105,25 @@ export async function POST(request: Request) {
     return ok("There's no caller number to attach this to, so take the caller's details for a specialist to book.", { booked: false })
   }
 
+  // ⚠ THE WRITE MUST RESOLVE LIKE THE READ. find_availability is where the per-day cap
+  // is applied, but nothing forces Amber through it — the caller says "can you come
+  // today?" and she can call book_appointment with that date directly. Enforcing the
+  // note only in availability would leave Ben's *"we are booked for today. Do not book
+  // any more"* trivially bypassed by the exact conversation it exists to prevent.
+  //
+  // Scoped to NOTE caps on purpose. The service's standing `max_per_day` is still not
+  // enforced here (it never has been — this route has never counted existing visits);
+  // retrofitting that would silently start refusing bookings that succeed today, which
+  // is a separate change and not one that was asked for.
+  const notes = await getActiveVoiceNotes(admin, companyId).catch(() => [])
+  const noteCap = bookingCapsForService(notes, svc.line_item)[date]
+  if (noteCap === 0) {
+    return ok(
+      `The office has closed ${dateLabelForSpeech(date)} to new ${svc.line_item} bookings, so don't book that day. Offer the caller another day, or take their details for a specialist to follow up.`,
+      { booked: false, service: svc.line_item, date, blocked: true },
+    )
+  }
+
   // v1: live booking is for EXISTING customers (we already have their property).
   // A new caller is captured for a human to book — the wrap-up files the lead.
   let jobberClientId: string | null = null
@@ -128,6 +149,26 @@ export async function POST(request: Request) {
     return ok("I can't reach the schedule right now. Take the caller's details so a specialist can confirm the time.", {
       booked: false,
     })
+  }
+
+  // A NUMERIC note cap ("up to 4 irrigation calls Monday the 31st") needs the day's
+  // existing count, so it runs here rather than with the cheap 0-check above — and only
+  // when such a cap actually exists for this date, so the normal booking path adds no
+  // Jobber round-trip. Same counting helper find_availability uses, so the two paths
+  // cannot disagree about how full a day is.
+  if (typeof noteCap === 'number' && noteCap > 0) {
+    const counts = await countBookedVisitsByDay({
+      jobberUserId: userId,
+      serviceLineItem: svc.line_item,
+      fromYmd: date,
+      toYmd: date,
+    })
+    if ((counts[date] ?? 0) >= noteCap) {
+      return ok(
+        `${dateLabelForSpeech(date)} is already at the limit the office set for ${svc.line_item}, so don't book it. Offer another day, or take the caller's details for a specialist to follow up.`,
+        { booked: false, service: svc.line_item, date, blocked: true },
+      )
+    }
   }
 
   // Chosen slot → scheduled assessment (a human confirms the exact time). Whole

@@ -6,6 +6,7 @@ import {
   getEffectiveVoiceReceptionistSettings,
 } from '@/lib/voice-receptionist-settings'
 import { twimlDialCellStep, twimlRecordVoicemail, voiceCallerId } from '@/lib/twilio-voice'
+import { applyCoverageToTransfer } from '@/lib/voice-notes'
 
 // AI Voice Receptionist — cell transfer: the SEQUENCER.
 //
@@ -57,8 +58,13 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   // groups — so a recipient flipping DND mid-sequence is skipped, and the list
   // stays index-consistent with the fallback route's filtered entry list.
   const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
-  const withCell = settings.transferUserIds
-    .map((uid) => ({ uid, cell: settings.transferCellNumbers[uid] }))
+  // ⚠ MUST apply coverage exactly as the fallback route does. This route re-derives the
+  // recipient list from settings on every step and indexes into it (?i=N); if the two
+  // lists were built from different rules the index would point at a different person
+  // and the next ring would go to whoever happened to land at that position.
+  const coveredTransfer = await applyCoverageToTransfer(admin, HEROES_COMPANY_ID, settings)
+  const withCell = coveredTransfer.transferUserIds
+    .map((uid) => ({ uid, cell: coveredTransfer.transferCellNumbers[uid] }))
     .filter((r) => Boolean(r.cell))
   const notDnd = await filterNonDndUserIds(admin, withCell.map((r) => r.uid))
   const recipients = withCell.filter((r) => notDnd.includes(r.uid))
