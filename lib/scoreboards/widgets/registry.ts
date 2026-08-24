@@ -26,6 +26,7 @@ import { GOALS_WIDGETS, GOALS_REPORT_PRESET } from './goals'
 import { REVENUE_TREND_WIDGETS } from './revenuetrend'
 import { TRACKED_ITEM_WIDGETS } from './trackeditems'
 import { BOOK_WIDGETS, TICKET_WIDGETS } from './book'
+import { REVENUE_SOURCE_WIDGETS } from './revsource'
 import { COMMISSION_WIDGETS } from './commission'
 import { NARRATIVE_WIDGETS } from './narrative'
 import type { Tone, WidgetPayload } from './payloads'
@@ -446,7 +447,7 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
 ]
 
 /** Every widget in the library. One array per subject area, concatenated here. */
-const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...CLIENTS_GEO_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...QUOTE_WIDGETS, ...HOME_WIDGETS, ...PEOPLE_WIDGETS, ...GOALS_WIDGETS, ...REVENUE_TREND_WIDGETS, ...TRACKED_ITEM_WIDGETS, ...BOOK_WIDGETS, ...TICKET_WIDGETS, ...COMMISSION_WIDGETS, ...NARRATIVE_WIDGETS]
+const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...CLIENTS_GEO_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS, ...QUOTE_WIDGETS, ...HOME_WIDGETS, ...PEOPLE_WIDGETS, ...GOALS_WIDGETS, ...REVENUE_TREND_WIDGETS, ...TRACKED_ITEM_WIDGETS, ...BOOK_WIDGETS, ...TICKET_WIDGETS, ...REVENUE_SOURCE_WIDGETS, ...COMMISSION_WIDGETS, ...NARRATIVE_WIDGETS]
 
 const BY_TYPE = new Map(ALL_WIDGETS.map(w => [w.type, w]))
 

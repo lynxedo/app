@@ -73,6 +73,10 @@ export type SourceKey =
   // as its own source so the commission cards stay pure metrics over existing data
   // rather than needing a function of their own.
   | 'commission_plans'
+  // Invoiced revenue split by lead source. Takes `creditRule` as a param rather
+  // than shaping in the metric, because the rule decides which LABEL each client
+  // gets — a relabelling the payload cannot undo after the fact. See sources.ts.
+  | 'revenue_by_source'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 

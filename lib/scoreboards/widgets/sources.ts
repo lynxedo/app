@@ -798,6 +798,34 @@ export type RecurringBookRow = {
   is_priced: boolean
 }
 
+/**
+ * Invoiced revenue split by lead source. From `scoreboard_revenue_by_source`.
+ *
+ * ⚠ `credit_rule` is echoed back by the function rather than assumed from the
+ * config, so the card states the rule the DATABASE actually applied. An
+ * unrecognised rule falls back to 'acquisition' inside the function; without the
+ * echo the card would caption itself with the rule that was ASKED for, which is
+ * the one case where the caption would be wrong exactly when it matters.
+ */
+export type RevenueBySourceRow = {
+  credit_rule: 'acquisition' | 'recent_touch'
+  invoiced: number | string | null
+  collected: number | string | null
+  invoices: number | null
+  clients: number | null
+  /** Revenue in the "Other / Unknown" bucket — attribution coverage, not a channel. */
+  unknown: number | string | null
+  by_source: {
+    source: string
+    source_group: string
+    cost_type: string
+    invoiced: number | string | null
+    collected: number | string | null
+    invoice_count: number | null
+    client_count: number | null
+  }[]
+}
+
 export type TicketSizeRow = {
   ticket_count: number
   avg_value: number | string | null
@@ -1386,6 +1414,33 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
       .order('sort_order', { ascending: true })
     if (error) throw new Error(`commission_plans: ${error.message}`)
     return (data ?? []) as CommissionPlanRow[]
+  },
+
+  /**
+   * Invoiced revenue by lead source.
+   *
+   * ⚠⚠ `creditRule` is a QUERY parameter, not a payload filter, because the two
+   * rules do not filter the same rows — they RELABEL them. Every invoice is counted
+   * under both; what changes is which channel gets the credit. Measured Jan–Aug
+   * 2026, 161 clients worth $163,445 (34% of revenue) swap labels between the two,
+   * so this cannot be shaped after the fact from one result set.
+   *
+   * The consequence to know: two cards on one board set to different rules are two
+   * queries, by design. `sourceKey` includes the param, so same-rule cards still
+   * share one.
+   */
+  revenue_by_source: async (ctx, params) => {
+    const rule = String(params.creditRule ?? 'acquisition') === 'recent_touch'
+      ? 'recent_touch'
+      : 'acquisition'
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_revenue_by_source', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+      p_credit_rule: rule,
+    })
+    if (error) throw new Error(`revenue_by_source: ${error.message}`)
+    return data ? [data as RevenueBySourceRow] : []
   },
 
   ticket_size: async (ctx, params) => {
