@@ -54,7 +54,7 @@ const VISITS_QUERY = `
  * One invisible character is a stupid thing to lose a booking to, so normalize both
  * sides: trim, collapse internal runs of whitespace, casefold.
  */
-const normalizeServiceName = (s: string): string =>
+export const normalizeServiceName = (s: string): string =>
   s.trim().replace(/\s+/g, ' ').toLowerCase()
 
 type PageInfo = { hasNextPage: boolean; endCursor: string | null }

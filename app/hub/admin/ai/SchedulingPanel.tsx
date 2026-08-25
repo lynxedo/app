@@ -27,6 +27,7 @@ type ServiceForm = {
   lead_days: number
   horizon_days: number
   commitment: SchedulingCommitment
+  job_title_template: string
   frequencies: string[]
 }
 
@@ -49,6 +50,7 @@ const newService = (line_item: string): ServiceForm => ({
   lead_days: 1,
   horizon_days: 30,
   commitment: 'request',
+  job_title_template: '',
   frequencies: [],
 })
 
@@ -64,6 +66,7 @@ const toForm = (r: SchedulableServiceRow): ServiceForm => ({
   lead_days: r.lead_days,
   horizon_days: r.horizon_days,
   commitment: r.commitment,
+  job_title_template: r.job_title_template ?? '',
   frequencies: Array.isArray(r.frequencies) ? r.frequencies : [],
 })
 
@@ -483,7 +486,7 @@ export default function SchedulingPanel() {
                           {
                             v: 'direct' as SchedulingCommitment,
                             t: 'Book the appointment directly',
-                            d: 'Writes the booking straight into Jobber with no human step. Coming soon — for now these still file as a request to confirm.',
+                            d: 'Creates the job in Jobber with its line item and puts the visit on the calendar — no human step.',
                           },
                         ] as const
                       ).map((opt) => (
@@ -500,6 +503,28 @@ export default function SchedulingPanel() {
                         </button>
                       ))}
                     </div>
+                    {s.commitment === 'direct' && (
+                      <div className="mt-3">
+                        <span className="text-xs text-white/50 block mb-1">Job title</span>
+                        <input
+                          type="text"
+                          value={s.job_title_template}
+                          onChange={(e) => update(i, { job_title_template: e.target.value.slice(0, 200) })}
+                          placeholder={s.line_item}
+                          className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25"
+                        />
+                        <p className="text-xs text-white/40 mt-1">
+                          How the job is named in Jobber. Use{' '}
+                          <code className="text-white/60">[PRICE]</code>,{' '}
+                          <code className="text-white/60">[NEIGHBORHOOD]</code>,{' '}
+                          <code className="text-white/60">[SERVICE]</code> — for example{' '}
+                          <code className="text-white/60">IR SVC $[PRICE] [NEIGHBORHOOD]</code>. The price comes from
+                          the product in Jobber. The neighborhood is taken from this customer&apos;s own earlier jobs;
+                          if there isn&apos;t one to go on, it&apos;s left out and the job says so rather than guessing.
+                          Leave blank to use the line item name.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (

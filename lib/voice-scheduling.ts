@@ -34,6 +34,8 @@ export type SchedulableServiceRow = {
   commitment: SchedulingCommitment
   frequencies: string[]
   sort_order: number
+  /** Direct-booking job title pattern; NULL falls back to the line item name. */
+  job_title_template: string | null
 }
 
 /** DB-ready insert/upsert shape (no id/timestamps — upsert matches on the
@@ -41,7 +43,7 @@ export type SchedulableServiceRow = {
 export type SchedulableServiceInput = Omit<SchedulableServiceRow, 'id'> & { updated_at: string }
 
 export const SCHEDULING_SERVICE_COLUMNS =
-  'id, company_id, line_item, mode, enabled, duration_minutes, max_per_day, time_frames, offered_days, assigned_user_ids, lead_days, horizon_days, commitment, frequencies, sort_order'
+  'id, company_id, line_item, mode, enabled, duration_minutes, max_per_day, time_frames, offered_days, assigned_user_ids, lead_days, horizon_days, commitment, frequencies, sort_order, job_title_template'
 
 export const SCHEDULING_DEFAULTS = {
   mode: 'appointment' as SchedulingMode,
@@ -153,6 +155,13 @@ export function sanitizeSchedulableService(
     commitment: o.commitment === 'direct' ? 'direct' : 'request',
     frequencies,
     sort_order: sortOrder,
+    // ⚠ Must be listed here or the next admin save silently WIPES it: this return is a
+    // whitelist, and the upsert writes exactly what it returns. A configured job title
+    // vanishing would drop direct bookings back to an untitled job.
+    job_title_template:
+      typeof o.job_title_template === 'string' && o.job_title_template.trim()
+        ? o.job_title_template.trim().slice(0, 200)
+        : null,
     updated_at: new Date().toISOString(),
   }
 }

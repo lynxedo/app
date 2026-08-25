@@ -7,11 +7,18 @@
 // (startAt/endAt/assigned tech) — it lands in the Requests inbox for a human to
 // confirm/convert. Dark until Level 4 is un-clamped.
 //
-// v1 scope (deliberately narrow — this WRITES to the live system of record):
+// Scope (deliberately narrow — this WRITES to the live system of record):
 //   • EXISTING Jobber customers only (we already have their property/address);
 //     a new caller is captured for a human to book (via the existing wrap-up).
-//   • Request-mode only (a human confirms). Direct auto-book (jobCreate) and
-//     live new-client creation are the documented fast-follow.
+//   • Two commitment modes, per the service's `commitment` setting:
+//       'request' — a Request + scheduled assessment for a human to confirm.
+//       'direct'  — a real JOB with its line item, plus an Anytime visit.
+//     'direct' used to be selectable but inert: this route called requestCreate
+//     unconditionally and read `commitment` only to echo it back, so an admin who
+//     chose Direct got a Request and no setting could change it. Ben, testing the
+//     live line: *"I have it set so that she books the appointment versus putting
+//     in a request, but my test, she put in a request."*
+//   • Live new-client creation remains the documented fast-follow.
 //
 // Auth: same Bearer VOICE_SERVICE_SECRET as the other /api/voice endpoints.
 
@@ -29,6 +36,15 @@ import {
   matchSchedulableService,
 } from '@/lib/voice-scheduling'
 import { getActiveVoiceNotes, bookingCapsForService } from '@/lib/voice-notes'
+import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import {
+  buildJobTitle,
+  createJobberJob,
+  createJobberVisit,
+  findJobberProduct,
+  neighborhoodFromClientHistory,
+  primaryPropertyId,
+} from '@/lib/voice-jobs'
 
 export const dynamic = 'force-dynamic'
 
@@ -171,6 +187,144 @@ export async function POST(request: Request) {
     }
   }
 
+  // While the receptionist is in test mode, tag what it creates so test bookings are
+  // unmistakable and safe to bulk-delete. Hoisted above the direct path because BOTH
+  // commitment modes tag their output.
+  const testMode = process.env.VOICE_TEST_MODE === 'true'
+
+  // ── DIRECT: a real job on the schedule ──────────────────────────────────────
+  // Everything below this block is the Request path, unchanged. A company only gets
+  // here by explicitly setting this service to Direct.
+  //
+  // Ordering is deliberate: every read that could fail happens BEFORE the first
+  // write, so a missing product or property degrades into "a specialist will confirm"
+  // rather than a half-built job. The one write we cannot make atomic is job-then-
+  // visit; if the visit fails the job still exists, so we say so plainly instead of
+  // claiming a time.
+  if (svc.commitment === 'direct') {
+    const vr = await getEffectiveVoiceReceptionistSettings(admin, companyId)
+
+    const product = await findJobberProduct(userId, svc.line_item).catch(() => null)
+    if (!product) {
+      // The catalog is the source of price and wording; without it we would be
+      // inventing both onto a real invoice.
+      console.warn(`[voice.book] no Jobber product for "${svc.line_item}" — cannot direct-book`)
+      return ok(
+        "I can't put that straight on the schedule right now. Take the caller's details and let them know a specialist will confirm the appointment.",
+        { booked: false, reason: 'product_not_found' },
+      )
+    }
+
+    const propertyId = await primaryPropertyId(userId, jobberClientId).catch(() => null)
+    if (!propertyId) {
+      return ok(
+        "I couldn't find their service address on file, so don't promise a time. Collect the address and let them know a specialist will confirm.",
+        { booked: false, reason: 'no_property' },
+      )
+    }
+
+    // Evidence, never inference — see neighborhoodFromClientHistory.
+    const neighborhood = await neighborhoodFromClientHistory(
+      admin,
+      companyId,
+      jobberClientId,
+      vr.neighborhoods,
+    ).catch(() => null)
+
+    const template = (svc.job_title_template || '').trim() || svc.line_item
+    const title = `${testMode ? '[TEST] ' : ''}${buildJobTitle(template, {
+      price: product.unitPrice,
+      neighborhood,
+      service: svc.line_item,
+      lastName: null,
+    })}`
+
+    // The office needs to know two things from the job itself: what the caller
+    // actually said, and whether anything was left for a human. A missing
+    // neighborhood is called out by name rather than left as a silently short title.
+    const instructionLines = [
+      `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked on a call with the AI receptionist.`,
+      startHHMM ? `Caller was offered a ${startHHMM}${endHHMM ? `\u2013${endHHMM}` : ''} arrival window.` : 'Booked as an Anytime visit.',
+      neighborhood ? null : '\u26a0 Neighborhood could not be determined from this customer\u2019s previous jobs \u2014 please add it to the job title.',
+    ].filter(Boolean) as string[]
+
+    let created: { id: string; jobNumber: string | null; title: string }
+    try {
+      created = await createJobberJob(userId, {
+        propertyId,
+        title,
+        instructions: instructionLines.join(' '),
+        startDate: date,
+        lineItem: { name: product.name, description: product.description, unitPrice: product.unitPrice },
+      })
+    } catch (err) {
+      console.error('[voice.book] jobCreate failed', err)
+      return ok(
+        "I had trouble getting that on the schedule. Take the caller's details and a specialist will confirm the appointment.",
+        { booked: false },
+      )
+    }
+
+    // The visit is what puts it on the calendar. A window is passed through ONLY if
+    // one was actually agreed; otherwise the time is omitted, which is what makes it
+    // an Anytime visit — the shape this company's catalog says irrigation always uses.
+    let visitOk = true
+    try {
+      await createJobberVisit(userId, {
+        jobId: created.id,
+        date,
+        startHHMM: startHHMM || undefined,
+        endHHMM: endHHMM || undefined,
+        timezone: SCHEDULING_TZ,
+        assignedUserIds: svc.assigned_user_ids,
+      })
+    } catch (err) {
+      // The job exists and is real; only its calendar placement failed. Never report
+      // this as a clean booking — the office has to place it.
+      console.error('[voice.book] visitCreate failed', err)
+      visitOk = false
+    }
+
+    // Recorded for the wrap-up, which surfaces it on the Office Alert (and on the
+    // Lead Tracker row when the call produced one). ⚠ The wrap-up returns early
+    // without creating a lead for 'scheduling' / 'existing_customer' calls, which is
+    // what a booking call usually is — so this must not depend on a lead existing.
+    await admin
+      .from('voice_bookings')
+      .insert({
+        company_id: companyId,
+        call_sid: typeof body.callSid === 'string' ? body.callSid : null,
+        jobber_job_id: created.id,
+        job_number: created.jobNumber,
+        job_title: created.title,
+        service_line_item: svc.line_item,
+        booked_date: date,
+        start_hhmm: startHHMM || null,
+        end_hhmm: endHHMM || null,
+        jobber_client_id: jobberClientId,
+        neighborhood,
+        needs_office_attention: !neighborhood || !visitOk,
+      })
+      .then(({ error }) => {
+        if (error) console.warn('[voice.book] booking record failed', error.message)
+      })
+
+    const dLabel = dateLabelForSpeech(date)
+    const answer = visitOk
+      ? `Done \u2014 ${svc.line_item} is on the schedule for ${dLabel}${startHHMM ? `, arriving between ${startHHMM} and ${endHHMM || 'later that day'}` : ''}. Let the caller know warmly that they're booked${startHHMM ? '' : ", and tell them what your instructions say about when they'll hear their arrival window"}.`
+      : `The job is created for ${dLabel} but it isn't on the calendar yet, so DON'T promise a time. Tell the caller they're booked in and the office will confirm the day's details.`
+
+    return ok(answer, {
+      booked: true,
+      service: svc.line_item,
+      date,
+      dateLabel: dLabel,
+      commitment: 'direct',
+      jobNumber: created.jobNumber,
+      scheduled: visitOk,
+    })
+  }
+
   // Chosen slot → scheduled assessment (a human confirms the exact time). Whole
   // day when no window was offered/agreed.
   const schedule: Record<string, unknown> = {
@@ -181,9 +335,6 @@ export async function POST(request: Request) {
   if (svc.assigned_user_ids.length) schedule.teamMemberIdsToAssign = svc.assigned_user_ids
 
   const windowNote = startHHMM ? ` — caller offered a ${startHHMM}${endHHMM ? `–${endHHMM}` : ''} arrival window` : ''
-  // While the receptionist is in test mode (dark beta on the 888), tag the
-  // Request so test bookings are unmistakable and safe to bulk-delete.
-  const testMode = process.env.VOICE_TEST_MODE === 'true'
   const input = {
     clientId: jobberClientId,
     title: `${testMode ? '[TEST] ' : ''}${svc.line_item}`,

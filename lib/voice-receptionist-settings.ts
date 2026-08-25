@@ -38,6 +38,8 @@ export type VoiceReceptionistSettingsRow = {
   voice_id: string | null
   /** Level-4/5 master switch for live booking (mirrors lib/voice-scheduling). */
   scheduling_enabled: boolean | null
+  /** Canonical neighborhood names used to build direct-booking job titles. */
+  neighborhoods: string[] | null
   recap_text_enabled: boolean | null
   transfer_method: string | null
   transfer_user_ids: string[] | null
@@ -50,7 +52,7 @@ export type VoiceReceptionistSettingsRow = {
 // Columns to select for the settings row (kept in one place so the page loader,
 // admin route, and call-time endpoints stay in sync).
 export const VOICE_RECEPTIONIST_COLUMNS =
-  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, scheduling_enabled, recap_text_enabled, transfer_method, transfer_user_ids, transfer_cell_numbers, title_service_map, updated_at, updated_by'
+  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, scheduling_enabled, neighborhoods, recap_text_enabled, transfer_method, transfer_user_ids, transfer_cell_numbers, title_service_map, updated_at, updated_by'
 
 export type EffectiveVoiceReceptionistSettings = {
   enabled: boolean
@@ -73,6 +75,11 @@ export type EffectiveVoiceReceptionistSettings = {
    * thing the level turns on — see RULE_NO_SCHEDULING in lib/voice-receptionist.
    */
   canSchedule: boolean
+  /**
+   * Canonical neighborhood names for direct-booking job titles. Matched against a
+   * customer's OWN prior job titles — never inferred from an address.
+   */
+  neighborhoods: string[]
   voiceId: string
   /** Whether the assistant offers + we send an end-of-call recap text. */
   recapTextEnabled: boolean
@@ -177,6 +184,7 @@ export function resolveVoiceReceptionistSettings(
         canSchedule,
       }),
     canSchedule,
+    neighborhoods: Array.isArray(row?.neighborhoods) ? row!.neighborhoods.filter(Boolean) : [],
     voiceId: row?.voice_id?.trim() || process.env.VOICE_ELEVENLABS_VOICE_ID || '',
     recapTextEnabled,
     transferMethod: (['off', 'cell', 'softphone'].includes(row?.transfer_method || '')

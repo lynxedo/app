@@ -265,6 +265,38 @@ export async function POST(request: Request) {
   // Per-company receptionist settings (recap-text toggle + persona name).
   const vr = await getEffectiveVoiceReceptionistSettings(admin, companyId)
 
+  // Did she actually BOOK something on this call? /api/voice/book records it
+  // mid-call, because the office needs to see the job number wherever this wrap-up
+  // ends up — and the two paths below end up in different places.
+  //
+  // ⚠ This deliberately does NOT hang off the lead. The wrap-up returns early for
+  // 'scheduling' / 'existing_customer' / 'complaint' / 'billing' calls and posts an
+  // Office Alert INSTEAD of creating a lead — and a direct booking requires an
+  // existing Jobber customer, so a booked call is almost always exactly one of those.
+  // Stamping only the Tracker row would have put the job number nowhere on the
+  // calls that actually produce jobs.
+  let bookedLine: string | null = null
+  if (body.callSid) {
+    try {
+      const { data: bk } = await admin
+        .from('voice_bookings')
+        .select('job_number, job_title, booked_date, needs_office_attention')
+        .eq('call_sid', body.callSid)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      const b = (bk as { job_number: string | null; job_title: string | null; booked_date: string | null; needs_office_attention: boolean }[] | null)?.[0]
+      if (b) {
+        bookedLine =
+          `📅 Booked in Jobber: ${b.job_title || 'job'}${b.job_number ? ` (#${b.job_number})` : ''}` +
+          `${b.booked_date ? ` for ${b.booked_date}` : ''}` +
+          `${b.needs_office_attention ? ' — ⚠ needs a look: check the job title and that it is on the calendar' : ''}`
+      }
+    } catch (e) {
+      // Never fail a wrap-up over a cosmetic line.
+      console.warn('[voice.wrapup] booking lookup failed', (e as Error).message)
+    }
+  }
+
   // 1) Extract (best-effort; falls back to a minimal lead on failure).
   const extracted = await extractLead(transcriptText, fromNumber)
 
@@ -396,7 +428,7 @@ export async function POST(request: Request) {
           title:
             `${urgent ? '🔴 ' : ''}${meta.emoji} ${meta.label} from ${callerName}` +
             `${callbackPhone ? ` (${formatPhone(callbackPhone) || callbackPhone})` : ''}`,
-          details: [summary, 'Work it in the Hub Queue → /hub/txt'],
+          details: [summary, ...(bookedLine ? [bookedLine] : []), 'Work it in the Hub Queue → /hub/txt'],
         })
       } catch (e) {
         console.warn('[voice.wrapup] service notify failed', (e as Error).message)
@@ -442,6 +474,7 @@ export async function POST(request: Request) {
   if (extracted) facts.push(`Wants callback: ${extracted.wants_callback ? 'yes' : 'no'}`)
   if (extracted?.recap_opt_in)
     facts.push(`Recap text: opted in${vr.recapTextEnabled ? ' (recap text sent)' : ' (recap texts off)'}`)
+  if (bookedLine) facts.push(bookedLine)
   if (facts.length) noteLines.push('', facts.join('\n'))
   if (transcriptText.trim()) noteLines.push('', '--- Transcript ---', transcriptText)
 
@@ -514,6 +547,7 @@ export async function POST(request: Request) {
           `${callbackPhone ? ` (${formatPhone(callbackPhone) || callbackPhone})` : ''}`,
         details: [
           extracted?.soft_commitment && '🔥 Soft commitment — said YES to moving forward',
+          bookedLine,
           line2,
           summary,
           'Open the Lead Tracker → /hub/tracker',
