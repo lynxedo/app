@@ -266,20 +266,49 @@ export async function createJobberVisit(
   if (errs.length) throw new Error(errs.map((e) => e.message).join('; '))
 }
 
-/** The client's property to hang the job on. First property; Jobber returns the
- *  service property for a single-property client, which is every direct-book case. */
+/**
+ * The client's property to hang the job on.
+ *
+ * Tries the local Jobber mirror FIRST, and not merely as an optimisation: the
+ * property their existing jobs actually sit on is a better answer than "their first
+ * property", and it costs no Jobber round-trip on a live call. The API is the
+ * fallback for a client with no synced jobs.
+ *
+ * ⚠ `client.properties` is a PLAIN LIST, not a Relay connection — it takes no
+ * `first:` argument and has no `nodes`. Asking for either fails the whole query with
+ * `argumentNotAccepted` / `undefinedField`, which is how this returned null for every
+ * customer on the first cut and would have refused every booking.
+ */
 export async function primaryPropertyId(
+  admin: SupabaseClient,
+  companyId: string,
   jobberUserId: string,
   jobberClientId: string,
 ): Promise<string | null> {
+  try {
+    const { data } = await admin
+      .from('jobs')
+      .select('property_external_id')
+      .eq('company_id', companyId)
+      .eq('client_external_id', jobberClientId)
+      .not('property_external_id', 'is', null)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    const fromMirror = (data as { property_external_id: string | null }[] | null)?.[0]?.property_external_id
+    if (fromMirror) return fromMirror
+  } catch {
+    // fall through to Jobber
+  }
+
   const resp = await jobberGraphQLAdmin<{
-    data?: { client?: { properties?: { nodes?: { id: string }[] } } }
+    data?: { client?: { properties?: { id: string }[] } }
   }>(
     jobberUserId,
     `query AmberClientProperty($id: EncodedId!) {
-       client(id: $id) { properties(first: 5) { nodes { id } } }
+       client(id: $id) { properties { id } }
      }`,
     { id: jobberClientId },
   )
-  return resp.data?.client?.properties?.nodes?.[0]?.id ?? null
+  return resp.data?.client?.properties?.[0]?.id ?? null
 }

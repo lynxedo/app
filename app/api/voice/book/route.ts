@@ -215,7 +215,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const propertyId = await primaryPropertyId(userId, jobberClientId).catch(() => null)
+    const propertyId = await primaryPropertyId(admin, companyId, userId, jobberClientId).catch(() => null)
     if (!propertyId) {
       return ok(
         "I couldn't find their service address on file, so don't promise a time. Collect the address and let them know a specialist will confirm.",
