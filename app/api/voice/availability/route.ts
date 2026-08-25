@@ -203,8 +203,13 @@ export async function POST(request: Request) {
   // Deliberately generic — it defers to whatever the note says rather than encoding
   // any one company's timing policy — and only emitted when a note is actually in
   // force, so a company with no notes reads exactly the sentence it always did.
+  // Name the block EXACTLY as buildNotesBlock titles it in the prompt. Pointing at
+  // "your Right Now notes" (the feature's name in the admin UI) would be pointing at
+  // a heading the model never sees — the prompt calls it TODAY'S INSTRUCTIONS FROM
+  // THE OFFICE. A precedence rule that names the wrong thing is a precedence rule the
+  // model has to guess at, which is the failure this whole line exists to stop.
   const deferToNotes = notes.length
-    ? ' Your "RIGHT NOW" notes OUTRANK this result: if a note says how to handle timing, what to offer, or what to say, follow the note instead of this suggestion.'
+    ? " TODAY'S INSTRUCTIONS FROM THE OFFICE outrank this result: if they say how to handle timing, what to offer, or what to say, follow them instead of this suggestion."
     : ''
   const answer =
     fullPrefix +
