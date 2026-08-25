@@ -176,15 +176,43 @@ export async function POST(request: Request) {
   const firstWin = svc.time_frames[0]
   // Machine hint so the model books with exact args (not by re-parsing the spoken
   // date). It's a bracketed directive the model acts on, not speech.
-  const bookHint = ` [When the caller agrees, call book_appointment with service="${svc.line_item}", date="${openDay}"${firstWin ? `, start="${firstWin.start}", end="${firstWin.end}"` : ''}.]`
+  //
+  // The window args are OPTIONAL on purpose. Spelling them out unconditionally made
+  // this hint the most specific instruction in the whole call — more specific than
+  // the deferral below and more specific than any note — so Amber always pinned a
+  // time, even under a note saying to book anytime and text the window the day
+  // before. Omitting start/end books a date-only (anytime) visit, which is what the
+  // book route already does with them absent.
+  const bookHint = ` [When the caller agrees, call book_appointment with service="${svc.line_item}", date="${openDay}"${
+    firstWin
+      ? `. Add start="${firstWin.start}" and end="${firstWin.end}" ONLY if you actually offered that window and the caller accepted it; omit both to book it as an anytime visit`
+      : ''
+  }.]`
   const fullPrefix = skippedToday
     ? "Today's schedule is full, so don't offer today. "
+    : ''
+  // A tool result is the most specific thing the model has heard and it arrives last,
+  // so it beats a standing prompt note by default — which is exactly backwards. Ben,
+  // on his "Right Now" notes: *"my temporary instructions are meant to supersede...
+  // That is the whole point."* His note says to book these as anytime visits and let
+  // the customer know they'll get a three-hour window texted the day before; this
+  // tool was handing Amber three specific windows and telling her to offer one, and
+  // the tool won. The prompt-side block already claims precedence; say it HERE too,
+  // in the channel that was overriding it.
+  //
+  // Deliberately generic — it defers to whatever the note says rather than encoding
+  // any one company's timing policy — and only emitted when a note is actually in
+  // force, so a company with no notes reads exactly the sentence it always did.
+  const deferToNotes = notes.length
+    ? ' Your "RIGHT NOW" notes OUTRANK this result: if a note says how to handle timing, what to offer, or what to say, follow the note instead of this suggestion.'
     : ''
   const answer =
     fullPrefix +
     (windowPhrase
       ? `The first opening for ${svc.line_item} is ${label}, with ${windowPhrase}. If that works, confirm the details with the caller and then book it.`
-      : `The first opening for ${svc.line_item} is ${label}. If that works, confirm the details with the caller and then book it.`) + bookHint
+      : `The first opening for ${svc.line_item} is ${label}. If that works, confirm the details with the caller and then book it.`) +
+    deferToNotes +
+    bookHint
 
   return ok(answer, {
     available: true,
