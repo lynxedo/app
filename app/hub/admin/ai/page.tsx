@@ -128,9 +128,14 @@ export default async function AdminAiPage() {
       context: 'after_hours',
       name: vrEffective.receptionistName,
     }),
+    // canSchedule matters here too: "Reset to default" must load a template that
+    // ALLOWS booking when the company is at Level 4/5 with scheduling on. Without
+    // it, the one button an admin would reach for to fix a receptionist that won't
+    // book hands them back the same prohibition that stopped her booking.
     instructions_default: buildVoiceReceptionistPrompt(vrEffective.effectiveLevel, {
       name: vrEffective.receptionistName,
       recapEnabled: vrEffective.recapTextEnabled,
+      canSchedule: vrEffective.canSchedule,
     }),
     voice_id_default: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
     title_service_map_default: DEFAULT_TITLE_SERVICE_MAP,

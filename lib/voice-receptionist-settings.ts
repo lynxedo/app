@@ -36,6 +36,8 @@ export type VoiceReceptionistSettingsRow = {
   greeting_after_hours: string | null
   instructions: string | null
   voice_id: string | null
+  /** Level-4/5 master switch for live booking (mirrors lib/voice-scheduling). */
+  scheduling_enabled: boolean | null
   recap_text_enabled: boolean | null
   transfer_method: string | null
   transfer_user_ids: string[] | null
@@ -48,7 +50,7 @@ export type VoiceReceptionistSettingsRow = {
 // Columns to select for the settings row (kept in one place so the page loader,
 // admin route, and call-time endpoints stay in sync).
 export const VOICE_RECEPTIONIST_COLUMNS =
-  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, recap_text_enabled, transfer_method, transfer_user_ids, transfer_cell_numbers, title_service_map, updated_at, updated_by'
+  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, scheduling_enabled, recap_text_enabled, transfer_method, transfer_user_ids, transfer_cell_numbers, title_service_map, updated_at, updated_by'
 
 export type EffectiveVoiceReceptionistSettings = {
   enabled: boolean
@@ -65,6 +67,12 @@ export type EffectiveVoiceReceptionistSettings = {
   /** Back-compat single greeting == greetingAfterHours (the primary trigger today). */
   greeting: string
   instructions: string
+  /**
+   * Booking tools are live on a call (Level 4/5 AND the scheduling switch on).
+   * Shapes the DEFAULT instructions so the base persona doesn't forbid the very
+   * thing the level turns on — see RULE_NO_SCHEDULING in lib/voice-receptionist.
+   */
+  canSchedule: boolean
   voiceId: string
   /** Whether the assistant offers + we send an end-of-call recap text. */
   recapTextEnabled: boolean
@@ -135,6 +143,11 @@ export function resolveVoiceReceptionistSettings(
   const effectiveLevel = clampReceptionistLevel(chosen)
   const receptionistName = row?.receptionist_name?.trim() || DEFAULT_RECEPTIONIST_NAME
   const recapTextEnabled = row ? row.recap_text_enabled !== false : true
+  // Same condition the brain uses to hand over the booking tools, so the default
+  // prompt and the actual capability can never disagree. Deliberately reads the
+  // CHOSEN level, not the base-clamped one — the clamp exists to pick a persona,
+  // not to decide what she is allowed to do.
+  const canSchedule = (chosen === 4 || chosen === 5) && row?.scheduling_enabled === true
 
   // Greeting defaults are built from the CHOSEN level (not the base-clamped one)
   // so Level 5 gets its frontline greeting (buildWelcomeGreeting special-cases
@@ -158,7 +171,12 @@ export function resolveVoiceReceptionistSettings(
     greeting: greetingAfterHours,
     instructions:
       row?.instructions?.trim() ||
-      buildVoiceReceptionistPrompt(effectiveLevel, { name: receptionistName, recapEnabled: recapTextEnabled }),
+      buildVoiceReceptionistPrompt(effectiveLevel, {
+        name: receptionistName,
+        recapEnabled: recapTextEnabled,
+        canSchedule,
+      }),
+    canSchedule,
     voiceId: row?.voice_id?.trim() || process.env.VOICE_ELEVENLABS_VOICE_ID || '',
     recapTextEnabled,
     transferMethod: (['off', 'cell', 'softphone'].includes(row?.transfer_method || '')

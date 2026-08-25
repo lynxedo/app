@@ -69,9 +69,12 @@ export async function GET() {
       context: 'after_hours',
       name: effective.receptionistName,
     }),
+    // Must match app/hub/admin/ai/page.tsx — this is the same "Reset to default"
+    // template, served over the API instead of at render. See the note there.
     instructions_default: buildVoiceReceptionistPrompt(effective.effectiveLevel, {
       name: effective.receptionistName,
       recapEnabled: effective.recapTextEnabled,
+      canSchedule: effective.canSchedule,
     }),
     voice_id_default: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
     effective,

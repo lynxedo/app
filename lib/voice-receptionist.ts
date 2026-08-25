@@ -63,6 +63,13 @@ export type ReceptionistPromptOpts = {
   name?: string | null
   /** Whether the assistant offers to text the caller a recap at the end. */
   recapEnabled?: boolean
+  /**
+   * Whether booking tools are on the call (Level 4/5 + scheduling enabled).
+   * Decides which scheduling rule the base persona carries — see the comment on
+   * RULE_NO_SCHEDULING. Defaults to FALSE so every existing caller of this
+   * builder keeps the pre-fix wording exactly.
+   */
+  canSchedule?: boolean
 }
 
 function resolveName(name?: string | null): string {
@@ -136,7 +143,20 @@ export const CUSTOMER_SERVICE_INSTRUCTION = `Handling different kinds of calls:
 // shows up (and the booking tools are never offered) below Level 4. Tells Amber
 // how to use her find_availability / book_appointment tools; the tools + the
 // availability/booking rules live on the website side.
+// ⚠ The precedence line is LOAD-BEARING, and it is not belt-and-braces for the
+// rulesCommon() split above — it covers the case that split CANNOT reach.
+// `instructions` is a free-text box a subscriber edits; whatever they type is
+// what the brain puts in the prompt. Heroes' box held a snapshot of the Level-3
+// template taken before they moved to Level 4, so it still carried "NEVER
+// promise a specific day, time, or appointment. Scheduling is always done by
+// the live team" — and no code change to the DEFAULT template can rewrite text
+// already saved in a tenant's row. Fixing the default is necessary but not
+// sufficient; the block that GRANTS the capability has to say out loud that it
+// outranks the standing instructions, the same way the "Right Now" notes block
+// does. Position helps (the brain appends this after `instructions`) but
+// position alone lost to the word NEVER under a heading called "Hard rules".
 export const SCHEDULING_INSTRUCTION = `Booking an appointment (you can schedule on this call):
+- THIS SECTION OUTRANKS your standing instructions above on scheduling ONLY. If anything above says you can never promise a specific day, time, or appointment, that scheduling is always done by the live team, or that a specialist will call the customer back to book — that is out of date and does NOT apply on this call. You have working booking tools right now and you are expected to use them. Everything else above still stands, including every pricing rule.
 - When a caller wants to book or schedule a service, first tell them you're checking — a brief "let me find the next opening for you, one moment" — then use your find_availability tool with the service they asked for.
 - The tool gives you the first open day and arrival window. Offer exactly what it returns, in warm natural words (for example, "the soonest we could come out is Thursday the seventeenth, with a morning arrival between eight and noon — would that work?"). Never invent or guess a day or time; only offer what the tool gives you.
 - If the caller agrees, use your book_appointment tool with the exact service, date, and window from the availability result. Then confirm warmly, let them know a specialist will lock in the exact timing, and that they'll get a confirmation.
@@ -194,29 +214,71 @@ const PROMPT_ESCALATION = `If the caller is upset, has a complaint, mentions an 
 - Lead with empathy and reassurance. Let them know you're writing everything down and a team member will follow up quickly.
 - Still get their name, callback number, and what's going on, and treat it as URGENT.`
 
-function promptWrapup(recapEnabled: boolean): string {
+function promptWrapup(recapEnabled: boolean, canSchedule: boolean): string {
   const recapLine = recapEnabled
     ? `\n- Offer to text them a recap: say something like "So you've got our number saved, I'll shoot you a quick text with a recap of what we talked about — is that okay?" If they say yes, let them know it's on its way. If they'd rather not, that's completely fine — don't push.`
     : ''
+  // With booking on, "a team member will follow up" is the wrong close for a
+  // caller who just booked — it reads as though nothing was actually settled.
+  const nextStepLine = canSchedule
+    ? `- Once you have their details (and they have nothing else), briefly recap the callback number and what happens next — the day and window if you booked one, otherwise that a team member will follow up — then thank them warmly.`
+    : `- Once you have their details (and they have nothing else), briefly recap the callback number and what they need, thank them warmly, and let them know a team member will follow up.`
   return `Wrapping up:
 - Before you start to wrap up, warmly ask if there's anything else you can help them with — don't rush them off the call.
-- Once you have their details (and they have nothing else), briefly recap the callback number and what they need, thank them warmly, and let them know a team member will follow up.${recapLine}
+${nextStepLine}${recapLine}
 - Keep any sign-off time-of-day neutral — "thanks so much" or "have a great day," never "good morning/afternoon/evening" (you don't know when they're calling).
 - End with a warm, unhurried goodbye. Then, as the very LAST thing in that final message, append the exact marker [[END_CALL]] with nothing after it.`
 }
 
-const PROMPT_RULES_COMMON = `- NEVER promise a specific day, time, or appointment. Scheduling is always done by the live team.
+// The base persona's scheduling rule. There are TWO of these, and which one is
+// used is NOT cosmetic — it decides whether the receptionist will actually book.
+//
+// The base prompt clamps to Level 3, so before this split EVERY level (including
+// 4 and 5, which exist to book) carried the "NEVER promise a specific day, time,
+// or appointment" line. Level 4 then APPENDED SCHEDULING_INSTRUCTION on top,
+// leaving the model holding two contradictory directives — one phrased as an
+// absolute prohibition under a heading literally called "Hard rules", the other
+// a permission. The prohibition won, every time. Verified live on Aug 24 2026:
+// a caller with a broken sprinkler asked how soon someone could come out and
+// Amber answered *"I can't lock in an exact date myself"* — reciting this line
+// — then reached for a transfer, on a company sitting at Level 4 with scheduling
+// on and open slots that week. A "Full receptionist" that cannot promise a time
+// is not a full receptionist; it is a Level 3 that also apologises.
+//
+// So the rule has to know whether booking tools are on the call. Keep BOTH
+// halves absolute — the failure mode we're guarding against is an invented
+// appointment, and that stays forbidden either way. What changes is whether a
+// slot the TOOL produced may be offered.
+const RULE_NO_SCHEDULING = `- NEVER promise a specific day, time, or appointment. Scheduling is always done by the live team.`
+const RULE_CAN_SCHEDULE = `- You CAN book on this call, so you may offer and confirm a real appointment — but ONLY a day and arrival window your booking tool actually returned. Never invent, guess, or negotiate a time, and never promise one your tool did not give you. If the tool can't book it, say a team member will follow up to schedule.`
+
+const rulesCommon = (canSchedule: boolean): string =>
+  `${canSchedule ? RULE_CAN_SCHEDULE : RULE_NO_SCHEDULING}
 - Only speak to what you actually know from the company knowledge above. If you don't know something, say a team member will get them an answer — never guess or make something up.`
 
-// Per-level behavior blocks (Level 4 clamps to 3).
-const LEVEL_BEHAVIOR: Record<1 | 2 | 3, string> = {
+// Level-3 close + pricing rules, which also hard-code "a specialist will call
+// you to schedule". Same problem as above: at Level 4 that sends a caller who
+// just said yes away with a promised callback instead of a booked slot.
+const closeLine = (canSchedule: boolean): string =>
+  canSchedule
+    ? `- Work toward a soft commitment. When their interest feels warm, use an assumptive close: "Based on what you've told me, that would be a great fit — I can get that scheduled for you right now. Sound good?" If they agree, go book it with your scheduling tools rather than promising a callback. Never pressure; "let me think about it" is a fine answer.`
+    : `- Work toward a soft commitment. When their interest feels warm, use an assumptive close: "Based on what you've told me, that would be a great fit — I can get you set up to start, and our scheduling specialist will give you a quick call to lock in the day. Sound good?" If they agree, that's a real win — note it clearly and let them know a specialist will call to finalize. Never pressure; "let me think about it" is a fine answer.`
+
+const priceRuleLine = (canSchedule: boolean): string =>
+  canSchedule
+    ? `- NEVER promise a final price — exact pricing is always confirmed by a specialist. Never invent, estimate, or negotiate a price. (A start date is different: you may book one, per the booking rules below.)`
+    : `- NEVER promise a final price or a specific start date — those are always confirmed by the scheduling specialist on the callback. Never invent, estimate, or negotiate a price.`
+
+// Per-level behavior blocks. The base persona clamps to Level 3; `canSchedule`
+// layers Level 4/5's booking ability into it rather than contradicting it.
+const levelBehavior = (canSchedule: boolean): Record<1 | 2 | 3, string> => ({
   1: `Your conversational style (Level 1 — message taker):
 - Be friendly but efficient: no small talk. Get right to taking the message.
 - Do NOT answer questions about the company, its services, or pricing — not even basics. Warmly deflect every question: "Great question — a team member will get you a full answer when they call you back." Then continue collecting their info.
 
 Hard rules:
 - NEVER state, estimate, or discuss any price.
-${PROMPT_RULES_COMMON}`,
+${rulesCommon(canSchedule)}`,
 
   2: `Your conversational style (Level 2 — conversational):
 - Be genuinely warm and human. If the caller opens with a greeting or small talk ("how are you?", the weather, "y'all staying busy?"), engage naturally — but keep it to one or two exchanges, then gently steer back to helping them.
@@ -227,7 +289,7 @@ ${SELL_FREE_ASSESSMENT}
 
 Hard rules:
 - NEVER state, estimate, or discuss any price — not even ranges, "starting at" figures, or fixed fees. If they ask about cost, warmly tell them a team member will go over exact pricing when they follow up. (The free assessment is fine to mention — it's free, not a price.)
-${PROMPT_RULES_COMMON}`,
+${rulesCommon(canSchedule)}`,
 
   3: `Your conversational style (Level 3 — soft sell):
 - Be genuinely warm and human. If the caller opens with a greeting or small talk, engage naturally — one or two exchanges, then gently steer back to helping them.
@@ -235,7 +297,7 @@ ${PROMPT_RULES_COMMON}`,
 ${SELL_COMPANY}
 ${SELL_FREE_ASSESSMENT}
 - Ask natural qualifying questions as the conversation allows — what's going on with their lawn or property, roughly how big the yard is, what they've tried before, how soon they want it handled, and for pet waste: how many dogs, the dogs' size, and how often they'd want service. Weave these in — don't interrogate.
-- Work toward a soft commitment. When their interest feels warm, use an assumptive close: "Based on what you've told me, that would be a great fit — I can get you set up to start, and our scheduling specialist will give you a quick call to lock in the day. Sound good?" If they agree, that's a real win — note it clearly and let them know a specialist will call to finalize. Never pressure; "let me think about it" is a fine answer.
+${closeLine(canSchedule)}
 
 Working toward the soft close:
 - Lead with any free or low-commitment offer the company knowledge mentions (a free assessment, a free quote, an inspection) — it's the easiest yes.
@@ -245,11 +307,11 @@ Working toward the soft close:
 Pricing rules (follow exactly):
 - You may state a price ONLY if the company knowledge above explicitly marks it as a fixed, published fee that may be stated.
 - Anything the knowledge marks as variable (priced by yard size, requires measuring, etc.) must NEVER be quoted — not even a range. Say a team member will confirm exact pricing.
-- NEVER promise a final price or a specific start date — those are always confirmed by the scheduling specialist on the callback. Never invent, estimate, or negotiate a price.
+${priceRuleLine(canSchedule)}
 
 Hard rules:
-${PROMPT_RULES_COMMON}`,
-}
+${rulesCommon(canSchedule)}`,
+})
 
 /** Clamp any stored/plan level to one with implemented behavior. */
 export function clampReceptionistLevel(level: number | null | undefined): 1 | 2 | 3 {
@@ -265,13 +327,14 @@ export function buildVoiceReceptionistPrompt(
   const lvl = clampReceptionistLevel(level)
   const name = resolveName(opts.name)
   const recapEnabled = opts.recapEnabled !== false // default on
+  const canSchedule = opts.canSchedule === true // default off — see ReceptionistPromptOpts
   return [
     promptIntro(name),
     PROMPT_PHONE_STYLE,
     PROMPT_COLLECT,
-    LEVEL_BEHAVIOR[lvl],
+    levelBehavior(canSchedule)[lvl],
     PROMPT_ESCALATION,
-    promptWrapup(recapEnabled),
+    promptWrapup(recapEnabled, canSchedule),
   ].join('\n\n')
 }
 
