@@ -87,6 +87,7 @@ export default function HubShell({
   initialTextSize,
   initialTheme,
   initialPinnedIds,
+  initialTabsEnabled = true,
   initialIsClockedIn,
   initialLayout,
   canAccessTracker,
@@ -162,6 +163,8 @@ export default function HubShell({
   initialTextSize?: string
   initialTheme?: string
   initialPinnedIds?: string[]
+  /** Per-user Workspace Tabs switch (Hub Settings → My Hub). Defaults to today's behaviour: on. */
+  initialTabsEnabled?: boolean
   initialIsClockedIn?: boolean
   initialLayout?: HubLayout | null
   canAccessTracker?: boolean
@@ -236,15 +239,33 @@ export default function HubShell({
   const [manualRail, setManualRail] = useState<ManualRail>(null)
   useEffect(() => { setManualRail(null) }, [pathname])
 
-  // ── Workspace Tabs (desktop only) ───────────────────────────────────────────
-  // Graduated out of beta Aug 13 2026 — on for every desktop user, no opt-in.
+  // ── Workspace Tabs (desktop, unless the user switched them off) ─────────────
+  // Graduated out of beta Aug 13 2026 — on for every desktop user by default.
   // Desktop-only is a DESIGN decision, not a rollout gate: the field/mobile Hub
-  // keeps its rail + drawer, so `isDesktopEnvironment()` stays.
+  // keeps its rail + drawer, so `isDesktopEnvironment()` stays. The per-user
+  // preference is ANDed with it, never OR'd — ticking the box on a phone must
+  // not hand it a tab strip.
   // Resolved on the client (navigator UA) via an effect so SSR + first paint
   // agree (feature off) and nothing hydration-mismatches; the strip only renders
   // once a tab is opened, so the Hub is byte-identical until then.
-  const [tabsFeature, setTabsFeature] = useState(false)
-  useEffect(() => { setTabsFeature(isDesktopEnvironment()) }, [])
+  const [isDesktop, setIsDesktop] = useState(false)
+  useEffect(() => { setIsDesktop(isDesktopEnvironment()) }, [])
+  // Mirrors the server value but lives in state so the strip can appear/disappear
+  // the instant the setting is clicked, with no reload.
+  const [tabsPref, setTabsPref] = useState(initialTabsEnabled)
+  useEffect(() => { setTabsPref(initialTabsEnabled) }, [initialTabsEnabled])
+  // /hub/settings renders as `children` INSIDE this shell, so the Settings toggle
+  // can't hand the new value up through props — it dispatches this window event
+  // instead, and the shell re-reads the server value on the next load.
+  useEffect(() => {
+    function onPref(e: Event) {
+      const next = (e as CustomEvent<boolean>).detail
+      if (typeof next === 'boolean') setTabsPref(next)
+    }
+    window.addEventListener('hub-tabs-pref-changed', onPref)
+    return () => window.removeEventListener('hub-tabs-pref-changed', onPref)
+  }, [])
+  const tabsFeature = isDesktop && tabsPref
   const tabsApi = useWorkspaceTabsState(tabsFeature)
   const { showRoute: showRouteTab, activateByHref: activateTabByHref } = tabsApi
   // On a real route navigation, if that destination is already open as a

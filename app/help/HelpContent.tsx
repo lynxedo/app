@@ -2141,6 +2141,20 @@ function SettingsTab() {
         <p>Everyone on your team can have their own theme — it&apos;s a personal preference and doesn&apos;t affect what other users see.</p>
       </Section>
 
+      <Section title="Workspace Tabs (and how to turn them off)">
+        <p><strong className="text-white">Workspace Tabs</strong> let you keep several Hub screens open at once, as tabs across the top of the main pane — the way a browser does. The point isn&apos;t just switching quickly: each tab <em>stays exactly where you left it</em>. Your scroll position, the filters you set, a message you were halfway through typing — all of it is still there when you come back.</p>
+        <p className="mt-2">Open one by clicking an app in the rail or a conversation in the sidebar. Tabbable screens include <strong className="text-white">Daily Log</strong>, <strong className="text-white">Tracker</strong>, <strong className="text-white">Contacts</strong>, <strong className="text-white">Scoreboards</strong>, <strong className="text-white">Pricer</strong>, individual <strong className="text-white">boards</strong>, <strong className="text-white">rooms and DMs</strong>, and single <strong className="text-white">Txt</strong> or <strong className="text-white">Inbox</strong> conversations.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Cmd/Ctrl + 1…8</strong> jumps straight to a tab by position.</li>
+          <li><strong className="text-white">Click the ✕</strong> — or middle-click anywhere on the tab — to close it.</li>
+          <li><strong className="text-white">Alt-click</strong> an app you already have open to get a second copy of it side by side.</li>
+          <li><strong className="text-white">Eight is the limit.</strong> Opening a ninth closes whichever tab you used least recently, and tells you which one it closed.</li>
+          <li>Clicking an app that&apos;s <em>already</em> a tab jumps to that tab rather than opening a duplicate.</li>
+        </ul>
+        <p className="mt-3"><strong className="text-white">To turn them off:</strong> <strong className="text-white">Settings → My Hub → Workspace Tabs</strong>, and untick <em>Use Workspace Tabs</em>. It saves as soon as you click it. The Hub goes back to one screen at a time — clicking an app just takes you there — and any tabs you had open close right away. Tick it back on whenever you like; it&apos;s a personal setting, so it doesn&apos;t change anything for anyone else on the team.</p>
+        <Note>Workspace Tabs are a desktop feature. On a phone or tablet the Hub always uses the single-screen layout with the bottom bar, whether this setting is on or off.</Note>
+      </Section>
+
       <Section title="Beta Features">
         <p>Beta features are new tools we&apos;re trying out with a few people before rolling them out to everyone. If an admin has given you the <strong className="text-white">Beta Features</strong> grant, a <strong className="text-white">Beta Features</strong> tab appears here in Settings.</p>
         <p className="mt-2">Each beta shows a short description (sometimes with a screenshot) and an on/off switch. Turn one on to start using it right away; turn it off any time to go back to normal. Betas are new, so they may change or have rough edges.</p>

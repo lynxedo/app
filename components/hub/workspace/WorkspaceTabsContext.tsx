@@ -13,8 +13,9 @@
  * sidebar + render the kept-alive stack), which is why the state is a hook it
  * calls directly rather than internal provider state.
  *
- * When `enabled` is false (mobile, or the flag off) this is inert: no tab can be
- * opened, `activeTabId` stays null, and the Hub behaves exactly as it does today.
+ * When `enabled` is false (mobile, or the user switched tabs off in Hub Settings
+ * → My Hub) this is inert: no tab can be opened, `activeTabId` stays null, any
+ * tabs already open are closed, and the Hub behaves exactly as it does today.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -23,6 +24,9 @@ import type { CatalogId } from '../railCatalog'
 
 /** Locked decision: up to 8 tabs; opening a 9th evicts the least-recently-used. */
 export const MAX_WORKSPACE_TABS = 8
+
+/** Stable empty list for the disabled case — a fresh `[]` would churn every memo keyed on `tabs`. */
+const EMPTY_TABS: WorkspaceTab[] = []
 
 /**
  * Which app a tab represents. All rail/drawer apps are `CatalogId`; `'board'` is
@@ -93,15 +97,25 @@ function tabIdFor(catalogId: TabCatalogId, instanceKey?: string): string {
  * without nesting setState calls inside updaters.
  */
 export function useWorkspaceTabsState(enabled: boolean): WorkspaceTabsApi {
-  const [tabs, setTabs] = useState<WorkspaceTab[]>([])
-  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [rawTabs, setTabs] = useState<WorkspaceTab[]>([])
+  const [rawActiveTabId, setActiveTabId] = useState<string | null>(null)
   const [evictionNotice, setEvictionNotice] = useState<string | null>(null)
 
   const tabsRef = useRef<WorkspaceTab[]>([])
   const activeIdRef = useRef<string | null>(null)
   const seqRef = useRef(0)
-  useEffect(() => { tabsRef.current = tabs }, [tabs])
-  useEffect(() => { activeIdRef.current = activeTabId }, [activeTabId])
+  useEffect(() => { tabsRef.current = rawTabs }, [rawTabs])
+  useEffect(() => { activeIdRef.current = rawActiveTabId }, [rawActiveTabId])
+
+  // Switching the feature OFF mid-session must CLOSE what's already open, not
+  // merely block new tabs. Gating the exposed values (rather than clearing state
+  // in an effect) means one render puts the Hub in exactly the state mobile is
+  // always in: no strip, no kept-alive stack, the plain route on screen. Without
+  // it, someone who unticks the setting with four tabs open keeps staring at
+  // those four tabs with no way back. Switching it on again re-opens nothing —
+  // the tab subtrees unmounted, so they'd be blank shells, not what was left.
+  const tabs = enabled ? rawTabs : EMPTY_TABS
+  const activeTabId = enabled ? rawActiveTabId : null
 
   const activateTab = useCallback((id: string) => {
     const prev = tabsRef.current
@@ -117,11 +131,12 @@ export function useWorkspaceTabsState(enabled: boolean): WorkspaceTabsApi {
   // effect that calls it must fire only on navigation, never re-run when `tabs`
   // changes (that would loop, since activating bumps lastActiveSeq).
   const activateByHref = useCallback((href: string): boolean => {
+    if (!enabled) return false
     const match = tabsRef.current.find(t => t.href === href)
     if (!match) return false
     activateTab(match.id)
     return true
-  }, [activateTab])
+  }, [enabled, activateTab])
 
   const openTab = useCallback((input: OpenTabInput) => {
     if (!enabled) return
@@ -197,8 +212,8 @@ export function useWorkspaceTabsState(enabled: boolean): WorkspaceTabsApi {
   const showRoute = useCallback(() => { setActiveTabId(null) }, [])
 
   const isOpen = useCallback(
-    (catalogId: TabCatalogId, instanceKey?: string) => tabsRef.current.some(t => t.id === tabIdFor(catalogId, instanceKey)),
-    [],
+    (catalogId: TabCatalogId, instanceKey?: string) => enabled && tabsRef.current.some(t => t.id === tabIdFor(catalogId, instanceKey)),
+    [enabled],
   )
 
   const clearEvictionNotice = useCallback(() => setEvictionNotice(null), [])

@@ -7780,6 +7780,7 @@ export type Database = {
           hub_layout: Json | null
           hub_pinned_ids: string[]
           hub_seeded_apps: string[]
+          hub_tabs_enabled: boolean
           hub_text_size: string | null
           id: string
           invite_sent_at: string | null
@@ -7858,6 +7859,7 @@ export type Database = {
           hub_layout?: Json | null
           hub_pinned_ids?: string[]
           hub_seeded_apps?: string[]
+          hub_tabs_enabled?: boolean
           hub_text_size?: string | null
           id: string
           invite_sent_at?: string | null
@@ -7936,6 +7938,7 @@ export type Database = {
           hub_layout?: Json | null
           hub_pinned_ids?: string[]
           hub_seeded_apps?: string[]
+          hub_tabs_enabled?: boolean
           hub_text_size?: string | null
           id?: string
           invite_sent_at?: string | null

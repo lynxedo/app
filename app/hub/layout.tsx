@@ -168,6 +168,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const initialTextSize = profileResult.data?.hub_text_size ?? 'default'
   const initialTheme = profileResult.data?.hub_theme ?? 'midnight'
   const initialPinnedIds: string[] = profileResult.data?.hub_pinned_ids ?? []
+  // Workspace Tabs per-user switch. Defaults TRUE — that is today's behaviour
+  // (on for every desktop user since Aug 13 2026); the setting only turns it off.
+  const initialTabsEnabled = profileResult.data?.hub_tabs_enabled ?? true
   const legacyRailConfig = (profileResult.data?.rail_config ?? null) as null | {
     desktop?: (string | null)[]
     mobile?: (string | null)[]
@@ -422,6 +425,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         initialTextSize={initialTextSize}
         initialTheme={initialTheme}
         initialPinnedIds={initialPinnedIds}
+        initialTabsEnabled={initialTabsEnabled}
         initialIsClockedIn={initialIsClockedIn}
         initialLayout={initialLayout}
         canAccessTracker={canAccessTracker}

@@ -16,7 +16,7 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('phone, hub_text_size, hub_pinned_ids, full_name, landing_page, hub_theme')
+    .select('phone, hub_text_size, hub_pinned_ids, full_name, landing_page, hub_theme, hub_tabs_enabled')
     .eq('id', user.id)
     .single()
 
@@ -30,6 +30,7 @@ export async function GET() {
     hub_pinned_ids: profile?.hub_pinned_ids ?? [],
     landing_page: profile?.landing_page ?? 'hub',
     hub_theme: profile?.hub_theme ?? 'midnight',
+    hub_tabs_enabled: profile?.hub_tabs_enabled ?? true,
   })
 }
 
@@ -38,7 +39,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, hub_layout, txt_signature, email_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, txt_dnd_enabled, txt_dnd_schedule, inbox_dnd_enabled, inbox_dnd_schedule, hub_theme } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, hub_layout, txt_signature, email_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, txt_dnd_enabled, txt_dnd_schedule, inbox_dnd_enabled, inbox_dnd_schedule, hub_theme, hub_tabs_enabled } = await request.json()
 
   if (landing_page !== undefined && landing_page !== 'hub' && landing_page !== 'dashboard') {
     return NextResponse.json({ error: 'landing_page must be "hub" or "dashboard"' }, { status: 400 })
@@ -77,6 +78,12 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'invalid hub_theme' }, { status: 400 })
     }
     profileUpdates.hub_theme = hub_theme
+  }
+  if (hub_tabs_enabled !== undefined) {
+    if (typeof hub_tabs_enabled !== 'boolean') {
+      return NextResponse.json({ error: 'hub_tabs_enabled must be a boolean' }, { status: 400 })
+    }
+    profileUpdates.hub_tabs_enabled = hub_tabs_enabled
   }
   if (hub_pinned_ids !== undefined) profileUpdates.hub_pinned_ids = hub_pinned_ids
   if (landing_page !== undefined) profileUpdates.landing_page = landing_page
