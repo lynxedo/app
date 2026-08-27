@@ -37,6 +37,7 @@ interface Props {
   userId: string
   hubProfile: HubProfile
   initialTheme: string
+  initialTabsEnabled: boolean
   notifPref: NotifPref
   railPermissions: RailPermissions
   /** Admin → People "Beta Features" grant (admins always). Gates the Beta tab. */
@@ -105,7 +106,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, initialTheme, notifPref, railPermissions, canAccessBeta = false, txtSignature, emailSignature = '', allowUserSignatures = true, companyDefaultSignature = null, canManageInbox = false, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialTxtDndEnabled = false, initialTxtDndSchedule = null, initialInboxDndEnabled = false, initialInboxDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, initialTabsEnabled, notifPref, railPermissions, canAccessBeta = false, txtSignature, emailSignature = '', allowUserSignatures = true, companyDefaultSignature = null, canManageInbox = false, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialTxtDndEnabled = false, initialTxtDndSchedule = null, initialInboxDndEnabled = false, initialInboxDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
@@ -327,6 +328,46 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
     } catch (e) {
       setEmailSigErr(e instanceof Error ? e.message : 'Network error')
       setEmailSigSave('error')
+    }
+  }
+
+  // ── Workspace Tabs on/off (My Hub tab) ────────────────────────────────────
+  // Autosaves on click like the theme picker, and tells the live Hub shell so the
+  // tab strip appears/disappears immediately — Settings renders INSIDE HubShell,
+  // so a window event reaches it without a reload. Desktop-only still applies:
+  // ticking this on a phone changes nothing, which is why the copy says so.
+  const [tabsEnabled, setTabsEnabled] = useState(initialTabsEnabled)
+  const [tabsSave, setTabsSave] = useState<SaveState>('idle')
+  const [tabsErr, setTabsErr] = useState<string | null>(null)
+  const toggleTabs = async (next: boolean) => {
+    const prev = tabsEnabled
+    setTabsEnabled(next)
+    setTabsSave('saving')
+    setTabsErr(null)
+    // Flip the Hub immediately; rolled back below if the save fails, so the
+    // screen never disagrees with what's stored.
+    window.dispatchEvent(new CustomEvent('hub-tabs-pref-changed', { detail: next }))
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hub_tabs_enabled: next }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setTabsErr(d.error ?? 'Save failed')
+        setTabsEnabled(prev)
+        window.dispatchEvent(new CustomEvent('hub-tabs-pref-changed', { detail: prev }))
+        setTabsSave('error')
+        return
+      }
+      setTabsSave('saved')
+      setTimeout(() => setTabsSave('idle'), 1500)
+    } catch (e) {
+      setTabsErr(e instanceof Error ? e.message : 'Network error')
+      setTabsEnabled(prev)
+      window.dispatchEvent(new CustomEvent('hub-tabs-pref-changed', { detail: prev }))
+      setTabsSave('error')
     }
   }
 
@@ -730,6 +771,46 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
         </button>
         <p className="text-xs text-gray-500 mt-3">
           Tip: you can also open this any time from the <strong>Apps ▦</strong> button on the rail → <strong>Customize</strong>.
+        </p>
+      </section>
+
+      {/* ── Workspace Tabs ─────────────────────────────────────── */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1">Workspace Tabs</h2>
+        <p className="text-gray-400 text-sm mb-5">
+          Open screens as tabs across the top of the Hub — like a browser. Each tab stays
+          exactly where you left it: your scroll position, your filters, a half-typed
+          message. Switch away and back and nothing is lost.
+        </p>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={tabsEnabled}
+            onChange={e => toggleTabs(e.target.checked)}
+            className="mt-0.5 w-4 h-4 rounded border-gray-700 bg-gray-950 text-orange-500 focus:ring-orange-500 focus:ring-offset-0"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium">Use Workspace Tabs</div>
+            <p className="text-xs text-gray-500 mt-1">
+              Turn this off and the Hub goes back to one screen at a time — clicking an app
+              simply takes you there. Any tabs you have open right now close immediately.
+              Nothing else changes, and you can switch back any time.
+            </p>
+            {tabsErr && <p className="text-red-400 text-xs mt-1.5">{tabsErr}</p>}
+            {tabsSave === 'saved' && <p className="text-green-400 text-xs mt-1.5">Saved.</p>}
+          </div>
+        </label>
+
+        <ul className="text-sm text-gray-300 space-y-1.5 mt-5 list-disc pl-5">
+          <li><strong className="text-white">Up to 8 tabs</strong> — opening a 9th closes whichever you used least recently.</li>
+          <li><strong className="text-white">Cmd/Ctrl + 1…8</strong> jumps straight to a tab; the ✕ (or a middle-click) closes one.</li>
+          <li><strong className="text-white">Alt-click</strong> an app to open a second copy of a screen you already have open.</li>
+        </ul>
+
+        <p className="text-xs text-gray-500 mt-4">
+          Tabs are a desktop feature. On a phone or tablet the Hub always uses the
+          single-screen layout with the bottom bar, whatever this is set to.
         </p>
       </section>
 
