@@ -229,6 +229,81 @@ export type ListPayload = {
 }
 
 /**
+ * A target against its actual — the shape behind both Goals progress cards.
+ *
+ * ⚠⚠ WHY THIS IS NOT A `bars`. A bar carries one number and a colour, and that is
+ * exactly what was wrong with the card this replaces: Ben's board showed two amber
+ * bars reading 91.8% and 63.9%, which were a rate $8.19/hr short and a year
+ * $20,259 behind pace. Neither figure was on the card. A target needs FIVE facts to
+ * be read honestly — where you are, where the line is, where you should be by now,
+ * which way is good, and whether the verdict is even due yet — so it gets its own
+ * shape rather than a bar with captions bolted on.
+ *
+ * ⚠ `layout` is the only difference between the two cards built on this. Same rows,
+ * same arithmetic, same words — so a board carrying one of each cannot show the same
+ * target two different ways, which is the failure a second payload kind would invite.
+ */
+export type TargetsPayload = {
+  kind: 'targets'
+  title: string
+  sub: string
+  /** 'rows' stacks every target; 'focus' renders ONE big. See the widgets. */
+  layout: 'rows' | 'focus'
+  rows: TargetRow[]
+  empty?: string
+  /** Shown under the rows — truncation notices and the pace-marker rule. */
+  foot?: string
+  legend?: { label: string; tone: Tone }[]
+  drill?: DrillLink
+}
+
+export type TargetRow = {
+  key: string
+  /** The measure, in full and never abbreviated. */
+  name: string
+  /** Whose it is and which period, e.g. "Mike Cyplik · Aug 2026". */
+  who: string
+  /** Both already in the metric's own units — dollars, percent, a duration. */
+  actualText: string
+  targetText: string
+  /**
+   * How full to draw the track, 0–1, ALREADY CLAMPED for drawing.
+   *
+   * ⚠ Not the attainment percentage. A ceiling target that has been blown draws
+   * differently from a floor target at the same attainment — see `limitFrac`.
+   */
+  fillFrac: number
+  /**
+   * Where the target itself sits on the track, 0–1, when that is not the far end.
+   *
+   * ⚠⚠ THE CEILING FIX. A ceiling's attainment is inverted, so Josh at 34.1%
+   * against a ≤25% limit scored 73.3% and drew as a bar three-quarters full —
+   * "nearly there" for nine points over budget. Setting this puts the limit at a
+   * fixed spot on the track and lets the bar run PAST it, so a breach can never
+   * read as progress. Also set when an actual has overshot a floor, so 118% of
+   * target shows the line it cleared.
+   */
+  limitFrac?: number
+  /** How much of the bar is past `limitFrac`, 0–1 of the whole track. */
+  overFrac?: number
+  /**
+   * Where today says you should be, 0–1.
+   *
+   * ⚠⚠ ABSENT FOR RATE MEASURES, and that is load-bearing rather than missing data.
+   * Being two thirds through the year does not mean you should hold two thirds of a
+   * close rate, so the source returns no pace for a rate and this card draws no
+   * marker — see lib/reports/goals.ts. A marker invented here would be the one
+   * number on the card nobody could defend.
+   */
+  paceFrac?: number
+  /** The verdict word, already chosen by the shared status map. */
+  status: string
+  /** One line under the bar: how far off, and how much of the period is gone. */
+  detail: string
+  tone: Tone
+}
+
+/**
  * A read of a whole board, in sections.
  *
  * ⚠ Not a `list`. The nine domain insight cards each answer one question, so a flat
@@ -307,4 +382,4 @@ export function formatPayloadValue(v: number | string | null | undefined, format
 
 export type WidgetPayload =
   | KpiPayload | BarsPayload | StackedPayload | DonutPayload | TablePayload | ListPayload
-  | AttentionPayload | GeoPayload | NarrativePayload
+  | AttentionPayload | GeoPayload | NarrativePayload | TargetsPayload

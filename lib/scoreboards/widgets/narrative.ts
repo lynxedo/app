@@ -36,6 +36,7 @@ import { getGoalMetric } from '@/lib/reports/goals'
 import {
   GOAL_SCOPE_CONFIG, goalRequest, scopedGoals,
   goalStatusText, goalStatusTone, formatGoalValue, formatGoalTarget, goalOwner,
+  goalMoneyDecimals,
   goalScopePhrase, goalsEmptyBecause, goalPeriodCell,
 } from './goals'
 import type { GoalRow, RevenueTrendRow } from './sources'
@@ -192,8 +193,11 @@ function isShort(status: GoalRow['status']): boolean {
 function goalSentence(g: GoalRow): string {
   const label = getGoalMetric(g.metric)?.label ?? g.metric
   const who = g.employee_id ? goalOwner(g) : 'The company'
-  const actual = formatGoalValue(g.metric, g.actual)
-  const target = formatGoalTarget(g)
+  // Same per-row precision the target cards use, so the sentence and the card
+  // beneath it never print one target's money two different ways.
+  const dp = goalMoneyDecimals(g)
+  const actual = formatGoalValue(g.metric, g.actual, dp)
+  const target = formatGoalTarget(g, dp)
   const share = g.attainment_pct == null ? '' : ` (${num(g.attainment_pct)}%)`
   const period = goalPeriodCell(g)
   if (g.actual == null) {
@@ -231,7 +235,7 @@ function groupedGoalLines(rows: GoalRow[], cap: number): Line[] {
     const periods = family.map(x => periodWord(x))
     const worst = family.reduce((a, b) => (num(a.attainment_pct) <= num(b.attainment_pct) ? a : b))
     out.push({
-      text: `${who} — ${label}: the standing ${noun} target of ${formatGoalTarget(g)} was short in ${nameSome(periods, 4)}, weakest at ${formatGoalValue(g.metric, worst.actual)} (${num(worst.attainment_pct)}%) in ${periodWord(worst)}.`,
+      text: `${who} — ${label}: the standing ${noun} target of ${formatGoalTarget(g, goalMoneyDecimals(g))} was short in ${nameSome(periods, 4)}, weakest at ${formatGoalValue(g.metric, worst.actual, goalMoneyDecimals(worst))} (${num(worst.attainment_pct)}%) in ${periodWord(worst)}.`,
       tone: goalStatusTone[worst.status],
     })
   }

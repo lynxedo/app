@@ -11,6 +11,9 @@ import { NO_SELLER, NO_TECH } from '@/lib/scoreboards/widgets/people-filter'
 // Pure code→name map, shared with the Service Line report and the revenue trend, so
 // "MO" never appears in the picker while "Mosquito" appears on the chart it filters.
 import { lineName } from '@/lib/scoreboards/widgets/servicelines'
+// The same measure catalog the Goals cards read, so a picker entry and the card it
+// filters cannot name one measure two different ways.
+import { getGoalMetric } from '@/lib/reports/goals'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,8 +53,9 @@ const CATALOG_REPORTS: Record<CatalogName, string[]> = {
   jobber_people: ['crew', 'sales'],
   // Commission is pay, so its picker answers to the same grant its cards do.
   commission_plan_people: ['crew'],
-  // The Goals widgets are the only ones that place this, and they answer to `goals`.
+  // The Goals widgets are the only ones that place these, and they answer to `goals`.
   goal_people: ['goals'],
+  goal_metrics: ['goals'],
   /* The recurring-book pickers. Service lines are used by the book cards (Clients),
    * Ticket Size and the company revenue trend (Revenue) and the by-line chart
    * (Service Lines), so all three reports can offer them. Programs and add-ons are
@@ -263,6 +267,47 @@ export async function GET(request: Request) {
       // but sorted on the LABEL, since `byCountThenName` keys on a [name, count] tuple
       // and this catalog's value is an id.
     })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    return NextResponse.json({ options })
+  }
+
+  if (name === 'goal_metrics') {
+    /* The measures somebody has actually set a target on, for pinning a Goals card to
+     * particular goals.
+     *
+     * ⚠⚠ The VALUE is the metric KEY, the LABEL comes from the shared catalog in
+     * lib/reports/goals.ts. Both halves matter: a key survives the measure being
+     * reworded, and taking the label from the catalog rather than typing it here means
+     * the picker and the card can never call one measure two different things.
+     *
+     * ⚠ Bounded to measures that hold a target, like `goal_people` above — the catalog
+     * carries a dozen-plus measures and Heroes runs targets on four.
+     *
+     * ⚠ A stored key no longer in the catalog is still offered, labelled as retired.
+     * Dropping it would silently empty a board that was pinned to it, which looks
+     * like the card broke rather than like the measure went away.
+     */
+    const { data: rows, error } = await admin
+      .from('report_goals')
+      .select('metric')
+      .eq('company_id', profile.company_id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    const held = new Map<string, number>()
+    for (const r of rows ?? []) {
+      const k = String(r.metric ?? '').trim()
+      if (k) held.set(k, (held.get(k) ?? 0) + 1)
+    }
+
+    const options = [...held.entries()].map(([key, count]) => {
+      const m = getGoalMetric(key)
+      return {
+        value: key,
+        label: m ? m.label : `${key} (no longer available)`,
+        // How many targets ride on the measure, so one set once is visibly not the
+        // one three people are judged on.
+        count,
+      }
+    }).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
     return NextResponse.json({ options })
   }
 
