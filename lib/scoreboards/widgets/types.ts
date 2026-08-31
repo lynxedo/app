@@ -166,6 +166,19 @@ export type CatalogName =
    * tool than one offering three.
    */
   | 'goal_people'
+  /**
+   * The measures somebody has actually set a target on, for pinning a Goals card to
+   * particular goals.
+   *
+   * ⚠ VALUES ARE METRIC KEYS from the catalog in lib/reports/goals.ts, not labels —
+   * a label is display text that can be reworded, and a board pinned to "Work
+   * produced" must keep working the day that measure is renamed.
+   *
+   * ⚠ Bounded to measures that hold a target, like `goal_people` and
+   * `commission_plan_people`: the full catalog is a dozen-plus measures, and offering
+   * all of them for a company running targets on three is a worse tool.
+   */
+  | 'goal_metrics'
 
 export type ConfigField =
   | { kind: 'number'; label: string; def: number; min: number; max: number; unit?: string; hint?: string }

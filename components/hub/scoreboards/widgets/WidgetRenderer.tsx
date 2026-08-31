@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import type {
   AttentionPayload, BarsPayload, CellLink, DonutPayload, DrillLink, GeoPayload, KpiPayload, ListPayload,
-  NarrativePayload, StackedPayload, TablePayload, WidgetPayload,
+  NarrativePayload, StackedPayload, TablePayload, TargetRow, TargetsPayload, WidgetPayload,
 } from '@/lib/scoreboards/widgets/payloads'
 import { formatValue, toneColor } from './tone'
 
@@ -445,10 +445,156 @@ function List({ p }: { p: ListPayload }) {
   )
 }
 
+/* ── Targets ────────────────────────────────────────────────────────────────
+ *
+ * The two Goals progress cards. Everything a reader needs is on the card in the
+ * measure's own units, because the version this replaces showed only a ratio —
+ * see the note on TargetsPayload for the board that prompted it.
+ *
+ * Both layouts share ONE track component, so the ceiling rule and the pace
+ * marker cannot drift between the stacked card and the single-target card.
+ */
+
+const PACE_MARK = '#cbd5e1'
+const LIMIT_MARK = '#f8fafc'
+
+/** 0–1 as a CSS percentage, clamped so a bad number can never draw off-card. */
+function pctOf(frac: number): string {
+  return `${Math.max(0, Math.min(1, frac)) * 100}%`
+}
+
+function TargetTrack({ row, height }: { row: TargetRow; height: number }) {
+  const fill = toneColor(row.tone)
+  return (
+    <div className="relative overflow-hidden rounded-[3px] bg-white/[0.05]" style={{ height }}>
+      <div
+        className="absolute inset-y-0 left-0 rounded-[3px]"
+        style={{ width: pctOf(row.fillFrac), background: fill, opacity: 0.82 }}
+      />
+      {/* The overspill past a ceiling, in the bad tone regardless of the row's own
+          — an over-budget bar has to look different from a full one. */}
+      {row.overFrac && row.limitFrac !== undefined ? (
+        <div
+          className="absolute inset-y-0 rounded-r-[3px]"
+          style={{ left: pctOf(row.limitFrac), width: pctOf(row.overFrac), background: toneColor('bad'), opacity: 0.9 }}
+        />
+      ) : null}
+      {/* The target itself, when it is not simply the end of the track. */}
+      {row.limitFrac !== undefined ? (
+        <div className="absolute -inset-y-0.5 w-0.5" style={{ left: pctOf(row.limitFrac), background: LIMIT_MARK, opacity: 0.95 }} />
+      ) : null}
+      {/* Where today says you should be. Absent for a rate, deliberately.
+          ⚠ Suppressed when it lands on the target mark, which happens on every
+          finished period of a running total — "should be at" and "the target" are the
+          same point once the month is over, and two marks stacked on one pixel just
+          look like a rendering fault. */}
+      {row.paceFrac !== undefined
+        && !(row.limitFrac !== undefined && Math.abs(row.paceFrac - row.limitFrac) < 0.01) ? (
+          <div className="absolute -inset-y-0.5 w-0.5" style={{ left: pctOf(row.paceFrac), background: PACE_MARK, opacity: 0.85 }} />
+        ) : null}
+    </div>
+  )
+}
+
+function StatusPill({ status, tone }: { status: string; tone: TargetRow['tone'] }) {
+  const c = toneColor(tone)
+  return (
+    <span
+      className="inline-block whitespace-nowrap rounded-full px-[7px] py-px text-[10px] font-semibold"
+      style={{ color: c, background: `${c}29`, border: `1px solid ${c}66` }}
+    >
+      {status}
+    </span>
+  )
+}
+
+/* One target per row. The name gets its own line — the card this replaces clamped
+ * it to 104px, which ate the person and the period first. */
+function TargetRows({ p }: { p: TargetsPayload }) {
+  return (
+    <div className="flex flex-col">
+      {p.rows.map((r, i) => (
+        <div
+          key={r.key}
+          className={`flex flex-col gap-1.5 py-2.5 ${i < p.rows.length - 1 ? 'border-b border-white/[0.05]' : ''}`}
+        >
+          <div className="flex items-baseline gap-2.5">
+            <div className="min-w-0 flex-1 text-[12px] font-semibold text-gray-200">
+              {r.name} <span className="font-normal text-gray-500">· {r.who}</span>
+            </div>
+            <div className="whitespace-nowrap text-right tabular-nums">
+              <div className="text-[14px] font-bold leading-tight tracking-tight" style={{ color: toneColor(r.tone) }}>
+                {r.actualText}
+              </div>
+              <div className="text-[10.5px] text-gray-500">{r.targetText}</div>
+            </div>
+          </div>
+          <TargetTrack row={r} height={16} />
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-gray-500 tabular-nums">
+            <StatusPill status={r.status} tone={r.tone} />
+            <span>{r.detail}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ONE target, big. Ben: "what if I just want to highlight one goal?" */
+function TargetFocus({ p }: { p: TargetsPayload }) {
+  const r = p.rows[0]
+  if (!r) return null
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold text-sky-200">{r.name}</div>
+          <div className="text-[11px] text-gray-500">{r.who}</div>
+        </div>
+        <StatusPill status={r.status} tone={r.tone} />
+      </div>
+      <div className="mt-3.5 tabular-nums">
+        <div className="text-[30px] font-bold leading-none tracking-tight" style={{ color: toneColor(r.tone) }}>
+          {r.actualText}
+        </div>
+        <div className="mt-1.5 text-[11.5px] text-gray-400">{r.targetText}</div>
+      </div>
+      <div className="mt-3">
+        <TargetTrack row={r} height={20} />
+      </div>
+      <div className="mt-2.5 text-[10.5px] leading-relaxed text-gray-500 tabular-nums">{r.detail}</div>
+    </div>
+  )
+}
+
+function Targets({ p }: { p: TargetsPayload }) {
+  return (
+    <>
+      {/* The focus card writes its own heading from the target itself, so the
+          board-level title would just repeat it. */}
+      {p.layout === 'focus' && p.rows.length > 0
+        ? <div className="mb-3 text-[11px] text-gray-500">{p.sub}</div>
+        : <Head title={p.title} sub={p.sub} />}
+      {p.rows.length === 0
+        ? <Empty message={p.empty ?? 'No targets to show'} />
+        : p.layout === 'focus' ? <TargetFocus p={p} /> : <TargetRows p={p} />}
+      {p.legend && p.rows.length > 0 ? <Legend items={p.legend} /> : null}
+      {/* ⚠ Only when there is something to explain. An empty card that goes on to
+          describe pace markers and sort order reads as a card that failed to draw;
+          the empty message already carries the reason, truncation included. */}
+      {p.foot && p.rows.length > 0
+        ? <div className="mt-3 text-[10.5px] leading-relaxed text-gray-500">{p.foot}</div>
+        : null}
+      <DrillFooter drill={p.drill} className="mt-3" />
+    </>
+  )
+}
+
 export function WidgetRenderer({ payload }: { payload: WidgetPayload }) {
   switch (payload.kind) {
     case 'kpi': return <Kpi p={payload} />
     case 'bars': return <Bars p={payload} />
+    case 'targets': return <Targets p={payload} />
     case 'stacked': return <Stacked p={payload} />
     case 'donut': return <Donut p={payload} />
     case 'table': return <Table p={payload} />

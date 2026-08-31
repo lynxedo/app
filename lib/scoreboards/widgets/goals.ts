@@ -34,7 +34,7 @@ import {
 } from '@/lib/reports/goals'
 import type { GoalRow, GoalsRow } from './sources'
 import type { SourceBag, WidgetConfig, WidgetDef, WindowSpec } from './types'
-import type { Tone, WidgetPayload } from './payloads'
+import type { TargetRow, Tone, WidgetPayload } from './payloads'
 
 /** How many measures accumulate, for the foot note's arithmetic. */
 const GOAL_CUMULATIVE_COUNT = GOAL_METRICS.filter(m => m.cumulative).length
@@ -53,12 +53,21 @@ function num(v: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0
 }
 
-/** Render a value in its metric's own units. */
-function fmt(metricKey: string, v: number | null | undefined): string {
+/**
+ * Render a value in its metric's own units.
+ *
+ * ⚠⚠ `decimals` exists because money targets in this product span three orders of
+ * magnitude. Rounded to whole dollars, a $91.81 revenue-per-hour actual against a
+ * $100.00 target prints "$92 of $100" — which is 92%, sitting beside an attainment
+ * that correctly says 91.8%. Two figures on one row contradicting each other is worse
+ * than either rounding on its own, so the caller decides ONCE per row (see
+ * `moneyDecimals`) and every figure on that row is formatted the same way.
+ */
+function fmt(metricKey: string, v: number | null | undefined, decimals = 0): string {
   if (v == null) return '—'
   const m = getGoalMetric(metricKey)
   if (!m) return String(v)
-  if (m.format === 'currency') return formatCurrency(num(v))
+  if (m.format === 'currency') return formatCurrency(num(v), { decimals })
   if (m.format === 'percent') return `${num(v)}%`
   // Held in seconds so it matches the report's own figure; read back as a time,
   // because "300" beside a reply-time target tells nobody it means five minutes.
@@ -85,9 +94,21 @@ function whose(g: GoalRow): string {
  * actual of 23.8% looks like a target that was beaten, since every other row on
  * the table is a floor.
  */
-function fmtTarget(g: GoalRow): string {
-  const t = fmt(g.metric, g.target)
+function fmtTarget(g: GoalRow, decimals = 0): string {
+  const t = fmt(g.metric, g.target, decimals)
   return g.direction === 'lower' ? `≤ ${t}` : t
+}
+
+/**
+ * How many decimals every money figure on this target's row should carry.
+ *
+ * ⚠ Decided from the TARGET's size, not from each value's own — so the actual, the
+ * target and the gap on one line always agree about precision. A rate target ($100 an
+ * hour) needs cents to stay consistent with its own percentage; a $750,000 year does
+ * not, and cents there would be noise.
+ */
+function moneyDecimals(g: GoalRow): number {
+  return getGoalMetric(g.metric)?.format === 'currency' && Math.abs(num(g.target)) < 1000 ? 2 : 0
 }
 
 /* ── Whose targets a card shows ─────────────────────────────────────────────
@@ -115,6 +136,19 @@ const WHOSE_EVERYONE = 'Everyone'
 const WHOSE_COMPANY = 'The company only'
 const WHOSE_PEOPLE = 'Only the people I pick'
 
+const GRAIN_ANY = 'Any length'
+const GRAIN_LABELS: Record<GoalRow['grain'], string> = {
+  month: 'Monthly targets only',
+  quarter: 'Quarterly targets only',
+  year: 'Yearly targets only',
+}
+/** ⚠ The stored value is the LABEL, like every other enum field, so this maps back. */
+const GRAIN_BY_LABEL: Record<string, GoalRow['grain']> = {
+  [GRAIN_LABELS.month]: 'month',
+  [GRAIN_LABELS.quarter]: 'quarter',
+  [GRAIN_LABELS.year]: 'year',
+}
+
 const GOAL_SCOPE_CONFIG = {
   whose: {
     kind: 'enum' as const,
@@ -130,11 +164,44 @@ const GOAL_SCOPE_CONFIG = {
     catalog: 'goal_people' as const,
     hint: 'Only used when "Whose targets" is set to the people you pick. Lists only people who already hold a target.',
   },
+  /* ── Which measure, and over what length of period ────────────────────────
+   *
+   * Ben: "I would like to be able to filter it down even more to particular goals.
+   * This is showing all company goals, but what if I just want to highlight one
+   * goal?"
+   *
+   * ⚠⚠ IT TAKES THREE CONTROLS TO REACH ONE TARGET, not two, and the third is the
+   * one nobody predicts. Picking "Work produced" for "Mike Cyplik" still matches TWO
+   * of his real targets — a $25,000 monthly and a $300,000 yearly — so without a
+   * period length a card set to one goal quietly draws two rows. Found in Heroes'
+   * own data while mocking this up, not in review.
+   *
+   * ⚠ Both default to everything, so a board saved before these existed draws
+   * exactly what it drew yesterday.
+   */
+  metrics: {
+    kind: 'catalog' as const,
+    label: 'Which goals',
+    def: [] as string[],
+    catalog: 'goal_metrics' as const,
+    hint: 'Leave empty for every goal. Lists only measures somebody has actually set a target on.',
+  },
+  grain: {
+    kind: 'enum' as const,
+    label: 'Period length',
+    def: GRAIN_ANY,
+    opts: [GRAIN_ANY, GRAIN_LABELS.month, GRAIN_LABELS.quarter, GRAIN_LABELS.year],
+    hint: 'What separates a monthly target from a yearly one on the same measure — somebody can hold both at once.',
+  },
 }
 
 type GoalScope = {
   mode: 'everyone' | 'company' | 'people'
   ids: Set<string>
+  /** Metric keys to keep. Empty means every measure. */
+  metrics: Set<string>
+  /** Period length to keep, or null for any length. */
+  grain: GoalRow['grain'] | null
   /** Showing less than everything, so the card has to say so. */
   narrowed: boolean
   /**
@@ -158,11 +225,28 @@ function goalScope(cfg: WidgetConfig): GoalScope {
   const ids = new Set(
     (Array.isArray(raw) ? raw.map(String).map(v => v.trim()).filter(Boolean) : []),
   )
+  const rawMetrics = cfg.metrics
+  // ⚠ Bounded, not whitelisted, like every catalog field — but a key nothing
+  // recognises simply matches no row, so an unknown value narrows to empty rather
+  // than widening. Failing to an empty card is the safe direction for a filter.
+  const metrics = new Set(
+    (Array.isArray(rawMetrics) ? rawMetrics.map(String).map(v => v.trim()).filter(Boolean) : []),
+  )
+  const grain = GRAIN_BY_LABEL[String(cfg.grain ?? GRAIN_ANY)] ?? null
   const mode = whose === WHOSE_COMPANY ? 'company' : whose === WHOSE_PEOPLE ? 'people' : 'everyone'
-  return { mode, ids, narrowed: mode !== 'everyone', unset: mode === 'people' && ids.size === 0 }
+  return {
+    mode,
+    ids,
+    metrics,
+    grain,
+    narrowed: mode !== 'everyone' || metrics.size > 0 || grain !== null,
+    unset: mode === 'people' && ids.size === 0,
+  }
 }
 
 function keepGoal(g: GoalRow, s: GoalScope): boolean {
+  if (s.metrics.size > 0 && !s.metrics.has(g.metric)) return false
+  if (s.grain !== null && g.grain !== s.grain) return false
   if (s.mode === 'company') return !g.employee_id
   if (s.mode === 'people') return !!g.employee_id && s.ids.has(g.employee_id)
   return true
@@ -184,7 +268,7 @@ function scoped(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec):
  * ids. A person with no target in the window therefore cannot be named — the count is
  * the fallback, which is honest rather than blank.
  */
-function scopePhrase(s: GoalScope, goals: GoalRow[]): string | null {
+function whosePhrase(s: GoalScope, goals: GoalRow[]): string | null {
   if (s.mode === 'company') return 'company-wide targets only'
   if (s.mode !== 'people') return null
   if (s.unset) return 'nobody picked yet'
@@ -194,14 +278,65 @@ function scopePhrase(s: GoalScope, goals: GoalRow[]): string | null {
   return `${s.ids.size} ${s.ids.size === 1 ? 'person' : 'people'} only`
 }
 
-/** Put the scope in the TITLE too: a tile reading "2 of 3" says nothing about whose. */
+/**
+ * Which measures the card is pinned to, in words.
+ *
+ * ⚠ Named from the CATALOG rather than from the rows, unlike the people phrase above.
+ * A metric key resolves to its label with no data at all, so a card filtered to a
+ * measure that has no target in this range can still say which measure it is looking
+ * for — which is the difference between "Work produced: nothing here" and a blank card.
+ */
+function metricsPhrase(s: GoalScope): string | null {
+  if (s.metrics.size === 0) return null
+  // ⚠ A key that has left the catalog is named as retired rather than printed raw —
+  // a card titled "— rev_per_labor_hour" reads as a bug rather than as a stale setting.
+  const labels = [...s.metrics].map(k => getGoalMetric(k)?.label ?? 'a goal no longer available')
+  if (labels.length <= 2) return labels.join(' + ')
+  return `${labels.length} goals`
+}
+
+function grainPhrase(s: GoalScope): string | null {
+  if (s.grain === null) return null
+  return s.grain === 'month' ? 'monthly targets' : s.grain === 'quarter' ? 'quarterly targets' : 'yearly targets'
+}
+
+/**
+ * Everything this card is narrowed to, in words.
+ *
+ * ⚠ Dot-joined to match how the subtitles and the board narrator already join their
+ * clauses — the narrator wraps this in brackets, so a comma list would read as prose
+ * inside a card that punctuates with dots everywhere else.
+ */
+function scopePhrase(s: GoalScope, goals: GoalRow[]): string | null {
+  const parts = [whosePhrase(s, goals), metricsPhrase(s), grainPhrase(s)].filter(Boolean) as string[]
+  return parts.length ? parts.join(' · ') : null
+}
+
+/**
+ * Put the scope in the TITLE too: a tile reading "2 of 3" says nothing about whose.
+ *
+ * ⚠ WHOSE, then the measure — and only one of them. A title carrying every filter
+ * ("Progress toward each target — Mike Cyplik — Work produced — monthly") is worse
+ * than one that names the most distinguishing fact and leaves the rest to the
+ * subtitle, which spells all of it out. Whose wins when both are set, because two
+ * cards showing the same measure for different people is the pairing a reader is
+ * most likely to mix up.
+ */
 function scopeTitle(title: string, s: GoalScope, goals: GoalRow[]): string {
   if (!s.narrowed) return title
-  if (s.mode === 'company') return `${title} — company`
-  if (s.unset) return title
-  const names = [...new Set(goals.filter(g => g.employee_id && g.person_name).map(g => g.person_name as string))]
-  if (names.length === 1 && s.ids.size === 1) return `${title} — ${names[0]}`
-  return `${title} — ${s.ids.size} ${s.ids.size === 1 ? 'person' : 'people'}`
+  const who = s.unset
+    ? null
+    : s.mode === 'company'
+      ? 'company'
+      : s.mode === 'people'
+        ? (() => {
+            const names = [...new Set(goals.filter(g => g.employee_id && g.person_name).map(g => g.person_name as string))]
+            if (names.length === 1 && s.ids.size === 1) return names[0]
+            return `${s.ids.size} ${s.ids.size === 1 ? 'person' : 'people'}`
+          })()
+        : null
+  const suffix = who ?? metricsPhrase(s)
+  return suffix ? `${title} — ${suffix}` : title
 }
 
 /**
@@ -223,9 +358,27 @@ function withScope(sub: string, s: GoalScope, goals: GoalRow[]): string {
   return p ? `${sub} · ${p}` : sub
 }
 
-/** What an empty card should say, which depends on WHY it is empty. */
+/**
+ * What an empty card should say, which depends on WHY it is empty.
+ *
+ * \u26a0\u26a0 THE MEASURE AND PERIOD FILTERS GET NAMED FIRST, before whose. A card pinned to
+ * "Work produced \u00b7 monthly" for a person who only holds a yearly one is empty because
+ * of the PERIOD LENGTH, and telling them "nobody picked has a target in this range"
+ * sends them to change the wrong control \u2014 they would go adding people to a card that
+ * was never going to match.
+ *
+ * \u26a0 The read is capped at 60 targets, so a filter that finds nothing has two possible
+ * causes and this says which one applies rather than guessing.
+ */
 function emptyBecause(s: GoalScope, r: GoalsRow | null): string {
   if (s.unset) return 'Pick at least one person in this card\u2019s settings.'
+  const narrowedBy = [metricsPhrase(s), grainPhrase(s)].filter(Boolean) as string[]
+  if (narrowedBy.length > 0) {
+    const capped = r && r.total_in_window > r.shown
+      ? ` Only the ${r.shown} most recent of ${r.total_in_window} targets were read, so it may exist outside that.`
+      : ''
+    return `No target matches ${narrowedBy.join(' \u00b7 ')} in this range.${capped}`
+  }
   if (s.mode === 'people') return 'None of the people picked have a target in this range.'
   if (s.mode === 'company') return 'No company-wide targets in this range.'
   return r && r.total_in_window === 0
@@ -250,6 +403,156 @@ const STATUS_TEXT: Record<GoalRow['status'], string> = {
   unknown: 'No data',
 }
 
+/* ── Drawing a target ───────────────────────────────────────────────────────
+ *
+ * Everything below turns one `GoalRow` into one `TargetRow`. It exists because the
+ * card this replaces drew a single bar from `attainment_pct` and nothing else, which
+ * is wrong in three different ways at once — a ceiling that has been blown scores
+ * high, an overshoot has nowhere to go past 100%, and a rate has no pace but was
+ * drawn as though it did.
+ */
+
+/**
+ * Where a ceiling's limit sits on the track.
+ *
+ * ⚠ FIXED rather than proportional, on purpose. Two ceiling rows on one card then
+ * put their limit lines at the same place, so the eye compares the overspill instead
+ * of hunting for where each line landed.
+ */
+const CEILING_LIMIT_FRAC = 0.7
+
+type TargetGeometry = Pick<TargetRow, 'fillFrac' | 'limitFrac' | 'overFrac' | 'paceFrac'>
+
+/**
+ * ⚠ Guard the denominator. A target of zero is settable for a count measure, and
+ * `actual / 0` would hand the renderer Infinity — which draws as a full bar, the most
+ * confident possible way to show a number nobody can compute.
+ */
+function geometry(g: GoalRow): TargetGeometry {
+  const target = num(g.target)
+  const actual = g.actual == null ? null : num(g.actual)
+  const pace = g.cumulative && g.expected_by_now != null ? num(g.expected_by_now) : null
+
+  // An empty track beside a named target is the honest picture; the status word
+  // beside it already reads "No data".
+  if (actual === null || target === 0) return { fillFrac: 0 }
+
+  if (g.direction === 'lower') {
+    /* A CEILING. The limit is a line the bar can cross, and the part past it is
+     * drawn in the bad tone by the renderer.
+     *
+     * ⚠⚠ THIS IS THE FIX FOR THE WORST BUG IN THE OLD CARD. Josh at 34.1% against a
+     * ≤25% limit has an inverted attainment of 73.3%, so it drew as a bar
+     * three-quarters full — "nearly there" for nine points over budget. */
+    const extent = Math.min(1, CEILING_LIMIT_FRAC * (actual / target))
+    const over = Math.max(0, extent - CEILING_LIMIT_FRAC)
+    return {
+      fillFrac: Math.min(extent, CEILING_LIMIT_FRAC),
+      limitFrac: CEILING_LIMIT_FRAC,
+      overFrac: over > 0 ? over : undefined,
+      paceFrac: pace === null ? undefined : Math.min(1, CEILING_LIMIT_FRAC * (pace / target)),
+    }
+  }
+
+  // A FLOOR still short of its number: the target IS the end of the track, so no
+  // line is needed — the empty part of the track is the gap.
+  if (actual <= target) {
+    return {
+      fillFrac: actual / target,
+      paceFrac: pace === null ? undefined : Math.min(1, pace / target),
+    }
+  }
+
+  /* A FLOOR that has been beaten. Rescale so the actual fills the track and the
+   * target becomes a line the bar has cleared.
+   *
+   * ⚠ NOT drawn as overspill. The red band means "past a limit", and beating a sales
+   * target is not a breach — the bar stays in its own good tone the whole way. */
+  return {
+    fillFrac: 1,
+    limitFrac: target / actual,
+    paceFrac: pace === null ? undefined : Math.min(1, pace / actual),
+  }
+}
+
+/**
+ * A difference in the measure's own units.
+ *
+ * ⚠ A percentage target's gap is in POINTS. "9.1% over" printed beside a 34.1% actual
+ * reads as 9.1% *of* 34.1% — the one place on this card where the right units and the
+ * obvious units are not the same.
+ */
+function gapText(metricKey: string, diff: number, decimals = 0): string {
+  const v = Math.abs(diff)
+  if (getGoalMetric(metricKey)?.format === 'percent') {
+    const r = Math.round(v * 10) / 10
+    return `${r} ${r === 1 ? 'point' : 'points'}`
+  }
+  return fmt(metricKey, v, decimals)
+}
+
+/** "of $750,000" for a floor; "limit ≤ 25%" for a ceiling, which is not the same claim. */
+function targetLabel(g: GoalRow, decimals: number): string {
+  return g.direction === 'lower'
+    ? `limit ${fmtTarget(g, decimals)}`
+    : `of ${fmt(g.metric, g.target, decimals)}`
+}
+
+/**
+ * The line under the bar: how far off, and how much of the period is gone.
+ *
+ * ⚠⚠ MID-PERIOD, THE GAP THAT MATTERS IS THE GAP TO PACE, NOT TO THE TARGET. Being
+ * $270,944 short of a $750,000 year on the last day of August is true and useless;
+ * being $20,259 behind where the calendar says you should be is the number somebody
+ * can act on. So a running total mid-period reports pace, and only a finished period
+ * (or a rate, which has no pace) reports the distance to the target itself.
+ */
+function detailText(g: GoalRow, decimals: number): string {
+  const target = num(g.target)
+  const actual = g.actual == null ? null : num(g.actual)
+
+  if (actual === null) {
+    return g.status === 'open'
+      ? 'This period has not started yet.'
+      : 'Nothing measurable for this period yet.'
+  }
+
+  const parts: string[] = []
+
+  // ⚠ Attainment is left off a ceiling. Its percentage is inverted, so "73% of
+  // target" for nine points over budget is the exact misreading this card exists
+  // to prevent — the gap in points below says it properly.
+  if (g.direction !== 'lower' && g.attainment_pct != null) {
+    parts.push(`${num(g.attainment_pct)}% of target`)
+  }
+
+  if (g.cumulative && !g.closed && g.expected_by_now != null) {
+    const d = actual - num(g.expected_by_now)
+    parts.push(Math.abs(d) < 0.005
+      ? 'exactly on pace'
+      : `${gapText(g.metric, d, decimals)} ${d < 0 ? 'behind' : 'ahead of'} pace`)
+  } else {
+    const d = actual - target
+    if (Math.abs(d) < 0.005) {
+      parts.push('exactly on target')
+    } else if (g.direction === 'lower') {
+      parts.push(`${gapText(g.metric, d, decimals)} ${d > 0 ? 'over the limit' : 'under the limit'}`)
+    } else {
+      parts.push(`${gapText(g.metric, d, decimals)} ${d < 0 ? 'short' : 'over target'}`)
+    }
+  }
+
+  parts.push(num(g.elapsed_pct) >= 100 ? 'the period has ended' : `${num(g.elapsed_pct)}% of the period gone`)
+
+  // Said on the row itself, not just in the footnote — somebody reading one row
+  // should not have to work out why it has no marker when its neighbour does.
+  if (!g.cumulative) parts.push('a rate, so no pace marker')
+  if (g.status === 'pending') parts.push('no verdict until the period ends')
+
+  return parts.join(' · ')
+}
+
+
 const STATUS_TONE: Record<GoalRow['status'], Tone> = {
   hit: 'good',
   missed: 'bad',
@@ -262,6 +565,44 @@ const STATUS_TONE: Record<GoalRow['status'], Tone> = {
   open: 'neutral',
   unknown: 'unknown',
 }
+
+function targetRow(g: GoalRow): TargetRow {
+  const dp = moneyDecimals(g)
+  return {
+    key: g.id,
+    name: getGoalMetric(g.metric)?.label ?? g.metric,
+    // ⚠ Whose it is comes FIRST. A row of targets with no owner reads as company
+    // performance, which is how a personal number gets repeated as the business's.
+    who: [g.employee_id ? whose(g) : 'Company', periodCell(g)].join(' · '),
+    actualText: fmt(g.metric, g.actual, dp),
+    targetText: targetLabel(g, dp),
+    status: STATUS_TEXT[g.status],
+    detail: detailText(g, dp),
+    tone: STATUS_TONE[g.status],
+    ...geometry(g),
+  }
+}
+
+/**
+ * Worst first.
+ *
+ * ⚠ Deterministic, and not the source's order. The old card drew whatever order the
+ * database returned (by person, then measure), which buries the one target in trouble
+ * under five that are fine. Ties break on the name so a card does not reshuffle
+ * itself between two renders of the same data.
+ */
+const TARGET_SEVERITY: Record<GoalRow['status'], number> = {
+  missed: 0, behind: 1, over: 2, under: 3, pending: 4, unknown: 5, open: 6, on_track: 7, hit: 8,
+}
+
+function byWorstFirst(a: GoalRow, b: GoalRow): number {
+  const d = TARGET_SEVERITY[a.status] - TARGET_SEVERITY[b.status]
+  if (d !== 0) return d
+  return (getGoalMetric(a.metric)?.label ?? a.metric).localeCompare(getGoalMetric(b.metric)?.label ?? b.metric)
+}
+
+/** What the markers mean, said once under the rows rather than in a colour legend. */
+const MARKER_FOOT = 'The pale mark on a bar is where today says you should be; a white mark is the target itself. Neither appears on a measure that is a rate rather than a running total — a rate does not build up through a period, so there is no honest half-way figure.'
 
 export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
   {
@@ -360,17 +701,21 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
       const { r, goals, scope } = scoped(bag, cfg, win)
       const rows = goals.map(g => {
         const m = getGoalMetric(g.metric)
+        // ⚠ The same per-row precision the progress cards use. Without it this table
+        // shows "$92" for a $91.81 actual while the card beside it on the same board
+        // shows "$91.81" — one target, two figures, and no way to tell which is right.
+        const dp = moneyDecimals(g)
         return {
           key: g.id,
           cells: {
             metric: m?.label ?? g.metric,
             who: whose(g),
             period: periodCell(g),
-            target: fmtTarget(g),
-            actual: fmt(g.metric, g.actual),
+            target: fmtTarget(g, dp),
+            actual: fmt(g.metric, g.actual, dp),
             attainment: g.attainment_pct,
             // Blank, not zero, for a rate metric — see the header.
-            pace: g.cumulative ? fmt(g.metric, g.expected_by_now) : '—',
+            pace: g.cumulative ? fmt(g.metric, g.expected_by_now, dp) : '—',
             status: STATUS_TEXT[g.status],
           },
           tones: { status: STATUS_TONE[g.status] } as Record<string, Tone>,
@@ -416,41 +761,115 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
     },
   },
 
+  /**
+   * Every open target, worst first.
+   *
+   * ⚠⚠ REBUILT from a `bars` card, and the reason is worth keeping. It drew ONE
+   * number per target — `attainment_pct` — with the name clamped to a 104px column by
+   * the shared bar renderer. Ben's own board therefore read "Revenue per labo… 91.8%"
+   * and "Work produced ·… 63.9%": two amber bars of the same shape that were in fact
+   * a rate $8.19/hr short and a year $20,259 behind pace. Neither figure, neither
+   * full name, and no way to tell the two situations apart.
+   *
+   * ⚠ A target with no actual is now LISTED rather than dropped. The old filter
+   * required `attainment_pct != null`, so a measure nothing could compute vanished
+   * from a card whose whole job is to say where things stand — and vanishing is
+   * indistinguishable from never having been set. It draws an empty track and says
+   * "No data", which is what the rest of this file already does everywhere else.
+   */
   {
     type: 'goals_progress',
     group: 'Goals',
     title: 'Progress toward each target',
-    blurb: 'How far along each open goal is',
+    blurb: 'Each open goal against its number, with where you should be by now',
     defaultSpan: 6,
     config: { ...GOAL_SCOPE_CONFIG },
     sources: (_cfg, win) => [goalsReq(win)],
     metric: (bag, cfg, win) => {
       const { r, goals, scope } = scoped(bag, cfg, win)
-      const live = goals.filter(g => !g.closed && g.attainment_pct != null)
+      const live = goals.filter(g => !g.closed).sort(byWorstFirst)
+      const truncated = r && r.total_in_window > r.shown
       return {
-        kind: 'bars',
+        kind: 'targets',
+        layout: 'rows',
         title: scopeTitle('Progress toward each target', scope, goals),
         sub: withScope(`${win.phrase} · targets still open`, scope, goals),
-        format: 'percent',
-        rows: live.map(g => ({
-          // The person is named in the bar itself: a row of bars with no owner
-          // reads as company performance at a glance.
-          label: [
-            getGoalMetric(g.metric)?.label ?? g.metric,
-            g.employee_id ? whose(g) : null,
-            periodLabel(g.grain, g.period_start),
-          ].filter(Boolean).join(' · '),
-          value: num(g.attainment_pct),
-          tone: STATUS_TONE[g.status],
-          // The period's own progress alongside the goal's, so "40% there" can
-          // be read against "40% through" without doing the arithmetic.
-          detail: `${num(g.elapsed_pct)}% of the period gone`,
-        })),
+        rows: live.map(targetRow),
         empty: scope.narrowed || scope.unset ? emptyBecause(scope, r) : 'No open targets in this range',
         legend: [
           { label: 'On track or hit', tone: 'good' },
-          { label: 'Behind', tone: 'warn' },
+          { label: 'Behind or under', tone: 'warn' },
+          { label: 'Missed or over a limit', tone: 'bad' },
         ],
+        foot: [
+          truncated
+            ? `Only the ${r!.shown} most recent of ${r!.total_in_window} targets in this range were read.`
+            : null,
+          'Worst first.',
+          MARKER_FOOT,
+        ].filter(Boolean).join(' '),
+      }
+    },
+  },
+
+  /**
+   * ONE target, big.
+   *
+   * Ben: "You don't see what the actual goal is, just the progress… what if I just
+   * want to highlight one goal?"
+   *
+   * ⚠⚠ IT SHOWS THE FIRST MATCH AND SAYS HOW MANY OTHERS MATCHED, rather than
+   * silently picking. Three controls are needed to reach exactly one target (see
+   * GOAL_SCOPE_CONFIG) and somebody will inevitably set two of them, so a card that
+   * quietly drew one of four matches would be a card that shows a different number
+   * after somebody else adds a target. The footnote names the control to reach for.
+   *
+   * ⚠ Unlike the stacked card, this one includes a FINISHED period. A card pinned to
+   * "Work produced · monthly" going blank the day the month closes would read as
+   * broken; the newest period wins, whether or not it is still open.
+   */
+  {
+    type: 'goal_single',
+    group: 'Goals',
+    title: 'Single target',
+    blurb: 'One goal on its own card — pick which in the settings',
+    defaultSpan: 4,
+    config: { ...GOAL_SCOPE_CONFIG },
+    sources: (_cfg, win) => [goalsReq(win)],
+    metric: (bag, cfg, win) => {
+      const { r, goals, scope } = scoped(bag, cfg, win)
+      /* Newest period first, then the shorter grain, then worst — so "the current
+       * month" beats "the year it sits inside", which is what somebody pinning a card
+       * to a monthly target means by it. Fully deterministic: the same data always
+       * picks the same target. */
+      const grainRank: Record<GoalRow['grain'], number> = { month: 0, quarter: 1, year: 2 }
+      const ranked = [...goals].sort((a, b) =>
+        (b.period_start < a.period_start ? -1 : b.period_start > a.period_start ? 1 : 0)
+        || (grainRank[a.grain] - grainRank[b.grain])
+        || byWorstFirst(a, b))
+      const pick = ranked[0]
+      const others = ranked.length - 1
+      return {
+        kind: 'targets',
+        layout: 'focus',
+        // ⚠ Carried even though the focus layout writes its heading from the target
+        // itself: the widget picker and the board editor both read `title`.
+        title: scopeTitle('Single target', scope, goals),
+        sub: withScope(win.phrase, scope, goals),
+        rows: pick ? [targetRow(pick)] : [],
+        // ⚠ Always the shared reason. This card can be left unconfigured, and an
+        // unconfigured card that finds nothing is empty for the ordinary reason —
+        // telling somebody to "pick a goal" when no target exists at all sends them
+        // to the wrong screen.
+        empty: emptyBecause(scope, r),
+        foot: [
+          others > 0
+            ? `${others} other target${others === 1 ? ' also matches' : 's also match'} this card — showing the newest period. Set a period length, or pick one person, to pin it.`
+            : null,
+          pick && !pick.cumulative
+            ? 'A rate, so there is no pace marker — a rate does not build up through a period.'
+            : pick ? MARKER_FOOT : null,
+        ].filter(Boolean).join(' '),
       }
     },
   },
@@ -498,6 +917,23 @@ export const GOALS_WIDGETS: WidgetDef<WidgetPayload>[] = [
       if (scope.mode === 'company') {
         items.push(
           'This card is set to company-wide targets only, so nobody\u2019s personal targets appear on it.',
+        )
+      }
+      // Same rule as every other note here: only when the thing it explains is
+      // actually switched on.
+      if (scope.metrics.size > 0) {
+        items.push(
+          `This card is pinned to ${metricsPhrase(scope)}, so any other target is left off it even when it belongs to the same person.`,
+        )
+      }
+      if (scope.grain !== null) {
+        items.push(
+          `Only ${grainPhrase(scope)} appear on this card. That matters because the same measure can carry both at once \u2014 a monthly number and the yearly one it sits inside are different targets, and a card showing both looks like it is double-counting.`,
+        )
+      }
+      if (goals.some(g => g.direction === 'lower')) {
+        items.push(
+          'On a ceiling target the white mark on the bar is the limit itself, not the end of the track, and anything past it is drawn in red. A ceiling that has been gone over cannot look like progress that way \u2014 which it did on the old bars, where being nine points over budget scored 73%.',
         )
       }
       if (goals.some(g => g.status === 'pending')) {
@@ -564,6 +1000,10 @@ export {
   STATUS_TONE as goalStatusTone,
   fmt as formatGoalValue,
   fmtTarget as formatGoalTarget,
+  // ⚠ Shared so a sentence and the card it sits above cannot round the same money
+  // two different ways — the whole reason the scope filter and status words are
+  // shared from here too.
+  moneyDecimals as goalMoneyDecimals,
   whose as goalOwner,
   scopePhrase as goalScopePhrase,
   emptyBecause as goalsEmptyBecause,
