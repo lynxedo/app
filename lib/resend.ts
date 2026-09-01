@@ -28,6 +28,8 @@ export async function sendEmail(opts: {
   html?: string
   text?: string
   replyTo?: string
+  cc?: string[]
+  bcc?: string[]
   headers?: Record<string, string>
   tags?: { name: string; value: string }[]
 }): Promise<ResendSendResult> {
@@ -52,6 +54,8 @@ export async function sendEmail(opts: {
         html: opts.html,
         text: opts.text,
         reply_to: opts.replyTo,
+        cc: opts.cc && opts.cc.length ? opts.cc : undefined,
+        bcc: opts.bcc && opts.bcc.length ? opts.bcc : undefined,
         headers: opts.headers,
         tags: opts.tags,
       }),

@@ -7,6 +7,7 @@ import {
   buildCampaignContent,
   enqueueCampaignRecipients,
   describeAudience,
+  parseCopyEmails,
   type CampaignRecipient,
 } from '@/lib/email-campaigns'
 import { resolveIdentityRow, validIdentityId } from '@/lib/email-identities'
@@ -16,7 +17,7 @@ const THROTTLE_MAX = 120
 
 const DETAIL_SELECT =
   `id, name, subject, body_html, design, audience, status, recipient_count, sent_count, failed_count,
-   skipped_count, throttle_per_min, template_id, segment_id, identity_id, scheduled_at, started_at,
+   skipped_count, throttle_per_min, template_id, segment_id, identity_id, cc_emails, bcc_emails, scheduled_at, started_at,
    completed_at, last_error, created_by, created_at`
 
 // GET /api/hub/marketing/email/campaigns/[id] — one campaign + a recent recipient sample.
@@ -84,6 +85,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const send = body.send === true
   const name = String(body.name || '').trim()
   const identityId = await validIdentityId(admin, access.companyId, typeof body.identity_id === 'string' ? body.identity_id : null)
+  const ccEmails = parseCopyEmails(body.cc_emails)
+  const bccEmails = parseCopyEmails(body.bcc_emails)
   let throttle = Number(body.throttle_per_min)
   throttle = Number.isFinite(throttle) ? Math.min(THROTTLE_MAX, Math.max(THROTTLE_MIN, Math.round(throttle))) : 60
 
@@ -117,6 +120,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
         design: content.design,
         body_html: content.bodyHtml,
         audience: spec,
+        cc_emails: ccEmails,
+        bcc_emails: bccEmails,
         throttle_per_min: throttle,
         scheduled_at: scheduledAt,
         updated_at: new Date().toISOString(),
@@ -146,6 +151,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       design: content.design,
       body_html: content.bodyHtml,
       audience: spec,
+      cc_emails: ccEmails,
+      bcc_emails: bccEmails,
       status: 'queued',
       recipient_count: audience.length,
       throttle_per_min: throttle,

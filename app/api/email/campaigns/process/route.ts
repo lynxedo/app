@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
   const { data: campaigns } = await admin
     .from('email_campaigns')
-    .select('id, company_id, subject, body_html, throttle_per_min, scheduled_at, identity_id')
+    .select('id, company_id, subject, body_html, throttle_per_min, scheduled_at, identity_id, cc_emails, bcc_emails')
     .in('status', ['queued', 'processing'])
     .or(`scheduled_at.is.null,scheduled_at.lte.${nowIso}`)
     .order('created_at', { ascending: true })
@@ -117,6 +117,8 @@ export async function POST(request: Request) {
           bodyHtml: c.body_html || '',
           unsubCampaignId: c.id,
           tagValue: 'campaign',
+          cc: c.cc_emails || null,
+          bcc: c.bcc_emails || null,
         })
 
         if (!result.ok) {

@@ -207,6 +207,10 @@ export async function renderAndSendEmail(opts: {
   bodyHtml: string
   unsubCampaignId?: string | null
   tagValue: 'campaign' | 'automation' | 'drip'
+  // Optional extra copies of EVERY send (campaigns only today). CC shows in the
+  // recipient's copy; BCC is invisible to them. Both get one copy per recipient.
+  cc?: string[] | null
+  bcc?: string[] | null
 }): Promise<ResendSendResult> {
   const merge = { first_name: opts.firstName, last_name: opts.lastName, email: opts.email }
   const subject = renderMergeFields(opts.subject || '', merge)
@@ -220,11 +224,34 @@ export async function renderAndSendEmail(opts: {
     from: formatFrom(opts.identity.from_name, opts.identity.from_email),
     to: opts.email,
     replyTo: opts.identity.reply_to || undefined,
+    cc: opts.cc || undefined,
+    bcc: opts.bcc || undefined,
     subject,
     html,
     headers: listUnsubscribeHeaders(unsub.oneClick),
     tags: [{ name: 'type', value: opts.tagValue }],
   })
+}
+
+const COPY_LIST_MAX = 10
+
+/**
+ * Normalize a campaign's CC/BCC copy list from a request body: strings only,
+ * trimmed + lowercased, real-looking addresses, de-duplicated, capped. The copy
+ * address never overrides the recipient — Resend sends one email per recipient
+ * with these riding along on each.
+ */
+export function parseCopyEmails(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  for (const v of raw) {
+    if (typeof v !== 'string') continue
+    const email = v.trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue
+    if (!out.includes(email)) out.push(email)
+    if (out.length >= COPY_LIST_MAX) break
+  }
+  return out
 }
 
 function esc(s: string): string {

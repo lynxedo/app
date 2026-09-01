@@ -41,6 +41,8 @@ type CampaignDetail = Campaign & {
   audience: AudienceSpec | null
   template_id: string | null
   identity_id: string | null
+  cc_emails: string[] | null
+  bcc_emails: string[] | null
   throttle_per_min: number
 }
 
@@ -322,6 +324,11 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
   const [contactQuery, setContactQuery] = useState('')
   const [reviewing, setReviewing] = useState(false)
 
+  // Optional CC/BCC copies of every email this campaign sends (comma-separated).
+  const [ccText, setCcText] = useState((draft?.cc_emails || []).join(', '))
+  const [bccText, setBccText] = useState((draft?.bcc_emails || []).join(', '))
+  const [showCopy, setShowCopy] = useState(((draft?.cc_emails || []).length + (draft?.bcc_emails || []).length) > 0)
+
   const [when, setWhen] = useState<'now' | 'later'>(draft?.scheduled_at ? 'later' : 'now')
   const [scheduledAt, setScheduledAt] = useState(draft?.scheduled_at ? toLocalInput(draft.scheduled_at) : '')
 
@@ -448,6 +455,8 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
       const payload: Record<string, unknown> = {
         template_id: templateId || null, subject: subject.trim(), design, name: name.trim(),
         identity_id: identityId || null,
+        cc_emails: parseEmails(ccText),
+        bcc_emails: parseEmails(bccText),
         ...buildSpec(),
       }
       if (when === 'later' && scheduledAt) payload.scheduled_at = new Date(scheduledAt).toISOString()
@@ -472,6 +481,8 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
       const payload: Record<string, unknown> = {
         template_id: templateId || null, subject: subject.trim(), design, name: name.trim(),
         identity_id: identityId || null,
+        cc_emails: parseEmails(ccText),
+        bcc_emails: parseEmails(bccText),
         ...buildSpec(),
       }
       if (when === 'later' && scheduledAt) payload.scheduled_at = new Date(scheduledAt).toISOString()
@@ -701,6 +712,44 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
               />
             )}
           </div>
+        </div>
+
+        {/* Optional CC/BCC copy of every send */}
+        <div>
+          {!showCopy ? (
+            <button onClick={() => setShowCopy(true)} className="text-sm text-blue-400 hover:text-blue-300">
+              + Copy someone on every email (CC/BCC)
+            </button>
+          ) : (
+            <div className="rounded-lg border border-gray-800 bg-gray-900 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-400">Copy someone on every email</span>
+                <button onClick={() => { setShowCopy(false); setCcText(''); setBccText('') }} className="text-xs text-gray-400 hover:text-white">Remove</button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] text-gray-500 mb-1">CC <span className="text-gray-600">· recipients can see this address</span></label>
+                  <input
+                    value={ccText} onChange={(e) => setCcText(e.target.value)}
+                    placeholder="office@example.com"
+                    className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-gray-500 mb-1">BCC <span className="text-gray-600">· hidden from recipients</span></label>
+                  <input
+                    value={bccText} onChange={(e) => setBccText(e.target.value)}
+                    placeholder="records@example.com"
+                    className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-sm text-white"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-amber-300/80">
+                These addresses get a separate copy of <strong>every single email</strong> — a 500-recipient campaign
+                puts 500 copies in that inbox. CC also appears in each customer&apos;s copy (and they can reply-all to it).
+              </p>
+            </div>
+          )}
         </div>
 
         <p className="text-xs text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">

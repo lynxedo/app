@@ -7,6 +7,7 @@ import {
   buildCampaignContent,
   enqueueCampaignRecipients,
   describeAudience,
+  parseCopyEmails,
   type CampaignRecipient,
 } from '@/lib/email-campaigns'
 import { resolveIdentityRow, validIdentityId } from '@/lib/email-identities'
@@ -75,6 +76,11 @@ export async function POST(request: Request) {
   // default is resolved at send time. Validated against this company's identities.
   const identityId = await validIdentityId(admin, access.companyId, typeof body.identity_id === 'string' ? body.identity_id : null)
 
+  // Optional CC/BCC copy addresses — each gets a copy of EVERY email this
+  // campaign sends (one per recipient, riding on the recipient's own email).
+  const ccEmails = parseCopyEmails(body.cc_emails)
+  const bccEmails = parseCopyEmails(body.bcc_emails)
+
   // Absolute origin for image URLs. NEXT_PUBLIC_APP_URL is the public domain;
   // request.url's origin is the proxy-internal address behind the Cloudflare
   // tunnel (e.g. localhost:3000), which Gmail's image proxy can't fetch.
@@ -108,6 +114,8 @@ export async function POST(request: Request) {
         design: content.design,
         body_html: content.bodyHtml,
         audience: spec,
+        cc_emails: ccEmails,
+        bcc_emails: bccEmails,
         status: 'draft',
         recipient_count: 0,
         throttle_per_min: throttle,
@@ -152,6 +160,8 @@ export async function POST(request: Request) {
       design: content.design,
       body_html: content.bodyHtml,
       audience: spec,
+      cc_emails: ccEmails,
+      bcc_emails: bccEmails,
       status: 'queued',
       recipient_count: audience.length,
       throttle_per_min: throttle,
