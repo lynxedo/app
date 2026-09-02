@@ -354,8 +354,12 @@ export type CommissionTier = { from: number; rate: number }
  * behaviour or adding it silently repays every past period.
  *
  *   month             the window on screen, verbatim
- *   commission_weeks  W1–W4 of that window's month, added together as ONE window
- *   week              each of W1–W4 judged SEPARATELY, the four results summed
+ *   commission_weeks  ALL of that month's bonus weeks, added together as ONE window
+ *   week              each bonus week judged SEPARATELY, the results summed
+ *
+ * ⚠ A month has FOUR OR FIVE bonus weeks — a week belongs to the month holding its
+ * Thursday, so the count depends on how many Thursdays the month has. Never assume
+ * four; `commissionWeeks()` in windows.ts is the only thing that decides.
  *
  * ⚠ `commission_weeks` and `week` differ only in whether the weeks are summed before
  * or after the rule is applied — and on a tiered rule that is the whole difference
@@ -441,13 +445,13 @@ export const COMMISSION_PERIODS: { key: CommissionPeriod; label: string; hint: s
   },
   {
     key: 'commission_weeks',
-    label: 'Bonus weeks W1–W4, added together',
-    hint: 'Still one calculation, but over the four bonus weeks instead of the calendar month — W1 starts on the last Monday on or before the 1st. Use this for a rule that is a single monthly figure but should follow the crew’s weeks.',
+    label: 'The month’s bonus weeks, added together',
+    hint: 'Still one calculation, but over the month’s bonus weeks instead of its calendar days. Weeks run Monday to Sunday, and a week that straddles the 1st belongs to whichever month holds more of its days. Use this for a rule that is a single monthly figure but should follow the crew’s weeks.',
   },
   {
     key: 'week',
     label: 'Each bonus week on its own, then added up',
-    hint: 'W1–W4 are each judged separately and the four results are added. A week that falls short pays nothing for that week, and a week nobody worked pays nothing rather than being averaged away.',
+    hint: 'Each bonus week is judged separately and the results are added. A week that falls short pays nothing for that week, and a week nobody worked pays nothing rather than being averaged away. A month has four or five bonus weeks, and the card says which.',
   },
 ]
 
@@ -730,8 +734,8 @@ function describeTarget(plan: CommissionPlan, def: CommissionBasisDef | null): s
  * periods pay very different money and are otherwise indistinguishable on a payslip.
  */
 function describePeriod(plan: CommissionPlan): string | null {
-  if (plan.period === 'week') return 'each bonus week W1–W4 on its own, added up'
-  if (plan.period === 'commission_weeks') return 'measured over bonus weeks W1–W4'
+  if (plan.period === 'week') return 'each bonus week on its own, added up'
+  if (plan.period === 'commission_weeks') return 'measured over the month’s bonus weeks'
   return null
 }
 

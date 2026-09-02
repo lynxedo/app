@@ -463,12 +463,17 @@ export default function CommissionAdminPanel({
             <p className="mt-1.5 text-xs text-gray-500">
               {COMMISSION_PERIODS.find(o => o.key === effectivePeriod)?.hint}
             </p>
+            {/* ⚠⚠ THE WARNING THAT USED TO LIVE HERE IS DELETED, and its absence is the
+                point. It said four bonus weeks cover 28 days so a longer month leaves
+                days in no bonus week at all — true of the old rule, and the bug that
+                was fixed. Leaving it would be telling an admin to distrust a figure
+                that has just become complete. What replaces it is what IS now true. */}
             {effectivePeriod !== 'month' && (
-              <p className="mt-1.5 text-xs text-amber-300/80">
-                ⚠ Four bonus weeks cover 28 days, so in a longer month the last few days fall
-                outside W1&ndash;W4 <em>and</em> outside next month&apos;s W1 &mdash; August 2026
-                leaves Aug 24&ndash;30 in no bonus week at all. The card names those days when it
-                happens, so work done then is visible rather than quietly unpaid.
+              <p className="mt-1.5 text-xs text-gray-500">
+                Weeks run Monday to Sunday, and a week straddling the 1st belongs to whichever
+                month holds more of its days &mdash; so a month has <strong className="text-gray-300">four
+                or five</strong> bonus weeks and every day of the year falls in exactly one of them.
+                The card says how many it used.
               </p>
             )}
           </div>

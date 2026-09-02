@@ -16,8 +16,8 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  type CommissionPlan, PLAN_DEFAULTS, describeRule, payout, payoutOverPeriods,
-  planCoversPeriod, tieredGross,
+  type CommissionPlan, COMMISSION_PERIODS, PLAN_DEFAULTS, TIER_MODES,
+  describeRule, payout, payoutOverPeriods, planCoversPeriod, tieredGross,
 } from '../../lib/reports/commission'
 import {
   commissionMonth, commissionMonthStart, commissionWeeks, encodeBuckets,
@@ -389,6 +389,53 @@ describe('effective dating', () => {
   test('a mid-period rule change still shows on a monthly card', () => {
     // Overlap, not containment — a rule effective from the 15th earned for part of it.
     assert.ok(planCoversPeriod(plan({ effective_from: '2026-08-15' }), '2026-08-01', '2026-08-31'))
+  })
+})
+
+describe('no user-facing text may claim a fixed number of bonus weeks', () => {
+  /* ⚠⚠ THIS GUARDS A TRAP THIS FEATURE FELL INTO TWICE IN ONE DAY. A caveat is a claim
+   * about the arithmetic, so changing the arithmetic turns it into a wrong number
+   * written in prose — and prose does not fail a type check. Both times the offending
+   * strings were caught only by grepping the BUILT bundle for text that should have
+   * disappeared. These assertions move that check earlier.
+   *
+   * The banned phrases all assert the OLD rule: exactly four weeks, or an anchor on the
+   * last Monday before the 1st. A month now has four OR five, decided by Thursdays. */
+  const BANNED = [
+    /last Monday on or before/i,
+    /\bW1[–\-]W4\b/,
+    /\bfour bonus weeks\b/i,
+    /\bthe four weeks\b/i,
+    /28 days/,
+  ]
+
+  function assertClean(label: string, text: string) {
+    for (const re of BANNED) {
+      assert.ok(!re.test(text), `${label} still claims the old four-week rule: ${re} in "${text}"`)
+    }
+  }
+
+  test('the period options an admin picks from say nothing about four weeks', () => {
+    for (const o of COMMISSION_PERIODS) {
+      assertClean(`period "${o.key}" label`, o.label)
+      assertClean(`period "${o.key}" hint`, o.hint)
+    }
+  })
+
+  test('the rule sentence on the card says nothing about four weeks', () => {
+    for (const period of ['month', 'commission_weeks', 'week'] as const) {
+      const p = plan({ basis: 'revenue_produced', rate_kind: 'tiered', tiers: JOSH_TIERS, period, tier_mode: 'flat' })
+      assertClean(`describeRule(${period})`, describeRule(p))
+    }
+    const t = plan({ basis: 'rev_per_hour', rate_kind: 'target_tiered', tiers: [{ from: 85, rate: 95 }], period: 'commission_weeks' })
+    assertClean('describeRule(target, commission_weeks)', describeRule(t))
+  })
+
+  test('the tier-mode options are clean too', () => {
+    for (const o of TIER_MODES) {
+      assertClean(`tier mode "${o.key}" label`, o.label)
+      assertClean(`tier mode "${o.key}" hint`, o.hint)
+    }
   })
 })
 
