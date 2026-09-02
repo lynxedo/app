@@ -171,14 +171,19 @@ export const COMMISSION_BASES: CommissionBasisDef[] = [
     group: 'Work done',
     noun: 'revenue they produced',
     unit: 'currency',
-    hint: 'Value of the completed visits credited to them — work done, not work sold.',
-    /* ⚠⚠ The one basis with a real accuracy problem, and it costs money rather than
-     * looking untidy. A visit worked by two technicians credits its full value to
-     * BOTH (that is how every technician board reports it), so paying a percentage
-     * on this figure overpays. Measured on Heroes' 2026 book: $16,331 of $429,475,
-     * or 3.8%. Stated on the card and here, because a silent 3.8% overpayment
-     * compounds every period and nobody would spot it. */
-    caution: 'A visit worked by two people credits its full value to both, so this figure runs about 3.8% above what the company actually produced. Paying a straight percentage on it overpays slightly.',
+    hint: 'Value of the completed visits credited to them — work done, not work sold. Counted on the day the visit was scheduled, and a visit worked by two people is split evenly between them.',
+    /* ⚠⚠ THIS CAUTION USED TO DESCRIBE A REAL 3.8% OVERPAYMENT AND NO LONGER DOES,
+     * which is exactly why it had to be rewritten rather than left alone. A visit
+     * worked by two technicians credits its full value to BOTH on every technician
+     * board, and paying a percentage of that figure overpaid — measured on Heroes'
+     * 2026 book at $16,331 of $429,475. `scoreboard_commission_production` now splits
+     * such a visit evenly, so the overpayment is gone. A caution still describing it
+     * would be a wrong number in prose, sitting in the editor where somebody sets pay.
+     *
+     * What replaces it is the caveat that IS now true: this basis and the technician
+     * scoreboards deliberately disagree about a shared visit, so the two cards showing
+     * "the same" person's production will not match, and that is not a bug in either. */
+    caution: 'A visit worked by two people is SPLIT between them here, so this figure reads lower than the same person’s technician scoreboard — those credit a shared visit in full to both. This is the figure to pay on; the other one would overpay by a few percent.',
   },
   {
     key: 'line_revenue',
