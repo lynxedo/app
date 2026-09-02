@@ -9,9 +9,9 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { type CommissionPlan, PLAN_DEFAULTS, payout } from '../../lib/reports/commission.ts'
-import { tallyItems, unitRejection } from '../../lib/scoreboards/widgets/commission.ts'
-import type { LeadItemUnit, LeadItemsRow } from '../../lib/scoreboards/widgets/sources.ts'
+import { type CommissionPlan, PLAN_DEFAULTS, payout } from '../../lib/reports/commission'
+import { tallyItems, unitRejection } from '../../lib/scoreboards/widgets/commission'
+import type { LeadItemUnit, LeadItemsRow } from '../../lib/scoreboards/widgets/sources'
 
 function plan(over: Partial<CommissionPlan>): CommissionPlan {
   return {

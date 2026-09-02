@@ -18,10 +18,10 @@ import assert from 'node:assert/strict'
 import {
   type CommissionPlan, PLAN_DEFAULTS, describeRule, payout, payoutOverPeriods,
   planCoversPeriod, tieredGross,
-} from '../../lib/reports/commission.ts'
+} from '../../lib/reports/commission'
 import {
   commissionMonth, commissionMonthStart, commissionWeeks, encodeBuckets,
-} from '../../lib/scoreboards/widgets/windows.ts'
+} from '../../lib/scoreboards/widgets/windows'
 
 /** A plan with everything defaulted, so each test states only what it is about. */
 function plan(over: Partial<CommissionPlan>): CommissionPlan {

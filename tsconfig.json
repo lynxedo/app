@@ -11,11 +11,6 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    /* Test files import the modules under test by their real path (`../../lib/reports/
-       commission.ts`), because Node runs them directly with no bundler — see
-       scripts/tests/. Legal here only because `noEmit` is set, and it changes nothing
-       for the app, whose own imports are extensionless. */
-    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
