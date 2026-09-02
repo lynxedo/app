@@ -39,7 +39,36 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/lynxedo-staging/app
-            git pull origin develop
+            # ⚠⚠ RETRIED, because this ONE line fails intermittently and takes the whole
+            # deploy with it. `lynxedo/app` is a PUBLIC repo and the VPS remote is a bare
+            # `https://github.com/...` with no credential, so GitHub serves the fetch
+            # anonymously — and when it decides to challenge an anonymous request, git has
+            # nothing to answer with and dies:
+            #     fatal: could not read Username for 'https://github.com'
+            #     fatal: expected flush after ref listing
+            # Measured 2026-09-02: 2 of 5 consecutive pulls failed that way, seconds apart,
+            # while `curl` on the same ref-advertisement URL returned 200 throughout. It is
+            # not a config problem and not a code problem — it is a flaky anonymous fetch.
+            #
+            # ⚠ The failure mode this prevents is nastier than it looks: the pull aborts
+            # BEFORE anything is replaced, so prod keeps serving the OLD build while the
+            # push looks successful, and the run then goes red on the health check 60s
+            # later — which reads like a broken app rather than a refused fetch.
+            #
+            # ⏭ The durable fix is an AUTHENTICATED remote (the VPS already holds a working
+            # key at ~/.ssh/github_deploy's sibling `code_remote`, and ~/.ssh/config has a
+            # `github-code-remote` Host alias for it) — but that key is provisioned for the
+            # Code Remote agent, so repointing prod's remote onto it is Ben's call, not a
+            # deploy-script change. Until then, three tries with backoff.
+            for attempt in 1 2 3; do
+              if git pull origin develop; then break; fi
+              if [ "$attempt" = 3 ]; then
+                echo "::error::git pull failed 3 times — see the fatal above. If it is the anonymous-HTTPS challenge, just re-run this job."
+                exit 1
+              fi
+              echo "::warning::git pull attempt $attempt failed; retrying in $((attempt * 5))s"
+              sleep $((attempt * 5))
+            done
             npm ci --legacy-peer-deps
             echo "==> Lint (non-blocking — informational only, never gates the deploy)"
             npx eslint . || echo "::warning::ESLint reported issues (non-blocking) — see output above"
