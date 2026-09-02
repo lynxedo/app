@@ -8,7 +8,10 @@ import CommissionAdminPanel from './CommissionAdminPanel'
 import RecurringProgramsPanel, { type ProgramRow, type UnmappedRow } from './RecurringProgramsPanel'
 import MarketingSpendPanel, { type SpendRow } from './MarketingSpendPanel'
 import { GOAL_METRICS, GOAL_GRAINS } from '@/lib/reports/goals'
-import { normalizeTiers, type CommissionBasis, type RateKind } from '@/lib/reports/commission'
+import {
+  PLAN_DEFAULTS, normalizeTiers,
+  type CommissionBasis, type CommissionPeriod, type RateKind, type TierMode,
+} from '@/lib/reports/commission'
 
 export const metadata = { title: 'Reports Admin' }
 
@@ -98,7 +101,7 @@ export default async function ReportsAdminPage() {
          cadenceRes, unmappedRes] = await Promise.all([
     admin
       .from('commission_plans')
-      .select('id, employee_id, label, basis, rate_kind, rate, tiers, threshold, cap, line_prefix, items, active, sort_order')
+      .select('id, employee_id, label, basis, rate_kind, rate, tiers, threshold, cap, line_prefix, items, active, sort_order, period, tier_mode, verify_source, min_price, exclude_renewals, effective_from, effective_to')
       .eq('company_id', company)
       .order('sort_order', { ascending: true }),
     admin
@@ -189,6 +192,16 @@ export default async function ReportsAdminPage() {
     items: (p.items as string[] | null) ?? null,
     active: p.active !== false,
     sort_order: Number(p.sort_order ?? 0),
+    /* ⚠ Each one falls back to today's behaviour, matching `toPlan` in the widget.
+     * The editor and the card must read a pre-migration row identically or the rule
+     * sentence on this screen would describe something the card does not pay. */
+    period: (p.period as CommissionPeriod | null) ?? PLAN_DEFAULTS.period,
+    tier_mode: (p.tier_mode as TierMode | null) ?? PLAN_DEFAULTS.tier_mode,
+    verify_source: (p.verify_source as 'invoice' | null) ?? null,
+    min_price: p.min_price == null ? null : Number(p.min_price),
+    exclude_renewals: p.exclude_renewals === true,
+    effective_from: (p.effective_from as string | null) ?? null,
+    effective_to: (p.effective_to as string | null) ?? null,
   }))
 
   /* The cadence RPC is keyed on line_item_name (that is the table's natural key), but

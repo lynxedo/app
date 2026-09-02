@@ -223,3 +223,123 @@ export function windowYear(win: WindowSpec): number {
 export function currentBusinessYear(): number {
   return todayInBusinessTz().y
 }
+
+/* ── Commission weeks ─────────────────────────────────────────────────────────
+ *
+ * Ben's bonus weeks are not calendar weeks and not calendar months. A commission
+ * month runs from the LAST MONDAY ON OR BEFORE THE 1ST, and W1–W4 are its four
+ * weeks. August 2026: W1 Jul 27–Aug 2, W2 Aug 3–9, W3 Aug 10–16, W4 Aug 17–23.
+ *
+ * ⚠⚠ DEFINED HERE ONCE AND PASSED DOWN AS A PARAMETER, never re-derived in SQL. The
+ * commission RPC receives the buckets it must total rather than computing its own,
+ * so there is exactly one place that can be wrong about which days a bonus week
+ * covers. A second copy in plpgsql that drifted by a day would move real money and
+ * reconcile against nothing.
+ *
+ * ⚠⚠ W1–W4 DOES NOT TILE THE CALENDAR, and that is a property of Ben's rule rather
+ * than a bug here. Four weeks is 28 days; a month whose anchor lands early leaves a
+ * 5th week that W1–W4 cannot reach and that the NEXT month's own W1 starts after.
+ * August 2026 is one: W4 ends Aug 23, September's W1 starts Aug 31, so Aug 24–30
+ * belongs to no commission week at all. Two or three months a year do this
+ * (Aug and Nov in 2026). `orphanedDays` names those days so a card can SAY that a
+ * week's work is in nobody's bonus rather than quietly paying nothing for it —
+ * see `commissionMonth`. Whether such a week should become a W5 or roll forward is
+ * Ben's call, not a default worth guessing.
+ */
+
+export type CommissionWeek = {
+  /** 1-4. */
+  n: number
+  start: string
+  end: string
+  /** "W2 Aug 3–9" — for a card's own row labels. */
+  label: string
+}
+
+/** How many commission weeks make a commission month. Ben's rule: four. */
+export const COMMISSION_WEEKS_PER_MONTH = 4
+
+function dowMonday0(y: number, m: number, d: number): number {
+  // 0 = Monday … 6 = Sunday. Date.UTC is safe here: these are calendar dates with no
+  // clock component, and the business tz is only needed to decide what "today" is.
+  const js = new Date(Date.UTC(y, m - 1, d)).getUTCDay() // 0=Sun..6=Sat
+  return (js + 6) % 7
+}
+
+function addDaysYmd(ymdStr: string, n: number): string {
+  const [y, m, d] = ymdStr.split('-').map(Number)
+  const t = new Date(Date.UTC(y, m - 1, d + n))
+  return ymd(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate())
+}
+
+/** The last Monday on or before the 1st of this month — where W1 starts. */
+export function commissionMonthStart(year: number, month: number): string {
+  const back = dowMonday0(year, month, 1)
+  return addDaysYmd(ymd(year, month, 1), -back)
+}
+
+/** W1–W4 of one commission month. */
+export function commissionWeeks(year: number, month: number): CommissionWeek[] {
+  const w1 = commissionMonthStart(year, month)
+  return Array.from({ length: COMMISSION_WEEKS_PER_MONTH }, (_, i) => {
+    const start = addDaysYmd(w1, i * 7)
+    const end = addDaysYmd(start, 6)
+    return { n: i + 1, start, end, label: `W${i + 1} ${pretty(start, end).replace(/, \d{4}$/, '')}` }
+  })
+}
+
+export type CommissionMonth = {
+  year: number
+  month: number
+  weeks: CommissionWeek[]
+  /** W1's first day. */
+  start: string
+  /** W4's last day. */
+  end: string
+  /**
+   * Days between W4's end and the NEXT commission month's W1 — in no bonus week at
+   * all. Empty in most months. See the header note: a card must be able to say so.
+   */
+  orphanedDays: { start: string; end: string } | null
+}
+
+/**
+ * The commission month a window belongs to, with its four weeks.
+ *
+ * ⚠ Keyed on the window's END month, matching `windowYear`: a board showing "August"
+ * asks for Aug 1–31, whose commission weeks begin in July. Using the START month
+ * would read a one-month window as the previous month's bonus period.
+ */
+export function commissionMonth(win: WindowSpec): CommissionMonth {
+  const year = Number(win.end.slice(0, 4))
+  const month = Number(win.end.slice(5, 7))
+  const weeks = commissionWeeks(year, month)
+  const end = weeks[weeks.length - 1].end
+  const next = shiftMonth(year, month, 1)
+  const nextStart = commissionMonthStart(next.y, next.m)
+  const gapStart = addDaysYmd(end, 1)
+  return {
+    year,
+    month,
+    weeks,
+    start: weeks[0].start,
+    end,
+    orphanedDays: nextStart > gapStart ? { start: gapStart, end: addDaysYmd(nextStart, -1) } : null,
+  }
+}
+
+/** "Jul 27 – Aug 23" — the four bonus weeks as one phrase. */
+export function commissionMonthLabel(cm: CommissionMonth): string {
+  return pretty(cm.start, cm.end)
+}
+
+/**
+ * The buckets a commission rule is measured over, serialised for the RPC.
+ *
+ * ⚠ `SourceParams` only carries scalars — that is what keeps the resolver's dedupe key
+ * a plain string — so the weeks travel joined, exactly as `lead_items` joins its
+ * stages. Parsed back apart in SQL.
+ */
+export function encodeBuckets(weeks: CommissionWeek[]): string {
+  return weeks.map(w => `W${w.n}:${w.start}:${w.end}`).join(',')
+}

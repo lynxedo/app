@@ -341,6 +341,41 @@ function money(n: number): string {
 
 export type CommissionTier = { from: number; rate: number }
 
+/**
+ * The period a rule is judged over.
+ *
+ * ⚠⚠ `month` IS THE DEFAULT AND MEANS "THE WINDOW AS ASKED FOR" — exactly what every
+ * rule did before this field existed. A new setting has to default to today's
+ * behaviour or adding it silently repays every past period.
+ *
+ *   month             the window on screen, verbatim
+ *   commission_weeks  W1–W4 of that window's month, added together as ONE window
+ *   week              each of W1–W4 judged SEPARATELY, the four results summed
+ *
+ * ⚠ `commission_weeks` and `week` differ only in whether the weeks are summed before
+ * or after the rule is applied — and on a tiered rule that is the whole difference
+ * between one big number clearing a high band and four small ones clearing none.
+ * Josh's plan is `week`; Lucas's is `commission_weeks` because his is a single
+ * monthly rate (total revenue ÷ total hours) that merely runs on bonus weeks rather
+ * than calendar days.
+ */
+export type CommissionPeriod = 'month' | 'commission_weeks' | 'week'
+
+/**
+ * How a tiered rule's bands pay.
+ *
+ * ⚠⚠ `marginal` IS THE DEFAULT, because it is what `payout()` has always done. See
+ * `normalizeTiers` for why marginal was chosen originally and `tieredGross` for what
+ * `flat` means instead: the matched band's rate on the WHOLE figure, which creates
+ * the cliff marginal exists to avoid. Ben's Personal Production plan is genuinely a
+ * flat one — a week at $4,500 pays 0.5% of $4,500, not 0.5% of the $500 above the
+ * band — so the shape is a setting rather than a rewrite.
+ */
+export type TierMode = 'marginal' | 'flat'
+
+/** What a unit of a counted basis must be corroborated against before it is paid. */
+export type VerifySource = 'invoice'
+
 export type CommissionPlan = {
   id: string
   employee_id: string
@@ -355,6 +390,84 @@ export type CommissionPlan = {
   items: string[] | null
   active: boolean
   sort_order: number
+  /** See `CommissionPeriod`. Defaults to 'month' — the window as asked for. */
+  period: CommissionPeriod
+  /** See `TierMode`. Defaults to 'marginal' — what tiered rules have always paid. */
+  tier_mode: TierMode
+  /**
+   * ⚠ Null means "count the Lead Tracker row and pay" — the old behaviour. Set to
+   * 'invoice' and a counted unit must be backed by a real invoice line, which is what
+   * stops a spiff being paid on a mis-keyed tracker row. See the widget's own note.
+   */
+  verify_source: VerifySource | null
+  /** The least a verified line may be worth. Null = any price, including $0. */
+  min_price: number | null
+  /** Drop units whose customer already had this item before the period started. */
+  exclude_renewals: boolean
+  /**
+   * When this version of the rule took effect, and when it stopped.
+   *
+   * ⚠⚠ THE POINT OF THESE IS THAT A CLOSED PERIOD STOPS MOVING. Rules used to be
+   * undated, so editing a rate rewrote every month already paid — April 2026 paid a
+   * flat $35 per upsell and could not be reproduced once the rule became 5%. A rule
+   * with both ends null applies to every period, which is what every existing row
+   * means and why both default to null.
+   */
+  effective_from: string | null
+  effective_to: string | null
+}
+
+/** Rule defaults — every one of them today's behaviour. Shared by the row mappers. */
+export const PLAN_DEFAULTS = {
+  period: 'month' as CommissionPeriod,
+  tier_mode: 'marginal' as TierMode,
+  verify_source: null,
+  min_price: null,
+  exclude_renewals: false,
+  effective_from: null,
+  effective_to: null,
+}
+
+export const COMMISSION_PERIODS: { key: CommissionPeriod; label: string; hint: string }[] = [
+  {
+    key: 'month',
+    label: 'The whole period on screen',
+    hint: 'The rule is worked out once, over exactly the dates the board or report is showing. This is how every rule worked before bonus weeks existed.',
+  },
+  {
+    key: 'commission_weeks',
+    label: 'Bonus weeks W1–W4, added together',
+    hint: 'Still one calculation, but over the four bonus weeks instead of the calendar month — W1 starts on the last Monday on or before the 1st. Use this for a rule that is a single monthly figure but should follow the crew’s weeks.',
+  },
+  {
+    key: 'week',
+    label: 'Each bonus week on its own, then added up',
+    hint: 'W1–W4 are each judged separately and the four results are added. A week that falls short pays nothing for that week, and a week nobody worked pays nothing rather than being averaged away.',
+  },
+]
+
+export const TIER_MODES: { key: TierMode; label: string; hint: string }[] = [
+  {
+    key: 'marginal',
+    label: 'Each band pays only on the part above it',
+    hint: '3% up to $50k then 5% pays 3% on the first $50,000 and 5% only on what is above it. No cliff — one more dollar of sales never pays hundreds more.',
+  },
+  {
+    key: 'flat',
+    label: 'The band reached pays on the whole figure',
+    hint: 'A figure of $4,600 against a 0.5% band starting at $4,500 pays 0.5% of the whole $4,600. Simple to explain and what Ben’s production plan actually does, but it makes a cliff at every band edge.',
+  },
+]
+
+/** True when this version of the rule covers the period being rendered. */
+export function planCoversPeriod(plan: CommissionPlan, start: string, end: string): boolean {
+  /* ⚠ Overlap, not containment. A rule effective from the 15th still applies to a
+   * board showing the whole month — it earned for part of it. Requiring the rule to
+   * span the whole window would drop every mid-period rate change from a monthly
+   * card and read as though nobody had a plan. */
+  if (plan.effective_from && plan.effective_from > end) return false
+  if (plan.effective_to && plan.effective_to < start) return false
+  return true
 }
 
 /**
@@ -486,15 +599,97 @@ export function payout(plan: CommissionPlan, amount: number): Payout {
   } else {
     const tiers = normalizeTiers(plan.tiers)
     if (!tiers.length) return { gross: 0, paid: 0, problem: 'no tiers set' }
-    for (let i = 0; i < tiers.length; i++) {
-      const from = tiers[i].from
-      const to = i + 1 < tiers.length ? tiers[i + 1].from : Infinity
-      const span = Math.min(base, to) - from
-      if (span > 0) gross += span * (tiers[i].rate || 0) / 100
-    }
+    gross = tieredGross(tiers, base, plan.tier_mode)
   }
 
   return capped(plan, gross)
+}
+
+/**
+ * What a set of percentage bands pays on one figure.
+ *
+ * ⚠⚠ TWO GENUINELY DIFFERENT RULES, and on Ben's own bands the gap is large enough
+ * that guessing would be a pay error rather than a rounding one. A week of $4,862.25
+ * against `{4000:0.25%, 4500:0.5%, …}` pays $24.31 flat (0.5% of the whole week) and
+ * $2.06 marginal (0.25% of $500 + 0.5% of $362.25) — an order of magnitude apart. The
+ * mode is stored on the rule and defaults to `marginal`, which is what every rule
+ * written before this field meant.
+ *
+ * `flat` has a real cliff by design: one dollar more revenue can cross a band and pay
+ * noticeably more. That is what Ben's production plan says out loud, so it is
+ * implemented rather than smoothed — and `describeRule` says which mode is in force so
+ * the card can never describe one and pay the other.
+ *
+ * ⚠ Below the FIRST band both modes pay nothing. On `flat` that is the band structure
+ * doing the work a threshold would otherwise do: Josh's lowest band starts at $4,000,
+ * so a $3,188 week pays $0 without needing a separate floor.
+ */
+export function tieredGross(tiers: CommissionTier[], base: number, mode: TierMode): number {
+  if (!tiers.length) return 0
+  if (mode === 'flat') {
+    // The BEST band reached — tiers are sorted ascending, so the last match wins.
+    let rate: number | null = null
+    for (const t of tiers) if (base >= t.from) rate = t.rate
+    return rate == null ? 0 : base * rate / 100
+  }
+  let gross = 0
+  for (let i = 0; i < tiers.length; i++) {
+    const from = tiers[i].from
+    const to = i + 1 < tiers.length ? tiers[i + 1].from : Infinity
+    const span = Math.min(base, to) - from
+    if (span > 0) gross += span * (tiers[i].rate || 0) / 100
+  }
+  return gross
+}
+
+/** One sub-period's figure, and what to call it on a card. */
+export type PeriodAmount = { key: string; label: string; amount: number }
+
+export type PeriodPayout = Payout & {
+  /** What each sub-period contributed. Empty on a whole-window rule. */
+  parts: { key: string; label: string; amount: number; paid: number; limitedBy?: Payout['limitedBy'] }[]
+}
+
+/**
+ * What a rule pays when it is judged once per sub-period and the results added.
+ *
+ * ⚠⚠ THE CAP IS APPLIED TO THE TOTAL, NOT PER WEEK, and the threshold PER WEEK, not
+ * to the total. Both follow from what the two fields mean: a cap is a ceiling on what
+ * the rule can pay out for the month, while a threshold is the bar a week's work has
+ * to clear — Ben's "a week under $4,000 pays $0 for that week". Applying them the
+ * other way round would either pay four times the intended cap or let three bad weeks
+ * be rescued by one good one.
+ *
+ * ⚠ A sub-period with no figure at all pays nothing and is NOT prorated. Ben: "a week
+ * not worked pays $0 with no proration." Spreading a month's target across the weeks
+ * somebody actually worked would pay a bonus for a week they were on holiday.
+ */
+export function payoutOverPeriods(plan: CommissionPlan, parts: PeriodAmount[]): PeriodPayout {
+  const def = getBasis(plan.basis)
+  if (!def) return { gross: 0, paid: 0, problem: 'unknown basis', parts: [] }
+
+  const out: PeriodPayout['parts'] = []
+  let gross = 0
+  for (const part of parts) {
+    /* ⚠ `payout` is reused rather than reimplemented, so a week is priced by exactly
+     * the same arithmetic as a month — including the rate-kind guard, the threshold
+     * and the tier mode. The only thing done differently here is the cap, stripped so
+     * it cannot apply four times over. */
+    const one = payout({ ...plan, cap: null }, part.amount)
+    gross += one.paid
+    out.push({ ...part, paid: one.paid, limitedBy: one.limitedBy })
+  }
+
+  const capApplied = capped(plan, gross)
+  return {
+    ...capApplied,
+    /* ⚠ Reported as a threshold miss only when EVERY sub-period missed. Saying "under
+     * the threshold" about a month where two weeks paid would be false, and saying
+     * nothing about a month where none did leaves a bare $0. */
+    limitedBy: capApplied.limitedBy
+      ?? (out.length && out.every(p => p.limitedBy === 'threshold') ? 'threshold' : undefined),
+    parts: out,
+  }
 }
 
 /**
@@ -523,23 +718,56 @@ function describeTarget(plan: CommissionPlan, def: CommissionBasisDef | null): s
   return `${bands} — best band only, on ${of}`
 }
 
+/**
+ * The period clause, when a rule is not simply measured over the window on screen.
+ *
+ * ⚠ Said out loud on the card, because two rules with identical bands and different
+ * periods pay very different money and are otherwise indistinguishable on a payslip.
+ */
+function describePeriod(plan: CommissionPlan): string | null {
+  if (plan.period === 'week') return 'each bonus week W1–W4 on its own, added up'
+  if (plan.period === 'commission_weeks') return 'measured over bonus weeks W1–W4'
+  return null
+}
+
+/** The verification clause — what a counted unit has to be backed by. */
+function describeVerify(plan: CommissionPlan): string | null {
+  if (plan.verify_source !== 'invoice') return null
+  const bits = ['only counts with a matching invoice']
+  if (plan.min_price != null) bits.push(`of at least ${money(plan.min_price)}`)
+  if (plan.exclude_renewals) bits.push('new customers only, not renewals')
+  return bits.join(' ')
+}
+
 /** "5% of value they sold", "$50 per controller sold" — one line, for a card or the editor. */
 export function describeRule(plan: CommissionPlan): string {
   const def = getBasis(plan.basis)
   const of = def ? def.noun : plan.basis
   // A target rule has no rate to apply and no floor to add — its whole sentence is
   // the target, so it is written in one piece rather than assembled from clauses.
-  if (isTargetKind(plan.rate_kind)) return describeTarget(plan, def)
+  if (isTargetKind(plan.rate_kind)) {
+    const t = describeTarget(plan, def)
+    const per = describePeriod(plan)
+    return per ? `${t} · ${per}` : t
+  }
   let rule: string
   if (plan.rate_kind === 'percent') rule = `${plan.rate ?? 0}% of ${of}`
   else if (plan.rate_kind === 'per_unit') rule = `$${plan.rate ?? 0} per unit of ${of}`
   else {
     const tiers = normalizeTiers(plan.tiers)
+    /* ⚠⚠ The mode is READ, never assumed. This sentence said "(marginal)"
+     * unconditionally, so a flat rule would have described itself as the one thing it
+     * is not — and the two differ by an order of magnitude on Ben's own bands. */
     rule = tiers.length
-      ? `${tiers.map(t => `${t.rate}% over $${t.from.toLocaleString('en-US')}`).join(', ')} (marginal)`
+      ? `${tiers.map(t => `${t.rate}% over $${t.from.toLocaleString('en-US')}`).join(', ')} (${
+          plan.tier_mode === 'flat' ? 'band reached pays on the whole figure' : 'marginal'})`
       : `tiered ${of} — no bands set`
   }
   const extra: string[] = []
+  const per = describePeriod(plan)
+  if (per) extra.push(per)
+  const ver = describeVerify(plan)
+  if (ver) extra.push(ver)
   if (plan.basis === 'line_revenue' && plan.line_prefix) extra.push(`${plan.line_prefix} line`)
   if (plan.basis === 'item_count' && plan.items?.length) extra.push(plan.items.join(', '))
   /* ⚠ The unit, not a hardcoded "$". A threshold on a COUNT basis read "nothing under

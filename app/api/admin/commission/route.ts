@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   RATIO_UNITS, getBasis, isBandedKind, isTargetKind, normalizeTiers, rateKindAllowed,
+  type CommissionPeriod, type TierMode,
 } from '@/lib/reports/commission'
 
 // Admin-only: the bonus rules behind the Commission cards.
@@ -30,6 +31,26 @@ function optionalAmount(v: unknown): number | null | undefined {
   if (!Number.isFinite(n) || n < 0) return undefined
   return n
 }
+
+/** A YYYY-MM-DD date, or null. Undefined when the string is present but not a date. */
+function optionalDate(v: unknown): string | null | undefined {
+  if (v === undefined || v === null || v === '') return null
+  const s = String(v).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined
+  // Rejects 2026-02-31: Date normalises it, so a round-trip that changes the string
+  // means the date does not exist.
+  const d = new Date(`${s}T00:00:00Z`)
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s ? undefined : s
+}
+
+const PERIODS: CommissionPeriod[] = ['month', 'commission_weeks', 'week']
+const TIER_MODE_KEYS: TierMode[] = ['marginal', 'flat']
+
+/* ⚠⚠ ONLY THE TWO PRODUCTION BASES HAVE A WEEKLY FIGURE BEHIND THEM, because only
+ * `scoreboard_commission_production` returns per-week buckets. A rule saved as weekly
+ * on any other basis could never be paid, and the card would have to refuse it at
+ * render time — so it is refused HERE, where the person choosing can still fix it. */
+const BUCKETED_BASES = new Set(['revenue_produced', 'rev_per_hour'])
 
 export async function POST(request: Request) {
   const ctx = await getAdminContext()
@@ -167,6 +188,42 @@ export async function POST(request: Request) {
     .maybeSingle()
   if (!emp) return NextResponse.json({ error: 'That person is not on your roster' }, { status: 400 })
 
+  /* ── the period and the tier shape ──────────────────────────────────────────
+   * ⚠ Both default to today's behaviour when absent, so a caller that predates these
+   * fields — or a form that does not send them — writes the rule it always wrote. */
+  const period = (PERIODS as string[]).includes(String(body.period ?? 'month'))
+    ? String(body.period ?? 'month') as CommissionPeriod
+    : null
+  if (!period) return NextResponse.json({ error: 'Unknown period' }, { status: 400 })
+  if (period !== 'month' && !BUCKETED_BASES.has(basis)) {
+    return NextResponse.json({
+      error: `“${basisDef.label}” has no weekly figure behind it, so it cannot be paid by bonus week. Only “Revenue they produced” and “Their revenue per labour hour” can — everything else is measured over the whole period.`,
+    }, { status: 400 })
+  }
+
+  const tierMode = (TIER_MODE_KEYS as string[]).includes(String(body.tier_mode ?? 'marginal'))
+    ? String(body.tier_mode ?? 'marginal') as TierMode
+    : null
+  if (!tierMode) return NextResponse.json({ error: 'Unknown tier shape' }, { status: 400 })
+
+  /* ── invoice verification ───────────────────────────────────────────────────
+   * ⚠ Only meaningful on a counted basis: there is no per-unit invoice behind a
+   * percentage of a dollar total. Silently dropped rather than rejected, so a rule
+   * edited from Products to Sales saves instead of erroring about a hidden field. */
+  const wantsVerify = basisDef.needs === 'items' && String(body.verify_source || '') === 'invoice'
+  const verifySource = wantsVerify ? 'invoice' : null
+  const minPrice = wantsVerify ? optionalAmount(body.min_price) : null
+  if (minPrice === undefined) return NextResponse.json({ error: 'The least a sale can be worth must be zero or more' }, { status: 400 })
+  const excludeRenewals = wantsVerify && body.exclude_renewals === true
+
+  const effectiveFrom = optionalDate(body.effective_from)
+  if (effectiveFrom === undefined) return NextResponse.json({ error: 'The “in force from” date is not a real date' }, { status: 400 })
+  const effectiveTo = optionalDate(body.effective_to)
+  if (effectiveTo === undefined) return NextResponse.json({ error: 'The “in force until” date is not a real date' }, { status: 400 })
+  if (effectiveFrom && effectiveTo && effectiveFrom > effectiveTo) {
+    return NextResponse.json({ error: 'The rule cannot stop before it starts' }, { status: 400 })
+  }
+
   const row = {
     company_id: ctx.company,
     employee_id: employeeId,
@@ -181,6 +238,13 @@ export async function POST(request: Request) {
     items,
     active: body.active === undefined ? true : !!body.active,
     sort_order: Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0,
+    period,
+    tier_mode: tierMode,
+    verify_source: verifySource,
+    min_price: minPrice,
+    exclude_renewals: excludeRenewals,
+    effective_from: effectiveFrom,
+    effective_to: effectiveTo,
     updated_at: new Date().toISOString(),
   }
 

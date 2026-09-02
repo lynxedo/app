@@ -29,8 +29,16 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({})) as {
     metric?: string; grain?: string; period_start?: string; target?: number | string
-    employee_id?: string | null; repeats?: boolean
+    employee_id?: string | null; repeats?: boolean; id?: string
   }
+  /* ⚠⚠ EDITING IS AN UPDATE BY ID, NOT AN UPSERT, and that distinction is the whole
+   * reason this route could only create and delete before. The upsert below keys on
+   * (metric, grain, period_start, employee_id, repeats) — the target's IDENTITY. So
+   * re-saving the same target with a new NUMBER already worked, but changing anything
+   * about WHICH period or WHOSE it is created a second row and left the original
+   * standing, putting two contradictory targets on one report. With an id the row
+   * moves instead of being duplicated. */
+  const id = String(body.id || '').trim()
   const metric = String(body.metric || '').trim()
   const grain = String(body.grain || '').trim() as GoalGrain
   const periodStart = String(body.period_start || '').trim()
@@ -106,6 +114,46 @@ export async function POST(request: Request) {
   // period_end to decide which goals overlap the range on screen, so a bad end
   // date would quietly hide or duplicate a target.
   const bounds = periodBounds(grain, periodStart)
+
+  if (id) {
+    /* ⚠ Company-scoped, like every other write here: an id arriving from the browser
+     * proves the row exists, never that it belongs to this admin's tenant.
+     *
+     * ⚠ `period_end` is recomputed rather than carried over. Editing a monthly target
+     * into a quarterly one changes which periods it covers, and the Goals report reads
+     * `period_end` to decide what overlaps the range on screen — a stale end date would
+     * quietly hide the target or double it up. */
+    const { data: updated, error: updErr } = await admin
+      .from('report_goals')
+      .update({
+        metric, grain,
+        period_start: bounds.start,
+        period_end: bounds.end,
+        target,
+        employee_id: employeeId,
+        repeats,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('company_id', ctx.company)
+      .select('id')
+    if (updErr) {
+      /* 23505: the edit would collide with a DIFFERENT target that already covers this
+       * measure, period and person. Refused rather than resolved for them — silently
+       * overwriting the other row would delete a number somebody set on purpose. */
+      if (updErr.code === '23505') {
+        return NextResponse.json({
+          error: 'Another target already covers that measure, period and person. Change this one to a different period, or remove the other first.',
+        }, { status: 409 })
+      }
+      return NextResponse.json({ error: updErr.message }, { status: 500 })
+    }
+    // No rows matched: the id is not this company's, or it has since been removed.
+    if (!updated?.length) {
+      return NextResponse.json({ error: 'That target no longer exists' }, { status: 404 })
+    }
+    return NextResponse.json({ ok: true, id, period: bounds, repeats })
+  }
 
   // ⚠⚠ The conflict target includes employee_id and is backed by a NULLS NOT
   // DISTINCT unique index. Postgres treats NULLs as distinct by default, so with

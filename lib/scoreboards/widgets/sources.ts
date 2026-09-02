@@ -574,12 +574,51 @@ export type RevenueTrendRow = {
  * spellings of one product together happens in the widget so it stays visible and
  * undoable; see trackeditems.ts.
  */
+/**
+ * One counted unit, with the invoice evidence for it.
+ *
+ * ⚠⚠ THE EVIDENCE IS REPORTED, NEVER PRE-JUDGED. `invoice_price` is the best price
+ * found on a matching invoice line in the period and `prior_history` says whether the
+ * customer already had this item — but the price FLOOR and whether renewals count
+ * live on the PLAN, because two plans on one board can name different ones. The
+ * widget decides; the source only says what is true.
+ */
+export type LeadItemUnit = {
+  lead_id: string
+  /** The Service value on the tracker row, as the tenant spells it. */
+  value: string
+  salesperson: string | null
+  /** The customer name as the tracker row spells it, collapsed and lower-cased. */
+  client: string
+  sold_date: string | null
+  /**
+   * False when no customer file could be found for that name. ⚠ Such a unit can never
+   * be corroborated, so a verified rule must NAME it rather than pay zero and look
+   * like nobody sold anything.
+   */
+  matched_client: boolean
+  /** Null when no invoice in the period backs this unit at all. */
+  invoice_price: number | string | null
+  invoice_number: string | null
+  /**
+   * The customer already had this item before the period started.
+   *
+   * ⚠ Checked on invoice AND visit line items. The invoice mirror only reaches
+   * 2026-01-02, so a Gold member who renewed in August has no prior Gold invoice in
+   * it — their $0 included member visits are the real evidence, and they are on the
+   * visits. Invoices alone found 2 of August's renewals; with visit lines, 9.
+   */
+  prior_history: boolean
+}
+
 export type LeadItemsRow = {
   basis: 'sold' | 'created'
   start: string
   end: string
   stages: string[]
   rows: { value: string; salesperson: string | null; leads: number }[]
+  /** One entry per (tracker row × service value) — see LeadItemUnit. */
+  units: LeadItemUnit[]
   coverage: {
     /** Leads in the window matching the stage filter. */
     leads: number
@@ -588,6 +627,8 @@ export type LeadItemsRow = {
     /** Leads listing more than one service, so per-item counts sum above the lead count. */
     multi_service: number
     no_salesperson: number
+    /** Units whose customer name matched no file, so they cannot be verified. */
+    unmatched_clients: number
     /** Oldest/newest date this company has on the chosen basis — the data floor. */
     earliest: string | null
     latest: string | null
@@ -949,6 +990,60 @@ export type CommissionPlanRow = {
   items: string[] | null
   active: boolean
   sort_order: number
+  /* ⚠ All seven are nullable on the way IN even though five are NOT NULL in the
+   * database, because a deploy can briefly read rows written before the migration.
+   * `toPlan` supplies the defaults, and every default is today's behaviour. */
+  period: string | null
+  tier_mode: string | null
+  verify_source: string | null
+  min_price: number | string | null
+  exclude_renewals: boolean | null
+  effective_from: string | null
+  effective_to: string | null
+}
+
+/** Produced revenue and clocked hours for one person — see the source's own note. */
+export type ProductionPerson = {
+  employee_id: string
+  /** False when no Jobber user matches them, so no completed work can be credited. */
+  attributable: boolean
+  revenue: number | string | null
+  hours: number | string | null
+  rev_per_hour: number | string | null
+  /**
+   * The four bonus weeks as ONE figure, not the sum of the four rounded buckets.
+   *
+   * ⚠ A total assembled from rounded parts is the wrong numerator: adding Lucas's four
+   * rounded weeks gives $14,906.91 where the truth is $14,906.90. Null when no buckets
+   * were requested, so "not asked for" cannot be read as zero.
+   */
+  weeks_revenue: number | string | null
+  weeks_hours: number | string | null
+  weeks_rev_per_hour: number | string | null
+  /** Each bonus week on its own, in the order they were asked for. */
+  buckets: {
+    k: string
+    start: string
+    end: string
+    revenue: number | string | null
+    hours: number | string | null
+    rev_per_hour: number | string | null
+  }[]
+}
+
+export type ProductionRow = {
+  coverage: {
+    requested_start: string
+    requested_end: string
+    timeclock_first: string | null
+    timeclock_last: string | null
+    /** 'scheduled_date' — the day the work was ON THE ROUTE, not when it was ticked. */
+    revenue_dated_by: string
+    /** 'split' — a two-tech visit is halved, not credited whole to each. */
+    tech_credit: string
+    buckets: number
+  }
+  people: ProductionPerson[]
 }
 
 /* ── Executors ──────────────────────────────────────────────────────────── */
@@ -1455,11 +1550,43 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
   commission_plans: async (ctx) => {
     const { data, error } = await ctx.rpcClient
       .from('commission_plans')
-      .select('id, employee_id, label, basis, rate_kind, rate, tiers, threshold, cap, line_prefix, items, active, sort_order')
+      .select('id, employee_id, label, basis, rate_kind, rate, tiers, threshold, cap, line_prefix, items, active, sort_order, period, tier_mode, verify_source, min_price, exclude_renewals, effective_from, effective_to')
       .eq('company_id', ctx.companyId)
       .order('sort_order', { ascending: true })
     if (error) throw new Error(`commission_plans: ${error.message}`)
     return (data ?? []) as CommissionPlanRow[]
+  },
+
+  /**
+   * Produced revenue and clocked hours per person, unclipped by payroll, plus the
+   * same totals for each bonus week.
+   *
+   * ⚠⚠ THE WHOLE REASON THIS EXISTS IS THAT `crew_labor` CLIPS. That function narrows
+   * its window to where timeclock AND processed payroll both exist, because it prices
+   * hours from a real payroll — right for a labour-cost ratio, and a silent
+   * underpayment for "revenue they produced". On Heroes' August 2026, payroll reached
+   * the 16th and the timeclock reached the 1st of September, so one technician's
+   * production read $7,549 against $12,140 actually produced, and another's rate read
+   * $62/hr against $73.99. This reads `visits` + `line_items` and `time_entries` only.
+   *
+   * ⚠ `crew_labor` is deliberately still the source for labour-cost % and the two
+   * company ratios: those are shares of real money paid out and genuinely do need a
+   * processed payroll. Widening `crew_labor` instead would have moved the Crew & Labor
+   * report and every card in that group, which nobody asked for.
+   *
+   * ⚠ `buckets` arrives comma-joined for the same reason `lead_items` joins its
+   * stages — `SourceParams` carries scalars only, and that is what keeps the
+   * resolver's dedupe key a plain string. Still a pure function of the window.
+   */
+  commission_production: async (ctx, params) => {
+    const { data, error } = await ctx.rpcClient.rpc('scoreboard_commission_production', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+      p_buckets: params.buckets == null ? null : String(params.buckets),
+    })
+    if (error) throw new Error(`commission_production: ${error.message}`)
+    return data ? [data as ProductionRow] : []
   },
 
   /**

@@ -98,6 +98,8 @@ export default function GoalsAdminPanel(
    * deliberate exception. */
   const [repeats, setRepeats] = useState(true)
   const [saving, setSaving] = useState(false)
+  /** The target being edited, or null when the form is setting a new one. */
+  const [editing, setEditing] = useState<Goal | null>(null)
 
   const selected = metrics.find(m => m.key === metric) ?? null
 
@@ -124,6 +126,35 @@ export default function GoalsAdminPanel(
   // gets wrong — a quarter set from a mid-quarter date is still that quarter.
   const bounds = /^\d{4}-\d{2}-\d{2}$/.test(periodStart) ? periodBounds(effectiveGrain, periodStart) : null
 
+  /* ── editing ────────────────────────────────────────────────────────────────
+   * Ben: "Currently I can create and delete but not edit."
+   *
+   * ⚠ The same form, loaded with the row, rather than a second inline editor. Every
+   * guard this form already has — the person picker snapping back on a company-only
+   * measure, the grain picker snapping back on a yearly-only one, the ceiling warning,
+   * the period preview — has to apply to an edit too, and a separate editor would be a
+   * second place for all of it to drift.
+   */
+  function startEdit(g: Goal) {
+    setEditing(g)
+    setMetric(g.metric)
+    setGrain(g.grain)
+    setPeriodStart(g.period_start)
+    setTarget(String(g.target))
+    setWho(g.employee_id ?? COMPANY)
+    setRepeats(g.repeats)
+    // The form sits above the list, so an edit that scrolled nowhere reads as a no-op.
+    document.getElementById('goal-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  function cancelEdit() {
+    setEditing(null)
+    setTarget('')
+    setRepeats(true)
+    setWho(COMPANY)
+    setPeriodStart(thisMonthISO())
+  }
+
   async function save() {
     const value = Number(target)
     if (!Number.isFinite(value) || value <= 0) {
@@ -135,6 +166,10 @@ export default function GoalsAdminPanel(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        // ⚠ Present only when editing. Without an id the route upserts, which for a
+        // changed period or person would ADD a row and leave the original standing —
+        // two contradictory targets on one report.
+        id: editing?.id,
         metric, grain: effectiveGrain, period_start: periodStart, target: value,
         employee_id: employeeId, repeats,
       }),
@@ -145,8 +180,9 @@ export default function GoalsAdminPanel(
       toast.error(d.error || 'Could not save that target')
       return
     }
+    toast.success(editing ? 'Target updated' : 'Target saved')
+    setEditing(null)
     setTarget('')
-    toast.success('Target saved')
     router.refresh()
   }
 
@@ -181,11 +217,31 @@ export default function GoalsAdminPanel(
           reports show &mdash; so a goal can never disagree with the report it is judged against. Setting a target for
           a period that already has one replaces it. A target can belong to the whole company or to{' '}
           <strong className="text-gray-300">one person</strong>; the two are kept separate, so a company target and
-          somebody&rsquo;s own target for the same measure can both exist.
+          somebody&rsquo;s own target for the same measure can both exist. Use{' '}
+          <strong className="text-gray-300">Edit</strong> on a saved target to change its number, its
+          period, or who it belongs to.
         </p>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 md:p-6">
+      <div id="goal-form" className={`rounded-2xl border p-4 md:p-6 ${
+        editing ? 'border-indigo-600/60 bg-indigo-500/5' : 'border-gray-800 bg-gray-900'}`}>
+        {/* ⚠ A form that silently switched from "set" to "edit" is how somebody ends up
+            duplicating a target instead of changing it. Said plainly, with a way out. */}
+        {editing && (
+          <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <span className="text-indigo-200">
+              Editing the <strong>{metrics.find(m => m.key === editing.metric)?.label ?? editing.metric}</strong>
+              {' '}target for {editing.employee_id ? (editing.person_name || 'that person') : 'the whole company'}
+              {' · '}{editing.repeats
+                ? `every ${GRAIN_NOUN[editing.grain]} from ${periodLabel(editing.grain, editing.period_start)}`
+                : periodLabel(editing.grain, editing.period_start)}
+            </span>
+            <button onClick={cancelEdit}
+              className="text-xs text-gray-400 underline hover:text-gray-200">
+              Cancel and set a new target instead
+            </button>
+          </div>
+        )}
         <div className="grid gap-4 md:grid-cols-5">
           <label className="block">
             <span className="text-xs text-gray-400">Measure</span>
@@ -333,13 +389,43 @@ export default function GoalsAdminPanel(
           </p>
         )}
 
-        <button
-          onClick={save}
-          disabled={saving}
-          className="mt-4 rounded-lg px-4 py-2 text-sm font-medium bg-brand hover:bg-brand-hover text-[#fff] disabled:opacity-60"
-        >
-          {saving ? 'Saving…' : 'Save target'}
-        </button>
+        {/* ⚠ Only while editing, and only when the identity actually moved. Changing a
+            target's period or owner does not edit the old period's number — it MOVES
+            the target, leaving the original period with none. That is usually what
+            somebody means, and occasionally very much not. */}
+        {editing && bounds && (
+          editing.period_start !== bounds.start
+          || editing.grain !== effectiveGrain
+          || (editing.employee_id ?? null) !== employeeId
+          || editing.repeats !== repeats
+        ) && (
+          <p className="text-amber-300/80 text-xs mt-3">
+            ⚠ This moves the target rather than changing its number:{' '}
+            <strong className="text-gray-300">
+              {editing.repeats
+                ? `every ${GRAIN_NOUN[editing.grain]} from ${periodLabel(editing.grain, editing.period_start)}`
+                : periodLabel(editing.grain, editing.period_start)}
+              {editing.employee_id ? ` · ${editing.person_name || 'that person'}` : ' · the whole company'}
+            </strong>{' '}
+            will be left with no target at all. Set a new one for it if that is not what you want.
+          </p>
+        )}
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-lg px-4 py-2 text-sm font-medium bg-brand hover:bg-brand-hover text-[#fff] disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : editing ? 'Save changes' : 'Save target'}
+          </button>
+          {editing && (
+            <button onClick={cancelEdit}
+              className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:border-gray-600">
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
 
       <div>
@@ -374,12 +460,23 @@ export default function GoalsAdminPanel(
                       {!m && ' · this measure is no longer available and will show as unknown on the report'}
                     </div>
                   </div>
-                  <button
-                    onClick={() => remove(g)}
-                    className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium border bg-gray-800 border-gray-700 text-gray-400 hover:text-red-300 hover:border-red-800"
-                  >
-                    Remove
-                  </button>
+                  <div className="shrink-0 flex items-center gap-2">
+                    <button
+                      onClick={() => startEdit(g)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium border bg-gray-800 ${
+                        editing?.id === g.id
+                          ? 'border-indigo-600 text-indigo-300'
+                          : 'border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600'}`}
+                    >
+                      {editing?.id === g.id ? 'Editing' : 'Edit'}
+                    </button>
+                    <button
+                      onClick={() => remove(g)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-medium border bg-gray-800 border-gray-700 text-gray-400 hover:text-red-300 hover:border-red-800"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
               )
             })}

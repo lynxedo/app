@@ -73,6 +73,23 @@ export type SourceKey =
   // as its own source so the commission cards stay pure metrics over existing data
   // rather than needing a function of their own.
   | 'commission_plans'
+  /**
+   * Produced revenue and clocked hours per person, WITH NO PAYROLL DEPENDENCY, plus
+   * the same totals for each bonus week.
+   *
+   * ⚠⚠ NOT `crew_labor`, and the difference is money. `crew_labor` narrows its window
+   * to where timeclock AND processed payroll both exist, because it prices hours from
+   * a real payroll — correct for a labour-cost ratio, and a silent underpayment for
+   * "revenue they produced": on Heroes' August 2026 payroll reached the 16th while the
+   * timeclock reached the month's end, so one technician's production read $7,549
+   * against the $12,140 he had actually produced. This source reads `visits` +
+   * `line_items` and `time_entries` only, so nothing clips it.
+   *
+   * ⚠ Takes a `buckets` param — the bonus weeks, computed once in windows.ts and
+   * passed down rather than re-derived in SQL. Still a pure function of the window,
+   * so the resolver's dedupe key is unaffected.
+   */
+  | 'commission_production'
   // Invoiced revenue split by lead source. Takes `creditRule` as a param rather
   // than shaping in the metric, because the rule decides which LABEL each client
   // gets — a relabelling the payload cannot undo after the fact. See sources.ts.

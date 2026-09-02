@@ -4,9 +4,11 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useToast, useConfirm } from '@/components/ui'
 import {
-  BASIS_GROUPS, COMMISSION_BASES, describeRule, formatBasisAmount, getBasis,
+  BASIS_GROUPS, COMMISSION_BASES, COMMISSION_PERIODS, TIER_MODES,
+  describeRule, formatBasisAmount, getBasis,
   isBandedKind, isTargetKind, rateKindsFor,
-  type CommissionBasisDef, type CommissionPlan, type RateKind,
+  type CommissionBasisDef, type CommissionPeriod, type CommissionPlan, type RateKind,
+  type TierMode,
 } from '@/lib/reports/commission'
 
 type Employee = { id: string; name: string; department: string | null; is_active: boolean }
@@ -80,12 +82,67 @@ export default function CommissionAdminPanel({
   const [linePrefix, setLinePrefix] = useState(lines[0] ?? '')
   const [picked, setPicked] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  /* ⚠ Every one of these starts at TODAY'S BEHAVIOUR, so a rule typed without touching
+   * them is the rule this screen has always written. */
+  const [period, setPeriod] = useState<CommissionPeriod>('month')
+  const [tierMode, setTierMode] = useState<TierMode>('marginal')
+  const [verify, setVerify] = useState(false)
+  const [minPrice, setMinPrice] = useState('')
+  const [excludeRenewals, setExcludeRenewals] = useState(false)
+  const [effectiveFrom, setEffectiveFrom] = useState('')
+  const [effectiveTo, setEffectiveTo] = useState('')
+  /** The rule being edited, or null when the form is adding a new one. */
+  const [editing, setEditing] = useState<Plan | null>(null)
 
   const def = getBasis(basis)
   const allowedKinds = def ? rateKindsFor(def.unit) : (['percent'] as RateKind[])
   // Switching basis can invalidate the rate kind (a count cannot take a percentage),
   // so the selector is corrected here rather than letting the server reject the save.
   const effectiveKind: RateKind = allowedKinds.includes(rateKind) ? rateKind : allowedKinds[0]
+
+  /* ⚠⚠ ONLY THE TWO PRODUCTION BASES HAVE WEEKLY FIGURES BEHIND THEM, because only
+   * `scoreboard_commission_production` returns per-week buckets. Same reasoning as the
+   * rate-kind correction above: the picker snaps back rather than letting somebody
+   * build a rule the API will refuse — and a weekly rule that silently fell back to
+   * monthly would be the very bug this release fixes. */
+  const canUseWeeks = basis === 'revenue_produced' || basis === 'rev_per_hour'
+  const effectivePeriod: CommissionPeriod = canUseWeeks ? period : 'month'
+  // Verification is per-unit evidence, so it only means anything on a counted basis.
+  const canVerify = def?.needs === 'items'
+  const effectiveVerify = canVerify && verify
+
+  /** Load a rule into the form. */
+  function startEdit(p: Plan) {
+    setEditing(p)
+    setEmployeeId(p.employee_id)
+    setLabel(p.label)
+    setBasis(p.basis)
+    setRateKind(p.rate_kind)
+    setRate(p.rate == null ? '' : String(p.rate))
+    const bands = (p.tiers ?? []).map(t => `${t.from}:${t.rate}`).join(', ')
+    if (isTargetKind(p.rate_kind)) setTargetBandText(bands)
+    else if (bands) setTierText(bands)
+    setThreshold(p.threshold == null ? '' : String(p.threshold))
+    setCap(p.cap == null ? '' : String(p.cap))
+    setLinePrefix(p.line_prefix ?? lines[0] ?? '')
+    setPicked(p.items ?? [])
+    setPeriod(p.period)
+    setTierMode(p.tier_mode)
+    setVerify(p.verify_source === 'invoice')
+    setMinPrice(p.min_price == null ? '' : String(p.min_price))
+    setExcludeRenewals(p.exclude_renewals)
+    setEffectiveFrom(p.effective_from ?? '')
+    setEffectiveTo(p.effective_to ?? '')
+    // The form sits above the list; an edit that scrolled nowhere reads as a no-op.
+    document.getElementById('cp-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  function resetForm() {
+    setEditing(null)
+    setLabel(''); setRate(''); setThreshold(''); setCap(''); setPicked([]); setTargetBandText('')
+    setPeriod('month'); setTierMode('marginal'); setVerify(false); setMinPrice('')
+    setExcludeRenewals(false); setEffectiveFrom(''); setEffectiveTo('')
+  }
 
   function parseTiers(text: string): { from: number; rate: number }[] {
     return text
@@ -104,10 +161,22 @@ export default function CommissionAdminPanel({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        // ⚠ Present only when editing, so an absent id still means "insert" — the
+        // route branches on exactly that.
+        id: editing?.id,
         employee_id: employeeId,
         label: label.trim(),
         basis,
         rate_kind: effectiveKind,
+        period: effectivePeriod,
+        tier_mode: tierMode,
+        verify_source: effectiveVerify ? 'invoice' : null,
+        min_price: effectiveVerify && minPrice !== '' ? minPrice : null,
+        exclude_renewals: effectiveVerify && excludeRenewals,
+        effective_from: effectiveFrom || null,
+        effective_to: effectiveTo || null,
+        // Editing must not silently switch a rule back on.
+        active: editing ? editing.active : true,
         // ⚠ Both banded kinds put their numbers in `tiers`, not just the old one. Sending
         // `rate` for a stepped target would fail the database's rate-present check.
         rate: isBandedKind(effectiveKind) ? undefined : rate,
@@ -128,15 +197,17 @@ export default function CommissionAdminPanel({
       toast.error(d.error || 'Could not save that rule')
       return
     }
-    toast.success('Rule saved')
-    setLabel(''); setRate(''); setThreshold(''); setCap(''); setPicked([]); setTargetBandText('')
+    toast.success(editing ? 'Rule updated' : 'Rule saved')
+    resetForm()
     router.refresh()
   }
 
   async function remove(plan: Plan) {
     const ok = await confirm({
       title: 'Delete this rule?',
-      message: `“${plan.label}” for ${plan.person}. Commission figures for past periods will change too, because rules are not dated.`,
+      message: plan.effective_from || plan.effective_to
+        ? `“${plan.label}” for ${plan.person}. It is dated, so only the periods it covers change.`
+        : `“${plan.label}” for ${plan.person}. This rule carries no dates, so commission figures for earlier periods change too — set “in force from/until” instead if you only want to stop it going forward.`,
       confirmText: 'Delete',
       danger: true,
     })
@@ -175,13 +246,30 @@ export default function CommissionAdminPanel({
         of a ratio. These feed the <strong className="text-gray-200">Commission</strong>
         {' '}cards you can add to any scoreboard; they are not a page of their own.
       </p>
-      <p className="mt-2 max-w-3xl text-sm text-amber-300/80">
-        Rules are not dated. Changing a rate changes what earlier periods report too, the same way
-        the labour costing applies today&apos;s wage to an old week.
+      <p className="mt-2 max-w-3xl text-sm text-gray-400">
+        A rule can now be <strong className="text-gray-200">dated</strong>. Leave the dates blank and
+        it applies to every period, which is how every rule worked before &mdash; but that also means
+        changing its rate changes what <em>earlier</em> periods report. Once a month is paid, set
+        {' '}<strong className="text-gray-200">in force until</strong> on the old rule and add a new one
+        starting the next day; both then stay reproducible.
       </p>
 
-      {/* ── new rule ── */}
-      <div className="mt-5 rounded-lg border border-gray-800 bg-gray-900/40 p-4">
+      {/* ── new rule / editing an existing one ── */}
+      <div id="cp-form" className={`mt-5 rounded-lg border p-4 ${
+        editing ? 'border-indigo-600/60 bg-indigo-500/5' : 'border-gray-800 bg-gray-900/40'}`}>
+        {/* ⚠ A form that silently switches from "add" to "edit" is how somebody
+            duplicates a rule instead of changing it. Said plainly, with a way out. */}
+        {editing && (
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <span className="text-indigo-200">
+              Editing <strong>{editing.label}</strong> for {editing.person}
+            </span>
+            <button type="button" onClick={resetForm}
+              className="text-xs text-gray-400 underline transition-colors hover:text-gray-200">
+              Cancel and add a new rule instead
+            </button>
+          </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <label className={lbl} htmlFor="cp-person">Person</label>
@@ -317,6 +405,65 @@ export default function CommissionAdminPanel({
           </p>
         )}
 
+        {/* ── how the period is cut ─────────────────────────────────────────────
+            ⚠ Only offered on the two production bases, because only they have weekly
+            figures behind them. On every other basis the control would be a lie. */}
+        {canUseWeeks && (
+          <div className="mt-3 rounded-md border border-gray-800 bg-gray-900/60 p-3">
+            <label className={lbl} htmlFor="cp-period">Measured over</label>
+            <select id="cp-period" className={input} value={effectivePeriod}
+              onChange={e => setPeriod(e.target.value as CommissionPeriod)}>
+              {COMMISSION_PERIODS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+            <p className="mt-1.5 text-xs text-gray-500">
+              {COMMISSION_PERIODS.find(o => o.key === effectivePeriod)?.hint}
+            </p>
+            {effectivePeriod !== 'month' && (
+              <p className="mt-1.5 text-xs text-amber-300/80">
+                ⚠ Four bonus weeks cover 28 days, so in a longer month the last few days fall
+                outside W1&ndash;W4 <em>and</em> outside next month&apos;s W1 &mdash; August 2026
+                leaves Aug 24&ndash;30 in no bonus week at all. The card names those days when it
+                happens, so work done then is visible rather than quietly unpaid.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ⚠⚠ THE TIER SHAPE. Getting this wrong is an 8x pay error on Ben's own bands
+            ($24.31 flat against $3.06 marginal on one real week), and the two are
+            indistinguishable on a payslip — so both options are spelled out rather
+            than one being a checkbox. */}
+        {effectiveKind === 'tiered' && (
+          <div className="mt-3 rounded-md border border-gray-800 bg-gray-900/60 p-3">
+            <label className={lbl} htmlFor="cp-tier-mode">How the bands pay</label>
+            <select id="cp-tier-mode" className={input} value={tierMode}
+              onChange={e => setTierMode(e.target.value as TierMode)}>
+              {TIER_MODES.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+            <p className="mt-1.5 text-xs text-gray-500">
+              {TIER_MODES.find(o => o.key === tierMode)?.hint}
+            </p>
+          </div>
+        )}
+
+        {/* ── in force from / until ── */}
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label className={lbl} htmlFor="cp-from">In force from (optional)</label>
+            <input id="cp-from" className={input} type="date" value={effectiveFrom}
+              onChange={e => setEffectiveFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className={lbl} htmlFor="cp-to">In force until (optional)</label>
+            <input id="cp-to" className={input} type="date" value={effectiveTo}
+              onChange={e => setEffectiveTo(e.target.value)} />
+          </div>
+        </div>
+        <p className="mt-1.5 text-xs text-gray-500">
+          Blank on both means the rule applies to every period, past and future. Dating it is how a
+          month that has already been paid stops moving when you change a rate.
+        </p>
+
         {def?.needs === 'items' && (
           <div className="mt-3">
             <span className={lbl}>Which items</span>
@@ -344,11 +491,73 @@ export default function CommissionAdminPanel({
           </div>
         )}
 
-        <div className="mt-4">
+        {/* ── proof that a counted unit was really a sale ─────────────────────────
+            ⚠⚠ THIS IS OFF BY DEFAULT, and that is not timidity: switching it on
+            changes what a rule pays, so it has to be a decision somebody made. The
+            Gold spiff is the case it was built for — a $400 plan recurs every year, so
+            eleven Gold invoices in one month were nine renewals, one new member and
+            one part-year plan, and counting tracker rows paid for all of them. */}
+        {canVerify && (
+          <div className="mt-3 rounded-md border border-gray-800 bg-gray-900/60 p-3">
+            <label className="flex cursor-pointer items-start gap-2">
+              <input type="checkbox" className="mt-0.5" checked={verify}
+                onChange={e => setVerify(e.target.checked)} />
+              <span className="text-sm text-gray-300">
+                Only count a sale when a <strong className="text-gray-200">real invoice</strong> backs it
+                <span className="block text-xs text-gray-500">
+                  Matches the item against invoices issued in the period for that customer. A tracker
+                  row with no invoice behind it &mdash; a stale row, or one keyed against the wrong
+                  customer &mdash; stops paying, and the card says why rather than just showing fewer.
+                </span>
+              </span>
+            </label>
+
+            {verify && (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className={lbl} htmlFor="cp-minprice">The least a sale can be worth ($)</label>
+                  <input id="cp-minprice" className={input} type="number" min="0" step="0.01"
+                    value={minPrice} onChange={e => setMinPrice(e.target.value)} placeholder="390" />
+                  {/* ⚠ The one thing about this field that is genuinely surprising, so it
+                      is stated: the item NAME does not separate a sale from a member
+                      visit. Both are "…Service Plan Gold - T1"; only the price differs. */}
+                  <p className="mt-1 text-xs text-gray-500">
+                    Price is what separates a sale from a visit. The same item name covers a $400 plan,
+                    a part-year plan, a $100 prepaid visit and a $0 included visit &mdash; and the
+                    &ldquo;- T1&rdquo; suffix appears on both the real sale and the visit, so it cannot
+                    be used. Leave blank to accept any price, including $0.
+                  </p>
+                </div>
+                <div>
+                  <label className="flex cursor-pointer items-start gap-2 pt-5">
+                    <input type="checkbox" className="mt-0.5" checked={excludeRenewals}
+                      onChange={e => setExcludeRenewals(e.target.checked)} />
+                    <span className="text-sm text-gray-300">
+                      New customers only &mdash; not renewals
+                      <span className="block text-xs text-gray-500">
+                        Drops a sale whose customer already had this item before the period started.
+                        Checked against past invoices <em>and</em> past visits, because a member&apos;s
+                        included visits are often the only record that far back.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center gap-3">
           <button onClick={save} disabled={saving}
             className="rounded-md bg-brand px-3.5 py-1.5 text-sm font-semibold text-[#fff] hover:bg-brand-hover disabled:opacity-50">
-            {saving ? 'Saving…' : 'Add rule'}
+            {saving ? 'Saving…' : editing ? 'Save changes' : 'Add rule'}
           </button>
+          {editing && (
+            <button type="button" onClick={resetForm}
+              className="rounded-md border border-gray-700 px-3.5 py-1.5 text-sm text-gray-300 hover:border-gray-600">
+              Cancel
+            </button>
+          )}
         </div>
       </div>
 
@@ -371,7 +580,19 @@ export default function CommissionAdminPanel({
                     {p.label}
                   </span>
                   <span className="text-xs text-gray-500">{describeRule(p)}</span>
+                  {(p.effective_from || p.effective_to) && (
+                    <span className="text-xs text-sky-300/80">
+                      {p.effective_from && p.effective_to
+                        ? `in force ${p.effective_from} → ${p.effective_to}`
+                        : p.effective_from ? `from ${p.effective_from}` : `until ${p.effective_to}`}
+                    </span>
+                  )}
                   <div className="ml-auto flex items-center gap-2">
+                    <button onClick={() => startEdit(p)}
+                      className={`text-xs transition-colors ${
+                        editing?.id === p.id ? 'text-indigo-300' : 'text-gray-500 hover:text-gray-200'}`}>
+                      {editing?.id === p.id ? 'Editing' : 'Edit'}
+                    </button>
                     <button onClick={() => toggle(p)}
                       className="text-xs text-gray-500 transition-colors hover:text-gray-200">
                       {p.active ? 'Switch off' : 'Switch on'}
