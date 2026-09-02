@@ -1,15 +1,21 @@
-// Per-device "new message" sound for Hub.
+// Per-device notification sounds for Hub.
 //
-// Played by WebChimeNotifier when a message arrives while the Hub tab is OPEN
-// but not focused (the user is on another tab or another app). The sound is a
-// short synthesized two-note chime via the Web Audio API — there is no audio
-// asset file to ship.
+// Played by WebChimeNotifier when something arrives while the Hub tab is OPEN
+// but not focused (the user is on another tab or another app). Every sound is a
+// short synthesized note pattern via the Web Audio API — there are no audio
+// asset files to ship.
 //
-// The on/off preference is intentionally PER-DEVICE (localStorage), not
-// per-account: you may want the sound on your office desktop but off on a shared
-// machine. Default is on.
+// Each KIND of event (Hub message, customer text, shared-inbox email, Daily Log
+// update) gets its own sound so you can tell what arrived without looking. The
+// mapping is per-device and user-changeable in Settings → Notifications.
+//
+// The on/off preference and the sound choices are intentionally PER-DEVICE
+// (localStorage), not per-account: you may want sound on your office desktop but
+// off on a shared machine, and the speakers differ from room to room. Defaults
+// are on, with Hub messages keeping the long-standing two-note chime.
 
 const STORAGE_KEY = 'hub-chime-enabled'
+const SOUNDS_KEY = 'hub-chime-sounds'
 
 export function isChimeEnabled(): boolean {
   try {
@@ -25,6 +31,93 @@ export function setChimeEnabled(on: boolean): void {
   } catch {
     /* storage blocked — non-critical */
   }
+}
+
+// ── Sound library ──────────────────────────────────────────────────────────
+// A sound is a list of notes: `freq` in Hz, `at` = seconds from the start, and
+// `decay` = how fast that note falls away (bigger = shorter). Both the Web Audio
+// synth and the WAV fallback below render from this same definition, so a sound
+// is identical however it ends up being played.
+
+type Note = { freq: number; at: number; decay: number }
+
+export type ChimeSoundId =
+  | 'chime'
+  | 'ding'
+  | 'double'
+  | 'descend'
+  | 'marimba'
+  | 'soft'
+  | 'alert'
+
+export const CHIME_SOUNDS: { id: ChimeSoundId; label: string; notes: Note[] }[] = [
+  // The original Hub sound — a clean rising fourth (A5 → D6).
+  { id: 'chime',   label: 'Chime',      notes: [{ freq: 880.00, at: 0, decay: 8 }, { freq: 1174.66, at: 0.11, decay: 8 }] },
+  { id: 'ding',    label: 'Ding',       notes: [{ freq: 1046.50, at: 0, decay: 6 }] },
+  { id: 'double',  label: 'Double tap', notes: [{ freq: 1318.51, at: 0, decay: 14 }, { freq: 1318.51, at: 0.09, decay: 12 }] },
+  // The chime inverted — a falling fourth reads as "incoming", not "done".
+  { id: 'descend', label: 'Descending', notes: [{ freq: 1174.66, at: 0, decay: 8 }, { freq: 880.00, at: 0.11, decay: 8 }] },
+  { id: 'marimba', label: 'Marimba',    notes: [{ freq: 1046.50, at: 0, decay: 13 }, { freq: 1318.51, at: 0.07, decay: 13 }, { freq: 1567.98, at: 0.14, decay: 10 }] },
+  // Lower and gentler — for a steady trickle you don't want to jump at.
+  { id: 'soft',    label: 'Soft',       notes: [{ freq: 440.00, at: 0, decay: 5 }, { freq: 523.25, at: 0.13, decay: 5 }] },
+  { id: 'alert',   label: 'Alert',      notes: [{ freq: 1567.98, at: 0, decay: 18 }, { freq: 1567.98, at: 0.08, decay: 18 }, { freq: 1567.98, at: 0.16, decay: 14 }] },
+]
+
+const SOUND_BY_ID: Record<string, Note[]> = Object.fromEntries(
+  CHIME_SOUNDS.map((s) => [s.id, s.notes])
+)
+
+// The kinds of event that can ring. Each maps to a sound below.
+export type ChimeKind = 'message' | 'txt' | 'email' | 'daily-log'
+
+export const CHIME_KINDS: { kind: ChimeKind; label: string; hint: string }[] = [
+  { kind: 'message',   label: 'Hub messages',   hint: 'Rooms and DMs you belong to' },
+  { kind: 'txt',       label: 'Customer texts', hint: 'New inbound text in Txt' },
+  { kind: 'email',     label: 'Inbox email',    hint: 'New mail in the shared Inbox, or a reply on a thread assigned to you' },
+  { kind: 'daily-log', label: 'Daily Log',      hint: 'New Daily Log updates' },
+]
+
+// Hub messages keep the sound this app has always played; the other kinds get
+// distinct defaults so they're distinguishable out of the box.
+const DEFAULT_SOUNDS: Record<ChimeKind, ChimeSoundId> = {
+  message: 'chime',
+  txt: 'marimba',
+  email: 'soft',
+  'daily-log': 'double',
+}
+
+function readSoundMap(): Partial<Record<ChimeKind, ChimeSoundId>> {
+  try {
+    const raw = localStorage.getItem(SOUNDS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const out: Partial<Record<ChimeKind, ChimeSoundId>> = {}
+    for (const { kind } of CHIME_KINDS) {
+      const v = parsed[kind]
+      // Ignore anything that isn't a sound we still ship — a stale id from an
+      // older build must fall back to the default, never play silence.
+      if (typeof v === 'string' && v in SOUND_BY_ID) out[kind] = v as ChimeSoundId
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function getChimeSound(kind: ChimeKind): ChimeSoundId {
+  return readSoundMap()[kind] ?? DEFAULT_SOUNDS[kind]
+}
+
+export function setChimeSound(kind: ChimeKind, sound: ChimeSoundId): void {
+  try {
+    const next = { ...readSoundMap(), [kind]: sound }
+    localStorage.setItem(SOUNDS_KEY, JSON.stringify(next))
+  } catch {
+    /* storage blocked — non-critical */
+  }
+  // Unlock this sound's fallback element now, while we're still inside the click
+  // that chose it, so a later background ring isn't silent in a PWA.
+  primeChimeAudio()
 }
 
 // Cross-tab de-dupe. Returns true only for the FIRST open Hub tab to claim a
@@ -74,25 +167,34 @@ function getCtx(): AudioContext | null {
 // ── HTMLAudio fallback ─────────────────────────────────────────────────────
 // In an INSTALLED PWA the AudioContext is suspended whenever the window isn't
 // focused and Chrome won't let us resume it from a background timer (no user
-// gesture) — so the Web Audio synth above goes silent there even though it
+// gesture) — so the Web Audio synth below goes silent there even though it
 // works fine in a normal browser tab. An <audio> element, once unlocked during
-// a gesture, keeps playing in the background. We generate the same two-note
-// chime as a WAV data URI (no asset to ship) and use it only when the
-// AudioContext can't play. iOS PWAs suspend background audio at the OS level —
-// nothing client-side can fix that; mobile relies on the native push sound.
+// a gesture, keeps playing in the background. We render each sound to a WAV data
+// URI (no asset to ship) and use it only when the AudioContext can't play.
+// iOS PWAs suspend background audio at the OS level — nothing client-side can
+// fix that; mobile relies on the native push sound.
+//
+// One element PER SOUND, because unlocking is per-element: swapping `src` on an
+// unlocked element is not reliably still unlocked. Only the sounds actually in
+// use (plus whatever's being previewed) ever get built.
 
-let chimeDataUri: string | null = null
-function buildChimeDataUri(): string {
-  if (chimeDataUri) return chimeDataUri
+const dataUriCache = new Map<string, string>()
+
+function buildDataUri(soundId: string): string {
+  const cached = dataUriCache.get(soundId)
+  if (cached) return cached
+  const notes = SOUND_BY_ID[soundId] ?? SOUND_BY_ID.chime
   const sampleRate = 44100
-  const length = Math.floor(sampleRate * 0.45)
+  const lastAt = notes.reduce((m, n) => Math.max(m, n.at), 0)
+  const length = Math.floor(sampleRate * (lastAt + 0.45))
   const samples = new Int16Array(length)
   for (let i = 0; i < length; i++) {
     const t = i / sampleRate
-    let s = Math.sin(2 * Math.PI * 880.0 * t) * Math.exp(-t * 8) // A5
-    if (t >= 0.11) {
-      const tt = t - 0.11
-      s += Math.sin(2 * Math.PI * 1174.66 * t) * Math.exp(-tt * 8) // D6, rising fourth
+    let s = 0
+    for (const n of notes) {
+      if (t < n.at) continue
+      const tt = t - n.at
+      s += Math.sin(2 * Math.PI * n.freq * tt) * Math.exp(-tt * n.decay)
     }
     s *= 0.28
     samples[i] = Math.max(-1, Math.min(1, s)) * 32767
@@ -122,25 +224,29 @@ function buildChimeDataUri(): string {
   for (let i = 0; i < bytes.length; i += 0x8000) {
     binary += String.fromCharCode(...Array.from(bytes.subarray(i, i + 0x8000)))
   }
-  chimeDataUri = 'data:audio/wav;base64,' + btoa(binary)
-  return chimeDataUri
+  const uri = 'data:audio/wav;base64,' + btoa(binary)
+  dataUriCache.set(soundId, uri)
+  return uri
 }
 
-let fallbackAudio: HTMLAudioElement | null = null
-function getFallbackAudio(): HTMLAudioElement | null {
+const fallbackAudio = new Map<string, HTMLAudioElement>()
+
+function getFallbackAudio(soundId: string): HTMLAudioElement | null {
   if (typeof Audio === 'undefined') return null
-  if (fallbackAudio) return fallbackAudio
+  const existing = fallbackAudio.get(soundId)
+  if (existing) return existing
   try {
-    fallbackAudio = new Audio(buildChimeDataUri())
-    fallbackAudio.preload = 'auto'
+    const a = new Audio(buildDataUri(soundId))
+    a.preload = 'auto'
+    fallbackAudio.set(soundId, a)
+    return a
   } catch {
     return null
   }
-  return fallbackAudio
 }
 
-function playFallback(): void {
-  const a = getFallbackAudio()
+function playFallback(soundId: string): void {
+  const a = getFallbackAudio(soundId)
   if (!a) return
   try {
     a.muted = false
@@ -152,18 +258,27 @@ function playFallback(): void {
   }
 }
 
+// The sounds whose fallback elements need unlocking: everything currently mapped
+// to a kind, plus anything previewed this session (already in the map).
+function soundsToPrime(): string[] {
+  const ids = new Set<string>(fallbackAudio.keys())
+  for (const { kind } of CHIME_KINDS) ids.add(getChimeSound(kind))
+  return Array.from(ids)
+}
+
 // Browsers create an AudioContext in the "suspended" state until a user gesture
 // resumes it. Call this from inside a real click/keydown handler (Hub receives
 // one almost immediately), AND on visibility/focus to keep the context warm, so
 // that later background chimes are allowed to play. Also unlocks the HTMLAudio
-// fallback within the gesture so it can play later in a backgrounded PWA.
+// fallbacks within the gesture so they can play later in a backgrounded PWA.
 export function primeChimeAudio(): void {
   const c = getCtx()
   if (c && c.state === 'suspended') {
     c.resume().catch(() => { /* will retry on the next gesture */ })
   }
-  const a = getFallbackAudio()
-  if (a) {
+  for (const id of soundsToPrime()) {
+    const a = getFallbackAudio(id)
+    if (!a) continue
     try {
       a.muted = true
       const p = a.play()
@@ -176,12 +291,9 @@ export function primeChimeAudio(): void {
   }
 }
 
-function playTones(c: AudioContext): void {
+function playTones(c: AudioContext, soundId: string): void {
+  const notes = SOUND_BY_ID[soundId] ?? SOUND_BY_ID.chime
   const now = c.currentTime
-  const notes: { freq: number; at: number }[] = [
-    { freq: 880.0, at: 0 },      // A5
-    { freq: 1174.66, at: 0.11 }, // D6 — a clean rising fourth
-  ]
   for (const n of notes) {
     const osc = c.createOscillator()
     const gain = c.createGain()
@@ -189,26 +301,40 @@ function playTones(c: AudioContext): void {
     osc.frequency.value = n.freq
     const start = now + n.at
     // Quick attack, smooth exponential decay. Peak ~0.16 = audible but gentle.
+    // `decay` sets the tail length: 4/decay seconds lands ~1% of peak.
+    const tail = Math.min(0.9, 4 / n.decay)
     gain.gain.setValueAtTime(0.0001, start)
     gain.gain.exponentialRampToValueAtTime(0.16, start + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.32)
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + tail)
     osc.connect(gain)
     gain.connect(c.destination)
     osc.start(start)
-    osc.stop(start + 0.36)
+    osc.stop(start + tail + 0.04)
   }
 }
 
-// Play a short, pleasant rising two-note "ding". Safe to call often: it no-ops
-// if Web Audio is unavailable. If the context is still suspended — e.g. this is
-// the very first user gesture — it resumes first and plays once that resolves,
-// so the first tap isn't silent.
-export function playChime(): void {
+// Play the sound for one kind of event — a short, pleasant note pattern. Safe to
+// call often: it no-ops if Web Audio is unavailable. If the context is still
+// suspended — e.g. this is the very first user gesture — it resumes first and
+// plays once that resolves, so the first tap isn't silent.
+//
+// `kind` defaults to 'message' so any older call site keeps its original sound.
+export function playChime(kind: ChimeKind = 'message'): void {
+  playSoundId(getChimeSound(kind))
+}
+
+// Play one specific sound regardless of the kind mapping — used by the Settings
+// picker so you can hear a sound before choosing it.
+export function previewChimeSound(soundId: ChimeSoundId): void {
+  playSoundId(soundId)
+}
+
+function playSoundId(soundId: string): void {
   const c = getCtx()
-  if (!c) { playFallback(); return }
+  if (!c) { playFallback(soundId); return }
   // Running (a normal focused tab after the first gesture): play the synth.
   if (c.state === 'running') {
-    playTones(c)
+    playTones(c, soundId)
     return
   }
   // Suspended — a BACKGROUNDED browser tab (Chrome suspends the context) OR an
@@ -218,8 +344,8 @@ export function playChime(): void {
   // <audio> fallback.
   c.resume()
     .then(() => {
-      if (c.state === 'running') playTones(c)
-      else playFallback()
+      if (c.state === 'running') playTones(c, soundId)
+      else playFallback(soundId)
     })
-    .catch(() => playFallback())
+    .catch(() => playFallback(soundId))
 }

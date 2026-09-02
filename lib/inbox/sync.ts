@@ -539,6 +539,32 @@ async function broadcastInboxSync(admin: SupabaseClient, companyId: string): Pro
   }
 }
 
+// New inbound mail — a DEDICATED event, separate from the 'update' nudge below.
+// 'update' fires on every interactive change (close, assign, snooze, waiting,
+// send, follow-up), so anything ringing a sound off it would ding people for
+// their own clicks. 'new-mail' is emitted ONLY for genuinely new inbound mail,
+// and carries the same recipient list the push went to so each client can decide
+// whether this one is theirs (WebChimeNotifier). Mirrors the Txt 'inbound' event.
+export async function broadcastNewMail(
+  admin: SupabaseClient,
+  companyId: string,
+  threadId: string,
+  recipientIds: string[]
+): Promise<void> {
+  try {
+    const ch = admin.channel(`inbox:${companyId}`)
+    await ch.subscribe()
+    await ch.send({
+      type: 'broadcast',
+      event: 'new-mail',
+      payload: { thread_id: threadId, recipient_ids: recipientIds },
+    })
+    await admin.removeChannel(ch)
+  } catch (err) {
+    console.warn('[inbox:webhook] new-mail broadcast failed', err)
+  }
+}
+
 // Targeted refresh nudge for a single thread (used by the webhook pipeline after
 // re-mirroring one thread). Same channel + 'update' event as the interactive routes
 // (see threads/[id]/close). The payload carries `thread_id` (snake_case) because the

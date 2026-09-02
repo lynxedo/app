@@ -1,7 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { isChimeEnabled, setChimeEnabled, playChime, primeChimeAudio } from '@/lib/hub-chime'
+import {
+  isChimeEnabled, setChimeEnabled, playChime, primeChimeAudio,
+  CHIME_KINDS, CHIME_SOUNDS, getChimeSound, setChimeSound, previewChimeSound,
+  type ChimeKind, type ChimeSoundId,
+} from '@/lib/hub-chime'
 
 type Platform = 'web' | 'ios-native' | 'android-native' | 'electron' | 'unsupported'
 
@@ -48,13 +52,27 @@ export default function NotificationDeviceControls() {
   const [busy, setBusy] = useState<'reset' | 'test' | null>(null)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
   const [soundOn, setSoundOn] = useState(true)
+  // Per-event sounds — read from localStorage on mount (never during render, so
+  // the server and first client paint agree).
+  const [soundMap, setSoundMap] = useState<Record<ChimeKind, ChimeSoundId> | null>(null)
   const [notifSound, setNotifSound] = useState<string>('default')
   const [soundSaving, setSoundSaving] = useState(false)
 
   useEffect(() => {
     setPlatform(detectPlatform())
     setSoundOn(isChimeEnabled())
+    const m = {} as Record<ChimeKind, ChimeSoundId>
+    for (const { kind } of CHIME_KINDS) m[kind] = getChimeSound(kind)
+    setSoundMap(m)
   }, [])
+
+  // Choosing a sound previews it, and because we're inside the click that also
+  // unlocks that sound's audio for later background rings.
+  function handleKindSoundChange(kind: ChimeKind, sound: ChimeSoundId) {
+    setSoundMap((prev) => (prev ? { ...prev, [kind]: sound } : prev))
+    setChimeSound(kind, sound)
+    previewChimeSound(sound)
+  }
 
   // Load the saved APNs notification sound when we know we're on iOS native
   useEffect(() => {
@@ -255,19 +273,61 @@ export default function NotificationDeviceControls() {
       {platform === 'web' && (
         <div className="flex items-center justify-between gap-3 mb-4 rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2.5">
           <div>
-            <p className="text-sm text-white">Play a sound for new messages</p>
-            <p className="text-xs text-gray-400">Chimes on this device for every new message while Hub is open in this browser — whether you&apos;re looking at Hub or working elsewhere.</p>
+            <p className="text-sm text-white">Play a sound when something arrives</p>
+            <p className="text-xs text-gray-400">Rings on this device for new messages, customer texts, Inbox email and Daily Log updates — while Hub is open in this browser, whether you&apos;re looking at Hub or working elsewhere.</p>
           </div>
           <button
             type="button"
             role="switch"
             aria-checked={soundOn}
-            aria-label="Play a sound for new messages on this device"
+            aria-label="Play a sound when something arrives on this device"
             onClick={handleToggleSound}
             className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${soundOn ? 'bg-blue-600' : 'bg-gray-600'}`}
           >
             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${soundOn ? 'translate-x-6' : 'translate-x-1'}`} />
           </button>
+        </div>
+      )}
+      {platform === 'web' && soundOn && soundMap && (
+        <div className="mb-4 rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2.5">
+          <p className="text-sm text-white mb-1">Sound for each type</p>
+          <p className="text-xs text-gray-400 mb-3">
+            Give each kind of event its own sound so you can tell what arrived without looking. Picking one plays it. Saved on this device only.
+          </p>
+          <div className="flex flex-col gap-2.5">
+            {CHIME_KINDS.map(({ kind, label, hint }) => (
+              <div key={kind} className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm text-white truncate">{label}</p>
+                  <p className="text-xs text-gray-500 truncate">{hint}</p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <select
+                    value={soundMap[kind]}
+                    onChange={(e) => handleKindSoundChange(kind, e.target.value as ChimeSoundId)}
+                    aria-label={`Sound for ${label}`}
+                    className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                  >
+                    {CHIME_SOUNDS.map((snd) => (
+                      <option key={snd.id} value={snd.id}>{snd.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => previewChimeSound(soundMap[kind])}
+                    aria-label={`Play the ${label} sound`}
+                    title="Play"
+                    className="px-2 py-1.5 rounded-md border border-gray-700 text-gray-300 hover:border-gray-500 hover:text-white text-sm leading-none"
+                  >
+                    ▶
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-3">
+            These play only while Hub is open in this browser. With Hub closed, your computer&apos;s own notification sound is used for everything — that one can&apos;t be changed per type.
+          </p>
         </div>
       )}
       {platform === 'ios-native' && (

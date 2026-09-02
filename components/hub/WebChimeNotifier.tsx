@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useHubMessageInsert, type HubMessageEvent } from './HubMessagesProvider'
 import { isChimeEnabled, playChime, primeChimeAudio, claimChimeForMessage } from '@/lib/hub-chime'
 import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
-import { isHubMessagingDndNow, type DndSchedule } from '@/lib/dnd-schedule'
+import { isHubMessagingDndNow, userIsDndNow, type DndSchedule } from '@/lib/dnd-schedule'
 
 type RoomLite = { id: string; name: string }
 type PrefRow = {
@@ -19,9 +19,14 @@ interface Props {
   rooms: RoomLite[]
 }
 
-// Plays a per-device sound whenever a new Hub message arrives, as long as a Hub
-// tab is open in this browser — whether the user is looking at Hub or working in
-// another tab/app. An audible heads-up for every new message.
+// Plays a per-device sound whenever something arrives, as long as a Hub tab is
+// open in this browser — whether the user is looking at Hub or working in
+// another tab/app. An audible heads-up for every new message, customer text,
+// shared-inbox email and Daily Log update.
+//
+// Each source passes its own ChimeKind, so the four events sound different and
+// you can tell what arrived without looking (lib/hub-chime.ts owns the sounds
+// and the per-device mapping).
 //
 // It reuses the same Supabase Realtime "messages" stream plus the same
 // membership / mute / DND filters as ElectronNotifier and lib/hub-push.ts, so
@@ -53,7 +58,13 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
     master_dnd_schedule: DndSchedule | null
     hub_dnd_enabled: boolean | null
     hub_dnd_schedule: DndSchedule | null
-  }>({ master_dnd_enabled: null, master_dnd_schedule: null, hub_dnd_enabled: null, hub_dnd_schedule: null })
+    inbox_dnd_enabled: boolean | null
+    inbox_dnd_schedule: DndSchedule | null
+  }>({
+    master_dnd_enabled: null, master_dnd_schedule: null,
+    hub_dnd_enabled: null, hub_dnd_schedule: null,
+    inbox_dnd_enabled: null, inbox_dnd_schedule: null,
+  })
   const lastPlayedRef = useRef(0)
   // #26 — message events arrive via the shared HubMessagesProvider subscription.
   // The effect below assigns the real handler (which closes over the DND/pref
@@ -96,6 +107,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
     const supabase = createClient()
     let dlChannel: ReturnType<typeof supabase.channel> | null = null
     let offTxt: (() => void) | null = null
+    let offInbox: (() => void) | null = null
     let convTimer: ReturnType<typeof setInterval> | null = null
     let cancelled = false
 
@@ -115,6 +127,18 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
       return false
     }
 
+    // Shared-inbox mail answers to its own DND channel (Master + Inbox), exactly
+    // as sendHubPush routes type:'inbox'. Silencing Hub messages must NOT also
+    // silence email, and vice versa.
+    const isInboxSuppressed = (): boolean => {
+      const d = newDndRef.current
+      if (userIsDndNow({ manualEnabled: !!d.master_dnd_enabled, schedule: d.master_dnd_schedule })) return true
+      if (userIsDndNow({ manualEnabled: !!d.inbox_dnd_enabled, schedule: d.inbox_dnd_schedule })) return true
+      const s = dndStatusRef.current
+      if (s.status === 'dnd' && (!s.status_until || new Date(s.status_until) > new Date())) return true
+      return false
+    }
+
     void (async () => {
       const [{ data: prefs }, { data: me }, { data: prof }] = await Promise.all([
         supabase
@@ -128,7 +152,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
           .maybeSingle(),
         supabase
           .from('user_profiles')
-          .select('master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule')
+          .select('master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, inbox_dnd_enabled, inbox_dnd_schedule')
           .eq('id', currentUserId)
           .maybeSingle(),
       ])
@@ -138,12 +162,15 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
         const pr = prof as {
           master_dnd_enabled: boolean | null; master_dnd_schedule: DndSchedule | null
           hub_dnd_enabled: boolean | null; hub_dnd_schedule: DndSchedule | null
+          inbox_dnd_enabled: boolean | null; inbox_dnd_schedule: DndSchedule | null
         }
         newDndRef.current = {
           master_dnd_enabled: pr.master_dnd_enabled ?? null,
           master_dnd_schedule: pr.master_dnd_schedule ?? null,
           hub_dnd_enabled: pr.hub_dnd_enabled ?? null,
           hub_dnd_schedule: pr.hub_dnd_schedule ?? null,
+          inbox_dnd_enabled: pr.inbox_dnd_enabled ?? null,
+          inbox_dnd_schedule: pr.inbox_dnd_schedule ?? null,
         }
       }
 
@@ -212,7 +239,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
         const now = Date.now()
         if (now - lastPlayedRef.current < 1500) return
         lastPlayedRef.current = now
-        playChime()
+        playChime('message')
       }
 
       // Hub message chimes now ride the single shared HubMessagesProvider
@@ -249,7 +276,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
             const now = Date.now()
             if (now - lastPlayedRef.current < 1500) return
             lastPlayedRef.current = now
-            playChime()
+            playChime('daily-log')
           })
           .subscribe()
       }
@@ -276,7 +303,35 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
             const now = Date.now()
             if (now - lastPlayedRef.current < 1500) return
             lastPlayedRef.current = now
-            playChime()
+            playChime('txt')
+          },
+        })
+      }
+
+      // Shared Inbox mail. The Nylas webhook fires a company broadcast on
+      // `inbox:{companyId}` with event 'new-mail' — a DEDICATED event, not the
+      // 'update' the interactive routes fire on every close/assign/snooze/send.
+      // Listening to 'update' would ding you for your own clicks; 'new-mail' is
+      // only emitted for genuinely new inbound mail.
+      if (companyId) {
+        // Ref-counted: the Inbox sidebar and any open thread share this topic,
+        // and Supabase hands them all one channel object.
+        offInbox = subscribeSharedBroadcast(`inbox:${companyId}`, {
+          'new-mail': (payload) => {
+            const p = (payload ?? {}) as { thread_id?: string; recipient_ids?: string[] }
+            if (!p.thread_id) return
+            // Only the people the push went to: the assignee, thread members, or
+            // the manager/queue audience for unassigned mail. Never ding a
+            // manager about a thread someone else already owns. (Absent list =
+            // older payload → fall back to ringing.)
+            if (Array.isArray(p.recipient_ids) && !p.recipient_ids.includes(currentUserId)) return
+            if (isInboxSuppressed()) return
+            if (!isChimeEnabled()) return
+            if (!claimChimeForMessage('inbox-' + p.thread_id)) return
+            const now = Date.now()
+            if (now - lastPlayedRef.current < 1500) return
+            lastPlayedRef.current = now
+            playChime('email')
           },
         })
       }
@@ -286,6 +341,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
         messageHandlerRef.current = null
         if (dlChannel) supabase.removeChannel(dlChannel)
         offTxt?.()
+        offInbox?.()
       }
     })()
 
@@ -299,6 +355,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
       window.removeEventListener('focus', keepWarm)
       if (dlChannel) supabase.removeChannel(dlChannel)
       offTxt?.()
+      offInbox?.()
     }
   }, [currentUserId, companyId])
 

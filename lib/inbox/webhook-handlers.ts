@@ -14,7 +14,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { NylasNotification } from './webhook'
 import type { InboxAccount } from './accounts'
 import { getMailProvider } from './provider'
-import { mirrorThreadById, broadcastInboxUpdate } from './sync'
+import { mirrorThreadById, broadcastInboxUpdate, broadcastNewMail } from './sync'
 import { NylasError } from './nylas'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
 import { sendHubPush } from '@/lib/hub-push'
@@ -292,8 +292,14 @@ async function notifyNewInboundMail(
   ).trim()
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
 
+  // Ring any open Hub tab first — it's one realtime send, whereas sendHubPush
+  // does its own DB reads plus a fan-out to every device. Best-effort: the
+  // helper swallows its own errors so a realtime hiccup can't cost us the push.
+  const recipientIds = Array.from(ids)
+  await broadcastNewMail(admin, account.company_id, threadDbId, recipientIds)
+
   await sendHubPush(
-    Array.from(ids),
+    recipientIds,
     {
       title: `📧 ${from.slice(0, 60)}`,
       body: subject.slice(0, 140),
