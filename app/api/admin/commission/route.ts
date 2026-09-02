@@ -249,6 +249,46 @@ export async function POST(request: Request) {
   }
 
   const id = String(body.id || '').trim()
+
+  /* ── superseding, rather than overwriting ───────────────────────────────────
+   *
+   * ⚠⚠ THIS IS WHAT MAKES A PAID MONTH STOP MOVING. Editing a rule in place mutates
+   * the one row every period reads, so changing a rate silently repays every month
+   * already closed — April 2026 was paid a flat $35 per upsell and cannot be
+   * reproduced today because the rule now says 5%. With `supersede_from`, the current
+   * version is closed the day before and the edit becomes a NEW version from that day,
+   * so each period keeps reading the rule that was actually in force for it.
+   *
+   * ⚠ Both writes happen inside one database function, atomically. Done as two REST
+   * calls, a failure between them would either leave two overlapping undated versions
+   * (paying the bonus TWICE) or a gap (paying nothing) — and the first is much worse.
+   */
+  const supersedeFrom = optionalDate(body.supersede_from)
+  if (supersedeFrom === undefined) {
+    return NextResponse.json({ error: 'The date the new rate starts is not a real date' }, { status: 400 })
+  }
+  if (supersedeFrom && !id) {
+    return NextResponse.json({ error: 'A new version has to supersede an existing rule' }, { status: 400 })
+  }
+  if (supersedeFrom && id) {
+    const { data: newId, error } = await admin.rpc('commission_plan_supersede', {
+      p_company_id: ctx.company,
+      p_old_id: id,
+      p_from: supersedeFrom,
+      // ⚠ `company_id` and `effective_from` are set by the function from its own
+      // parameters, not read from this payload — see the migration.
+      p_new: { ...row, created_by: ctx.userId, effective_from: undefined, effective_to: undefined },
+    })
+    if (error) {
+      if (error.code === 'P0002') return NextResponse.json({ error: 'That rule no longer exists' }, { status: 404 })
+      if (error.code === '23514' || error.message?.includes('must start after')) {
+        return NextResponse.json({ error: error.message.replace(/^.*?:\s*/, '') }, { status: 400 })
+      }
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    return NextResponse.json({ ok: true, id: newId, superseded: id, from: supersedeFrom })
+  }
+
   if (id) {
     // Company-scoped update: editing by id must not reach another tenant's row.
     const { error } = await admin

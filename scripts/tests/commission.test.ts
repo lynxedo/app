@@ -42,57 +42,117 @@ const JOSH_TIERS = [
   { from: 9000, rate: 2.5 }, { from: 10000, rate: 3 },
 ]
 
-/** Josh's four bonus weeks of August 2026, from the live book. */
+/**
+ * Josh's four bonus weeks of August 2026 under the Thursday rule, from the live book.
+ *
+ * ⚠ NOT the same four weeks as before. Under the old anchor rule August began Jul 27;
+ * under the Thursday rule that week has five of its days in July, so it is JULY's W5
+ * and August starts Aug 3. The week of Aug 24 — which the old rule left in no month at
+ * all — is August's W4.
+ */
 const JOSH_AUG = [
-  { key: 'W1', label: 'W1 Jul 27 – Aug 2', amount: 4019.03 },
-  { key: 'W2', label: 'W2 Aug 3 – 9', amount: 4862.25 },
-  { key: 'W3', label: 'W3 Aug 10 – 16', amount: 3188.08 },
-  { key: 'W4', label: 'W4 Aug 17 – 23', amount: 1821.90 },
+  { key: 'W1', label: 'W1 Aug 3 – Aug 9', amount: 4862.25 },
+  { key: 'W2', label: 'W2 Aug 10 – Aug 16', amount: 3188.08 },
+  { key: 'W3', label: 'W3 Aug 17 – Aug 23', amount: 1821.90 },
+  { key: 'W4', label: 'W4 Aug 24 – Aug 30', amount: 1743.20 },
 ]
 
-describe('bonus weeks', () => {
-  test('W1 starts on the last Monday on or before the 1st', () => {
-    // Aug 1 2026 is a Saturday, so W1 reaches back to Jul 27.
-    assert.equal(commissionMonthStart(2026, 8), '2026-07-27')
-    // Jun 1 2026 IS a Monday — the boundary case that must not reach back a week.
-    assert.equal(commissionMonthStart(2026, 6), '2026-06-01')
-    // Nov 1 2026 is a Sunday: the furthest reach-back there is.
-    assert.equal(commissionMonthStart(2026, 11), '2026-10-26')
+/** And July's five, so the week that moved can be checked on both sides. */
+const JOSH_JUL = [
+  { key: 'W1', label: 'W1 Jun 29 – Jul 5', amount: 0 },
+  { key: 'W2', label: 'W2 Jul 6 – Jul 12', amount: 0 },
+  { key: 'W3', label: 'W3 Jul 13 – Jul 19', amount: 2752.03 },
+  { key: 'W4', label: 'W4 Jul 20 – Jul 26', amount: 1965.00 },
+  { key: 'W5', label: 'W5 Jul 27 – Aug 2', amount: 4019.03 },
+]
+
+describe('bonus weeks — the Thursday rule', () => {
+  test('a week belongs to the month holding its Thursday', () => {
+    /* Ben's rule was "whichever month has more days of the week". A week is SEVEN
+     * days, so it can never tie, and the majority month is always the one holding the
+     * 4th day — the Thursday. These two cases are the ones he named. */
+    // Week Mon Jul 27 – Sun Aug 2: five days in July, two in August → JULY.
+    assert.equal(commissionWeeks(2026, 7).at(-1)?.start, '2026-07-27')
+    assert.equal(commissionWeeks(2026, 8).some(w => w.start === '2026-07-27'), false)
+    // Week Mon Aug 31 – Sun Sep 6: one day in August, six in September → SEPTEMBER.
+    assert.equal(commissionWeeks(2026, 9)[0].start, '2026-08-31')
+    assert.equal(commissionWeeks(2026, 8).some(w => w.start === '2026-08-31'), false)
   })
 
-  test('August 2026 is W1 Jul27–Aug2 … W4 Aug17–23', () => {
+  test('August 2026 is Aug 3 – Aug 30, four weeks', () => {
     assert.deepEqual(
       commissionWeeks(2026, 8).map(w => [w.start, w.end]),
-      [['2026-07-27', '2026-08-02'], ['2026-08-03', '2026-08-09'],
-       ['2026-08-10', '2026-08-16'], ['2026-08-17', '2026-08-23']],
+      [['2026-08-03', '2026-08-09'], ['2026-08-10', '2026-08-16'],
+       ['2026-08-17', '2026-08-23'], ['2026-08-24', '2026-08-30']],
     )
+  })
+
+  test('July 2026 has FIVE bonus weeks — never assume four', () => {
+    const jul = commissionWeeks(2026, 7)
+    assert.equal(jul.length, 5)
+    assert.equal(jul[0].start, '2026-06-29')
+    assert.equal(jul.at(-1)?.end, '2026-08-02')
+  })
+
+  test('2026 runs 5,4,4,5,4,4,5,4,4,5,4,5 weeks', () => {
+    const counts = Array.from({ length: 12 }, (_, i) => commissionWeeks(2026, i + 1).length)
+    assert.deepEqual(counts, [5, 4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 5])
+    /* 53, not 52: 2026's bonus months run from Mon Dec 29 2025 (January's W1) through
+     * Sun Jan 3 2027 (December's W5) — 371 days. A calendar year has 52 whole weeks
+     * plus a remainder, and the Thursday rule assigns that remainder to a real month
+     * rather than dropping it, which is the entire point. */
+    assert.equal(counts.reduce((a, b) => a + b, 0), 53)
+    assert.equal(commissionWeeks(2026, 1)[0].start, '2025-12-29')
+    assert.equal(commissionWeeks(2026, 12).at(-1)?.end, '2027-01-03')
+  })
+
+  test('⚠⚠ THE WEEKS TILE: no gaps and no overlaps, three years running', () => {
+    /* The whole reason this rule replaced the old one. Under "W1 = last Monday on or
+     * before the 1st, then exactly four weeks", Aug 24–30 2026 was in NO bonus month —
+     * four months a year, with real completed work in them. This asserts the property
+     * directly: consecutive months must abut exactly, day after day. */
+    let prevEnd: string | null = null
+    for (const y of [2025, 2026, 2027]) {
+      for (let m = 1; m <= 12; m++) {
+        const wks = commissionWeeks(y, m)
+        // Every week is exactly 7 days and starts on a Monday.
+        for (const w of wks) {
+          const ms = Date.parse(`${w.start}T00:00:00Z`)
+          const me = Date.parse(`${w.end}T00:00:00Z`)
+          assert.equal((me - ms) / 86400000, 6, `${w.start} is not a 7-day week`)
+          assert.equal(new Date(ms).getUTCDay(), 1, `${w.start} is not a Monday`)
+        }
+        // Weeks within the month are contiguous.
+        for (let i = 1; i < wks.length; i++) {
+          const gap = (Date.parse(`${wks[i].start}T00:00:00Z`) - Date.parse(`${wks[i - 1].end}T00:00:00Z`)) / 86400000
+          assert.equal(gap, 1, `gap inside ${y}-${m} at W${i + 1}`)
+        }
+        // And month N starts the day after month N-1 ends. This is the fixed bug.
+        if (prevEnd) {
+          const monthGap: number =
+            (Date.parse(`${wks[0].start}T00:00:00Z`) - Date.parse(`${prevEnd}T00:00:00Z`)) / 86400000
+          assert.equal(monthGap, 1, `${y}-${m} does not abut the previous month`)
+        }
+        prevEnd = wks[wks.length - 1].end
+      }
+    }
   })
 
   test('the window’s END month decides the bonus month', () => {
-    // A board asking for Aug 1–31 is an AUGUST board even though W1 begins in July.
     const cm = commissionMonth({ start: '2026-08-01', end: '2026-08-31', label: '', phrase: '' })
     assert.equal(cm.month, 8)
-    assert.equal(cm.start, '2026-07-27')
-    assert.equal(cm.end, '2026-08-23')
+    assert.equal(cm.start, '2026-08-03')
+    assert.equal(cm.end, '2026-08-30')
+    assert.equal(cm.weeks.length, 4)
   })
 
-  test('an orphaned week is reported, not absorbed', () => {
-    /* ⚠ Four bonus weeks is 28 days, so August 2026 leaves Aug 24–30 outside both
-     * W1–W4 and September's own W1 (which starts Aug 31). Work done then is in nobody's
-     * bonus period. That is a property of Ben's W1–W4 rule, and the card must be able
-     * to say so rather than quietly paying nothing for a week. */
-    const aug = commissionMonth({ start: '2026-08-01', end: '2026-08-31', label: '', phrase: '' })
-    assert.deepEqual(aug.orphanedDays, { start: '2026-08-24', end: '2026-08-30' })
-    // Most months tile cleanly and must report no gap at all.
-    const sep = commissionMonth({ start: '2026-09-01', end: '2026-09-30', label: '', phrase: '' })
-    assert.equal(sep.orphanedDays, null)
-  })
-
-  test('buckets are encoded for the RPC in W-order', () => {
+  test('buckets are encoded for the RPC, however many there are', () => {
     assert.equal(
       encodeBuckets(commissionWeeks(2026, 8)),
-      'W1:2026-07-27:2026-08-02,W2:2026-08-03:2026-08-09,W3:2026-08-10:2026-08-16,W4:2026-08-17:2026-08-23',
+      'W1:2026-08-03:2026-08-09,W2:2026-08-10:2026-08-16,W3:2026-08-17:2026-08-23,W4:2026-08-24:2026-08-30',
     )
+    // A five-week month emits five — the RPC counts what it is handed.
+    assert.equal(encodeBuckets(commissionWeeks(2026, 7)).split(',').length, 5)
   })
 })
 
@@ -134,11 +194,37 @@ describe('flat vs marginal bands', () => {
 })
 
 describe('weekly vs monthly period', () => {
-  test('Josh’s August: by week on the full week’s revenue = $34.36', () => {
+  test('Josh’s August under the Thursday rule = $24.31', () => {
     const p = plan({ rate_kind: 'tiered', tiers: JOSH_TIERS, period: 'week', tier_mode: 'flat' })
     const out = payoutOverPeriods(p, JOSH_AUG)
-    assert.deepEqual(out.parts.map(x => x.paid), [10.05, 24.31, 0, 0])
-    assert.equal(out.paid, 34.36)
+    assert.deepEqual(out.parts.map(x => x.paid), [24.31, 0, 0, 0])
+    assert.equal(out.paid, 24.31)
+  })
+
+  test('…and the week that moved to July pays there instead — nothing is lost', () => {
+    /* ⚠ The reassurance that matters about the week-boundary fix: it MOVES money, it
+     * does not create or destroy it. Jul 27–Aug 2 was August's W1 under the old anchor
+     * rule and is July's W5 under the Thursday rule. Old: Jul $0 + Aug $34.36. New:
+     * Jul $10.05 + Aug $24.31. Same $34.36 across the two months. */
+    const p = plan({ rate_kind: 'tiered', tiers: JOSH_TIERS, period: 'week', tier_mode: 'flat' })
+    const jul = payoutOverPeriods(p, JOSH_JUL)
+    assert.equal(jul.paid, 10.05)
+    assert.equal(jul.parts.at(-1)?.paid, 10.05)   // W5, the week that moved
+    const aug = payoutOverPeriods(p, JOSH_AUG)
+    assert.equal(Math.round((jul.paid + aug.paid) * 100) / 100, 34.36)
+  })
+
+  test('the week the OLD rule lost is now paid — W4 Aug 24–30 exists at all', () => {
+    // $1,743.20 of completed work that belonged to no bonus month before. Under
+    // Josh's bands it still pays nothing (under his $4,000 floor) — but it is counted,
+    // and on a bigger week it would pay.
+    const p = plan({ rate_kind: 'tiered', tiers: JOSH_TIERS, period: 'week', tier_mode: 'flat' })
+    const out = payoutOverPeriods(p, JOSH_AUG)
+    assert.equal(out.parts.length, 4)
+    assert.equal(out.parts[3].amount, 1743.20)
+    // …and if that week had been a good one, it would now pay rather than vanish.
+    const bigger = payoutOverPeriods(p, [...JOSH_AUG.slice(0, 3), { key: 'W4', label: 'W4', amount: 7200 }])
+    assert.equal(bigger.parts[3].paid, 108)
   })
 
   test('a week under the lowest band pays $0 for that week, not a share', () => {
@@ -167,7 +253,9 @@ describe('weekly vs monthly period', () => {
      * $416.74 against the $34.36 he is actually owed. */
     const monthly = plan({ rate_kind: 'tiered', tiers: JOSH_TIERS, tier_mode: 'flat' })
     const total = JOSH_AUG.reduce((t, w) => t + w.amount, 0)
-    assert.equal(payout(monthly, total).paid, 416.74)
+    assert.equal(Math.round(total * 100) / 100, 11615.43)
+    // $11,615.43 priced as ONE figure clears the 3% band: $348.46 against $24.31 owed.
+    assert.equal(payout(monthly, total).paid, 348.46)
   })
 
   test('a threshold gates each week; a cap limits the month', () => {

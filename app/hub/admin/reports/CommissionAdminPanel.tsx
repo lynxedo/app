@@ -93,6 +93,10 @@ export default function CommissionAdminPanel({
   const [effectiveTo, setEffectiveTo] = useState('')
   /** The rule being edited, or null when the form is adding a new one. */
   const [editing, setEditing] = useState<Plan | null>(null)
+  /* ⚠ Superseding rather than overwriting: the default when a pay-affecting field
+   * changes, because overwriting silently repays every month already closed. */
+  const [supersede, setSupersede] = useState(true)
+  const [supersedeFrom, setSupersedeFrom] = useState('')
 
   const def = getBasis(basis)
   const allowedKinds = def ? rateKindsFor(def.unit) : (['percent'] as RateKind[])
@@ -110,6 +114,33 @@ export default function CommissionAdminPanel({
   // Verification is per-unit evidence, so it only means anything on a counted basis.
   const canVerify = def?.needs === 'items'
   const effectiveVerify = canVerify && verify
+
+  /**
+   * Has this edit changed what the rule PAYS?
+   *
+   * ⚠ Only these fields matter. Renaming a rule, switching it off, or reordering it
+   * does not change any past figure, so offering to version it would be noise — and a
+   * prompt that fires on every edit gets clicked through without being read.
+   */
+  const payAffectingChange = (() => {
+    if (!editing) return false
+    const bands = isTargetKind(effectiveKind) ? targetBandText : tierText
+    const editingBands = (editing.tiers ?? []).map(t => `${t.from}:${t.rate}`).join(', ')
+    const num = (v: string) => (v === '' ? null : Number(v))
+    return editing.basis !== basis
+      || editing.rate_kind !== effectiveKind
+      || (editing.rate ?? null) !== num(rate)
+      || (isBandedKind(effectiveKind) && bands.replace(/\s/g, '') !== editingBands.replace(/\s/g, ''))
+      || (editing.threshold ?? null) !== num(threshold)
+      || (editing.cap ?? null) !== num(cap)
+      || editing.period !== effectivePeriod
+      || editing.tier_mode !== tierMode
+      || (editing.verify_source === 'invoice') !== effectiveVerify
+      || (editing.min_price ?? null) !== (effectiveVerify ? num(minPrice) : null)
+      || editing.exclude_renewals !== (effectiveVerify && excludeRenewals)
+      || (editing.items ?? []).slice().sort().join('|') !== picked.slice().sort().join('|')
+      || (editing.line_prefix ?? null) !== (def?.needs === 'line' ? linePrefix : null)
+  })()
 
   /** Load a rule into the form. */
   function startEdit(p: Plan) {
@@ -133,6 +164,10 @@ export default function CommissionAdminPanel({
     setExcludeRenewals(p.exclude_renewals)
     setEffectiveFrom(p.effective_from ?? '')
     setEffectiveTo(p.effective_to ?? '')
+    setSupersede(true)
+    // Defaults to today: a rate change you are making now takes effect now, and
+    // everything before today keeps the rule it was actually paid under.
+    setSupersedeFrom(new Date().toISOString().slice(0, 10))
     // The form sits above the list; an edit that scrolled nowhere reads as a no-op.
     document.getElementById('cp-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
@@ -142,6 +177,7 @@ export default function CommissionAdminPanel({
     setLabel(''); setRate(''); setThreshold(''); setCap(''); setPicked([]); setTargetBandText('')
     setPeriod('month'); setTierMode('marginal'); setVerify(false); setMinPrice('')
     setExcludeRenewals(false); setEffectiveFrom(''); setEffectiveTo('')
+    setSupersede(true); setSupersedeFrom('')
   }
 
   function parseTiers(text: string): { from: number; rate: number }[] {
@@ -175,6 +211,10 @@ export default function CommissionAdminPanel({
         exclude_renewals: effectiveVerify && excludeRenewals,
         effective_from: effectiveFrom || null,
         effective_to: effectiveTo || null,
+        /* ⚠ Only sent when this edit actually changes what the rule pays AND the
+         * admin left the default on. Absent, the route overwrites in place, which is
+         * right for a rename or a switch-off. */
+        supersede_from: editing && payAffectingChange && supersede ? supersedeFrom : undefined,
         // Editing must not silently switch a rule back on.
         active: editing ? editing.active : true,
         // ⚠ Both banded kinds put their numbers in `tiers`, not just the old one. Sending
@@ -197,7 +237,12 @@ export default function CommissionAdminPanel({
       toast.error(d.error || 'Could not save that rule')
       return
     }
-    toast.success(editing ? 'Rule updated' : 'Rule saved')
+    toast.success(
+      editing
+        ? (payAffectingChange && supersede
+            ? `New version starts ${supersedeFrom} — earlier periods keep the old rate`
+            : 'Rule updated')
+        : 'Rule saved')
     resetForm()
     router.refresh()
   }
@@ -547,10 +592,57 @@ export default function CommissionAdminPanel({
           </div>
         )}
 
+        {/* ── superseding vs overwriting ─────────────────────────────────────────
+            ⚠⚠ SHOWN ONLY WHEN THE EDIT CHANGES WHAT THE RULE PAYS, and ON by default.
+            Overwriting a rate silently repays every month already closed, which is how
+            April 2026's flat $35-per-upsell became unreproducible once the rule became
+            5%. A prompt that fired on every edit — including renames — would be clicked
+            through unread, so it fires only when it matters. */}
+        {editing && payAffectingChange && (
+          <div className="mt-3 rounded-md border border-amber-700/50 bg-amber-500/5 p-3">
+            <label className="flex cursor-pointer items-start gap-2">
+              <input type="checkbox" className="mt-0.5" checked={supersede}
+                onChange={e => setSupersede(e.target.checked)} />
+              <span className="text-sm text-gray-200">
+                This is a <strong className="text-white">rate change</strong> &mdash; keep earlier periods as they were
+                <span className="block text-xs text-gray-400">
+                  Closes the current version the day before the date below and starts a new one from it.
+                  Months already paid keep reading the rule they were actually paid under.
+                </span>
+              </span>
+            </label>
+            {supersede ? (
+              <div className="mt-3 sm:max-w-xs">
+                <label className={lbl} htmlFor="cp-supersede">The new rate starts on</label>
+                <input id="cp-supersede" className={input} type="date" value={supersedeFrom}
+                  onChange={e => setSupersedeFrom(e.target.value)} />
+                <p className="mt-1 text-xs text-gray-500">
+                  Everything up to{' '}
+                  <strong className="text-gray-300">
+                    {supersedeFrom
+                      ? new Date(`${supersedeFrom}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                      : 'the day before'}
+                  </strong>{' '}
+                  keeps the current rule; from that day on, the rule you have typed above applies.
+                  You will see two versions of it in the list.
+                </p>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-amber-300/90">
+                ⚠ Unticked, this <strong className="text-gray-200">overwrites the rule everywhere</strong> &mdash;
+                every earlier period will be recalculated at the new rate, including months you have already paid.
+                Only do that when you are correcting a mistake rather than changing a rate.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="mt-4 flex items-center gap-3">
           <button onClick={save} disabled={saving}
             className="rounded-md bg-brand px-3.5 py-1.5 text-sm font-semibold text-[#fff] hover:bg-brand-hover disabled:opacity-50">
-            {saving ? 'Saving…' : editing ? 'Save changes' : 'Add rule'}
+            {saving ? 'Saving…'
+              : editing ? (payAffectingChange && supersede ? 'Start a new version' : 'Save changes')
+                : 'Add rule'}
           </button>
           {editing && (
             <button type="button" onClick={resetForm}
@@ -580,6 +672,13 @@ export default function CommissionAdminPanel({
                     {p.label}
                   </span>
                   <span className="text-xs text-gray-500">{describeRule(p)}</span>
+                  {/* A closed version is stated plainly: it is not "off", it covered a
+                      period that has ended, and its figures for that period still stand. */}
+                  {p.effective_to && (
+                    <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[11px] text-gray-400">
+                      past version
+                    </span>
+                  )}
                   {(p.effective_from || p.effective_to) && (
                     <span className="text-xs text-sky-300/80">
                       {p.effective_from && p.effective_to

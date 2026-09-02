@@ -678,16 +678,12 @@ function assemble(bag: SourceBag, cfg: WidgetConfig, win: WindowSpec): Assembled
    * been caught by before. What replaces it is a statement of what IS true: how the
    * work is dated and how a shared visit is divided. */
   if (usesBonusWeeks) {
-    notes.push(`bonus-week rules were measured over ${commissionMonthLabel(cm)} — W1 starts on the last Monday on or before the 1st`)
-    /* ⚠⚠ THE GAP, SAID OUT LOUD. Four bonus weeks is 28 days, so a month whose anchor
-     * falls early leaves days that W1–W4 cannot reach and that the NEXT month's W1
-     * starts after — Aug 24–30 in 2026. Those days are in nobody's bonus period. This
-     * is a property of the W1–W4 rule itself, not of the code, and it is named rather
-     * than absorbed: a week's work quietly paying nothing is exactly the kind of thing
-     * that goes unnoticed for a year. */
-    if (cm.orphanedDays) {
-      notes.push(`⚠ ${cm.orphanedDays.start} to ${cm.orphanedDays.end} fall outside W1–W4 and outside next month’s W1, so work done then is in no bonus week — four bonus weeks cover 28 days and this month is longer`)
-    }
+    /* ⚠⚠ THE WEEK COUNT IS PRINTED, and it is not decoration. A bonus month has FOUR
+     * OR FIVE weeks — whichever the Thursday rule gives it — so "five weeks" is the
+     * honest explanation for a month whose figures look unusually large next to its
+     * neighbours. The old code said four and left the fifth week's work in no month at
+     * all; naming the count is what makes the new behaviour checkable at a glance. */
+    notes.push(`bonus-week rules were measured over ${commissionMonthLabel(cm)} — ${cm.weeks.length} bonus week${cm.weeks.length === 1 ? '' : 's'}, each belonging to the month that holds its Thursday`)
   }
   /* ⚠⚠ THE DOUBLE-PAY WARNING, and it is the reason the combined basis kept its old
    * meaning rather than being quietly redefined. "Value they sold" already contains
