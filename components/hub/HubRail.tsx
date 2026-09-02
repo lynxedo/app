@@ -75,6 +75,7 @@ export default function HubRail({
   unreadHub,
   dailyLogUnread = false,
   txtUnread = false,
+  inboxUnread = false,
   missedCall = false,
   unheardVoicemails = 0,
   isClockedIn,
@@ -112,6 +113,8 @@ export default function HubRail({
   dailyLogUnread?: boolean
   /** Orange dot on the Txt2 rail icon when there are unread customer texts. */
   txtUnread?: boolean
+  /** Orange dot on the Inbox rail icon when inbound mail arrived since this user last opened it. */
+  inboxUnread?: boolean
   /** Orange dot on the Dialer rail icon when there's a new missed call. */
   missedCall?: boolean
   /** Session 58.5: red badge with count on the rail Dialer icon. */
@@ -520,6 +523,7 @@ export default function HubRail({
     if (!entry) return null
     const isActive = active === id
     const showDailyLogDot = id === 'daily-log' && dailyLogUnread && !isActive
+    const showInboxDot = id === 'email-inbox' && inboxUnread && !isActive
     const body = (
       <>
         <ActiveBar show={isActive} />
@@ -527,6 +531,9 @@ export default function HubRail({
           {entry.icon}
           {showDailyLogDot && (
             <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[var(--t-rail)]" aria-label="New Daily Log updates" />
+          )}
+          {showInboxDot && (
+            <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[var(--t-rail)]" aria-label="New Inbox email" />
           )}
         </span>
         <span className="truncate max-w-[58px]">{entry.label}</span>

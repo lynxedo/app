@@ -290,6 +290,14 @@ export default function HubShell({
   const onTxtSurfaceRef = useRef(onTxtSurface)
   onTxtSurfaceRef.current = onTxtSurface
 
+  // Shared Inbox surface. Unlike Txt threads, `email-inbox` is deliberately NOT
+  // tabbable (a live singleton), so a plain path check is the whole story — no
+  // activeTab branch needed. `/hub/marketing/email` is Email Marketing, a
+  // different app, and startsWith('/hub/email') correctly does not match it.
+  const onInboxSurface = pathname === '/hub/email' || pathname.startsWith('/hub/email/')
+  const onInboxSurfaceRef = useRef(onInboxSurface)
+  onInboxSurfaceRef.current = onInboxSurface
+
   // Deep link from Settings → My Hub: /hub?customize=1 opens the layout editor.
   // Read on the client to avoid a Suspense requirement from useSearchParams.
   useEffect(() => {
@@ -360,6 +368,7 @@ export default function HubShell({
   const [unreadHub, setUnreadHub] = useState<boolean>(false)
   const [dailyLogUnread, setDailyLogUnread] = useState<boolean>(false)
   const [txtUnread, setTxtUnread] = useState<boolean>(false)
+  const [inboxUnread, setInboxUnread] = useState<boolean>(false)
   const [missedCall, setMissedCall] = useState<boolean>(false)
   const [showActivity, setShowActivity] = useState(false)
   const [isClockedIn, setIsClockedIn] = useState<boolean>(!!initialIsClockedIn)
@@ -663,6 +672,87 @@ export default function HubShell({
     try { localStorage.setItem(TXT_SEEN_KEY, new Date().toISOString()) } catch { /* ignore */ }
     fetch('/api/txt/seen', { method: 'POST' }).catch(() => {})
   }, [pathname, onTxtSurface, tabsApi.activeTab])
+
+  // ── Shared Inbox unread dot ───────────────────────────────────────────────
+  // Orange dot on the Inbox rail icon when inbound mail arrived that this user
+  // should act on and is newer than the last time they opened the Inbox. Built
+  // on the exact Txt pattern: 60s poll + the instant `new-mail` broadcast + a
+  // focus catch-up, comparing against the LATER of a per-device stamp and the
+  // server-side per-user timestamp so reading on one device clears the others.
+  const INBOX_SEEN_KEY = 'inbox-last-seen'
+  const refreshInboxUnread = useCallback(() => {
+    if (!canAccessSharedInbox) { setInboxUnread(false); return }
+    if (onInboxSurfaceRef.current) { setInboxUnread(false); return }
+    fetch('/api/hub/email/unread', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : { latest_inbound_at: null, last_seen_at: null }))
+      .then(d => {
+        const latest: string | null = d.latest_inbound_at ?? null
+        if (!latest) { setInboxUnread(false); return }
+        let seen = ''
+        try { seen = localStorage.getItem(INBOX_SEEN_KEY) || '' } catch { /* ignore */ }
+        const serverSeen: string | null = d.last_seen_at ?? null
+        if (serverSeen && serverSeen > seen) seen = serverSeen
+        setInboxUnread(!seen || latest > seen)
+      })
+      .catch(() => {})
+  }, [canAccessSharedInbox])
+
+  useEffect(() => { if (canAccessSharedInbox) refreshInboxUnread() }, [pathname, canAccessSharedInbox, refreshInboxUnread])
+  useEffect(() => {
+    if (!canAccessSharedInbox) return
+    const id = setInterval(refreshInboxUnread, 60_000)
+    return () => clearInterval(id)
+  }, [canAccessSharedInbox, refreshInboxUnread])
+
+  // Instant: light the dot on the same `new-mail` broadcast the chime listens to
+  // (fired only for genuinely new inbound mail, never for the interactive
+  // `update` nudge), and clear it when this user opens the Inbox elsewhere.
+  useEffect(() => {
+    if (!canAccessSharedInbox || !companyId) return
+    // Ref-counted — the Inbox sidebar, the chime and any open thread share this
+    // topic, so whoever unmounts first must not tear it down.
+    return subscribeSharedBroadcast(`inbox:${companyId}`, {
+      'new-mail': (payload) => {
+        const p = (payload ?? {}) as { recipient_ids?: string[] }
+        // Only light for users this mail is actually for — assignee + members of
+        // an assigned thread, or the queue audience while unassigned. A thread
+        // someone else already owns never dots anyone but its own people.
+        if (Array.isArray(p.recipient_ids) && !p.recipient_ids.includes(currentUserId)) return
+        if (onInboxSurfaceRef.current) return
+        setInboxUnread(true)
+      },
+      seen: (payload) => {
+        const p = (payload ?? {}) as { user_id?: string; seen_at?: string }
+        if (p.user_id !== currentUserId) return
+        if (p.seen_at) { try { localStorage.setItem(INBOX_SEEN_KEY, p.seen_at) } catch { /* ignore */ } }
+        setInboxUnread(false)
+      },
+    })
+  }, [canAccessSharedInbox, companyId, currentUserId])
+
+  // Focus catch-up — the broadcast covers the live case, but if the socket
+  // dropped while backgrounded this beats waiting up to 60s.
+  useEffect(() => {
+    if (!canAccessSharedInbox) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshInboxUnread()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [canAccessSharedInbox, refreshInboxUnread])
+
+  // Clear + stamp last-seen when the user opens the Inbox, locally and on the
+  // server (so this user's other devices clear too).
+  useEffect(() => {
+    if (!onInboxSurface) return
+    setInboxUnread(false)
+    try { localStorage.setItem(INBOX_SEEN_KEY, new Date().toISOString()) } catch { /* ignore */ }
+    fetch('/api/hub/email/seen', { method: 'POST' }).catch(() => {})
+  }, [pathname, onInboxSurface])
 
   // ── Dialer missed-call dot ────────────────────────────────────────────────
   // Orange dot on the Dialer rail icon when there's a missed inbound call newer
@@ -1038,6 +1128,7 @@ export default function HubShell({
         unreadHub={unreadHub}
         dailyLogUnread={dailyLogUnread}
         txtUnread={txtUnread}
+        inboxUnread={inboxUnread}
         missedCall={missedCall}
         unheardVoicemails={unheardVoicemails}
         isClockedIn={isClockedIn}
@@ -1213,6 +1304,7 @@ export default function HubShell({
         unreadHub={unreadHub}
         unheardVoicemails={unheardVoicemails}
         txtUnread={txtUnread}
+        inboxUnread={inboxUnread}
         missedCall={missedCall}
         dailyLogUnread={dailyLogUnread}
         permissions={permissions}
@@ -1268,6 +1360,7 @@ export default function HubShell({
         currentUserStatus={liveStatus}
         unreadHub={unreadHub}
         txtUnread={txtUnread}
+        inboxUnread={inboxUnread}
       />
     )}
     {showDesktopLauncher && (

@@ -1545,7 +1545,14 @@ function InboxTab() {
           <li><strong className="text-white">A conversation is assigned or shared with you</strong>, or someone <strong className="text-white">@mentions you in a note</strong>.</li>
           <li><strong className="text-white">A follow-up reminder</strong> you set comes due, and a <strong className="text-white">5pm summary</strong> of what&apos;s still open (managers).</li>
         </ul>
-        <Note>To quiet these, turn on <strong className="text-white">Inbox DND</strong> in <strong className="text-white">Settings → Notifications</strong> — it silences inbox notifications only, and can be put on a schedule so evenings and weekends stay quiet. Master DND silences everything.</Note>
+        <p className="mt-3"><strong className="text-white">The dot on the Inbox icon.</strong> An orange dot appears on the <strong className="text-white">Inbox</strong> icon in the left rail when mail you should act on has arrived since the last time you opened the Inbox. It lights for the same mail you&apos;d be notified about — conversations <strong className="text-white">assigned or handed to you</strong>, plus (managers only) the <strong className="text-white">unassigned Queue</strong>. A conversation someone else has already claimed never dots anyone but the people on it, and your personal work mailbox counts toward your own dot only.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li>It means <strong className="text-white">&ldquo;something new since you last looked&rdquo;</strong> — not &ldquo;there is unfinished mail.&rdquo; A long-standing backlog can&apos;t keep it lit; only new mail lights it.</li>
+          <li><strong className="text-white">Opening the Inbox clears it</strong>, on every device you&apos;re signed in on — not just the one you opened it on.</li>
+          <li>Closed conversations, anything archived out of your Outlook Inbox, and <strong className="text-white">snoozed</strong> conversations don&apos;t light it. A snoozed one lights it when it comes back, not before.</li>
+          <li>It appears within a second or two of the mail arriving, and catches up on its own if your computer was asleep.</li>
+        </ul>
+        <Note>To quiet these, turn on <strong className="text-white">Inbox DND</strong> in <strong className="text-white">Settings → Notifications</strong> — it silences inbox notifications and the Inbox sound, and can be put on a schedule so evenings and weekends stay quiet. Master DND silences everything. Note the rail dot is a <em>visual</em> unread marker, so it still appears while DND is on — DND stops the noise, not the record of what came in.</Note>
         <p className="mt-2">Connected a personal work email? Its new mail notifies <em>only you</em> — never the managers.</p>
       </Section>
 

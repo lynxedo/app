@@ -36,6 +36,7 @@ export default function HubMobileBar({
   unreadHub,
   unheardVoicemails,
   txtUnread,
+  inboxUnread,
   missedCall,
   dailyLogUnread,
   permissions,
@@ -65,6 +66,7 @@ export default function HubMobileBar({
   unreadHub?: boolean
   unheardVoicemails?: number
   txtUnread?: boolean
+  inboxUnread?: boolean
   missedCall?: boolean
   dailyLogUnread?: boolean
   permissions: RailPermissions
@@ -277,7 +279,9 @@ export default function HubMobileBar({
     const entry = catalogById(id, permissions)
     if (!entry || !entry.href) return null
     const isActive = active === id
-    const showDot = id === 'daily-log' && !!dailyLogUnread && !isActive
+    const showDot =
+      (id === 'daily-log' && !!dailyLogUnread && !isActive) ||
+      (id === 'email-inbox' && !!inboxUnread && !isActive)
     return (
       <Link key={`cat-${idx}`} href={entry.href} className={btn(isActive)}>
         <span className="relative">{entry.icon}{dot(showDot)}</span>
