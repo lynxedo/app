@@ -1,5 +1,18 @@
-/* Central registry of Scoreboards (KPI dashboards). Adding a new board = add an
- * entry here + a view component + a case in app/hub/scoreboards/[slug]/page.tsx.
+/* Central registry of the SHIPPED Scoreboards (KPI dashboards).
+ *
+ * Retention & Churn is the only one left. Main, WF, IR, PW, Office and Lead
+ * Sources were retired on Sep 3 2026 — everything they showed is available as
+ * cards in the widget library, so the boards people actually use are the ones
+ * they build (see CUSTOM_SLUG_PREFIX below).
+ *
+ * ⚠ Retention stays because it is the one board a date picker CANNOT replace.
+ * It takes no window at all — `scoreboard_churn_summary` is asked for a YEAR —
+ * so its weekly snapshots are the only way to see it in the past. And it needs
+ * that: re-reading the six months that were already closed on Jul 11 2026 gives
+ * four MORE cancellations today than the Jul 11 snapshot recorded (Feb 6→7,
+ * May 7→8, Jun 14→16; 86% retention → 84.8%), because cancellations get entered
+ * late. The snapshot is the record of what we believed and acted on that week;
+ * re-running the numbers can only ever tell you what we believe now.
  *
  * Access model (two layers):
  *   1. Section gate — `can_access_scoreboards` (Admin -> People). Whether the user
@@ -25,46 +38,10 @@ export type ScoreboardMeta = {
 
 export const SCOREBOARDS: ScoreboardMeta[] = [
   {
-    slug: '1',
-    title: 'Main Scoreboard',
-    subtitle: 'Visit revenue, sales, lead sources, retention & close rate',
-    badge: 'Main',
-  },
-  {
-    slug: '2',
-    title: 'WF Weed & Fert',
-    subtitle: 'Lawn-care jobs, add-ons, program mix & technician performance',
-    badge: 'WF',
-  },
-  {
-    slug: '3',
-    title: 'IR Irrigation',
-    subtitle: 'Gold book, repair tickets, revenue by tech & Rachio / Gold plans sold',
-    badge: 'IR',
-  },
-  {
-    slug: '4',
-    title: 'PW Pet Waste',
-    subtitle: 'Active customers, annual value, visit revenue & technician performance',
-    badge: 'PW',
-  },
-  {
-    slug: '5',
-    title: 'Office',
-    subtitle: 'Lead sources, closes per week, close rates & sales — from the Lead Tracker',
-    badge: 'Office',
-  },
-  {
     slug: '7',
     title: 'Retention & Churn',
-    subtitle: 'Recurring retention, churn by reason & type, monthly trend — 2026 book',
+    subtitle: 'Recurring retention, churn by reason & type, monthly trend — this year',
     badge: 'Retention',
-  },
-  {
-    slug: '8',
-    title: 'Lead Sources',
-    subtitle: 'Which sources bring customers — and which ones keep them',
-    badge: 'Sources',
   },
 ]
 
@@ -104,7 +81,7 @@ export function getScoreboard(slug: string): ScoreboardMeta | null {
  * share `scoreboard_layouts.slug`, but only this one also appears in a URL path
  * (`/hub/scoreboards/custom-k3f9dq2m1x`) — a colon there is legal per RFC 3986 yet
  * gets percent-encoded by half the tooling that touches it, so the id would stop
- * matching the row. The prefix still can't collide with '1'…'8' or `report:`.
+ * matching the row. The prefix still can't collide with the shipped board slug or `report:`.
  */
 export const CUSTOM_SLUG_PREFIX = 'custom-'
 

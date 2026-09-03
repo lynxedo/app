@@ -1289,11 +1289,15 @@ function jobberUserIsActive(status: string | null | undefined): boolean {
  *
  * ⚠⚠ This table previously had NO sync whatsoever. It was written once (Heroes:
  * 2026-06-04) and never again — a full-repo grep found it referenced only in
- * schema and RLS files. Because `scoreboard_board_technicians` name-matches
- * `employees` against it, EVERY Jobber user created after that date was invisible
- * to every technician board and to the Crew & Labor report. It surfaced when a
- * technician hired in July showed 183.7 clocked hours with no attributable work;
- * he was in Jobber all along, just not in the mirror.
+ * schema and RLS files. Because the per-technician numbers name-match `employees`
+ * against it, EVERY Jobber user created after that date was invisible to the
+ * technician boards and to the Crew & Labor report. It surfaced when a technician
+ * hired in July showed 183.7 clocked hours with no attributable work; he was in
+ * Jobber all along, just not in the mirror.
+ *
+ * ⚠ Still load-bearing after the Sep 3 2026 board retirement: those technician
+ * boards are gone, but Crew & Labor and every per-person widget resolve people the
+ * same way, so this sync must keep running.
  *
  * Runs on both the initial pull and the nightly delta, ignoring `updatedSince`:
  * the list is tiny, and a stale roster is exactly the failure being fixed.

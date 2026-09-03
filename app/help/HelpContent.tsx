@@ -60,7 +60,6 @@ const TABS = [
   { id: 'hub-assistant', icon: '🤖', label: 'Hub Assistant' },
   { id: 'routing',      icon: '⚡', label: 'Route Optimizer' },
   { id: 'lawn-sizer',   icon: '🌿', label: 'Lawn Sizer' },
-  { id: 'zone-sizer',   icon: '💧', label: 'Zone Sizer' },
   { id: 'dialer',       icon: '☎️', label: 'Dialer' },
   { id: 'txt',          icon: '🗨️', label: 'Txt' },
   { id: 'inbox',        icon: '📥', label: 'Inbox' },
@@ -73,7 +72,6 @@ const TABS = [
   { id: 'service-mapping', icon: '🔗', label: 'Service Mapping' },
   { id: 'pricer',       icon: '🧾', label: 'Pricer' },
   { id: 'scoreboards',  icon: '🏆', label: 'Scoreboards' },
-  { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
   { id: 'settings',     icon: '⚙️', label: 'Settings' },
 ] as const
@@ -98,7 +96,6 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'hub-assistant': HubAssistantTab,
   'routing': RoutingTab,
   'lawn-sizer': LawnSizerTab,
-  'zone-sizer': ZoneSizerTab,
   'dialer': DialerTab,
   'txt': TxtTab,
   'inbox': InboxTab,
@@ -111,7 +108,6 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'service-mapping': ServiceMappingTab,
   'pricer': PricerTab,
   'scoreboards': ScoreboardsTab,
-  'books': BooksTab,
   'timesheet': TimesheetTab,
   'settings': SettingsTab,
 }
@@ -377,7 +373,6 @@ export default function HelpContent() {
             {activeTab === 'hub-assistant' && <HubAssistantTab />}
             {activeTab === 'routing'    && <RoutingTab />}
             {activeTab === 'lawn-sizer' && <LawnSizerTab />}
-            {activeTab === 'zone-sizer' && <ZoneSizerTab />}
             {activeTab === 'dialer'     && <DialerTab />}
             {activeTab === 'txt'        && <TxtTab />}
             {activeTab === 'inbox'      && <InboxTab />}
@@ -390,7 +385,6 @@ export default function HelpContent() {
             {activeTab === 'service-mapping' && <ServiceMappingTab />}
             {activeTab === 'pricer'      && <PricerTab />}
             {activeTab === 'scoreboards' && <ScoreboardsTab />}
-            {activeTab === 'books'       && <BooksTab />}
             {activeTab === 'timesheet'  && <TimesheetTab />}
             {activeTab === 'settings'   && <SettingsTab />}
 
@@ -593,7 +587,7 @@ function HubTab() {
         <p>Five tabs always within thumb reach: <strong className="text-white">Clock · Hub · Txt · [your pick] · More</strong>. The fourth slot is configurable in Settings → My Hub. Tap <strong className="text-white">More</strong> to see your full app list plus Search, Activity, Settings, Admin if you have it, Help, and your profile. A floating <strong className="text-white">+</strong> button in the bottom-right opens the quick compose / search palette.</p>
         <Note>📱 The top bar is gone on phones — just tap the bottom tab for the section you want. When the keyboard pops up, the bottom bar and the floating <strong className="text-white">+</strong> button slide out of the way so you see the most messages possible.</Note>
         <p className="font-medium text-white mt-3">My Hub — pick your own rail icons</p>
-        <p>In <strong className="text-white">Settings → My Hub</strong>, customize your own app list — add, remove, and reorder any page (Daily Log, Tracker, Routing, Fleet, Books, Lawn Sizer, Call Log, Time Records for admins, Files, Company News, and more), or add a custom URL of your own. Hub, Txt, Dialer, and Time Clock always lead the list; everything after that is yours. The desktop rail shows as many as fit; the mobile bar shows your first 5 — the rest live one tap away under More.</p>
+        <p>In <strong className="text-white">Settings → My Hub</strong>, customize your own app list — add, remove, and reorder any page (Daily Log, Tracker, Routing, Fleet, Lawn Sizer, Call Log, Time Records for admins, Files, Company News, and more), or add a custom URL of your own. Hub, Txt, Dialer, and Time Clock always lead the list; everything after that is yours. The desktop rail shows as many as fit; the mobile bar shows your first 5 — the rest live one tap away under More.</p>
         <p className="font-medium text-white mt-3">Hub sidebar contents</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">My Time Clock</strong> — backup access to the clock-in modal (same as the rail icon).</li>
@@ -1290,47 +1284,6 @@ function LawnSizerTab() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// ZONE SIZER
-// ──────────────────────────────────────────────────────────────────────────
-
-function ZoneSizerTab() {
-  return (
-    <>
-      <Section title="What It Does">
-        <p>Zone Sizer estimates how many irrigation zones a residential property needs. It uses the same satellite imagery and Claude Vision analysis as Lawn Sizer, plus auto-detection of landscape beds, and converts those areas into zone counts using your company&apos;s configured square-feet-per-zone rates.</p>
-        <Note>Zone Sizer always runs in <strong className="text-white">Advanced mode</strong> (3 AI analyses averaged). Each estimate takes 15–30 seconds — accuracy matters more than speed for irrigation quoting.</Note>
-      </Section>
-
-      <Section title="How to Use It">
-        <Step n={1}><strong className="text-white">Enter the property address</strong> and tap <strong className="text-white">Estimate zones</strong>.</Step>
-        <Step n={2}>Wait 15–30 seconds while Lynxedo pulls the satellite imagery, identifies turf and landscape beds, and computes zone counts.</Step>
-        <Step n={3}>Review the result panel: turf square footage and lawn zones, beds square footage and bed zones, plus a confidence badge.</Step>
-        <Step n={4}>If the auto-detected bed area looks wrong, tap the bed number and edit it. The bed zone count recalculates as you type. Tap <strong className="text-white">reset</strong> to go back to the auto value.</Step>
-      </Section>
-
-      <Section title="Reading the Results">
-        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Turf sq ft</strong> — the area a mowing crew would service, after subtracting hardscape and heavy canopy</li>
-          <li><strong className="text-white">Lawn zones</strong> — turf sq ft divided by the configured turf-per-zone rate (default 1,000), rounded up</li>
-          <li><strong className="text-white">Beds sq ft</strong> — landscape bed area (mulched/planted) detected from above</li>
-          <li><strong className="text-white">Bed zones</strong> — bed sq ft divided by the configured bed-per-zone rate (default 1,000), rounded up</li>
-          <li><strong className="text-white">Total zones</strong> — lawn zones + bed zones, highlighted in the blue summary band</li>
-          <li><strong className="text-white">Confidence</strong> — HIGH ✅, MEDIUM ⚠️, or FLAG 🚩, same scale as Lawn Sizer</li>
-        </ul>
-        <Note>Obstacles like driveways and sidewalks are already excluded by Claude Vision when it identifies turf and beds — the numbers you see are net.</Note>
-      </Section>
-
-      <Section title="Admin — per-zone rates &amp; access">
-        <AdminOnly>
-          <p>Admins configure the per-zone square footage under <strong className="text-white">/admin/zone-sizer</strong>. Defaults are 1,000 sq ft per zone for both turf and beds. Raise the bed rate if you use drip or microspray that covers more area per zone.</p>
-          <p>Each user must have the <em>Zone Sizer</em> permission enabled in Admin → People to use the tool.</p>
-        </AdminOnly>
-      </Section>
-    </>
-  )
-}
-
-// ──────────────────────────────────────────────────────────────────────────
 // TXT2
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -1943,36 +1896,6 @@ function MarketingTab() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// BOOKS
-// ──────────────────────────────────────────────────────────────────────────
-
-function BooksTab() {
-  return (
-    <>
-      <Section title="What It Is">
-        <p>Books is the company financial dashboard, pulled live from QuickBooks Online. It shows YTD revenue, cost trends, monthly P&amp;L, and overhead — all in one place.</p>
-        <Note>🔒 Books is restricted. You need permission to access it, and even then it&apos;s gated by a PIN. Ask Ben if you should have access.</Note>
-      </Section>
-
-      <Section title="What&apos;s on the Dashboard">
-        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">YTD strip</strong> — year-to-date revenue, expenses, and net income at a glance</li>
-          <li><strong className="text-white">Monthly P&amp;L chart</strong> — revenue vs. expenses by month for the current year</li>
-          <li><strong className="text-white">Month comparison cards</strong> — current month vs. prior months, with deltas</li>
-          <li><strong className="text-white">Cost trend</strong> — biggest expense categories trending over time</li>
-          <li><strong className="text-white">Overhead</strong> — fixed monthly overhead broken out</li>
-        </ul>
-      </Section>
-
-      <Section title="Refreshing the Numbers">
-        <p>Books caches data from QuickBooks to keep it fast. Click <strong className="text-white">Refresh</strong> (top right) to pull the latest. The header shows the time of the most recent refresh in CT.</p>
-        <p>If the refresh fails, the page shows a red error message — usually QuickBooks needs to be reconnected. Tell Ben.</p>
-      </Section>
-    </>
-  )
-}
-
-// ──────────────────────────────────────────────────────────────────────────
 // TIMESHEET
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -2486,24 +2409,22 @@ function ScoreboardsTab() {
   return (
     <>
       <Section title="What Scoreboards Are">
-        <p>Scoreboards are live KPI dashboards that pull numbers from Jobber, your recurring services, timesheets, and the Lead Tracker. Each board focuses on one area of the business:</p>
+        <p>Scoreboards are live KPI dashboards that pull numbers from Jobber, your recurring services, timesheets, and the Lead Tracker. They are at <strong className="text-white">/hub/scoreboards</strong> — tap a board in the left sidebar to open it.</p>
+        <p className="mt-2"><strong className="text-white">Almost every board is one somebody built.</strong> You pick the cards you want from the library, arrange them, and choose who can see it — see &ldquo;Build Your Own Scoreboard&rdquo; below. That is the normal way to get a board.</p>
+        <p className="mt-2">One ready-made board still ships with the product:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
-          <li><strong className="text-white">Main</strong> — company-wide metrics: revenue, jobs, avg ticket, active customers, and more.</li>
-          <li><strong className="text-white">WF Weed &amp; Fert</strong> — job count/value, program mix (PHC/BWP%), and per-tech revenue + $/hr.</li>
-          <li><strong className="text-white">IR Irrigation</strong> — Gold book size, avg repair ticket, visit revenue by tech, Rachio + Gold sold/week.</li>
-          <li><strong className="text-white">PW Pet Waste</strong> — active customers + annual value, visit revenue by tech (weekly + monthly), and a full cross-department view for Bonnie.</li>
-          <li><strong className="text-white">Office</strong> — office-staff performance metrics.</li>
-          <li><strong className="text-white">Retention &amp; Churn</strong> — this year&apos;s recurring book: gross retention, controllable churn (the part we could have influenced), cancellations by reason and by month, and the annual value lost.</li>
-          <li><strong className="text-white">Lead Sources</strong> — where customers come from and which sources keep them: new customers by source, a per-source scorecard (retention, tenure, value, estimated LTV), close rate by source, and the paid-vs-free mix.</li>
+          <li><strong className="text-white">Retention &amp; Churn</strong> — this year&apos;s recurring book: gross retention, controllable churn (the part we could have influenced), cancellations by reason and by month, and the annual value lost. It also keeps a weekly saved copy — see &ldquo;Reading Retention Numbers&rdquo; below.</li>
         </ul>
-        <p className="mt-2">Scoreboards are at <strong className="text-white">/hub/scoreboards</strong> — tap a board in the left sidebar to open it.</p>
+        <Note>
+          The old fixed boards — <strong className="text-white">Main</strong>, <strong className="text-white">WF Weed &amp; Fert</strong>, <strong className="text-white">IR Irrigation</strong>, <strong className="text-white">PW Pet Waste</strong>, <strong className="text-white">Office</strong> and <strong className="text-white">Lead Sources</strong> — were retired in September 2026. Nothing was lost: every card they showed is in the library, so a board of exactly those cards is a few clicks away, and it can then be changed. The Lead Sources board in particular lives on almost card-for-card as the <strong className="text-white">Marketing &amp; Lead Source</strong> report. Old links to the retired boards land on the Scoreboards list rather than an error.
+        </Note>
       </Section>
 
       <Section title="Reports vs Scoreboards">
         <p>Two related places, and the difference is who decides what&apos;s on them:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Reports</strong> (<strong className="text-white">/hub/reports</strong>) are ready-made. Open one and the standard numbers are already laid out — no setup, and the layout doesn&apos;t change. Start here.</li>
-          <li><strong className="text-white">Scoreboards</strong> (<strong className="text-white">/hub/scoreboards</strong>) are the same building blocks, arranged how you want them. The standard boards are edited by admins and managers, and <em>anyone</em> can build their own — see &ldquo;Build Your Own Scoreboard&rdquo; below.</li>
+          <li><strong className="text-white">Scoreboards</strong> (<strong className="text-white">/hub/scoreboards</strong>) are the same building blocks, arranged how you want them. <em>Anyone</em> can build one — see &ldquo;Build Your Own Scoreboard&rdquo; below.</li>
         </ul>
         <p className="mt-2">Both draw from one library of cards, so a number means the same thing wherever you see it.</p>
         <p className="mt-2">Eight ready-made reports exist today. <strong className="text-white">Home</strong> is the one to pin:</p>
@@ -2637,10 +2558,10 @@ function ScoreboardsTab() {
       </Section>
 
       <Section title="Choosing What a Board Shows">
-        <p>The <strong className="text-white">Lead Sources</strong> board is built from <strong className="text-white">cards</strong> you can rearrange. Other boards are being converted the same way, one at a time — until a board is converted it looks and works exactly as it always has.</p>
+        <p>A board you built is made of <strong className="text-white">cards</strong> you can rearrange at any time. (Retention &amp; Churn is the one exception — it is fixed, and has no date range, because retention is measured per year. See above.)</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Pick a date range</strong> at the top of the board — year to date, this month, last month, this quarter, last 12 months, last year, or <strong className="text-white">Custom range…</strong> for any two dates you choose. Every card on the board follows it. A custom range starts from whatever period you were already looking at, so you can nudge it rather than start blank.</li>
-          <li><strong className="text-white">Admins and managers</strong> see an <strong className="text-white">Edit board</strong> button. Everyone else sees the board as saved.</li>
+          <li><strong className="text-white">The person who built the board</strong> sees an <strong className="text-white">Edit board</strong> button, and so do admins. Someone the board was shared with sees it as saved.</li>
         </ul>
         <p className="mt-2">While editing:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
@@ -2648,20 +2569,21 @@ function ScoreboardsTab() {
           <li><strong className="text-white">Drag a card&apos;s right edge</strong> to resize it. Four cards fit a row at Quarter width, three at Third. On a phone every card goes full width automatically.</li>
           <li><strong className="text-white">⚙ on a card</strong> changes what it shows — how many sources to list, which cost types to include, how to sort a table. Each card offers only the settings that apply to it.</li>
           <li><strong className="text-white">＋ Add a widget</strong> opens the library, grouped by area. A card that needs something you haven&apos;t connected yet says so instead of showing zeros.</li>
-          <li><strong className="text-white">Save for everyone</strong> applies your arrangement to everybody who can see that board — it is the company&apos;s board, not a personal copy. <strong className="text-white">Discard</strong> throws your changes away and puts the saved version back.</li>
+          <li><strong className="text-white">Save for everyone</strong> applies your arrangement to everybody the board is shared with — there is one copy of a board, not a personal version each. <strong className="text-white">Discard</strong> throws your changes away and puts the saved version back.</li>
         </ul>
         <p className="mt-2 text-gray-400">Editing a board changes which cards appear and how they&apos;re laid out. It never changes the underlying numbers, and it can&apos;t delete any data.</p>
       </Section>
 
-      <Section title="Retention &amp; Lead Sources — How to Read Them">
-        <p>Both boards look at <strong className="text-white">this year&apos;s recurring book</strong>: every active recurring service plus the ones cancelled this year. Last year&apos;s cancellations don&apos;t count against the current year.</p>
+      <Section title="Retention — How to Read It">
+        <p>The board looks at <strong className="text-white">this year&apos;s recurring book</strong>: every active recurring service plus the ones cancelled this year. Last year&apos;s cancellations don&apos;t count against the current year.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Retention</strong> = of every recurring service on the books during a year, the share kept. The headline is <strong className="text-white">this year (YTD)</strong>, with the <strong className="text-white">prior full year</strong> shown beside it as a reminder. The current-year number starts high and drifts down as more cancellations land — it&apos;s only part-way through the year (the Recurring Services board began in 2025, so there&apos;s no earlier year to compare a full 12 months against yet).</li>
           <li><strong className="text-white">Controllable churn</strong> is the number to manage against — cancels we could have influenced (price, results, service). Moves, deaths, and accounts <em>we</em> cancelled are reported separately, not blamed on operations.</li>
           <li>A cancellation shows as <strong className="text-white">Review</strong> when its reason is blank or unrecognized — fill in the reason on the Recurring Services board and it moves to the right bucket.</li>
-          <li>The Lead Sources board reads the <strong className="text-white">&ldquo;HLC105 Lead Source&rdquo;</strong> field on the Jobber client. The <strong className="text-white">Source Coverage</strong> card shows how much of the book has a known source — set the field on every new client to make these numbers sharper.</li>
-          <li><strong className="text-white">Retention by source</strong> favors newer sources (their customers haven&apos;t had time to leave yet) — read it together with the <em>Tenure</em> column on the scorecard.</li>
+          <li><strong className="text-white">For lead sources</strong>, use the <strong className="text-white">Marketing &amp; Lead Source</strong> report or add the source cards to a board of your own. They read the <strong className="text-white">&ldquo;HLC105 Lead Source&rdquo;</strong> field on the Jobber client, and the <strong className="text-white">Source Coverage</strong> card shows how much of the book has a known source — set the field on every new client to make those numbers sharper. Note that <strong className="text-white">retention by source</strong> favours newer sources, whose customers haven&apos;t had time to leave yet, so read it beside the <em>Tenure</em> column.</li>
         </ul>
+        <p className="mt-3"><strong className="text-white">The weekly saved copy.</strong> Every Friday night this board is photographed and kept. The dropdown at the top lets you open any of those saved weeks and see the board exactly as it read that Monday.</p>
+        <p className="mt-2 text-gray-400">This is not the same as picking an old date range, and the difference matters. <strong className="text-white">Cancellations get entered late, and reasons get filled in later still</strong> — so a month that looked finished can keep changing for weeks. A real example: the copy saved on 11 July recorded 55 cancellations for January–June and 86% retention. Re-reading those same six finished months today gives <strong className="text-white">59 cancellations and 84.8%</strong>, because four more were back-dated into them afterwards. Neither number is wrong. Today&apos;s is the truer account of what happened; the saved copy is the record of what the board told you the morning you acted on it. Use the saved weeks when you need to know what was reported at the time, and the live board for everything else.</p>
       </Section>
 
       <Section title="Build Your Own Scoreboard">

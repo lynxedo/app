@@ -158,7 +158,6 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     timesheet: !!profileResult.data?.can_admin_timesheet,
     fleet: !!profileResult.data?.can_admin_fleet,
     daily_log: !!profileResult.data?.can_admin_daily_log,
-    zone_sizer: !!profileResult.data?.can_admin_zone_sizer,
     dialer: !!profileResult.data?.can_admin_dialer,
     contacts: !!profileResult.data?.can_admin_contacts,
     products: !!profileResult.data?.can_admin_products,
@@ -193,9 +192,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessLawn = profileResult.data?.can_access_lawn ?? false
   const canAccessTimesheet = profileResult.data?.can_access_timesheet ?? false
   const canAccessRouting = profileResult.data?.can_access_routing ?? false
-  const canAccessBooks = profileResult.data?.can_access_books ?? false
   const canAccessFleet = profileResult.data?.can_access_fleet ?? false
-  const canAccessZoneSizer = profileResult.data?.can_access_zone_sizer ?? false
   const canAccessDialer = profileResult.data?.can_access_dialer ?? false
   const canAccessTxt = profileResult.data?.can_access_txt ?? false
   // Txt2 "manager" = admin OR Txt-admin OR the per-user queue/broadcast grant.
@@ -315,9 +312,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     canAccessTracker: !!canAccessTracker,
     canAccessRouting: !!canAccessRouting,
     canAccessFleet: !!canAccessFleet,
-    canAccessBooks: !!canAccessBooks,
     canAccessLawn: !!canAccessLawn,
-    canAccessZoneSizer: !!canAccessZoneSizer,
     canAccessDialer: !!canAccessDialer,
     canAccessTxt: !!canAccessTxt,
     canAccessCallLog: !!canAccessCallLog,
@@ -434,9 +429,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessLawn={canAccessLawn && moduleOn('lawn_size')}
         canAccessTimesheet={canAccessTimesheet}
         canAccessRouting={canAccessRouting && moduleOn('routing')}
-        canAccessBooks={canAccessBooks && moduleOn('books')}
         canAccessFleet={canAccessFleet && moduleOn('fleet')}
-        canAccessZoneSizer={canAccessZoneSizer && moduleOn('lawn_size')}
         canAccessDialer={canAccessDialer && moduleOn('dialer')}
         canAccessTxt={canAccessTxt && moduleOn('txt')}
         canManageTxt={canManageTxt && moduleOn('txt')}

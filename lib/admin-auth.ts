@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 
-export type AdminArea = 'people' | 'hub' | 'routing' | 'timesheet' | 'fleet' | 'daily_log' | 'zone_sizer' | 'dialer' | 'contacts' | 'guardian' | 'ai' | 'marketing' | 'email' | 'forms' | 'products' | 'txt' | 'announcements' | 'file_tags' | 'integrations'
+export type AdminArea = 'people' | 'hub' | 'routing' | 'timesheet' | 'fleet' | 'daily_log' | 'dialer' | 'contacts' | 'guardian' | 'ai' | 'marketing' | 'email' | 'forms' | 'products' | 'txt' | 'announcements' | 'file_tags' | 'integrations'
 
 const AREA_TO_FLAG: Record<AdminArea, string> = {
   people: 'can_admin_people',
@@ -14,7 +14,6 @@ const AREA_TO_FLAG: Record<AdminArea, string> = {
   timesheet: 'can_admin_timesheet',
   fleet: 'can_admin_fleet',
   daily_log: 'can_admin_daily_log',
-  zone_sizer: 'can_admin_zone_sizer',
   dialer: 'can_admin_dialer',
   contacts: 'can_admin_contacts',
   marketing: 'can_admin_marketing',
@@ -43,7 +42,7 @@ export async function requireAdminArea(area: AdminArea): Promise<AdminCheckResul
   const flag = AREA_TO_FLAG[area]
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_ai, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, can_admin_email, can_admin_forms, can_admin_products, can_admin_integrations')
+    .select('role, company_id, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_ai, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_dialer, can_admin_contacts, can_admin_marketing, can_admin_email, can_admin_forms, can_admin_products, can_admin_integrations')
     .eq('id', user.id)
     .single()
 

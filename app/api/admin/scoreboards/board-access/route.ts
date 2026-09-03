@@ -4,9 +4,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { SCOREBOARDS } from '@/lib/scoreboards/registry'
 
 // Admin-only: grant/revoke which BOARDS a user may view (Admin -> Scoreboards).
-// This is view access, distinct from `scoreboard_technicians` (whose data appears
-// on a board). The single can_access_scoreboards flag (Admin -> People) is the
-// section gate; this controls per-board visibility, default nothing-until-granted.
+// The single can_access_scoreboards flag (Admin -> People) is the section gate; this
+// controls per-board visibility, default nothing-until-granted. Since Sep 3 2026
+// there is one shipped board to grant (Retention & Churn) — a user-built board is
+// gated by its own share list instead, not by anything here.
 // Writes go through the service-role client (bypasses RLS); the page reads are
 // server-side with the same client.
 async function getAdminCompany(): Promise<string | null> {

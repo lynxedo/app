@@ -80,7 +80,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   },
   {
     key: 'quickbooks', name: 'QuickBooks Online', group: 'business_systems', model: 'oauth',
-    blurb: 'Power the Financial Dashboard — profit & loss, balances and more.',
+    blurb: 'Feeds the weekly vendor-invoice run — supplier bills posted straight into QuickBooks.',
     connectHref: '/api/qbo/auth', disconnectHref: '/api/qbo/disconnect',
   },
   {

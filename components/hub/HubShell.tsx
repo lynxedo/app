@@ -96,9 +96,7 @@ export default function HubShell({
   canAccessLawn,
   canAccessTimesheet,
   canAccessRouting,
-  canAccessBooks,
   canAccessFleet,
-  canAccessZoneSizer,
   canAccessDialer,
   canAccessTxt,
   canManageTxt,
@@ -152,7 +150,6 @@ export default function HubShell({
     timesheet: boolean
     fleet: boolean
     daily_log: boolean
-    zone_sizer: boolean
     dialer: boolean
     contacts?: boolean
     products?: boolean
@@ -173,9 +170,7 @@ export default function HubShell({
   canAccessLawn?: boolean
   canAccessTimesheet?: boolean
   canAccessRouting?: boolean
-  canAccessBooks?: boolean
   canAccessFleet?: boolean
-  canAccessZoneSizer?: boolean
   canAccessDialer?: boolean
   canAccessTxt?: boolean
   canManageTxt?: boolean
@@ -891,7 +886,7 @@ export default function HubShell({
   const rawGrants = adminGrants ?? {
     people: !!isAdmin, hub: !!isAdmin, guardian: !!isAdmin, ai: !!isAdmin, txt: !!isAdmin,
     announcements: !!isAdmin, file_tags: !!isAdmin, routing: !!isAdmin,
-    timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin, zone_sizer: !!isAdmin,
+    timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin,
     dialer: !!isAdmin, contacts: !!isAdmin, products: !!isAdmin, integrations: !!isAdmin,
   }
   const grants = {
@@ -906,7 +901,6 @@ export default function HubShell({
     timesheet: !!rawGrants.timesheet,
     fleet: !!rawGrants.fleet,
     daily_log: !!rawGrants.daily_log,
-    zone_sizer: !!rawGrants.zone_sizer,
     dialer: !!rawGrants.dialer,
     contacts: !!rawGrants.contacts,
     products: !!rawGrants.products,
@@ -917,7 +911,7 @@ export default function HubShell({
   const showAdminRail =
     isSuperAdmin || grants.people || grants.hub || grants.guardian || grants.ai || grants.txt ||
     grants.announcements || grants.file_tags || grants.routing ||
-    grants.timesheet || grants.fleet || grants.daily_log || grants.zone_sizer ||
+    grants.timesheet || grants.fleet || grants.daily_log ||
     grants.dialer || grants.contacts || grants.products || grants.forms || grants.integrations
 
   const permissions: RailPermissions = {
@@ -925,12 +919,10 @@ export default function HubShell({
     canAccessTracker: !!canAccessTracker,
     canAccessRouting: !!canAccessRouting,
     canAccessFleet: !!canAccessFleet,
-    canAccessBooks: !!canAccessBooks,
     canAccessLawn: !!canAccessLawn,
     canAccessCallLog: !!canAccessCallLog,
     canAccessCallLog2: !!canAccessCallLog2,
     canAccessTimesheet: !!canAccessTimesheet,
-    canAccessZoneSizer: !!canAccessZoneSizer,
     canAccessDialer: !!canAccessDialer,
     canAccessTxt: !!canAccessTxt,
     canAccessMarketing: !!canAccessMarketing,
@@ -1088,11 +1080,9 @@ export default function HubShell({
             canAdminAi={grants.ai}
             canAccessCallLog={canAccessCallLog}
             canAccessLawn={canAccessLawn}
-            canAccessZoneSizer={canAccessZoneSizer}
             canAccessDialer={canAccessDialer}
             canAccessTimesheet={canAccessTimesheet}
             canAccessRouting={canAccessRouting}
-            canAccessBooks={canAccessBooks}
             canAccessFleet={canAccessFleet}
             canAccessDailyLogV2={canAccessDailyLogV2}
             dailyLogUnread={dailyLogUnread}

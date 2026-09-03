@@ -44,8 +44,11 @@ const nextConfig: NextConfig = {
     },
   ],
   headers: async () => [
+    // QuickBooks OAuth: tokens and the callback must never be cached. The Books
+    // dashboard that shared this rule retired Sep 3 2026; the CONNECTION did not —
+    // the weekly invoice scraper reads and refreshes the same qbo_tokens row.
     {
-      source: '/(books|api/qbo)(.*)',
+      source: '/api/qbo(.*)',
       headers: [{ key: 'Cache-Control', value: 'no-store, no-cache' }],
     },
     // Tokens and MCP responses must never be cached by a proxy or the browser.

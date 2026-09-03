@@ -7,14 +7,26 @@ import { computeBoardPayload } from '../route'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-// POST /api/hub/scoreboards/snapshot
-// Captures one weekly point-in-time snapshot of every scoreboard's full payload
-// for every company that uses Scoreboards. Wired to a Friday-night VPS cron so a
-// fresh weekly checkpoint is ready each Monday. Idempotent per week: upserts on
-// (company_id, board_slug, label), so a same-week re-run refreshes the row.
-//
-// Runs with the service-role client (no auth.uid()), so the gated scoreboard RPCs
-// return data via their `auth.uid() IS NULL` bypass.
+/* POST /api/hub/scoreboards/snapshot
+ *
+ * Captures one weekly point-in-time snapshot of every shipped scoreboard's payload
+ * for every company that uses Scoreboards. Wired to a Friday-night VPS cron so a
+ * fresh weekly checkpoint is ready each Monday. Idempotent per week: upserts on
+ * (company_id, board_slug, label), so a same-week re-run refreshes the row.
+ *
+ * Since Sep 3 2026 that means exactly one board — Retention & Churn — because it is
+ * the only one left, and the only one that ever needed this: it takes no date window
+ * (the RPC wants a YEAR), and its numbers move retroactively as cancellations get
+ * back-dated and reasons get tagged late. A date picker re-reads today's truth; this
+ * is the record of what the board said on the day.
+ *
+ * ⚠ It iterates SCOREBOARDS rather than hardcoding '7', so retiring or adding a
+ * shipped board needs no change here. Custom (user-built) boards are deliberately
+ * NOT captured: their payload is keyed by card instance, so a frozen copy would keep
+ * rendering an old number under a card whose settings had since been edited.
+ *
+ * Runs with the service-role client (no auth.uid()), so the gated scoreboard RPCs
+ * return data via their `auth.uid() IS NULL` bypass. */
 
 async function isAuthorized(req: NextRequest): Promise<boolean> {
   const cronSecret = process.env.CRON_SECRET
@@ -59,9 +71,6 @@ export async function POST(req: NextRequest) {
 
   for (const company of companies) {
     for (const b of SCOREBOARDS) {
-      // Call Coaching (6) has its own endpoint + no snapshot UI — computeBoardPayload
-      // has no case for it and would silently store a Main-board payload under its slug.
-      if (b.slug === '6') continue
       try {
         const payload = await computeBoardPayload(admin, company, b.slug)
         const { error } = await admin

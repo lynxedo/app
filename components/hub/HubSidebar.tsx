@@ -66,10 +66,8 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:time-records':  { id: 'tool:time-records',  label: 'Time Records',    icon: '🕐', href: '/admin/timesheet',  prefixMatch: true },
   'tool:tracker':       { id: 'tool:tracker',       label: 'Tracker',         icon: '🎯', href: '/hub/tracker',      prefixMatch: true },
   'tool:lawn':          { id: 'tool:lawn',          label: 'Lawn Sizer',      icon: '🌿', href: '/hub/lawn',         prefixMatch: false },
-  'tool:zone-sizer':    { id: 'tool:zone-sizer',    label: 'Zone Sizer',      icon: '💧', href: '/hub/zone-sizer',   prefixMatch: false },
   'tool:dialer':        { id: 'tool:dialer',        label: 'Dialer',          icon: '☎️', href: '/hub/dialer',       prefixMatch: true },
   'tool:call-log':      { id: 'tool:call-log',      label: 'Call Log',        icon: '📞', href: '/hub/call-log',     prefixMatch: true },
-  'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
   'tool:fleet':         { id: 'tool:fleet',         label: 'Fleet',           icon: '🚛', href: '/hub/fleet',        prefixMatch: true },
   'tool:pesticide-records': { id: 'tool:pesticide-records', label: 'Products Used', icon: '🧪', href: '/hub/pesticide-records', prefixMatch: true },
   'tool:marketing':     { id: 'tool:marketing',     label: 'Marketing – Social', icon: '📣', href: '/hub/marketing/social', prefixMatch: true },
@@ -102,11 +100,9 @@ export default function HubSidebar({
   canAdminAi = false,
   canAccessCallLog = false,
   canAccessLawn = false,
-  canAccessZoneSizer = false,
   canAccessDialer = false,
   canAccessTimesheet = false,
   canAccessRouting = false,
-  canAccessBooks = false,
   canAccessFleet = false,
   canAccessDailyLogV2 = false,
   dailyLogUnread = false,
@@ -130,11 +126,9 @@ export default function HubSidebar({
   canAdminAi?: boolean
   canAccessCallLog?: boolean
   canAccessLawn?: boolean
-  canAccessZoneSizer?: boolean
   canAccessDialer?: boolean
   canAccessTimesheet?: boolean
   canAccessRouting?: boolean
-  canAccessBooks?: boolean
   canAccessFleet?: boolean
   canAccessDailyLogV2?: boolean
   dailyLogUnread?: boolean
@@ -936,10 +930,8 @@ export default function HubSidebar({
     'tool:time-records': !!isAdmin,
     'tool:tracker':      canAccessTracker,
     'tool:lawn':         canAccessLawn,
-    'tool:zone-sizer':   canAccessZoneSizer,
     'tool:dialer':       canAccessDialer,
     'tool:call-log':     canAccessCallLog,
-    'tool:books':        canAccessBooks,
     'tool:fleet':        canAccessFleet,
     'tool:pesticide-records': true,
   }

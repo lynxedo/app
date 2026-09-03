@@ -564,16 +564,23 @@ export function reportsForWidget(type: string): string[] {
 }
 
 /**
- * Boards that render from a widget layout instead of a hardcoded view.
+ * Shipped boards that render from a widget layout instead of a hardcoded view.
  *
- * ⚠ Lives HERE, not in ./layouts.ts, because two entry points need to agree and
- * one of them is a client component: the route (app/hub/scoreboards/[slug]) and
- * the Workspace-Tabs twin (components/hub/workspace/ScoreboardsTab). layouts.ts
- * imports the service-role Supabase client, so a client component can't ask it.
- * Getting this wrong is invisible in the route and shows up only in a tab — which
- * is exactly how the first attempt shipped a board that still looked old.
+ * EMPTY since Sep 3 2026. Lead Sources ('8') was the only one, and it retired along
+ * with Main, WF, IR, PW and Office — a user-built board of the same cards does the
+ * job, which was the whole argument for the widget library. Retention & Churn is the
+ * one shipped board left and it stays hardcoded, because its weekly snapshots are
+ * the point of it and only that view can read one.
+ *
+ * Kept rather than deleted so re-shipping a preset board is a one-line change. If
+ * you do add a slug here, ⚠ note there are TWO entry points that must agree, one of
+ * them a client component: the route (app/hub/scoreboards/[slug]) and the
+ * Workspace-Tabs twin (components/hub/workspace/ScoreboardsTab). That is why this
+ * lives here and not in ./layouts.ts, which imports the service-role Supabase
+ * client. Getting it wrong is invisible in the route and shows up only in a tab —
+ * exactly how the first migration shipped a board that still looked old.
  */
-export const WIDGET_BOARD_SLUGS: readonly string[] = ['8']
+export const WIDGET_BOARD_SLUGS: readonly string[] = []
 
 export function hasWidgetLayout(slug: string): boolean {
   return WIDGET_BOARD_SLUGS.includes(slug)
@@ -640,16 +647,11 @@ export function hasReportLayout(reportSlug: string): boolean {
   return reportLayoutSlug(reportSlug) in REPORT_PRESETS
 }
 
-/** The preset arrangement Board 8 ships with — the board as it looks today. */
-export const BOARD_8_PRESET: { type: string; span: number; config?: WidgetConfig }[] = [
-  { type: 'kpi_new_customers', span: 3 },
-  { type: 'kpi_paid_share', span: 3 },
-  { type: 'kpi_best_source', span: 3 },
-  { type: 'kpi_source_coverage', span: 3 },
-  { type: 'source_insights', span: 12 },
-  { type: 'source_scorecard_table', span: 12 },
-  { type: 'new_by_source', span: 4 },
-  { type: 'retention_by_source', span: 4 },
-  { type: 'close_rate_by_source', span: 4 },
-  { type: 'paid_free_mix', span: 12 },
-]
+/** One entry in a shipped arrangement — a widget type, how wide it sits, its settings. */
+export type PresetWidget = { type: string; span: number; config?: WidgetConfig }
+
+/* BOARD_8_PRESET lived here: the ten cards the Lead Sources scoreboard shipped with.
+ * The board retired on Sep 3 2026 and the preset went with it — nothing was lost,
+ * because MARKETING_REPORT_PRESET above is the same ten cards plus geo revenue by
+ * zip, and it is still shipped as the Marketing & Lead Source report. Anyone who
+ * wants that arrangement as an editable Scoreboard can duplicate it. */

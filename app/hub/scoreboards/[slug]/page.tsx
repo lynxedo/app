@@ -4,33 +4,31 @@ import { getScoreboard, canSeeBoard, isCustomBoardSlug } from '@/lib/scoreboards
 import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
 import { resolveCustomBoard } from '@/lib/scoreboards/custom'
 import { getBusinessProfile } from '@/lib/business-profile'
-import Scoreboard1View from './Scoreboard1View'
-import Scoreboard2View from './Scoreboard2View'
-import Scoreboard3View from './Scoreboard3View'
-import Scoreboard4View from './Scoreboard4View'
-import Scoreboard5View from './Scoreboard5View'
 import Scoreboard7View from './Scoreboard7View'
-import Scoreboard8View from './Scoreboard8View'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { hasWidgetLayout } from '@/lib/scoreboards/widgets/registry'
 import WidgetBoardView from '@/components/hub/scoreboards/widgets/WidgetBoardView'
 
 export const metadata = { title: 'Scoreboard' }
 export const dynamic = 'force-dynamic'
 
 export default async function ScoreboardPage({
-  params, searchParams,
+  params,
 }: {
   params: Promise<{ slug: string }>
-  searchParams: Promise<{ classic?: string }>
 }) {
   const { slug } = await params
-  const { classic } = await searchParams
 
   // Call Coaching moved to Reports. Redirect rather than 404 so saved links, open
   // Workspace tabs and muscle memory all land somewhere useful. The destination
   // re-checks can_access_coaching, so this leaks nothing to someone without it.
   if (slug === '6') redirect('/hub/reports/coaching')
+
+  /* Main (1), WF (2), IR (3), PW (4), Office (5) and Lead Sources (8) were retired
+   * on Sep 3 2026 — their cards all exist in the widget library, so a board of
+   * exactly the ones you want is a better answer than six we chose for you. Send
+   * their old links to the index rather than 404ing: bookmarks, open Workspace tabs
+   * and the odd Hub message all point at these. */
+  if (['1', '2', '3', '4', '5', '8'].includes(slug)) redirect('/hub/scoreboards')
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -83,36 +81,10 @@ export default async function ScoreboardPage({
   // The coaching exception that used to live here left with the board itself.
   if (!canSeeBoard(perms, board.slug)) redirect('/hub')
 
-  // Boards that have been migrated to widgets render from a saved layout. The
-  // hardcoded view stays reachable at ?classic=1 for as long as the migration is
-  // in progress — the point is to be able to put the two side by side and confirm
-  // the numbers agree before anyone trusts the new one.
-  if (hasWidgetLayout(board.slug) && classic !== '1') {
-    return (
-      <WidgetBoardView
-        meta={board}
-        businessName={businessName}
-        classicHref={`/hub/scoreboards/${board.slug}?classic=1`}
-      />
-    )
+  /* Retention & Churn is the last hardcoded board, and stays hardcoded: its
+   * weekly snapshots are the point of it, and only this view can read one. */
+  if (board.slug === '7') {
+    return <Scoreboard7View meta={board} businessName={businessName} />
   }
-
-  switch (board.slug) {
-    case '1':
-      return <Scoreboard1View meta={board} businessName={businessName} />
-    case '2':
-      return <Scoreboard2View meta={board} businessName={businessName} />
-    case '3':
-      return <Scoreboard3View meta={board} businessName={businessName} />
-    case '4':
-      return <Scoreboard4View meta={board} businessName={businessName} />
-    case '5':
-      return <Scoreboard5View meta={board} businessName={businessName} />
-    case '7':
-      return <Scoreboard7View meta={board} businessName={businessName} />
-    case '8':
-      return <Scoreboard8View meta={board} businessName={businessName} />
-    default:
-      notFound()
-  }
+  notFound()
 }

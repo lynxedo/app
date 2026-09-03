@@ -90,7 +90,7 @@ export async function proxy(request: NextRequest) {
     const profileResult = await withTimeout(
       supabase
         .from('user_profiles')
-        .select('role, is_platform_admin, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain, subdomain_slug)')
+        .select('role, is_platform_admin, company_id, landing_page, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain, subdomain_slug)')
         .eq('id', user.id)
         .single()
         .then(({ data }) => ({ data, degraded: false })),
@@ -180,8 +180,6 @@ export async function proxy(request: NextRequest) {
         '/hub/lawn': 'can_access_lawn',
         '/hub/tracker': 'can_access_tracker',
         '/hub/routing': 'can_access_routing',
-        '/hub/books': 'can_access_books',
-        '/hub/zone-sizer': 'can_access_zone_sizer',
         '/hub/dialer': 'can_access_dialer',
         '/hub/marketing': 'can_access_marketing',
       }
@@ -239,7 +237,6 @@ export async function proxy(request: NextRequest) {
           '/hub/admin/timesheet': 'can_admin_timesheet',
           '/hub/admin/fleet': 'can_admin_fleet',
           '/hub/admin/daily-log': 'can_admin_daily_log',
-          '/hub/admin/zone-sizer': 'can_admin_zone_sizer',
           '/hub/admin/dialer': 'can_admin_dialer',
           '/hub/admin/contacts': 'can_admin_contacts',
           '/hub/admin/marketing': 'can_admin_marketing',
@@ -255,7 +252,6 @@ export async function proxy(request: NextRequest) {
           profile.can_admin_timesheet ||
           profile.can_admin_fleet ||
           profile.can_admin_daily_log ||
-          profile.can_admin_zone_sizer ||
           profile.can_admin_dialer ||
           profile.can_admin_contacts
 

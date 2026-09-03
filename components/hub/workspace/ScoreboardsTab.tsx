@@ -21,17 +21,10 @@
 
 import { useEffect, useState } from 'react'
 import { SCOREBOARDS, getScoreboard, isCustomBoardSlug } from '@/lib/scoreboards/registry'
-import { hasWidgetLayout } from '@/lib/scoreboards/widgets/registry'
 import WidgetBoardView from '@/components/hub/scoreboards/widgets/WidgetBoardView'
 import NewScoreboardButton from '@/app/hub/scoreboards/NewScoreboardButton'
 import { useWorkspaceTabs } from './WorkspaceTabsContext'
-import Scoreboard1View from '@/app/hub/scoreboards/[slug]/Scoreboard1View'
-import Scoreboard2View from '@/app/hub/scoreboards/[slug]/Scoreboard2View'
-import Scoreboard3View from '@/app/hub/scoreboards/[slug]/Scoreboard3View'
-import Scoreboard4View from '@/app/hub/scoreboards/[slug]/Scoreboard4View'
-import Scoreboard5View from '@/app/hub/scoreboards/[slug]/Scoreboard5View'
 import Scoreboard7View from '@/app/hub/scoreboards/[slug]/Scoreboard7View'
-import Scoreboard8View from '@/app/hub/scoreboards/[slug]/Scoreboard8View'
 
 export function ScoreboardsIndexTab({ allowedSlugs, isAdmin }: { allowedSlugs: string[]; isAdmin: boolean }) {
   const tabs = useWorkspaceTabs()
@@ -124,26 +117,11 @@ export function ScoreboardBoardTab({ slug }: { slug: string }) {
   const meta = getScoreboard(slug)
   if (!meta) return <div className="p-6 text-sm text-white/60">Unknown scoreboard.</div>
 
-  // A board migrated to widgets renders from its saved layout HERE TOO. This twin
-  // bypasses app/hub/scoreboards/[slug]/page.tsx entirely, so a board added to the
-  // widget list without this line keeps showing its old hardcoded view for anyone
-  // using Workspace Tabs — and looks like the migration simply didn't ship.
-  if (hasWidgetLayout(slug)) {
-    return <WidgetBoardView meta={meta} classicHref={`/hub/scoreboards/${slug}?classic=1`} />
-  }
-
-  // Same slug→view dispatch as app/hub/scoreboards/[slug]/page.tsx. ⚠ This is a
-  // SECOND entry point: a change to the dispatch there must land here too, and
-  // tsc cannot catch a stale one because both components stay valid. Board 6
-  // (Call Coaching) moved to /hub/reports/coaching and is deliberately absent.
-  switch (slug) {
-    case '1': return <Scoreboard1View meta={meta} />
-    case '2': return <Scoreboard2View meta={meta} />
-    case '3': return <Scoreboard3View meta={meta} />
-    case '4': return <Scoreboard4View meta={meta} />
-    case '5': return <Scoreboard5View meta={meta} />
-    case '7': return <Scoreboard7View meta={meta} />
-    case '8': return <Scoreboard8View meta={meta} />
-    default:  return <div className="p-6 text-sm text-white/60">Unknown scoreboard.</div>
-  }
+  /* Same dispatch as app/hub/scoreboards/[slug]/page.tsx. ⚠ This is a SECOND entry
+   * point: a change to the dispatch there must land here too, and tsc cannot catch
+   * a stale one because both components stay valid. Board 6 (Call Coaching) moved to
+   * /hub/reports/coaching; boards 1–5 and 8 were retired on Sep 3 2026 and can't
+   * reach this function any more — `getScoreboard` returned null for them above. */
+  if (slug === '7') return <Scoreboard7View meta={meta} />
+  return <div className="p-6 text-sm text-white/60">Unknown scoreboard.</div>
 }

@@ -67,7 +67,6 @@ export default function AdminSidebar({
     timesheet: boolean
     fleet: boolean
     daily_log: boolean
-    zone_sizer: boolean
     dialer: boolean
     contacts: boolean
     products: boolean
@@ -144,9 +143,6 @@ export default function AdminSidebar({
       )}
       {show(grants.products) && (
         <AdminRow href="/hub/admin/service-mapping" iconId="products" label="Service Mapping" onClose={onClose} />
-      )}
-      {show(grants.zone_sizer) && (
-        <AdminRow href="/hub/admin/zone-sizer" iconId="zone-sizer" label="Zone Sizer" onClose={onClose} />
       )}
       {show(grants.dialer) && (
         <AdminRow href="/hub/admin/dialer" iconId="dialer" label="Dialer" onClose={onClose} />

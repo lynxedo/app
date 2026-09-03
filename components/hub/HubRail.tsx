@@ -50,7 +50,6 @@ const RAIL_BY_PREFIX: Array<[string, RailId]> = [
   ['/hub/fleet', 'fleet'],
   ['/hub/scoreboards', 'scoreboards'],
   ['/hub/reports', 'reports'],   // preset Reports — distinct from user-built Scoreboards
-  ['/hub/books', 'books'],
   ['/hub/lawn', 'lawn'],
   ['/hub/dialer', 'dialer'],
   ['/hub/call-log', 'call-log'],

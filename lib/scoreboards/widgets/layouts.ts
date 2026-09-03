@@ -7,7 +7,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getWidgetDef, BOARD_8_PRESET, WIDGET_BOARD_SLUGS, REPORT_PRESETS, widgetGroups } from './registry'
+import { getWidgetDef, WIDGET_BOARD_SLUGS, REPORT_PRESETS, widgetGroups, type PresetWidget } from './registry'
 import { unmappedWidgetGroups } from './gating'
 import { clampSpan, sanitizeConfig, MAX_WIDGETS_PER_BOARD, type BoardLayout, type WidgetInstance } from './types'
 
@@ -15,11 +15,14 @@ type Admin = ReturnType<typeof createAdminClient>
 
 /**
  * Presets we ship, keyed by layout slug. A slug absent here has no widget layout.
- * Boards use bare slugs ('8'); Reports use `report:<slug>`, so the two share these
- * tables without any chance of collision.
+ * Reports use `report:<slug>` and a shipped board would use a bare slug, so the two
+ * can share these tables without any chance of collision.
+ *
+ * Only Reports are in here now: Lead Sources ('8') was the last shipped board with a
+ * widget layout and it retired on Sep 3 2026 (its arrangement survives as
+ * `report:marketing`, which is the same cards).
  */
-const PRESETS: Record<string, { title: string; widgets: typeof BOARD_8_PRESET }> = {
-  '8': { title: 'Lead Sources', widgets: BOARD_8_PRESET },
+const PRESETS: Record<string, { title: string; widgets: PresetWidget[] }> = {
   ...REPORT_PRESETS,
 }
 

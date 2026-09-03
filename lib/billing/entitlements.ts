@@ -136,8 +136,6 @@ const ROUTE_MODULE: Array<[string, string]> = [
   ['/hub/mix-sheet', 'pricer'],
   ['/hub/pesticide-records', 'pricer'],
   ['/hub/lawn', 'lawn_size'],
-  ['/hub/zone-sizer', 'lawn_size'],
-  ['/hub/books', 'books'],
   ['/hub/routing', 'routing'],
 ]
 

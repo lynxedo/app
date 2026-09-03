@@ -12,6 +12,11 @@ type UserProfile = {
   can_access_call_log: boolean
   can_access_responder: boolean
   can_access_timesheet: boolean
+  /* ⚠ Books and Zone Sizer retired Sep 3 2026, but these three stay: the DB columns
+   * were deliberately NOT dropped (get_admin_users returns them, and dropping a
+   * column means recreating that function for no gain), so the row type still has to
+   * describe what comes back and a new user's insert still has to satisfy them. They
+   * have no checkbox any more — nothing reads them. */
   can_access_books: boolean
   can_access_tracker: boolean
   can_access_hub: boolean
@@ -121,7 +126,6 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
     items: [
       { key: 'can_access_tracker', label: 'Lead Tracker' },
       { key: 'can_access_lawn', label: 'Lawn Sizer' },
-      { key: 'can_access_zone_sizer', label: 'Zone Sizer' },
       { key: 'can_access_pricer', label: 'Pricer' },
       { key: 'can_access_marketing', label: 'Social Marketing' },
       { key: 'can_access_email', label: 'Email Marketing' },
@@ -131,7 +135,6 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
   {
     title: 'Office',
     items: [
-      { key: 'can_access_books', label: 'Financial Dashboard' },
       { key: 'can_access_scoreboards', label: 'Scoreboards' },
       { key: 'can_access_reports', label: 'Reports' },
       { key: 'can_access_files', label: 'Files' },
@@ -154,7 +157,6 @@ const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_fleet', label: 'Fleet' },
   { key: 'can_admin_daily_log', label: 'Daily Log' },
   { key: 'can_admin_products', label: 'Products' },
-  { key: 'can_admin_zone_sizer', label: 'Zone Sizer' },
   { key: 'can_admin_dialer', label: 'Dialer' },
   { key: 'can_admin_forms', label: 'Form Builder' },
   { key: 'can_admin_marketing', label: 'Social Marketing' },
