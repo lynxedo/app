@@ -48,6 +48,97 @@ function pretty(d: string | null | undefined): string {
   return new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
+function addDays(d: string, n: number): string {
+  const t = new Date(`${d}T12:00:00Z`)
+  t.setUTCDate(t.getUTCDate() + n)
+  return t.toISOString().slice(0, 10)
+}
+
+/**
+ * Days of payroll lag past which the gap has stopped being the ordinary processing
+ * delay and become an outage worth shouting about.
+ *
+ * Heroes runs Mon–Sun weeks processed the following Monday, so in healthy operation
+ * the lag peaks around 8 days — on the Monday morning before that week's run, the
+ * newest processed week ended 8 days earlier. 14 sits clear of that.
+ *
+ * ⚠ Deliberately NOT tighter. A banner that fires on a perfectly normal Monday is one
+ * people learn to dismiss, and then it is worth nothing on the Monday that matters.
+ */
+const PAYROLL_LAG_ALARM_DAYS = 14
+
+type PayrollLag = {
+  /** Clocked days sitting past the last processed payroll run. */
+  days: number
+  /** True when PAYROLL, not the timeclock, is what ends the window. */
+  binds: boolean
+  /** Last day a processed payroll covers. */
+  paidThrough: string | null
+  /** Last day the timeclock holds hours for — later than `paidThrough` whenever payroll binds. */
+  clockedThrough: string | null
+  /** Past the ordinary processing delay: say it loudly. */
+  alarming: boolean
+}
+
+/**
+ * Which of the two feeds ran out first, and by how far.
+ *
+ * ⚠⚠ THE CARDS USED TO BLAME THE TIMECLOCK FOR A PAYROLL OUTAGE. `crew_labor` clamps
+ * its window to `least(last clocked day, last processed payroll)`. When the Gusto
+ * import fell four weeks behind (found 2026-09-14, stale since 2026-08-16), every Crew
+ * card read "No timeclock data for this period" while the timeclock was in fact
+ * current to three days earlier. Three cards blanked at once and all three pointed at
+ * the one feed that was healthy. Nothing in the app could refresh payroll either — no
+ * cron, no button, no stored Gusto credentials — so that wrong message was the ONLY
+ * signal the system produced, and it sent the search in the wrong direction for a
+ * month. A card that cannot show a number must name the feed that is actually missing.
+ */
+function payrollLag(r: CrewLaborRow | null): PayrollLag {
+  const c = r?.coverage
+  const days = Math.max(0, Math.round(num(c?.unpaid_tail_days ?? 0)))
+  const paidThrough = c?.payroll_through ?? null
+  /* ⚠ `coverage.timeclock_last` is the COMBINED right edge — least(clock, payroll) —
+   * not the last clocked day, despite the name. Whenever payroll binds it reports the
+   * PAYROLL date, so the real last punch has to be reconstructed from the lag. Left
+   * misnamed in the RPC on purpose: the Crew & Labor report reads the same field, and
+   * renaming it is a wider change than this fix. */
+  const clockedThrough = days > 0 && paidThrough
+    ? addDays(paidThrough, days)
+    : (c?.timeclock_last ?? null)
+  return {
+    days,
+    binds: days > 0,
+    paidThrough,
+    clockedThrough,
+    alarming: days >= PAYROLL_LAG_ALARM_DAYS,
+  }
+}
+
+/**
+ * What a Crew card says when it has no number to show.
+ *
+ * Never "no timeclock data" unless the timeclock is genuinely what ran out — see
+ * `payrollLag`.
+ */
+function emptyReason(r: CrewLaborRow | null): string {
+  const c = r?.coverage
+  if (!c || !c.timeclock_first) return 'No timeclock or payroll records yet'
+  // The window sits entirely before anything was ever recorded.
+  if (c.requested_end < c.timeclock_first) {
+    return `No pay or timeclock records before ${pretty(c.timeclock_first)} — this period is earlier than the records go`
+  }
+  // The window sits entirely past the last day BOTH feeds cover. Which one ran out
+  // first is the whole question, and the answer is usually payroll.
+  const lag = payrollLag(r)
+  if (lag.binds && lag.paidThrough) {
+    return `Payroll has only been imported through ${pretty(lag.paidThrough)}`
+      + (lag.clockedThrough ? `, but the timeclock has hours through ${pretty(lag.clockedThrough)}` : '')
+      + `. Pay is real money and is never estimated, so nothing is shown past the last processed run.`
+      + (lag.alarming ? ` ⚠ That is ${lag.days} days behind — the Gusto payroll import has probably stopped.` : '')
+  }
+  return `No timeclock data after ${pretty(c.timeclock_last)}`
+}
+
 /**
  * The phrase every card uses instead of the window's own label.
  *
@@ -57,15 +148,34 @@ function pretty(d: string | null | undefined): string {
  */
 function periodPhrase(r: CrewLaborRow | null, win: WindowSpec): string {
   if (!r || !r.coverage.has_data) return win.phrase
-  const { effective_start, effective_end, clamped } = r.coverage
+  const { effective_start, effective_end, clamped, backfilled, backfill_until } = r.coverage
   const span = `${pretty(effective_start)} – ${pretty(effective_end)}`
-  // The Hub timeclock only starts 2026-06-01. Where the months before it are
-  // covered by payroll, say so rather than implying one source measured it all —
-  // they are the same definition of an hour, but not the same record.
-  if (r.coverage.backfilled && r.coverage.backfill_until) {
-    return `${span} (payroll through ${pretty(r.coverage.backfill_until)}, timeclock after)`
+  /* The Hub timeclock only starts 2026-06-01. Where the months before it are covered
+   * by payroll, say so rather than implying one source measured it all — they are the
+   * same definition of an hour, but not the same record.
+   *
+   * ⚠ Only when the window actually REACHES those months. `backfilled` is hardcoded
+   * true in the RPC and `backfill_until` is always the day before the first punch, so
+   * testing just those two printed "payroll through May 31, timeclock after" on a
+   * window living entirely in September — a caveat about months the card never touched,
+   * which also swallowed every other note this function can add, including the payroll
+   * one below. */
+  if (backfilled && backfill_until && effective_start && effective_start <= backfill_until) {
+    return `${span} (payroll through ${pretty(backfill_until)}, timeclock after)`
   }
-  return clamped ? `${span} (where clock data exists)` : span
+  if (!clamped) return span
+  /* ⚠ WHICH FEED CLAMPED IT. Saying "where clock data exists" while the timeclock is
+   * current and payroll is the short one is not a wording nicety — it points at the
+   * wrong system. `effective_end` landing exactly on `payroll_through` is what settles
+   * which one it was. */
+  const lag = payrollLag(r)
+  if (lag.binds && lag.paidThrough && effective_end === lag.paidThrough) {
+    return `${span} (pay processed through ${pretty(lag.paidThrough)}`
+      + (lag.alarming
+        ? ` — ⚠ ${lag.days} days of clocked hours since then have no payroll yet)`
+        : ')')
+  }
+  return `${span} (where clock data exists)`
 }
 
 function rankable(r: CrewLaborRow | null): CrewPerson[] {
@@ -110,7 +220,7 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
         tone: v == null ? 'neutral' : num(v) >= 75 ? 'good' : num(v) >= 50 ? 'warn' : 'bad',
         sub: r && r.coverage.has_data
           ? `${formatCurrency(num(r.revenue))} of work ÷ ${num(r.hours).toLocaleString()} clocked hours · ${periodPhrase(r, win)}`
-          : 'No timeclock data for this period',
+          : emptyReason(r),
       }
     },
   },
@@ -185,7 +295,13 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
               ...(picked.length > 1 ? [`combined across ${picked.map(p => p.name).join(', ')}`] : []),
               ...(skipped.length ? [`not counted: ${skipped.map(p => p.name).join(', ')}`] : []),
             ].join(' · ')
-          : `Nobody ticked has both clocked hours and attributed work in this period${skipped.length ? ` — ${skipped.map(p => p.name).join(', ')} cannot be ranked` : ''}`,
+          /* ⚠ A dead source and an unmatched person are different failures and must not
+           * share a sentence. "Nobody ticked has hours" reads as a fact about the people
+           * picked — send someone hunting through the person filter — when the truth can
+           * be that the window holds no data for ANYONE. Check the source first. */
+          : !r?.coverage.has_data
+            ? emptyReason(r)
+            : `Nobody ticked has both clocked hours and attributed work in this period${skipped.length ? ` — ${skipped.map(p => p.name).join(', ')} cannot be ranked` : ''}`,
       }
     },
   },
@@ -212,7 +328,7 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
         value: r && r.coverage.has_data ? hours.toLocaleString() : '—',
         sub: r && r.coverage.has_data
           ? withPeople(`${n} ${n === 1 ? 'person' : 'people'} on the clock · ${periodPhrase(r, win)}`, f)
-          : 'No timeclock data for this period',
+          : emptyReason(r),
       }
     },
   },
@@ -337,7 +453,10 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
               'a shared service visit is credited to both techs, so it makes this read slightly low',
               ...(skipped.length ? [`not counted: ${skipped.map(p => p.name).join(', ')}`] : []),
             ].join(' · ')
-          : `Nobody ticked has both pay and attributed work in this period${skipped.length ? ` — ${skipped.map(p => p.name).join(', ')} cannot be measured` : ''}`,
+          // Same split as the rate card: a missing feed is not a missing person.
+          : !r?.coverage.has_data
+            ? emptyReason(r)
+            : `Nobody ticked has both pay and attributed work in this period${skipped.length ? ` — ${skipped.map(p => p.name).join(', ')} cannot be measured` : ''}`,
       }
     },
   },
@@ -538,7 +657,11 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
           title: 'What the Numbers Say',
           sub: '',
           items: [],
-          empty: 'No timeclock data overlaps this date range',
+          // ⚠ Two different reasons land here. No source data at all is the source's
+          // story to tell; a live window with nobody on the clock is genuinely empty.
+          empty: !r || !r.coverage.has_data
+            ? emptyReason(r)
+            : 'Nobody clocked any hours in this period',
         }
       }
 
@@ -551,8 +674,16 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
       /* Why the window stops short of today even on a to-date range: pay comes from
        * processed payroll now, and estimating the last few days from hours x rate
        * cannot see a commission at all, so it would drag the ratio down. */
-      if (num(r.coverage.unpaid_tail_days) > 0) {
-        items.push(`Pay is counted through ${pretty(r.coverage.payroll_through)}, the last payroll run. There ${num(r.coverage.unpaid_tail_days) === 1 ? 'is 1 more day' : `are ${num(r.coverage.unpaid_tail_days)} more days`} of clocked hours after that with no payroll yet, so ${num(r.coverage.unpaid_tail_days) === 1 ? 'it is' : 'they are'} left out rather than estimated.`)
+      const lag = payrollLag(r)
+      if (lag.binds) {
+        items.push(`Pay is counted through ${pretty(lag.paidThrough)}, the last payroll run. There ${lag.days === 1 ? 'is 1 more day' : `are ${lag.days} more days`} of clocked hours after that with no payroll yet, so ${lag.days === 1 ? 'it is' : 'they are'} left out rather than estimated.`
+          /* ⚠ The ordinary few-day delay and a dead import produce the SAME sentence,
+           * and only the number tells them apart — which is why the four-week outage
+           * read as business as usual right up until the cards went blank. Past the
+           * threshold this stops describing the design and starts naming a fault. */
+          + (lag.alarming
+            ? ` ⚠ That is ${lag.days} days, well past the usual few — the Gusto payroll import has most likely stopped, and these figures will keep falling further behind until it is run again.`
+            : ''))
       }
 
       items.push(`${formatCurrency(num(r.revenue))} of completed work against ${num(r.hours).toLocaleString()} clocked hours — ${r.rev_per_hour != null ? formatCurrency(num(r.rev_per_hour)) : '—'} per labor hour, across ${num(r.visits).toLocaleString()} visits.`)
