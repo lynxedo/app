@@ -15,13 +15,25 @@ const TZ = 'America/Chicago'
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 export type RangeKey =
+  | 'this_week' | 'last_week'
   | 'ytd' | 'this_month' | 'last_month' | 'this_quarter' | 'last_12' | 'last_year' | 'custom'
 
+/**
+ * The quick-range list, shortest period first so the ones reached most often are at
+ * the top. ⚠ Order here is presentation only — the default range is chosen explicitly
+ * by each caller (`defaultRange ?? 'ytd'`), never by position in this array.
+ *
+ * This ONE list drives the picker on every widget scoreboard AND all of Reports, since
+ * both API routes hand it to the client as `window.options`. Adding a key here is
+ * therefore the whole job — there is deliberately no second whitelist to keep in step.
+ */
 export const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
-  { key: 'ytd', label: 'Year to date' },
+  { key: 'this_week', label: 'This week' },
+  { key: 'last_week', label: 'Last week' },
   { key: 'this_month', label: 'This month' },
   { key: 'last_month', label: 'Last month' },
   { key: 'this_quarter', label: 'This quarter' },
+  { key: 'ytd', label: 'Year to date' },
   { key: 'last_12', label: 'Last 12 months' },
   { key: 'last_year', label: 'Last year' },
   { key: 'custom', label: 'Custom range…' },
@@ -115,6 +127,28 @@ export function resolveWindow(
   }
 
   switch (range) {
+    /* ⚠⚠ MON–SUN, and that is not a style choice. Payroll periods are Mon–Sun,
+     * `scoreboard_crew_labor` computes overtime on a Mon–Sun week, and commission
+     * bonus weeks are Monday-anchored (see the Thursday rule below). A Sunday-start
+     * week here would put a scoreboard and the payroll underneath it on different
+     * weeks — the quiet kind of disagreement nobody notices until two numbers that
+     * should match don't. `dowMonday0` and `addDaysYmd` are the SAME helpers the
+     * commission weeks use, deliberately: one definition of "Monday" in this file.
+     * (Both are function declarations, so they hoist above this use.) */
+    case 'this_week': {
+      const start = addDaysYmd(today, -dowMonday0(t.y, t.m, t.d))
+      // To DATE, exactly like "This month" — not the full Mon–Sun box, most of which
+      // may not have happened yet. A week-to-date total compared against a whole week
+      // would read as a collapse every Monday morning.
+      return { start, end: today, label: pretty(start, today), phrase: 'this week so far' }
+    }
+    case 'last_week': {
+      const start = addDaysYmd(today, -dowMonday0(t.y, t.m, t.d) - 7)
+      const end = addDaysYmd(start, 6)
+      // A COMPLETE week, exactly like "Last month" is a complete month — and the most
+      // useful window on this board, because it is the last one payroll has closed.
+      return { start, end, label: pretty(start, end), phrase: 'last week' }
+    }
     case 'this_month': {
       const start = ymd(t.y, t.m, 1)
       return { start, end: today, label: pretty(start, today), phrase: `${MONTH_ABBR[t.m - 1]} so far` }

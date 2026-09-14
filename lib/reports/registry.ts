@@ -18,6 +18,8 @@
  * Revenue. §12 always said these are separately gated; until now they weren't.
  */
 
+import type { RangeKey } from '@/lib/scoreboards/widgets/windows'
+
 export type ReportMeta = {
   /** URL slug. The saved layout lives under `report:<slug>`. */
   slug: string
@@ -36,7 +38,11 @@ export type ReportMeta = {
    * and year-to-date's predecessor reaches back past the invoice mirror's floor —
    * so every delta on the page would correctly, but uselessly, say "no comparison".
    */
-  defaultRange?: 'ytd' | 'this_month' | 'last_month' | 'this_quarter' | 'last_12' | 'last_year'
+  /** ⚠ Derived from `RangeKey` rather than re-listed, so a range added to
+   *  RANGE_OPTIONS can never silently be un-selectable as a report default —
+   *  this union had already drifted once. `custom` is excluded because a report
+   *  cannot default to a custom range without carrying the two dates with it. */
+  defaultRange?: Exclude<RangeKey, 'custom'>
   /**
    * A report that carries its OWN gate instead of the normal grant model.
    *
