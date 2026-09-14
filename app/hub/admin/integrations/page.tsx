@@ -129,6 +129,33 @@ export default async function AdminIntegrationsPage() {
 
   const webhookBase = process.env.NEXT_PUBLIC_APP_URL ?? 'https://lynxedo.com'
 
+  /* How far the payroll import has got, and how far behind the timeclock that leaves
+   * it. Read from OUR OWN tables, never from Gusto — so it still answers while Gusto
+   * is disconnected, which is exactly when it matters. Before this, a dead import had
+   * no symptom anywhere in the app except Crew & Labor cards quietly going blank, and
+   * it ran four weeks (Aug 16 → Sep 14, 2026) before anyone noticed. */
+  const [payrollRow, clockRow] = await Promise.all([
+    admin.from('payroll_periods').select('period_end')
+      .eq('company_id', companyId).neq('flsa_status', 'Exempt')
+      .order('period_end', { ascending: false }).limit(1).maybeSingle(),
+    admin.from('time_entries').select('date')
+      .eq('company_id', companyId).gt('total_hours', 0)
+      .order('date', { ascending: false }).limit(1).maybeSingle(),
+  ])
+  const payrollThrough = (payrollRow.data as { period_end?: string } | null)?.period_end ?? null
+  const clockThrough = (clockRow.data as { date?: string } | null)?.date ?? null
+  const dayMs = 86_400_000
+  const payroll = {
+    through: payrollThrough,
+    clockThrough,
+    // Whole days between the last processed run and the last punch. Negative would
+    // mean payroll is ahead of the clock, which is normal and not a lag at all.
+    lagDays: payrollThrough && clockThrough
+      ? Math.max(0, Math.round(
+          (Date.parse(`${clockThrough}T12:00:00Z`) - Date.parse(`${payrollThrough}T12:00:00Z`)) / dayMs))
+      : null,
+  }
+
   return (
     <>
       <IntegrationsAdminPanel
@@ -136,6 +163,7 @@ export default async function AdminIntegrationsPage() {
         webhookBase={webhookBase}
         ownKeys={{ onestepgps: oneStepOwnKey, voicedrop: voiceDropOwnKey }}
         googleLsa={googleLsa}
+        payroll={payroll}
       />
       {/* Renders nothing until a report is configured, so tenants without one see
           no change. Kept out of IntegrationsAdminPanel because it self-fetches. */}

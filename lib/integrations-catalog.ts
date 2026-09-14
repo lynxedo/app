@@ -85,7 +85,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   },
   {
     key: 'gusto', name: 'Gusto', group: 'business_systems', model: 'oauth',
-    blurb: 'Payroll — match and sync your employee roster with Gusto.',
+    blurb: 'Payroll — match your employee roster with Gusto, and import processed pay runs so Crew & Labor can price work in real money.',
     connectHref: '/api/admin/gusto/connect',
     manageHref: '/hub/admin/timesheet', manageLabel: 'Match employees in Time Records',
   },

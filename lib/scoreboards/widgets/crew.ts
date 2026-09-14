@@ -140,6 +140,39 @@ function emptyReason(r: CrewLaborRow | null): string {
 }
 
 /**
+ * The span for an hours-only card, which answers to the TIMECLOCK alone.
+ *
+ * ⚠ Hours are additive and true whether or not the wages have been imported, so this
+ * card deliberately reads past `payroll_through` and will show a WIDER range than the
+ * rate cards beside it whenever payroll is behind. That is not an inconsistency to be
+ * tidied away later — it is the point — which is why every card names its own span
+ * rather than echoing the date picker.
+ */
+function clockPhrase(r: CrewLaborRow | null, win: WindowSpec): string {
+  const c = r?.coverage
+  if (!c?.clock_has_data) return win.phrase
+  const span = `${pretty(c.clock_start)} – ${pretty(c.clock_end)}`
+  const clipped = c.clock_start !== c.requested_start || c.clock_end !== c.requested_end
+  return clipped ? `${span} (where clock data exists)` : span
+}
+
+/**
+ * Why an hours-only card is empty.
+ *
+ * ⚠ Never mentions payroll. This card does not depend on it, so blaming it here would
+ * be the same class of error the rest of this file exists to fix, just pointed the
+ * other way.
+ */
+function clockEmptyReason(r: CrewLaborRow | null): string {
+  const c = r?.coverage
+  if (!c || !c.timeclock_first) return 'No timeclock records yet'
+  if (c.requested_end < c.timeclock_first) {
+    return `No timeclock records before ${pretty(c.timeclock_first)} — this period is earlier than the clock goes`
+  }
+  return `No timeclock data after ${pretty(payrollLag(r).clockedThrough)}`
+}
+
+/**
  * The phrase every card uses instead of the window's own label.
  *
  * When the source had to narrow the window, saying the requested range would be a
@@ -319,16 +352,31 @@ export const CREW_WIDGETS: WidgetDef<WidgetPayload>[] = [
       const f = personFilter(cfg)
       const people = onlyPeople(r?.people ?? [], f)
       const n = people.length
+      /* ⚠⚠ THIS CARD IS NOT CLAMPED BY PAYROLL, and alone among the Crew cards it
+       * must not be. The source narrows its window to the last PROCESSED payroll
+       * because every rate it computes divides revenue by hours and half a ratio is a
+       * lie — but hours are a plain additive total. The crew worked them whether or
+       * not the wages have been imported, and reading them off the clock is the
+       * difference between this card going blank for a month and simply being right.
+       * `hours` stays the clamped figure for everything that divides by it.
+       *
+       * ⚠ Falls back to the clamped figure when `clock_hours` is absent, so the card
+       * degrades to its old behaviour against a database without the 2026-09-14
+       * migration rather than rendering a blank. */
+      const clockOf = (p: CrewPerson) => num(p.clock_hours ?? p.hours)
+      const hours = f.active
+        ? people.reduce((s, p) => s + clockOf(p), 0)
+        : num(r?.clock_hours ?? r?.hours)
       // Hours are additive per person, so a filtered total is exact — unlike the
       // ratio KPIs, which is why this one carries the filter and they don't.
-      const hours = f.active ? people.reduce((s, p) => s + num(p.hours), 0) : num(r?.hours)
+      const ok = r?.coverage.clock_has_data ?? (r?.coverage.has_data === true)
       return {
         kind: 'kpi',
         label: withPeopleTitle('Hours Clocked', f),
-        value: r && r.coverage.has_data ? hours.toLocaleString() : '—',
-        sub: r && r.coverage.has_data
-          ? withPeople(`${n} ${n === 1 ? 'person' : 'people'} on the clock · ${periodPhrase(r, win)}`, f)
-          : emptyReason(r),
+        value: ok ? hours.toLocaleString() : '—',
+        sub: ok
+          ? withPeople(`${n} ${n === 1 ? 'person' : 'people'} on the clock · ${clockPhrase(r, win)}`, f)
+          : clockEmptyReason(r),
       }
     },
   },

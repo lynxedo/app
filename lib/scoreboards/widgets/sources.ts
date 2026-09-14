@@ -372,7 +372,14 @@ export type CrewPerson = {
   department: string
   is_active: boolean
   pay_type: string
+  /** Hours inside the PAYROLL-CLAMPED window — the denominator of every rate here,
+   *  so it can never cover days the pay figures don't. */
   hours: number
+  /** The same hours over the TIMECLOCK's own window, which reaches past the last
+   *  processed payroll. Use for a plain hours total; never as a rate denominator.
+   *  ⚠ Optional so the widgets keep working against a database that predates the
+   *  2026-09-14 migration, or one it has been rolled back on. */
+  clock_hours?: number
   /** Regular + overtime + commission, from payroll. NOT gross pay — no holiday,
    *  vacation/sick, bonus or tips. Named `labor_cost` for continuity. */
   labor_cost: number | null
@@ -407,6 +414,13 @@ export type CrewLaborRow = {
     /** Clocked days after `payroll_through` that carry hours but no pay, and are
      *  therefore excluded rather than priced at hours x rate. */
     unpaid_tail_days?: number
+    /** The TIMECLOCK's own window, with no payroll edge applied. Hours are additive
+     *  and need no pay to be true, so an hours-only card reports over this instead —
+     *  see `clock_hours`. Null start/end whenever there is nothing to show, so a card
+     *  can never print a range that was not measured. */
+    clock_has_data?: boolean
+    clock_start?: string | null
+    clock_end?: string | null
     /** Rows of `install_labor_credits` in play for this window. Non-zero means at
      *  least one multi-day install had its per-technician split taken from Ben's
      *  crew-day reconstruction instead of from Jobber's visit assignments — so the
@@ -415,6 +429,10 @@ export type CrewLaborRow = {
     install_credits_applied?: number
   }
   hours: number
+  /** Crew hours over the timeclock's own window — equal to `hours` whenever payroll
+   *  is current, larger whenever it is behind. Never a rate denominator. Optional:
+   *  see the note on `CrewPerson.clock_hours`. */
+  clock_hours?: number
   /** Regular + overtime + commission across the crew. Excludes holiday, PTO,
    *  bonus, tips and all salaried staff. */
   labor_cost: number

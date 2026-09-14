@@ -26,17 +26,34 @@ const STATUS_META: Record<IntegrationStatus, { label: string; cls: string }> = {
 
 type GoogleLsa = { connected: boolean; customerId: string | null; lsaEnabled: boolean }
 
+/** How current the Gusto payroll import is. See the note where it is loaded. */
+type PayrollState = { through: string | null; clockThrough: string | null; lagDays: number | null }
+
+/** Days behind the timeclock past which the import has probably stopped rather than
+ *  merely lagged. Kept identical to PAYROLL_LAG_ALARM_DAYS in the Crew widgets on
+ *  purpose — two places that disagree about "late" is worse than either threshold. */
+const PAYROLL_LAG_ALARM_DAYS = 14
+
+function shortDate(d: string | null): string {
+  if (!d) return '—'
+  return new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  })
+}
+
 export default function IntegrationsAdminPanel({
   statuses,
   webhookBase,
   ownKeys,
   googleLsa,
+  payroll,
 }: {
   statuses: Record<ProviderKey, StatusInfo>
   webhookBase: string
   // Which API-key providers have a per-company key saved (OneStepGPS, VoiceDrop…).
   ownKeys: Partial<Record<ProviderKey, boolean>>
   googleLsa: GoogleLsa
+  payroll: PayrollState
 }) {
   return (
     <div className="space-y-6">
@@ -66,6 +83,7 @@ export default function IntegrationsAdminPanel({
                   webhookBase={webhookBase}
                   hasOwnKey={ownKeys[p.key] ?? false}
                   googleLsa={p.key === 'google' ? googleLsa : null}
+                  payroll={p.key === 'gusto' ? payroll : null}
                 />
               ))}
             </div>
@@ -97,12 +115,14 @@ function IntegrationCard({
   webhookBase,
   hasOwnKey,
   googleLsa,
+  payroll,
 }: {
   provider: IntegrationProvider
   info: StatusInfo
   webhookBase: string
   hasOwnKey: boolean
   googleLsa: GoogleLsa | null
+  payroll: PayrollState | null
 }) {
   const router = useRouter()
   const toast = useToast()
@@ -201,6 +221,45 @@ function IntegrationCard({
     }
   }
 
+  /**
+   * Pull processed payroll runs from Gusto into the report tables.
+   *
+   * ⚠⚠ THIS BUTTON DID NOT EXIST until 2026-09-14, though the sync route's own header
+   * comment had claimed for weeks that it did. The endpoint was reachable only by a
+   * cron secret, and no cron was ever wired, so payroll was refreshed exactly twice —
+   * both times by hand — and sat four weeks stale in between with no symptom anywhere
+   * except Crew & Labor cards quietly going blank.
+   */
+  async function handleSyncPayroll() {
+    setBusy(true)
+    try {
+      /* Re-import from a fortnight before the last run rather than from the start of
+       * time. Gusto is one HTTP call per payroll, so "everything" is ~40 round trips
+       * for the two or three weeks that can actually have changed — and the overlap
+       * still catches a correction or an off-cycle run added to an earlier week. The
+       * upsert is keyed on the payroll id, so re-importing a week is a no-op. */
+      const from = payroll?.through
+        ? new Date(Date.parse(`${payroll.through}T12:00:00Z`) - 14 * 86_400_000).toISOString().slice(0, 10)
+        : undefined
+      const res = await fetch('/api/admin/payroll/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(from ? { start: from } : {}),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not sync payroll')
+      const unmatched = Number(data.unmatched_people ?? 0)
+      toast.success(
+        `Imported ${data.imported ?? 0} pay record${data.imported === 1 ? '' : 's'}`
+        + (unmatched ? ` · ${unmatched} not matched to anyone on the roster` : ''))
+      router.refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not sync payroll')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const copy = (text: string) => {
     navigator.clipboard?.writeText(text).then(
       () => toast.success('Copied'),
@@ -258,6 +317,20 @@ function IntegrationCard({
             </button>
           )}
 
+          {/* Gusto — pull processed payroll in. Shown even while disconnected, but
+              disabled: hiding it would take the one visible cue that payroll is a
+              thing this integration feeds, and the tooltip says what is missing. */}
+          {provider.key === 'gusto' && (
+            <button
+              onClick={handleSyncPayroll}
+              disabled={busy || !isConnected}
+              title={isConnected ? 'Import processed payroll runs from Gusto' : 'Connect Gusto first'}
+              className={`${btn} bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border-blue-600/30`}
+            >
+              {busy ? 'Syncing…' : 'Sync payroll'}
+            </button>
+          )}
+
           {/* Google — reveal the Local Services lead-poll config (once connected) */}
           {provider.key === 'google' && isConnected && (
             <button onClick={() => setShowSetup(v => !v)} className={`${btn} bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700`}>
@@ -266,6 +339,27 @@ function IntegrationCard({
           )}
         </div>
       </div>
+
+      {/* Gusto — how current the payroll import is. Reads our own tables, so it still
+          answers while Gusto is disconnected, which is precisely when it matters. */}
+      {provider.key === 'gusto' && payroll && (
+        <div className="mt-2 text-xs">
+          {!payroll.through ? (
+            <span className="text-gray-500">No payroll imported yet — Crew &amp; Labor reports need this.</span>
+          ) : payroll.lagDays !== null && payroll.lagDays >= PAYROLL_LAG_ALARM_DAYS ? (
+            <span className="text-amber-400">
+              ⚠ Payroll imported through {shortDate(payroll.through)} — {payroll.lagDays} days behind the
+              timeclock, which has hours through {shortDate(payroll.clockThrough)}. Crew &amp; Labor
+              figures stop at the payroll date until this is synced.
+            </span>
+          ) : (
+            <span className="text-gray-500">
+              Payroll imported through {shortDate(payroll.through)}
+              {payroll.lagDays ? ` · ${payroll.lagDays} day${payroll.lagDays === 1 ? '' : 's'} behind the timeclock` : ' · up to date'}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Angi (webhook) setup detail */}
       {provider.key === 'angi' && showSetup && (

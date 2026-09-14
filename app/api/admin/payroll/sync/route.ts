@@ -20,8 +20,16 @@ import { getGustoAuth } from '@/lib/gusto'
 // So this walks the payroll list and fetches each run. That is one request per
 // week, which is why it is a manual/cron sync and not an on-request join.
 //
-// TWO DOORS, same work: an admin session (can_admin_integrations) for the button in
-// Admin → Integrations, or the shared cron secret for a scheduled refresh:
+// TWO DOORS, same work: an admin session (can_admin_integrations) for the "Sync
+// payroll" button in Admin → Integrations, or the shared cron secret for a scheduled
+// refresh:
+//
+// ⚠⚠ THAT BUTTON DID NOT ACTUALLY EXIST until 2026-09-14, though this comment had
+// described it since the route was written. Nothing in the app called this endpoint,
+// and no cron was ever wired either, so payroll was refreshed only when somebody ran
+// a curl by hand. It sat four weeks stale (Aug 16 → Sep 14, 2026) and the only
+// symptom anywhere was Crew & Labor cards going blank and blaming the timeclock. If
+// a comment here ever describes a caller again, go and confirm the caller exists.
 //   curl -X POST https://lynxedo.com/api/admin/payroll/sync \
 //     -H "x-cron-secret: $CRON_SECRET" -H 'content-type: application/json' \
 //     -d '{"company_id":"…","start":"2025-12-22"}'
