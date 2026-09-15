@@ -145,10 +145,10 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
   // Page 1: summary stop list
   const returnRow = sheetReturnMin > 0
     ? `<tr>
-        <td class="sl-num"><span class="sl-circle" style="background:#374151;font-size:14px">↩</span></td>
-        <td class="sl-name" style="color:#6b7280">Return to depot</td>
-        <td class="sl-addr" style="color:#9ca3af">${(sheetReturnKm / 1.609).toFixed(1)} mi</td>
-        <td class="sl-eta" style="color:#6b7280">${sheetReturnMin} min</td>
+        <td class="sl-num"><span class="sl-circle" style="font-size:14px">↩</span></td>
+        <td class="sl-name" style="color:#333;font-weight:normal">Return to depot</td>
+        <td class="sl-addr" style="color:#333">${(sheetReturnKm / 1.609).toFixed(1)} mi</td>
+        <td class="sl-eta" style="color:#333;font-weight:normal">${sheetReturnMin} min</td>
       </tr>`
     : ''
   const summaryRows = stops.map(v => `
@@ -248,73 +248,86 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
       .summary-body { height: auto; }
       .stoplist-panel { overflow: visible; }
     }
+    /* Print sheet is deliberately black-and-white: no filled bars, no solid
+       circles. Ink cost was dominated by the navy header/table bars, which
+       repeat once per stop card. Borders also print when the browser's
+       "Background graphics" box is unticked, where a filled bar prints as
+       white-on-white. The Mapbox map on page 1 is the only colour left.
+       Keep this block identical to the copy in the other route-sheet file
+       (app/dashboard/RouteBuilder.tsx <-> lib/advanced-route-sheet.ts). */
     .summary { page-break-after: always; }
-    .summary-header { background: #0f1f3d; color: #fff; padding: 14px 18px;
+    .summary-header { background: #fff; color: #000; padding: 10px 18px 8px;
+      border-bottom: 3px solid #000;
       display: flex; justify-content: space-between; align-items: baseline; }
     .summary-header h1 { font-size: 18px; font-weight: bold; }
-    .summary-header .sh-meta { font-size: 12px; color: #9ca3af; }
-    .summary-subhead { background: #e5e7eb; padding: 6px 18px; font-size: 11px;
-      color: #374151; text-align: right; }
-    .summary-body { display: flex; height: 460px; border-top: 1px solid #d1d5db; }
-    .map-panel { flex: 0 0 60%; border-right: 1px solid #d1d5db; overflow: hidden;
+    .summary-header .sh-meta { font-size: 12px; color: #000; }
+    .summary-subhead { background: #fff; padding: 6px 18px; font-size: 11px;
+      color: #000; font-weight: bold; text-align: right;
+      border-bottom: 1px solid #000; }
+    .summary-body { display: flex; height: 460px; }
+    .map-panel { flex: 0 0 60%; border-right: 1px solid #000; overflow: hidden;
       position: relative; }
     .map-unavailable { width: 100%; height: 100%; display: flex; align-items: center;
-      justify-content: center; font-size: 12px; color: #9ca3af;
-      background: #f9fafb; padding: 24px; text-align: center; }
+      justify-content: center; font-size: 12px; color: #555;
+      background: #fff; padding: 24px; text-align: center; }
     .stoplist-panel { flex: 1; overflow: hidden; }
-    .depot-row { background: #f9fafb; padding: 8px 14px; font-size: 12px;
-      color: #16a34a; font-weight: bold; border-bottom: 1px solid #d1d5db; }
+    .depot-row { background: #fff; padding: 8px 14px; font-size: 12px;
+      color: #000; font-weight: bold; border-bottom: 1.5px solid #000; }
     .stop-list { width: 100%; border-collapse: collapse; }
-    .stop-list tr { border-bottom: 1px solid #e5e7eb; }
-    .stop-list tr:nth-child(even) { background: #f9fafb; }
+    .stop-list tr { border-bottom: 1px solid #bbb; }
     .sl-num { width: 40px; padding: 7px 4px 7px 12px; }
     .sl-circle { display: inline-flex; align-items: center; justify-content: center;
-      width: 24px; height: 24px; border-radius: 50%; background: #c0392b;
-      color: #fff; font-size: 11px; font-weight: bold; }
+      width: 24px; height: 24px; border-radius: 50%; background: #fff;
+      border: 1.5px solid #000; color: #000; font-size: 11px; font-weight: bold; }
     .sl-name { font-weight: bold; font-size: 12px; padding: 7px 4px; }
-    .sl-addr { font-size: 11px; color: #555; padding: 7px 4px; }
-    .sl-eta { font-size: 11px; color: #ea580c; padding: 7px 12px 7px 4px;
-      white-space: nowrap; }
+    .sl-addr { font-size: 11px; color: #333; padding: 7px 4px; }
+    .sl-eta { font-size: 11px; color: #000; font-weight: bold;
+      padding: 7px 12px 7px 4px; white-space: nowrap; }
+
+    /* -- Stop cards -- */
     .cards { padding: 0 24px 24px; }
-    .card { margin-bottom: 28px; page-break-inside: avoid; border: 1px solid #d1d5db; }
-    .card-header { background: #0f1f3d; color: #fff; padding: 10px 14px;
+    .card { margin-bottom: 28px; page-break-inside: avoid; border: 1.5px solid #000; }
+    .card-header { background: #fff; color: #000; padding: 10px 14px;
+      border-bottom: 2px solid #000;
       display: flex; align-items: center; gap: 12px; }
     .card-circle { display: inline-flex; align-items: center; justify-content: center;
-      width: 32px; height: 32px; border-radius: 50%; background: #c0392b;
-      color: #fff; font-size: 15px; font-weight: bold; flex-shrink: 0; }
+      width: 32px; height: 32px; border-radius: 50%; background: #fff;
+      border: 2px solid #000; color: #000; font-size: 15px; font-weight: bold;
+      flex-shrink: 0; }
     .card-title-block { flex: 1; min-width: 0; }
     .card-client { font-size: 15px; font-weight: bold; line-height: 1.2; }
-    .card-jobtitle { font-size: 15px; color: #e5e7eb; margin-top: 3px; font-weight: 600; letter-spacing: 0.02em; }
-    .card-appt { font-size: 13px; color: #fbbf24; font-weight: bold;
+    .card-jobtitle { font-size: 15px; color: #333; margin-top: 3px; font-weight: 600; letter-spacing: 0.02em; }
+    .card-appt { font-size: 13px; color: #000; font-weight: bold;
+      border: 1.5px solid #000; border-radius: 3px; padding: 3px 9px;
       flex-shrink: 0; white-space: nowrap; }
-    .card-meta { display: flex; gap: 0; border-bottom: 1px solid #e5e7eb; }
+    .card-meta { display: flex; gap: 0; border-bottom: 1px solid #000; }
     .card-meta-col { flex: 1; padding: 8px 14px; }
-    .card-meta-col + .card-meta-col { border-left: 1px solid #e5e7eb; }
+    .card-meta-col + .card-meta-col { border-left: 1px solid #bbb; }
     .card-meta-col--narrow { flex: 0 0 80px; }
-    .meta-label { font-size: 10px; color: #9ca3af; font-weight: bold;
+    .meta-label { font-size: 10px; color: #555; font-weight: bold;
       letter-spacing: 0.05em; margin-bottom: 2px; }
     .meta-val { font-size: 12px; }
-    .instr-box { background: #f0fdf4; border: 1px solid #86efac; color: #166534;
-      padding: 7px 14px; font-size: 12px; border-left: 3px solid #16a34a; }
+    .instr-box { background: #fff; border: 1px solid #000; color: #000;
+      padding: 7px 14px; font-size: 12px; border-left: 5px solid #000; }
     .li-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    .li-table thead tr { background: #0f1f3d; color: #fff; }
+    .li-table thead tr { background: #fff; color: #000;
+      border-bottom: 1.5px solid #000; }
     .li-table thead th { padding: 6px 10px; text-align: left; font-size: 10px;
       font-weight: bold; letter-spacing: 0.04em; }
-    .li-table tbody tr { border-bottom: 1px solid #e5e7eb; }
-    .li-table tbody tr:nth-child(even) { background: #f9fafb; }
+    .li-table tbody tr { border-bottom: 1px solid #ddd; }
     .li-table td { padding: 5px 10px; }
     .li-qty, .li-rate, .li-amt { width: 70px; text-align: right; white-space: nowrap; }
     .li-name { text-align: left; }
-    .li-total { font-weight: bold; background: #1e3a5f !important;
-      color: #fff; border-top: 2px solid #0f1f3d; }
+    .li-total { font-weight: bold; background: #fff !important;
+      color: #000; border-top: 2px solid #000; }
     .li-total td { padding: 6px 10px; text-align: right; }
     .li-total td:first-child { text-align: left; font-size: 11px;
       letter-spacing: 0.04em; }
-    .field-notes-label { padding: 6px 14px 2px; font-size: 10px; color: #9ca3af;
+    .field-notes-label { padding: 6px 14px 2px; font-size: 10px; color: #555;
       font-weight: bold; letter-spacing: 0.05em; }
-    .field-lines { height: 48px; border-top: 1px solid #e5e7eb;
+    .field-lines { height: 48px; border-top: 1px solid #000;
       background: repeating-linear-gradient(
-        to bottom, transparent, transparent 23px, #e5e7eb 23px, #e5e7eb 24px
+        to bottom, transparent, transparent 23px, #777 23px, #777 24px
       ); margin: 0 14px 10px; }
   </style>
 </head>

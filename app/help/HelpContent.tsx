@@ -1165,6 +1165,7 @@ function RoutingTab() {
           <li><strong className="text-white">Following pages (portrait)</strong> — one card per stop with client name, address, phone, job details, and special instructions</li>
         </ul>
         <p>Use the browser&apos;s Print dialog (Cmd+P / Ctrl+P). Set margins to None or Minimum for best results.</p>
+        <p className="mt-2">The sheet prints <strong className="text-white">black and white by design</strong> — headings, stop numbers and totals use outlined boxes and rules instead of filled colour bars, so a full route costs very little ink. The map on page 1 is the only part in colour. It also means the sheet reads correctly whether or not <strong className="text-white">Background graphics</strong> is ticked in the Print dialog.</p>
       </Section>
 
       <Section title="Admin — Routing Settings">
