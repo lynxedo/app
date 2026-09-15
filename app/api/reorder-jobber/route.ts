@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { jobberGraphQL } from '@/lib/jobber'
+import { requireCompany } from '@/lib/company-auth'
+import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 
 // "Send day + team to Jobber" — pushes each visit's DAY and TECH ASSIGNMENT back
 // to Jobber via the official OAuth API, leaving the stops as "anytime" (no clock
@@ -74,10 +74,18 @@ interface AssignMutationResult {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId, userId } = auth
+
+  // Jobber is connected per COMPANY, not per user. `jobber_tokens` is RLS'd to
+  // `auth.uid() = user_id`, so asking for the signed-in user's own token answers
+  // "did *I* personally connect Jobber" — null for everyone except the one person
+  // who did. Resolve the company's connected account and go through the admin
+  // client instead (see companyJobberUserId in lib/jobber.ts).
+  const jobberUserId = await companyJobberUserId(companyId, userId)
+  if (!jobberUserId) {
+    return NextResponse.json({ error: 'Jobber is not connected for your company' }, { status: 400 })
   }
 
   let body: AssignRequest
@@ -125,7 +133,7 @@ export async function POST(req: NextRequest) {
       // Step 1: move to the target date as an Anytime visit (date only, no time).
       if (assignedDate) {
         try {
-          const moveRes = await jobberGraphQL<DateMoveResult>(user.id, DATE_MOVE_MUTATION, {
+          const moveRes = await jobberGraphQLAdmin<DateMoveResult>(jobberUserId, DATE_MOVE_MUTATION, {
             id: visitId,
             input: { startAt: { date: assignedDate, timezone: TIMEZONE } },
           })
@@ -139,7 +147,7 @@ export async function POST(req: NextRequest) {
       // Step 2: reassign to the target tech (skip if the date move already failed).
       if (!error && assignedUserId) {
         try {
-          const assignRes = await jobberGraphQL<AssignMutationResult>(user.id, ASSIGN_MUTATION, {
+          const assignRes = await jobberGraphQLAdmin<AssignMutationResult>(jobberUserId, ASSIGN_MUTATION, {
             visitId,
             input: { assignedUserIds: [assignedUserId] },
           })

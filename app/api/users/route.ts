@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { jobberGraphQL } from '@/lib/jobber'
+import { requireCompany } from '@/lib/company-auth'
+import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 
 const USERS_QUERY = `
   query GetUsers {
@@ -28,10 +28,18 @@ interface JobberUsersResponse {
 }
 
 export async function GET(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId, userId, supabase } = auth
+
+  // Jobber is connected per COMPANY, not per user. `jobber_tokens` is RLS'd to
+  // `auth.uid() = user_id`, so asking for the signed-in user's own token answers
+  // "did *I* personally connect Jobber" — null for everyone except the one person
+  // who did. Resolve the company's connected account and go through the admin
+  // client instead (see companyJobberUserId in lib/jobber.ts).
+  const jobberUserId = await companyJobberUserId(companyId, userId)
+  if (!jobberUserId) {
+    return NextResponse.json({ error: 'Jobber is not connected for your company' }, { status: 400 })
   }
 
   // ?include_all=1 — admin allowlist UI uses this to see every active user
@@ -40,7 +48,7 @@ export async function GET(req: NextRequest) {
   const includeAll = req.nextUrl.searchParams.get('include_all') === '1'
 
   try {
-    const result = await jobberGraphQL<JobberUsersResponse>(user.id, USERS_QUERY)
+    const result = await jobberGraphQLAdmin<JobberUsersResponse>(jobberUserId, USERS_QUERY)
 
     if (result.errors?.length) {
       return NextResponse.json({ error: result.errors[0].message }, { status: 400 })
@@ -60,7 +68,7 @@ export async function GET(req: NextRequest) {
       const { data: hu } = await supabase
         .from('hub_users')
         .select('company_id')
-        .eq('id', user.id)
+        .eq('id', userId)
         .maybeSingle()
       if (hu?.company_id) {
         const { data: settings } = await supabase

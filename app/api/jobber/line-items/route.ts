@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { jobberGraphQL } from '@/lib/jobber'
+import { requireCompany } from '@/lib/company-auth'
+import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 
 const PRODUCTS_QUERY = `
   query GetProductsAndServices {
@@ -23,12 +23,22 @@ interface ProductsResponse {
 }
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId, userId } = auth
+
+  // Jobber is connected per COMPANY, not per user. `jobber_tokens` is RLS'd to
+  // `auth.uid() = user_id`, so asking for the signed-in user's own token answers
+  // "did *I* personally connect Jobber" — null for everyone except the one person
+  // who did. Resolve the company's connected account and go through the admin
+  // client instead (see companyJobberUserId in lib/jobber.ts).
+  const jobberUserId = await companyJobberUserId(companyId, userId)
+  if (!jobberUserId) {
+    return NextResponse.json({ error: 'Jobber is not connected for your company' }, { status: 400 })
+  }
 
   try {
-    const result = await jobberGraphQL<ProductsResponse>(user.id, PRODUCTS_QUERY, {})
+    const result = await jobberGraphQLAdmin<ProductsResponse>(jobberUserId, PRODUCTS_QUERY, {})
     if (result.errors?.length) {
       return NextResponse.json({ error: result.errors[0].message }, { status: 400 })
     }

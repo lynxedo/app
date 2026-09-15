@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { jobberGraphQL } from '@/lib/jobber'
+import { requireCompany } from '@/lib/company-auth'
+import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 
 // ── Visits query ─────────────────────────────────────────────────────────────
 const VISITS_QUERY = `
@@ -140,19 +140,29 @@ export async function GET(request: Request) {
 
   const { start: dayStart, end: dayEnd } = localDayBounds(date)
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId, userId } = auth
+
+  // Jobber is connected per COMPANY, not per user. `jobber_tokens` is RLS'd to
+  // `auth.uid() = user_id`, so asking for the signed-in user's own token answers
+  // "did *I* personally connect Jobber" — null for everyone except the one person
+  // who did. Resolve the company's connected account and go through the admin
+  // client instead (see companyJobberUserId in lib/jobber.ts).
+  const jobberUserId = await companyJobberUserId(companyId, userId)
+  if (!jobberUserId) {
+    return NextResponse.json({ error: 'Jobber is not connected for your company' }, { status: 400 })
+  }
 
   try {
     // Fetch visits and assessments in parallel
     const [visitResult, assessResult] = await Promise.all([
-      jobberGraphQL<{ data: { visits: { nodes: JobberVisit[] } }; errors?: Array<{ message: string }> }>(
-        user.id, VISITS_QUERY,
+      jobberGraphQLAdmin<{ data: { visits: { nodes: JobberVisit[] } }; errors?: Array<{ message: string }> }>(
+        jobberUserId, VISITS_QUERY,
         { filter: { startAt: { after: dayStart, before: dayEnd }, assignedTo } }
       ),
-      jobberGraphQL<{ data: { scheduledItems: { nodes: Array<Record<string, unknown>> } }; errors?: Array<{ message: string }> }>(
-        user.id, ASSESSMENTS_QUERY,
+      jobberGraphQLAdmin<{ data: { scheduledItems: { nodes: Array<Record<string, unknown>> } }; errors?: Array<{ message: string }> }>(
+        jobberUserId, ASSESSMENTS_QUERY,
         { filter: {
           scheduleItemType: 'ASSESSMENT',
           occursWithin: { startAt: dayStart, endAt: dayEnd },

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { jobberGraphQL } from '@/lib/jobber'
+import { requireCompany } from '@/lib/company-auth'
+import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 
 interface VisitUpdate {
   visitId: string
@@ -65,9 +65,19 @@ interface AssignResult {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId, userId } = auth
+
+  // Jobber is connected per COMPANY, not per user. `jobber_tokens` is RLS'd to
+  // `auth.uid() = user_id`, so asking for the signed-in user's own token answers
+  // "did *I* personally connect Jobber" — null for everyone except the one person
+  // who did. Resolve the company's connected account and go through the admin
+  // client instead (see companyJobberUserId in lib/jobber.ts).
+  const jobberUserId = await companyJobberUserId(companyId, userId)
+  if (!jobberUserId) {
+    return NextResponse.json({ error: 'Jobber is not connected for your company' }, { status: 400 })
+  }
 
   const { visits, assignedUserId }: SendToJobberRequest = await req.json()
 
@@ -80,7 +90,7 @@ export async function POST(req: NextRequest) {
   for (const v of visits) {
     try {
       // 1. Set schedule (startAt + endAt)
-      const schedResult = await jobberGraphQL<ScheduleResult>(user.id, SCHEDULE_MUTATION, {
+      const schedResult = await jobberGraphQLAdmin<ScheduleResult>(jobberUserId, SCHEDULE_MUTATION, {
         id: v.visitId,
         input: {
           startAt: toJobberDT(v.startAt),
@@ -96,7 +106,7 @@ export async function POST(req: NextRequest) {
 
       // 2. Optionally reassign tech
       if (assignedUserId) {
-        const assignResult = await jobberGraphQL<AssignResult>(user.id, ASSIGN_MUTATION, {
+        const assignResult = await jobberGraphQLAdmin<AssignResult>(jobberUserId, ASSIGN_MUTATION, {
           visitId: v.visitId,
           input: { assignedUserIds: [assignedUserId] },
         })
