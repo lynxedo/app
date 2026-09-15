@@ -28,7 +28,9 @@ export async function renderRouteSheetPdf(html: string): Promise<Buffer | null> 
     // page.pdf() uses print media by default — that hides `.print-btn` and
     // applies the sheet's @page rules (landscape summary page + portrait stop
     // cards). preferCSSPageSize honors those so the PDF matches the in-browser
-    // "Save as PDF" output exactly. printBackground keeps the dark headers.
+    // "Save as PDF" output exactly. printBackground stays on so the page-1 Mapbox
+    // image renders; the sheet itself has been black-and-white since 2026-09-15,
+    // so there are no dark header bars left for it to preserve.
     const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true })
     return Buffer.from(pdf)
   } catch (err) {
