@@ -61,21 +61,22 @@
 <p class="sub">Does recycling the recorder every few seconds clip a syllable on this phone?</p>
 
 <div class="card script">
-  <b>What to do</b>
+  <b>Two different tests — do both</b>
   <ol>
-    <li>Tap <b>Allow</b> when it asks for the microphone.</li>
-    <li>Hold the big button and <b>count out loud, steadily: “one, two, three…”</b> up to about twenty. Keep an even rhythm — don't pause.</li>
-    <li>Let go, then tap <b>Play pieces</b> and listen. <b>Is every number there?</b></li>
-    <li>Tap <b>Record control</b>, count the same way, and play that back. That's what it <i>should</i> sound like.</li>
-    <li>Tap <b>Copy results</b> and paste them to me.</li>
+    <li><b>Read a paragraph</b> out loud, naturally, for 20 seconds. Play it back. This is the test for <b>choppiness</b> — whether the joins interrupt the flow of a sentence.</li>
+    <li><b>Count steadily</b> — “one, two, three…” to twenty. Play it back. This is the test for <b>loss</b> — a missing number is unmissable, where a missing fraction of a second inside a sentence isn't.</li>
   </ol>
-  <p class="note">Counting is the test because a missing number is obvious. A dropped “<i>fourteen</i>” is the feature dying; a faint tick between numbers is fine.</p>
+  <p class="note">They answer different questions and a run can pass one and fail the other. Counting has natural gaps between the numbers, so it hides choppiness; connected prose hides a small loss. Do both, then <b>Copy results</b>.</p>
+  <p class="note"><b>Trim</b> is the thing to experiment with now: play the same take with trim <b>Off</b> and then <b>Auto</b>, and say which sounds smoother.</p>
 </div>
 
 <button id="mic">🎙 Hold to talk<small>press and hold</small></button>
 
 <div class="row" style="margin-top:12px">
-  <button class="act primary" id="playGapless" disabled>▶ Play pieces</button>
+  <button class="act primary" id="playTrim" disabled>▶ Play trimmed</button>
+  <button class="act" id="playGapless" disabled>▶ Play raw</button>
+</div>
+<div class="row">
   <button class="act" id="playNaive" disabled>▶ Play (naive)</button>
 </div>
 <div class="row">
@@ -92,13 +93,31 @@
 <div class="card"><table id="summary" class="big"><tbody></tbody></table></div>
 
 <h2>Pieces</h2>
-<div class="card"><table id="pieces"><thead><tr><th>#</th><th>asked</th><th>audio</th><th>gap</th><th>KB</th></tr></thead><tbody></tbody></table></div>
+<div class="card"><table id="pieces"><thead><tr><th>#</th><th>asked</th><th>audio</th><th>gap</th><th>lead</th><th>KB</th></tr></thead><tbody></tbody></table></div>
 
 <h2>Settings</h2>
 <div class="card">
   <label class="cfg">First piece (ms) <input id="cfgFirst" type="number" value="2000" step="250" inputmode="numeric"></label>
   <label class="cfg">Every piece after (ms) <input id="cfgRest" type="number" value="5000" step="250" inputmode="numeric"></label>
-  <p class="note">The PRD's proposal is 2000 then 5000. Try 5000/5000 too — more boundaries per sentence makes clipping easier to hear.</p>
+  <p class="note">The PRD's proposal is 2000 then 5000. Try 5000/5000 too — more boundaries per sentence makes a join easier to hear.</p>
+</div>
+
+<div class="card">
+  <label class="cfg">Trim each piece
+    <select id="trimMode">
+      <option value="auto" selected>Auto</option>
+      <option value="off">Off</option>
+      <option value="fixed">Fixed</option>
+    </select>
+  </label>
+  <label class="cfg">Auto cap (ms) <input id="cfgTrimMax" type="number" value="80" step="5" inputmode="numeric"></label>
+  <label class="cfg">Fixed amount (ms) <input id="cfgTrimFixed" type="number" value="45" step="5" inputmode="numeric"></label>
+  <p class="note"><b>Auto</b> measures the silence the encoder put at the front of each piece and skips exactly that much, never more than the cap. <b>Fixed</b> skips the same amount off every piece. The cap matters: without it, auto would also eat a real pause in your speech and run your words together.</p>
+</div>
+
+<div class="card">
+  <label class="cfg">Recording format <select id="fmt"></select></label>
+  <p class="note">The iPhone only offers one, so there's nothing to choose there. On a desktop or Android this is worth switching — it tells us whether a bad result is the chopping technique or just that browser being slow at that particular format. <b>Changing it starts a fresh take.</b></p>
 </div>
 
 <h2>Diagnostics</h2>
@@ -124,10 +143,29 @@
     && typeof MediaRecorder !== 'undefined'
 
   var MIMES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/aac']
+  var SUPPORTED = []
   var MIME = null
   if (canRecord) {
     for (var i = 0; i < MIMES.length; i++) {
-      try { if (MediaRecorder.isTypeSupported(MIMES[i])) { MIME = MIMES[i]; break } } catch (e) {}
+      try { if (MediaRecorder.isTypeSupported(MIMES[i])) SUPPORTED.push(MIMES[i]) } catch (e) {}
+    }
+    MIME = SUPPORTED[0] || null
+    var fmtSel = document.getElementById('fmt')
+    if (SUPPORTED.length) {
+      SUPPORTED.forEach(function (m) {
+        var o = document.createElement('option'); o.value = m; o.textContent = m; fmtSel.appendChild(o)
+      })
+      fmtSel.value = MIME
+      fmtSel.addEventListener('change', function () {
+        MIME = fmtSel.value
+        pieces = []; buffers = []
+        document.getElementById('playTrim').disabled = true
+        document.getElementById('playGapless').disabled = true
+        document.getElementById('playNaive').disabled = true
+        log('format switched to ' + MIME + ' — record a fresh take')
+      })
+    } else {
+      var o = document.createElement('option'); o.textContent = 'browser default'; fmtSel.appendChild(o)
     }
   }
   log('ua: ' + navigator.userAgent)
@@ -272,6 +310,7 @@
     micBtn.classList.remove('busy')
     micBtn.innerHTML = '🎙 Hold to talk<small>press and hold</small>'
     document.getElementById('playGapless').disabled = buffers.length === 0
+    document.getElementById('playTrim').disabled = buffers.length === 0
     document.getElementById('playNaive').disabled = pieces.length === 0
   }
 
@@ -286,12 +325,41 @@
         })
         buffers.push(buf)
         pieces[i].audioMs = buf.duration * 1000
+        pieces[i].leadMs = leadSilenceMs(buf)
       } catch (e) {
         buffers.push(null)
         pieces[i].audioMs = null
+        pieces[i].leadMs = null
         log('decode failed on piece ' + pieces[i].seq + ': ' + (e && (e.message || e.name)))
       }
     }
+  }
+
+  // How much silence sits at the front of a piece before any speech. On iPhone the
+  // AAC encoder prepends priming samples, which is what you hear as a join: not lost
+  // audio, but inserted quiet. Measuring it is what makes trimming it possible.
+  function leadSilenceMs(buf) {
+    if (!buf) return null
+    var d = buf.getChannelData(0)
+    var sr = buf.sampleRate
+    var limit = Math.min(d.length, Math.floor(sr * 0.25))   // never look past 250ms
+    for (var i = 0; i < limit; i++) {
+      if (Math.abs(d[i]) > 0.004) return (i / sr) * 1000
+    }
+    return (limit / sr) * 1000
+  }
+
+  // Seconds to skip off the front of piece i, per the current trim setting.
+  function trimSecondsFor(i) {
+    var mode = document.getElementById('trimMode').value
+    if (mode === 'off') return 0
+    var cap = Math.max(0, parseInt(document.getElementById('cfgTrimMax').value, 10) || 0)
+    if (mode === 'fixed') {
+      var fx = Math.max(0, parseInt(document.getElementById('cfgTrimFixed').value, 10) || 0)
+      return Math.min(fx, cap) / 1000
+    }
+    var lead = pieces[i] && pieces[i].leadMs != null ? pieces[i].leadMs : 0
+    return Math.min(lead, cap) / 1000   // the cap stops auto eating a real pause
   }
 
   // ---- reporting --------------------------------------------------------
@@ -310,9 +378,18 @@
         + '<td class="num">' + Math.round(p.askedMs) + '</td>'
         + '<td class="num">' + (p.audioMs == null ? '—' : Math.round(p.audioMs)) + '</td>'
         + '<td class="num">' + (gap == null ? '—' : (gap > 0 ? '+' : '') + Math.round(gap)) + '</td>'
+        + '<td class="num">' + (p.leadMs == null ? '—' : Math.round(p.leadMs)) + '</td>'
         + '<td class="num">' + (p.blob.size / 1024).toFixed(1) + '</td>'
       tb.appendChild(tr)
     }
+
+    // Average over pieces 2+ — piece 1's lead is you pressing before you spoke,
+    // which is real silence, not something the encoder added.
+    var leadSum = 0, leadN = 0
+    for (var j = 1; j < pieces.length; j++) {
+      if (pieces[j].leadMs != null) { leadSum += pieces[j].leadMs; leadN++ }
+    }
+    var avgLead = leadN ? leadSum / leadN : null
 
     var boundaries = Math.max(0, pieces.length - 1)
     // The last piece is cut short by the release, so compare against wall clock, not `asked`.
@@ -325,6 +402,7 @@
       ['Missing', Math.round(deficit) + ' ms'],
       ['Pieces / boundaries', pieces.length + ' / ' + boundaries],
       ['Lost per boundary', boundaries ? Math.round(perBoundary) + ' ms' : '—'],
+      ['Silence at each join', avgLead == null ? '—' : Math.round(avgLead) + ' ms'],
       ['Format', (pieces[0] && pieces[0].blob.type) || MIME || '?'],
       ['Decoded', decoded + ' of ' + pieces.length]
     ]
@@ -346,10 +424,10 @@
       v.className = 'verdict warn'
       v.innerHTML = 'Only one piece — no boundary to judge'
       + '<small>Hold longer than the first-piece length so it has to recycle at least once.</small>'
-    } else if (perBoundary < -30) {
+    } else if (perBoundary < -5 && avgLead != null && avgLead > 15) {
       v.className = 'verdict warn'
-      v.innerHTML = 'Pieces decoded longer than you spoke'
-      + '<small>About ' + Math.round(-perBoundary) + ' ms of padding per piece — iPhone\'s AAC encoder adds silence at the front. It can hide real loss, so this one is decided purely by ear: play the pieces, then the control.</small>'
+      v.innerHTML = 'Nothing lost — but ' + Math.round(avgLead) + ' ms of silence added at each join'
+      + '<small>The pieces total more than you spoke, so no speech went missing; the encoder is padding the front of each one. That padding is what you hear as a break — and unlike lost audio it can simply be skipped. Play with trim <b>Off</b>, then <b>Auto</b>, and say which is smoother.</small>'
     } else if (abs < 30) {
       v.className = 'verdict ok'
       v.innerHTML = 'Looks clean — about ' + Math.round(perBoundary) + ' ms per boundary'
@@ -375,20 +453,25 @@
   // ---- playback ---------------------------------------------------------
   // Gapless: schedule every buffer back-to-back on the audio clock, so any gap
   // you hear came from the RECORDING, not from swapping players.
-  function playGapless() {
+  function playGapless(useTrim) {
     var c = ctx()
     var t = c.currentTime + 0.08
-    var played = 0
+    var played = 0, cut = 0
     for (var i = 0; i < buffers.length; i++) {
       if (!buffers[i]) continue
+      var off = useTrim ? trimSecondsFor(i) : 0
+      if (off >= buffers[i].duration) off = 0
       var src = c.createBufferSource()
       src.buffer = buffers[i]
       src.connect(c.destination)
-      src.start(t)
-      t += buffers[i].duration
+      src.start(t, off)                      // skip the encoder's padding
+      t += buffers[i].duration - off
+      cut += off * 1000
       played++
     }
-    log('gapless playback: ' + played + ' pieces, ' + (t - c.currentTime).toFixed(2) + 's')
+    log('playback ' + (useTrim ? '[TRIM ' + document.getElementById('trimMode').value
+        + ' cap ' + document.getElementById('cfgTrimMax').value + 'ms, cut ' + Math.round(cut) + 'ms]' : '[RAW]')
+      + ': ' + played + ' pieces, ' + (t - c.currentTime).toFixed(2) + 's')
   }
 
   // Naive: one <audio> after another. Shows what the lazy implementation sounds like.
@@ -451,7 +534,8 @@
   micBtn.addEventListener('pointerleave', function () { if (holding) { pressed = false; endHold() } })
   micBtn.addEventListener('contextmenu', function (e) { e.preventDefault() })
 
-  document.getElementById('playGapless').addEventListener('click', playGapless)
+  document.getElementById('playTrim').addEventListener('click', function () { playGapless(true) })
+  document.getElementById('playGapless').addEventListener('click', function () { playGapless(false) })
   document.getElementById('playNaive').addEventListener('click', playNaive)
   document.getElementById('ctlRec').addEventListener('click', toggleControl)
   document.getElementById('ctlPlay').addEventListener('click', playControl)
