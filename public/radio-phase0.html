@@ -67,7 +67,7 @@
     <li><b>Count steadily</b> — “one, two, three…” to twenty. Play it back. This is the test for <b>loss</b> — a missing number is unmissable, where a missing fraction of a second inside a sentence isn't.</li>
   </ol>
   <p class="note">They answer different questions and a run can pass one and fail the other. Counting has natural gaps between the numbers, so it hides choppiness; connected prose hides a small loss. Do both, then <b>Copy results</b>.</p>
-  <p class="note"><b>The thing to test now is <i>Capture mode</i>, in the settings below.</b> Record the same paragraph twice — once on <b>Continuous</b> and once on <b>Recycle recorder</b> (what you have been hearing all along) — and say whether the joins are <i>gone</i> or merely smaller. Trim no longer matters much: it was built for a problem that turned out not to be the real one.</p>
+  <p class="note"><b>On Continuous, play the same take three ways and tell me where the choppiness stops.</b> <b>▶ Play raw</b> is the pieces played one after another. <b>▶ Play joined</b> is the identical pieces glued into one sound first. If raw is choppy and joined is clean, <b>the recording is fine and the fault is in how they're stitched back together</b> — a much smaller problem. If both are choppy, the recording itself is dropping audio and the <b>Missing</b> figure will say so.</p>
 </div>
 
 <button id="mic">🎙 Hold to talk<small>press and hold</small></button>
@@ -77,6 +77,7 @@
   <button class="act" id="playGapless" disabled>▶ Play raw</button>
 </div>
 <div class="row">
+  <button class="act" id="playJoined" disabled>▶ Play joined</button>
   <button class="act" id="playNaive" disabled>▶ Play (naive)</button>
 </div>
 <div class="row">
@@ -261,28 +262,40 @@
     return new Blob([ab], { type: 'audio/wav' })
   }
 
-  function cutPiece(askedMs) {
-    var take = Math.min(capHeld, capTarget)
-    if (take <= 0) return
-    var out = new Float32Array(take)
-    var filled = 0
-    while (filled < take && capBuf.length) {
-      var head = capBuf[0]
-      var need = take - filled
-      if (head.length <= need) { out.set(head, filled); filled += head.length; capBuf.shift() }
-      else { out.set(head.subarray(0, need), filled); capBuf[0] = head.subarray(need); filled += need }
+  // Cut and encode the whole take AFTER the button is released.
+  //
+  // ⚠ This used to run inside onaudioprocess, once per piece. Encoding five
+  // seconds of WAV is a quarter of a million DataView writes, and the audio
+  // callback it was blocking has about 85ms to return before the browser starts
+  // dropping input. So the capture stalled at every cut — the exact thing
+  // "continuous capture" was supposed to make impossible, caused by the cutting
+  // rather than by the capturing. Nothing but a memcpy happens during the hold now.
+  function flushContinuousPieces() {
+    if (!capHeld) return
+    var all = new Float32Array(capHeld)
+    var off = 0
+    for (var i = 0; i < capBuf.length; i++) { all.set(capBuf[i], off); off += capBuf[i].length }
+    capBuf = []; capHeld = 0
+
+    var pos = 0
+    var askedMs = firstMs()
+    var base = holdStart
+    while (pos < all.length) {
+      var want = Math.max(1, Math.round(capRate * askedMs / 1000))
+      var take = Math.min(want, all.length - pos)
+      var ms = (take / capRate) * 1000
+      pieces.push({
+        seq: ++seq,
+        blob: wavBlob(all.subarray(pos, pos + take), capRate),
+        askedMs: ms,          // a cut in an unbroken buffer: asked IS what you get
+        wallMs: ms,
+        startedAt: base,
+        stoppedAt: base + ms
+      })
+      base += ms
+      pos += take
+      askedMs = restMs()
     }
-    capHeld -= take
-    var now = performance.now()
-    pieces.push({
-      seq: ++seq,
-      blob: wavBlob(out, capRate),
-      askedMs: askedMs,
-      wallMs: now - capStartedAt,
-      startedAt: capStartedAt,
-      stoppedAt: now
-    })
-    capStartedAt = now
   }
 
   function startContinuous() {
@@ -299,17 +312,11 @@
     // feedback howl on a phone held to your face.
     capSink = c.createGain(); capSink.gain.value = 0
 
-    var askedMs = firstMs()
     capNode.onaudioprocess = function (e) {
       if (!holding) return
       var inp = e.inputBuffer.getChannelData(0)
-      capBuf.push(new Float32Array(inp))      // copy: the event buffer is reused
+      capBuf.push(new Float32Array(inp))      // copy (the event buffer is reused) — and nothing else
       capHeld += inp.length
-      while (capHeld >= capTarget) {
-        cutPiece(askedMs)
-        askedMs = restMs()
-        capTarget = Math.round(capRate * restMs() / 1000)
-      }
     }
     capSource.connect(capNode); capNode.connect(capSink); capSink.connect(c.destination)
     log('continuous capture at ' + capRate + 'Hz')
@@ -321,8 +328,7 @@
     try { if (capNode) capNode.disconnect() } catch (e) {}
     try { if (capSink) capSink.disconnect() } catch (e) {}
     capSource = capNode = capSink = null
-    if (capHeld > 0) { capTarget = capHeld; cutPiece(restMs()) }   // flush the tail
-    capBuf = []; capHeld = 0
+    flushContinuousPieces()
   }
 
   function modeIs() { return document.getElementById('mode').value }
@@ -427,6 +433,7 @@
     micBtn.innerHTML = '🎙 Hold to talk<small>press and hold</small>'
     document.getElementById('playGapless').disabled = buffers.length === 0
     document.getElementById('playTrim').disabled = buffers.length === 0
+    document.getElementById('playJoined').disabled = buffers.length === 0
     document.getElementById('playNaive').disabled = pieces.length === 0
   }
 
@@ -594,6 +601,29 @@
       + ': ' + played + ' pieces, ' + (t - c.currentTime).toFixed(2) + 's')
   }
 
+  // Every piece glued into ONE buffer and played as a single sound. If the joins
+  // are audible when scheduled back-to-back but vanish here, the recording is fine
+  // and the fault is in how playback stitches them.
+  function playJoined() {
+    var c = ctx()
+    var total = 0, rate = c.sampleRate
+    for (var i = 0; i < buffers.length; i++) {
+      if (buffers[i]) { total += buffers[i].length; rate = buffers[i].sampleRate }
+    }
+    if (!total) return
+    var out = c.createBuffer(1, total, rate)
+    var d = out.getChannelData(0)
+    var off = 0
+    for (var j = 0; j < buffers.length; j++) {
+      if (!buffers[j]) continue
+      d.set(buffers[j].getChannelData(0), off)
+      off += buffers[j].length
+    }
+    var src = c.createBufferSource()
+    src.buffer = out; src.connect(c.destination); src.start()
+    log('joined playback: one buffer, ' + out.duration.toFixed(2) + 's')
+  }
+
   // Naive: one <audio> after another. Shows what the lazy implementation sounds like.
   function playNaive() {
     var i = 0
@@ -656,6 +686,7 @@
 
   document.getElementById('playTrim').addEventListener('click', function () { playGapless(true) })
   document.getElementById('playGapless').addEventListener('click', function () { playGapless(false) })
+  document.getElementById('playJoined').addEventListener('click', playJoined)
   document.getElementById('playNaive').addEventListener('click', playNaive)
   document.getElementById('ctlRec').addEventListener('click', toggleControl)
   document.getElementById('ctlPlay').addEventListener('click', playControl)
