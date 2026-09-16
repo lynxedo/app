@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { StatusDot } from './StatusPicker'
 import { useOnCallUsers } from './OnCallPresenceProvider'
 import PopoutButton from './popout/PopoutButton'
+import RadioButton from './radio/RadioButton'
 
 // Live DM-header dot + title. Subscribes to the same hub-status-broadcast
 // channel HubSidebar uses so the colored dot at the top of a DM flips the
@@ -15,6 +16,9 @@ import PopoutButton from './popout/PopoutButton'
 //   or self in a self-DM). For group DMs (3+) pass null; we render 💬.
 // - `initialEffectiveStatus` is the dot's starting color from server render.
 // - `othersCount` drives the small "N people" pill for groups.
+// - `canRadio` is true only when this is a real 1-on-1 (not a self-DM) and BOTH
+//   people hold can_access_radio — the server re-checks both, this just hides a
+//   button that would only fail.
 export default function DMHeader({
   solo,
   initialEffectiveStatus,
@@ -23,6 +27,7 @@ export default function DMHeader({
   othersCount,
   conversationId,
   currentUserId,
+  canRadio = false,
 }: {
   solo: { id: string } | null
   initialEffectiveStatus: string | null
@@ -31,6 +36,7 @@ export default function DMHeader({
   othersCount: number
   conversationId: string
   currentUserId: string
+  canRadio?: boolean
 }) {
   const [effectiveStatus, setEffectiveStatus] = useState<string | null>(initialEffectiveStatus)
   const [manualStatus, setManualStatus] = useState<string | null>(initialManualStatus)
@@ -77,7 +83,8 @@ export default function DMHeader({
       {othersCount > 1 && (
         <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{othersCount + 1} people</span>
       )}
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-1">
+        {canRadio && <RadioButton conversationId={conversationId} />}
         <PopoutButton
           target={{ kind: 'dm', conversationId, title: convTitle, currentUserId }}
         />

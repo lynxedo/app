@@ -28,7 +28,7 @@ export default async function PMPage({
 
   const admin = createAdminClient()
   const [profileResult, memberIdsResult, messagesResult, hubUsersResult, allRoomsResult, receiptsResult] = await Promise.all([
-    supabase.from('user_profiles').select('role').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, can_access_radio').eq('id', user.id).single(),
     admin.from('conversation_members')
       .select('user_id')
       .eq('conversation_id', conversationId),
@@ -63,6 +63,14 @@ export default async function PMPage({
   const participants: HubUser[] = (participantRows ?? []) as HubUser[]
 
   const others = participants.filter(p => p.id !== user.id)
+
+  // Radio is 1-on-1 only and needs the flag on BOTH sides — a button that appears
+  // and then fails is worse than no button. Server re-checks both; this only hides it.
+  const canRadio = others.length === 1 && !!profileResult.data?.can_access_radio && await (async () => {
+    const { data } = await admin
+      .from('user_profiles').select('can_access_radio').eq('id', others[0].id).maybeSingle()
+    return !!(data as { can_access_radio?: boolean } | null)?.can_access_radio
+  })()
   const self = participants.find(p => p.id === user.id)
   const convTitle = others.length === 0
     ? (self?.display_name ?? 'You')
@@ -125,6 +133,7 @@ export default async function PMPage({
         }
         convTitle={convTitle}
         othersCount={others.length}
+        canRadio={canRadio}
         conversationId={conversationId}
         currentUserId={user.id}
       />

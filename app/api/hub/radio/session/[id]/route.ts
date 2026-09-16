@@ -46,7 +46,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     other: { id: otherId, name: names[otherId] ?? 'Teammate' },
     transmissions: transmissions.map(t => ({
       ...t,
-      pieces: pieces.filter(p => p.transmission_id === t.id).map(({ transmission_id: _omit, ...p }) => p),
+      pieces: pieces
+        .filter(p => p.transmission_id === t.id)
+        .map(p => ({ id: p.id, seq: p.seq, mime: p.mime, duration_ms: p.duration_ms, bytes: p.bytes })),
     })),
   })
 }
