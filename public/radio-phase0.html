@@ -67,7 +67,7 @@
     <li><b>Count steadily</b> — “one, two, three…” to twenty. Play it back. This is the test for <b>loss</b> — a missing number is unmissable, where a missing fraction of a second inside a sentence isn't.</li>
   </ol>
   <p class="note">They answer different questions and a run can pass one and fail the other. Counting has natural gaps between the numbers, so it hides choppiness; connected prose hides a small loss. Do both, then <b>Copy results</b>.</p>
-  <p class="note"><b>Trim</b> is the thing to experiment with now: play the same take with trim <b>Off</b> and then <b>Auto</b>, and say which sounds smoother.</p>
+  <p class="note"><b>The thing to test now is <i>Capture mode</i>, in the settings below.</b> Record the same paragraph twice — once on <b>Continuous</b> and once on <b>Recycle recorder</b> (what you have been hearing all along) — and say whether the joins are <i>gone</i> or merely smaller. Trim no longer matters much: it was built for a problem that turned out not to be the real one.</p>
 </div>
 
 <button id="mic">🎙 Hold to talk<small>press and hold</small></button>
@@ -113,6 +113,16 @@
   <label class="cfg">Auto cap (ms) <input id="cfgTrimMax" type="number" value="80" step="5" inputmode="numeric"></label>
   <label class="cfg">Fixed amount (ms) <input id="cfgTrimFixed" type="number" value="45" step="5" inputmode="numeric"></label>
   <p class="note"><b>Auto</b> measures the silence the encoder put at the front of each piece and skips exactly that much, never more than the cap. <b>Fixed</b> skips the same amount off every piece. The cap matters: without it, auto would also eat a real pause in your speech and run your words together.</p>
+</div>
+
+<div class="card">
+  <label class="cfg">Capture mode
+    <select id="mode">
+      <option value="continuous" selected>Continuous</option>
+      <option value="recycle">Recycle recorder</option>
+    </select>
+  </label>
+  <p class="note"><b>Recycle recorder</b> stops and restarts the recorder at every join — simple, but every platform we've tried drops a piece of a word each time. <b>Continuous capture</b> never stops listening: it takes the raw sound straight off the microphone and cuts the pieces itself, so <b>a join cannot lose anything</b> — there is nothing to stop and restart. The cost is size, and you'll see it in the KB column.</p>
 </div>
 
 <div class="card">
@@ -215,6 +225,108 @@
     catch (e) { return new MediaRecorder(s) }
   }
 
+  // ---- continuous capture: the fallback, and now the front-runner --------
+  //
+  // Recycling the recorder loses audio at every join on every platform we've
+  // measured. This path never stops listening: raw samples come off the mic
+  // without interruption and we cut the pieces ourselves, so a join is just an
+  // index into a buffer that was never broken. Nothing can be dropped there.
+  //
+  // Pieces are WAV because it is self-contained, needs no library and plays
+  // everywhere. It is also fat — the real feature would encode to Opus. Size is
+  // a later problem; continuity is the one being decided here.
+
+  var capSource = null, capNode = null, capSink = null
+  var capBuf = []            // Float32Arrays awaiting the next cut
+  var capHeld = 0            // samples held
+  var capTarget = 0          // samples wanted for the piece being filled
+  var capRate = 0
+  var capStartedAt = 0
+
+  function wavBlob(samples, rate) {
+    var len = samples.length
+    var ab = new ArrayBuffer(44 + len * 2)
+    var v = new DataView(ab)
+    function tag(off, s) { for (var i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)) }
+    tag(0, 'RIFF');  v.setUint32(4, 36 + len * 2, true); tag(8, 'WAVE')
+    tag(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true)
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true)
+    tag(36, 'data'); v.setUint32(40, len * 2, true)
+    for (var i = 0, o = 44; i < len; i++, o += 2) {
+      var s = samples[i]
+      s = s < -1 ? -1 : s > 1 ? 1 : s
+      v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+    }
+    return new Blob([ab], { type: 'audio/wav' })
+  }
+
+  function cutPiece(askedMs) {
+    var take = Math.min(capHeld, capTarget)
+    if (take <= 0) return
+    var out = new Float32Array(take)
+    var filled = 0
+    while (filled < take && capBuf.length) {
+      var head = capBuf[0]
+      var need = take - filled
+      if (head.length <= need) { out.set(head, filled); filled += head.length; capBuf.shift() }
+      else { out.set(head.subarray(0, need), filled); capBuf[0] = head.subarray(need); filled += need }
+    }
+    capHeld -= take
+    var now = performance.now()
+    pieces.push({
+      seq: ++seq,
+      blob: wavBlob(out, capRate),
+      askedMs: askedMs,
+      wallMs: now - capStartedAt,
+      startedAt: capStartedAt,
+      stoppedAt: now
+    })
+    capStartedAt = now
+  }
+
+  function startContinuous() {
+    var c = ctx()
+    capRate = c.sampleRate
+    capBuf = []; capHeld = 0
+    capTarget = Math.round(capRate * firstMs() / 1000)
+    capStartedAt = performance.now()
+
+    capSource = c.createMediaStreamSource(stream)
+    capNode = c.createScriptProcessor(4096, 1, 1)
+    // Silent sink: some browsers won't pump the processor unless it reaches the
+    // destination, and routing the mic to the speakers at any audible gain is a
+    // feedback howl on a phone held to your face.
+    capSink = c.createGain(); capSink.gain.value = 0
+
+    var askedMs = firstMs()
+    capNode.onaudioprocess = function (e) {
+      if (!holding) return
+      var inp = e.inputBuffer.getChannelData(0)
+      capBuf.push(new Float32Array(inp))      // copy: the event buffer is reused
+      capHeld += inp.length
+      while (capHeld >= capTarget) {
+        cutPiece(askedMs)
+        askedMs = restMs()
+        capTarget = Math.round(capRate * restMs() / 1000)
+      }
+    }
+    capSource.connect(capNode); capNode.connect(capSink); capSink.connect(c.destination)
+    log('continuous capture at ' + capRate + 'Hz')
+  }
+
+  function stopContinuous() {
+    if (capNode) capNode.onaudioprocess = null
+    try { if (capSource) capSource.disconnect() } catch (e) {}
+    try { if (capNode) capNode.disconnect() } catch (e) {}
+    try { if (capSink) capSink.disconnect() } catch (e) {}
+    capSource = capNode = capSink = null
+    if (capHeld > 0) { capTarget = capHeld; cutPiece(restMs()) }   // flush the tail
+    capBuf = []; capHeld = 0
+  }
+
+  function modeIs() { return document.getElementById('mode').value }
+
   // ---- the piece loop: stop one recorder, immediately start the next -----
   function runPiece(askedMs) {
     var s = stream
@@ -276,9 +388,10 @@
     holding = true; finished = false
     holdStart = performance.now()
     micBtn.classList.add('live')
-    micBtn.innerHTML = '🔴 Talking<small>count steadily — let go when done</small>'
-    log('--- hold start (first=' + firstMs() + 'ms rest=' + restMs() + 'ms) ---')
-    runPiece(firstMs())
+    micBtn.innerHTML = '🔴 Talking<small>let go when done</small>'
+    log('--- hold start [' + modeIs() + '] (first=' + firstMs() + 'ms rest=' + restMs() + 'ms) ---')
+    if (modeIs() === 'continuous') startContinuous()
+    else runPiece(firstMs())
   }
 
   function endHold() {
@@ -292,7 +405,10 @@
     // same instant you let go, leaving the recorder already 'inactive' with its
     // onstop still queued and the final piece not yet collected. Finishing here
     // would render a take that's missing its last piece.
-    if (stopPending) {
+    if (modeIs() === 'continuous') {
+      stopContinuous()
+      finishHold()
+    } else if (stopPending) {
       if (activeRec && activeRec.state !== 'inactive') activeRec.stop()
       // else: onstop is already on its way and will call finishHold
     } else {
@@ -424,10 +540,14 @@
       v.className = 'verdict warn'
       v.innerHTML = 'Only one piece — no boundary to judge'
       + '<small>Hold longer than the first-piece length so it has to recycle at least once.</small>'
+    } else if (modeIs() === 'continuous' && abs < 30) {
+      v.className = 'verdict ok'
+      v.innerHTML = 'Continuous capture — ' + Math.round(perBoundary) + ' ms per boundary'
+      + '<small>Nothing stops and restarts here, so a join cannot drop anything. Confirm by ear against a Recycle take of the same words: the joins should be gone, not smaller.</small>'
     } else if (perBoundary < -5 && avgLead != null && avgLead > 15) {
       v.className = 'verdict warn'
-      v.innerHTML = 'Nothing lost — but ' + Math.round(avgLead) + ' ms of silence added at each join'
-      + '<small>The pieces total more than you spoke, so no speech went missing; the encoder is padding the front of each one. That padding is what you hear as a break — and unlike lost audio it can simply be skipped. Play with trim <b>Off</b>, then <b>Auto</b>, and say which is smoother.</small>'
+      v.innerHTML = 'Totals look fine, but the ear is the judge'
+      + '<small>The pieces add up to more than you spoke, because the encoder pads the front of each one — which can hide real loss rather than rule it out. Trimming that padding did NOT fix the choppiness in testing, so treat a clean total here as inconclusive.</small>'
     } else if (abs < 30) {
       v.className = 'verdict ok'
       v.innerHTML = 'Looks clean — about ' + Math.round(perBoundary) + ' ms per boundary'
