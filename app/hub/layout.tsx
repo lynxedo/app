@@ -8,6 +8,7 @@ import { getCurrentUser, getCurrentProfile } from '@/lib/supabase/current-user'
 import { getCompanyEntitlements } from '@/lib/billing/entitlements'
 import { getBillingMode } from '@/lib/billing/catalog'
 import HubShell from '@/components/hub/HubShell'
+import RadioInviteListener from '@/components/hub/radio/RadioInviteListener'
 import { HubMessagesProvider } from '@/components/hub/HubMessagesProvider'
 import PushInit from '@/components/hub/PushInit'
 import ElectronNotifier from '@/components/hub/ElectronNotifier'
@@ -193,6 +194,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessTimesheet = profileResult.data?.can_access_timesheet ?? false
   const canAccessRouting = profileResult.data?.can_access_routing ?? false
   const canAccessFleet = profileResult.data?.can_access_fleet ?? false
+  const canAccessRadio = profileResult.data?.can_access_radio ?? false
   const canAccessDialer = profileResult.data?.can_access_dialer ?? false
   const canAccessTxt = profileResult.data?.can_access_txt ?? false
   // Txt2 "manager" = admin OR Txt-admin OR the per-user queue/broadcast grant.
@@ -474,6 +476,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         companyId={companyId}
         rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
       />
+      {canAccessRadio && <RadioInviteListener currentUserId={user.id} />}
       <HubIdleTracker />
       <UpdateNotifier loadedBuildId={buildId} />
       </HubMessagesProvider>

@@ -62,6 +62,7 @@ const TABS = [
   { id: 'lawn-sizer',   icon: '🌿', label: 'Lawn Sizer' },
   { id: 'dialer',       icon: '☎️', label: 'Dialer' },
   { id: 'txt',          icon: '🗨️', label: 'Txt' },
+  { id: 'radio',        icon: '📻', label: 'Radio' },
   { id: 'inbox',        icon: '📥', label: 'Inbox' },
   { id: 'contacts',     icon: '👤', label: 'Contacts' },
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
@@ -98,6 +99,7 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'lawn-sizer': LawnSizerTab,
   'dialer': DialerTab,
   'txt': TxtTab,
+  'radio': RadioTab,
   'inbox': InboxTab,
   'contacts': ContactsTab,
   'call-log': CallLogTab,
@@ -385,6 +387,7 @@ export default function HelpContent() {
             {activeTab === 'service-mapping' && <ServiceMappingTab />}
             {activeTab === 'pricer'      && <PricerTab />}
             {activeTab === 'scoreboards' && <ScoreboardsTab />}
+            {activeTab === 'radio'      && <RadioTab />}
             {activeTab === 'timesheet'  && <TimesheetTab />}
             {activeTab === 'settings'   && <SettingsTab />}
 
@@ -1899,6 +1902,54 @@ function MarketingTab() {
 // ──────────────────────────────────────────────────────────────────────────
 // TIMESHEET
 // ──────────────────────────────────────────────────────────────────────────
+
+function RadioTab() {
+  return (
+    <>
+      <Section title="What Radio is">
+        <p>Radio lets you hold a button and talk to one teammate, like a walkie-talkie. They hear you a couple of seconds later, without either of you placing a call.</p>
+        <p>It is for quick back-and-forth while you are working — <em>&ldquo;ok, I&rsquo;ll do that&rdquo;</em>, <em>&ldquo;what&rsquo;s the gate code?&rdquo;</em> Anything longer than about a minute belongs in a phone call, and Radio will tell you so.</p>
+        <Note>📻 Radio is for your team only. Customers are the Dialer&rsquo;s job.</Note>
+      </Section>
+
+      <Section title="Opening a channel">
+        <Step n={1}>Open a direct message with the person you want — Radio is one-to-one, not group chats.</Step>
+        <Step n={2}>Tap the <strong className="text-white">radio icon</strong> at the top right of the conversation.</Step>
+        <Step n={3}>They get a message asking if they want to open a channel — a banner if they are in the Hub, a notification if they are not. It respects Do Not Disturb like everything else, and it does not ring.</Step>
+        <Step n={4}>Once they tap <strong className="text-white">Accept</strong>, you are both on the Radio screen and can start talking.</Step>
+        <Note>If they tap <strong className="text-white">Not now</strong>, you will be told plainly. Nothing keeps ringing and nothing tries again — just open a channel later.</Note>
+      </Section>
+
+      <Section title="Talking">
+        <Step n={1}><strong className="text-white">Press and hold</strong> the big button and talk. It turns red while you are talking.</Step>
+        <Step n={2}><strong className="text-white">Let go</strong> when you are done — there is no send button. Letting go is sending.</Step>
+        <Step n={3}>When they talk, your button locks and turns green with their name on it. Only one person talks at a time, exactly like a real radio.</Step>
+        <Note>⏱ <strong className="text-white">One minute per go.</strong> The timer turns amber at 45 seconds and lets go for you at 60. If you need longer, give them a call instead.</Note>
+      </Section>
+
+      <Section title="How long a channel stays open">
+        <p>A channel stays open for <strong className="text-white">one hour after the last time anyone talks</strong>, then closes itself. The screen shows when that will be.</p>
+        <p>Leaving the screen does <strong className="text-white">not</strong> close it — go back to the chat, check a job, come back and carry on. Either of you can tap <strong className="text-white">Close channel</strong> to end it early, and the other person is told.</p>
+        <p>Once a channel has closed, opening another one needs a fresh invite and a fresh accept. Nobody&rsquo;s phone can be talked into out of nowhere.</p>
+      </Section>
+
+      <Section title="Bluetooth earpieces">
+        <p>⚠️ <strong className="text-white">Use the phone&rsquo;s own microphone for now.</strong> Through AirPods or another Bluetooth earpiece, Radio sounds fine for about thirty seconds and then starts breaking up. That is a limitation of running inside a web page, not something we can fix in the app as it stands today.</p>
+        <p>If Radio sees you are on a Bluetooth headset, it says so at the top of the screen rather than letting you find out halfway through a sentence.</p>
+        <Note>🎧 A future app update adds proper Bluetooth support, along with hearing someone with your phone in your pocket. Until then, Radio needs the screen open.</Note>
+      </Section>
+
+      <Section title="Things worth knowing">
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Radio is recorded.</strong> Transmissions are saved so they can be played back, and kept for 30 days.</li>
+          <li><strong className="text-white">It works in a weak signal.</strong> Your words are sent in small pieces as you talk, and a piece that does not get through is retried — where a normal call would simply drop.</li>
+          <li><strong className="text-white">Both people need Radio turned on</strong> in Admin → People. If the radio icon is missing from a conversation, that is usually why.</li>
+          <li><strong className="text-white">Keep the screen on while you are using it.</strong> Radio cannot play through a locked phone yet.</li>
+        </ul>
+      </Section>
+    </>
+  )
+}
 
 function TimesheetTab() {
   return (
