@@ -42,7 +42,7 @@ export default async function AdminPage() {
     role: string; can_access_routing: boolean; can_access_lawn: boolean;
     can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;
     can_access_books: boolean; can_access_tracker: boolean; can_access_hub: boolean;
-    can_access_fleet: boolean; can_access_zone_sizer: boolean;
+    can_access_fleet: boolean; can_access_radio: boolean; can_access_zone_sizer: boolean;
     can_access_dialer: boolean; can_access_txt: boolean; can_access_unified_inbox: boolean; can_post_shout_outs: boolean;
     can_admin_people: boolean; can_admin_hub: boolean;
     can_admin_guardian: boolean; can_admin_ai: boolean; can_admin_txt: boolean; can_admin_announcements: boolean; can_admin_file_tags: boolean;
@@ -84,6 +84,7 @@ export default async function AdminPage() {
       can_access_tracker: r.can_access_tracker,
       can_access_hub: r.can_access_hub,
       can_access_fleet: r.can_access_fleet,
+      can_access_radio: r.can_access_radio,
       can_access_zone_sizer: r.can_access_zone_sizer,
       can_access_dialer: r.can_access_dialer,
       can_access_txt: r.can_access_txt,

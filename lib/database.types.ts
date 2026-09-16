@@ -7726,6 +7726,7 @@ export type Database = {
           can_access_dialer: boolean
           can_access_fleet: boolean
           can_access_forms: boolean
+          can_access_radio: boolean
           can_access_hub: boolean
           can_access_lawn: boolean
           can_access_marketing: boolean
@@ -7805,6 +7806,7 @@ export type Database = {
           can_access_dialer?: boolean
           can_access_fleet?: boolean
           can_access_forms?: boolean
+          can_access_radio?: boolean
           can_access_hub?: boolean
           can_access_lawn?: boolean
           can_access_marketing?: boolean
@@ -7884,6 +7886,7 @@ export type Database = {
           can_access_dialer?: boolean
           can_access_fleet?: boolean
           can_access_forms?: boolean
+          can_access_radio?: boolean
           can_access_hub?: boolean
           can_access_lawn?: boolean
           can_access_marketing?: boolean
@@ -8345,6 +8348,7 @@ export type Database = {
           can_access_dialer: boolean
           can_access_fleet: boolean
           can_access_forms: boolean
+          can_access_radio: boolean
           can_access_hub: boolean
           can_access_lawn: boolean
           can_access_marketing: boolean

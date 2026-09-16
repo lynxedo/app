@@ -76,6 +76,7 @@ const CAN_ACCESS_FLAGS = [
   'can_access_timesheet',
   'can_access_routing',
   'can_access_fleet',
+  'can_access_radio',
   'can_access_dialer',
   'can_access_txt',
   'can_access_unified_inbox',

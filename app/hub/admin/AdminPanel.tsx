@@ -21,6 +21,7 @@ type UserProfile = {
   can_access_tracker: boolean
   can_access_hub: boolean
   can_access_fleet: boolean
+  can_access_radio: boolean
   can_access_zone_sizer: boolean
   can_access_dialer: boolean
   can_access_txt: boolean
@@ -119,6 +120,7 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
       { key: 'can_access_forms', label: 'Forms' },
       { key: 'can_access_pesticide_records', label: 'Products Used' },
       { key: 'can_access_irrigation', label: 'Irrigation' },
+      { key: 'can_access_radio', label: 'Radio' },
     ],
   },
   {
@@ -216,6 +218,7 @@ function defaultProfile(id: string, overrides: Partial<UserProfile> = {}): UserP
     can_access_tracker: false,
     can_access_hub: true,
     can_access_fleet: false,
+    can_access_radio: false,
     can_access_zone_sizer: false,
     can_access_dialer: false,
     can_access_txt: false,
