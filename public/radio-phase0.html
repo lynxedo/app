@@ -67,22 +67,25 @@
     <li><b>Count steadily</b> — “one, two, three…” to twenty. Play it back. This is the test for <b>loss</b> — a missing number is unmissable, where a missing fraction of a second inside a sentence isn't.</li>
   </ol>
   <p class="note">They answer different questions and a run can pass one and fail the other. Counting has natural gaps between the numbers, so it hides choppiness; connected prose hides a small loss. Do both, then <b>Copy results</b>.</p>
-  <p class="note"><b>On Continuous, play the same take three ways and tell me where the choppiness stops.</b> <b>▶ Play raw</b> is the pieces played one after another. <b>▶ Play joined</b> is the identical pieces glued into one sound first. If raw is choppy and joined is clean, <b>the recording is fine and the fault is in how they're stitched back together</b> — a much smaller problem. If both are choppy, the recording itself is dropping audio and the <b>Missing</b> figure will say so.</p>
+  <p class="note"><b>This round finds out whether the chop is in the recording or in the playing.</b> Do a Continuous take, then tap <b>🔇 Release microphone</b> <i>before</i> you play anything back. Then play the take both ways: <b>Web Audio</b> and <b>native</b>. Then record a <b>control</b> — a plain, uncut recording — release the mic again, and play <i>that</i> both ways. Four listens. Tell me which were choppy.</p>
+  <p class="note">If the control is choppy, nothing about pieces matters — it's how this phone records or plays through a web page. If everything is clean through <b>native</b> and choppy through <b>Web Audio</b>, the recording is fine and the fault is the speaker path, which I can route around. The log records which capture method ran and whether voice processing was on.</p>
 </div>
 
 <button id="mic">🎙 Hold to talk<small>press and hold</small></button>
 
 <div class="row" style="margin-top:12px">
-  <button class="act primary" id="playTrim" disabled>▶ Play trimmed</button>
-  <button class="act" id="playGapless" disabled>▶ Play raw</button>
-</div>
-<div class="row">
-  <button class="act" id="playJoined" disabled>▶ Play joined</button>
-  <button class="act" id="playNaive" disabled>▶ Play (naive)</button>
+  <button class="act primary" id="playJoined" disabled>▶ Take · Web Audio</button>
+  <button class="act primary" id="playJoinedNative" disabled>▶ Take · native</button>
 </div>
 <div class="row">
   <button class="act" id="ctlRec">⏺ Record control</button>
-  <button class="act" id="ctlPlay" disabled>▶ Play control</button>
+  <button class="act" id="ctlPlay" disabled>▶ Control · Web Audio</button>
+  <button class="act" id="ctlPlayNative" disabled>▶ Control · native</button>
+</div>
+<div class="row">
+  <button class="act" id="playGapless" disabled>▶ Pieces, scheduled</button>
+  <button class="act" id="playTrim" disabled>▶ Pieces, trimmed</button>
+  <button class="act" id="playNaive" disabled>▶ Pieces, naive</button>
 </div>
 <div class="row">
   <button class="act" id="closeMic">🔇 Release microphone</button>
@@ -114,6 +117,13 @@
   <label class="cfg">Auto cap (ms) <input id="cfgTrimMax" type="number" value="80" step="5" inputmode="numeric"></label>
   <label class="cfg">Fixed amount (ms) <input id="cfgTrimFixed" type="number" value="45" step="5" inputmode="numeric"></label>
   <p class="note"><b>Auto</b> measures the silence the encoder put at the front of each piece and skips exactly that much, never more than the cap. <b>Fixed</b> skips the same amount off every piece. The cap matters: without it, auto would also eat a real pause in your speech and run your words together.</p>
+</div>
+
+<div class="card">
+  <label class="cfg">Voice processing (echo cancel, noise suppression, auto gain)
+    <input id="vp" type="checkbox" checked style="width:24px;height:24px">
+  </label>
+  <p class="note">The phone's own clean-up of the microphone. Normally wanted — but noise suppression can eat quiet consonants and auto-gain can pump, and either can read as "choppy". Turning it off reopens the mic on your next hold.</p>
 </div>
 
 <div class="card">
@@ -212,14 +222,25 @@
     return audioCtx
   }
 
+  function vpOn() { return document.getElementById('vp').checked }
+
   async function getStream() {
     if (stream && stream.active) return stream
+    var vp = vpOn()
     stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      audio: { echoCancellation: vp, noiseSuppression: vp, autoGainControl: vp }
     })
-    log('mic opened, tracks: ' + stream.getAudioTracks().length)
+    var st = stream.getAudioTracks()[0] && stream.getAudioTracks()[0].getSettings ? stream.getAudioTracks()[0].getSettings() : {}
+    log('mic opened, voice processing ' + (vp ? 'ON' : 'OFF')
+      + (st.sampleRate ? ', track ' + st.sampleRate + 'Hz' : '')
+      + (typeof st.echoCancellation === 'boolean' ? ', echoCancellation=' + st.echoCancellation : ''))
     return stream
   }
+
+  document.getElementById('vp').addEventListener('change', function () {
+    if (stream) { stream.getTracks().forEach(function (tr) { tr.stop() }); stream = null }
+    log('voice processing set ' + (vpOn() ? 'ON' : 'OFF') + ' — mic reopens on the next hold')
+  })
 
   function newRecorder(s) {
     try { return MIME ? new MediaRecorder(s, { mimeType: MIME }) : new MediaRecorder(s) }
@@ -238,11 +259,39 @@
   // a later problem; continuity is the one being decided here.
 
   var capSource = null, capNode = null, capSink = null
-  var capBuf = []            // Float32Arrays awaiting the next cut
+  var capBuf = []            // Float32Arrays awaiting the cut
   var capHeld = 0            // samples held
-  var capTarget = 0          // samples wanted for the piece being filled
+  var capTarget = 0
   var capRate = 0
   var capStartedAt = 0
+  var capKind = ''           // 'audioworklet' | 'scriptprocessor' — logged with every take
+  var capAccepting = false   // true from start until the tail has been flushed
+  var flushResolve = null
+  var workletReady = false
+
+  // Runs on the audio thread. ScriptProcessorNode hands every buffer to the main
+  // thread and, on WebKit, a late main thread can hand back a buffer that was
+  // overwritten under it — the sample COUNT survives, the CONTENT doesn't, so it
+  // never shows as "missing". A worklet has no such handoff. It batches 4096
+  // frames per message so the main thread isn't flooded, and answers a 'flush'
+  // with whatever partial batch it's holding so the tail of a take isn't lost.
+  var WORKLET_SRC = [
+    'class Cap extends AudioWorkletProcessor {',
+    '  constructor() { super(); this.buf = new Float32Array(4096); this.n = 0;',
+    '    this.port.onmessage = () => { this.port.postMessage(this.buf.slice(0, this.n)); this.n = 0 } }',
+    '  process(inputs) {',
+    '    const ch = inputs[0] && inputs[0][0]; if (!ch) return true',
+    '    let i = 0',
+    '    while (i < ch.length) {',
+    '      const take = Math.min(ch.length - i, 4096 - this.n)',
+    '      this.buf.set(ch.subarray(i, i + take), this.n); this.n += take; i += take',
+    '      if (this.n === 4096) { this.port.postMessage(this.buf); this.buf = new Float32Array(4096); this.n = 0 }',
+    '    }',
+    '    return true',
+    '  }',
+    '}',
+    'registerProcessor(\'cap\', Cap)'
+  ].join('\n')
 
   function wavBlob(samples, rate) {
     var len = samples.length
@@ -298,32 +347,65 @@
     }
   }
 
-  function startContinuous() {
+  async function startContinuous() {
     var c = ctx()
     capRate = c.sampleRate
     capBuf = []; capHeld = 0
-    capTarget = Math.round(capRate * firstMs() / 1000)
+    capAccepting = true
     capStartedAt = performance.now()
 
     capSource = c.createMediaStreamSource(stream)
-    capNode = c.createScriptProcessor(4096, 1, 1)
-    // Silent sink: some browsers won't pump the processor unless it reaches the
+    // Silent sink: some browsers won't pump a capture node unless it reaches the
     // destination, and routing the mic to the speakers at any audible gain is a
     // feedback howl on a phone held to your face.
     capSink = c.createGain(); capSink.gain.value = 0
 
-    capNode.onaudioprocess = function (e) {
-      if (!holding) return
-      var inp = e.inputBuffer.getChannelData(0)
-      capBuf.push(new Float32Array(inp))      // copy (the event buffer is reused) — and nothing else
-      capHeld += inp.length
+    capNode = null
+    capKind = 'scriptprocessor'
+    if (c.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
+      try {
+        if (!workletReady) {
+          var url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }))
+          await c.audioWorklet.addModule(url)
+          workletReady = true
+        }
+        capNode = new AudioWorkletNode(c, 'cap', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })
+        capNode.port.onmessage = function (e) {
+          if (!capAccepting) return
+          capBuf.push(e.data); capHeld += e.data.length
+          // only the flush reply is ever shorter than a full batch
+          if (e.data.length < 4096 && flushResolve) { var r = flushResolve; flushResolve = null; r() }
+        }
+        capKind = 'audioworklet'
+      } catch (e) {
+        log('AudioWorklet unavailable (' + ((e && e.message) || e) + ') — falling back to ScriptProcessor')
+        capNode = null
+      }
+    }
+    if (!capNode) {
+      capNode = c.createScriptProcessor(4096, 1, 1)
+      capNode.onaudioprocess = function (e) {
+        if (!capAccepting) return
+        var inp = e.inputBuffer.getChannelData(0)
+        capBuf.push(new Float32Array(inp))      // copy (the event buffer is reused) — and nothing else
+        capHeld += inp.length
+      }
     }
     capSource.connect(capNode); capNode.connect(capSink); capSink.connect(c.destination)
-    log('continuous capture at ' + capRate + 'Hz')
+    log('continuous capture via ' + capKind + ' at ' + capRate + 'Hz, voice processing ' + (vpOn() ? 'ON' : 'OFF'))
   }
 
-  function stopContinuous() {
-    if (capNode) capNode.onaudioprocess = null
+  async function stopContinuous() {
+    if (capNode && capKind === 'audioworklet') {
+      // Ask the worklet for its partial batch; never hang on a lost message.
+      await new Promise(function (res) {
+        flushResolve = res
+        setTimeout(function () { if (flushResolve) { flushResolve = null; res() } }, 300)
+        try { capNode.port.postMessage('flush') } catch (e) { res() }
+      })
+    }
+    capAccepting = false
+    if (capNode && 'onaudioprocess' in capNode) capNode.onaudioprocess = null
     try { if (capSource) capSource.disconnect() } catch (e) {}
     try { if (capNode) capNode.disconnect() } catch (e) {}
     try { if (capSink) capSink.disconnect() } catch (e) {}
@@ -392,12 +474,18 @@
     }
     pieces = []; buffers = []; seq = 0
     holding = true; finished = false
-    holdStart = performance.now()
     micBtn.classList.add('live')
     micBtn.innerHTML = '🔴 Talking<small>let go when done</small>'
     log('--- hold start [' + modeIs() + '] (first=' + firstMs() + 'ms rest=' + restMs() + 'ms) ---')
-    if (modeIs() === 'continuous') startContinuous()
-    else runPiece(firstMs())
+    if (modeIs() === 'continuous') {
+      await startContinuous()
+      // Released while the capture graph was still being built: tear it down
+      // rather than leave a node quietly capturing into a hold nothing will end.
+      if (!holding) { await stopContinuous(); return }
+    } else {
+      runPiece(firstMs())
+    }
+    holdStart = performance.now()
   }
 
   function endHold() {
@@ -412,8 +500,7 @@
     // onstop still queued and the final piece not yet collected. Finishing here
     // would render a take that's missing its last piece.
     if (modeIs() === 'continuous') {
-      stopContinuous()
-      finishHold()
+      stopContinuous().then(finishHold)
     } else if (stopPending) {
       if (activeRec && activeRec.state !== 'inactive') activeRec.stop()
       // else: onstop is already on its way and will call finishHold
@@ -422,18 +509,30 @@
     }
   }
 
+  var lastGood = null   // an accidental tap must not wipe the take you're about to compare
+
   async function finishHold() {
     if (finished) return
     finished = true
+    if (holdWall < 400 && lastGood) {
+      log('tap of ' + Math.round(holdWall) + 'ms ignored — keeping the previous take')
+      pieces = lastGood.pieces; buffers = lastGood.buffers; holdWall = lastGood.holdWall
+      render()
+      micBtn.classList.remove('busy')
+      micBtn.innerHTML = '🎙 Hold to talk<small>press and hold</small>'
+      return
+    }
     // Mic stays open between takes — holding it across boundaries is the whole point.
-    log('hold ' + Math.round(holdWall) + 'ms, ' + pieces.length + ' pieces')
+    log('hold ' + Math.round(holdWall) + 'ms, ' + pieces.length + ' pieces' + (modeIs() === 'continuous' ? ' [' + capKind + ']' : ''))
     await decodeAll()
     render()
+    if (pieces.length >= 2) lastGood = { pieces: pieces, buffers: buffers, holdWall: holdWall }
     micBtn.classList.remove('busy')
     micBtn.innerHTML = '🎙 Hold to talk<small>press and hold</small>'
     document.getElementById('playGapless').disabled = buffers.length === 0
     document.getElementById('playTrim').disabled = buffers.length === 0
     document.getElementById('playJoined').disabled = buffers.length === 0
+    document.getElementById('playJoinedNative').disabled = buffers.length === 0
     document.getElementById('playNaive').disabled = pieces.length === 0
   }
 
@@ -604,24 +703,38 @@
   // Every piece glued into ONE buffer and played as a single sound. If the joins
   // are audible when scheduled back-to-back but vanish here, the recording is fine
   // and the fault is in how playback stitches them.
-  function playJoined() {
-    var c = ctx()
-    var total = 0, rate = c.sampleRate
+  function joinedSamples() {
+    var total = 0, rate = 0
     for (var i = 0; i < buffers.length; i++) {
       if (buffers[i]) { total += buffers[i].length; rate = buffers[i].sampleRate }
     }
-    if (!total) return
-    var out = c.createBuffer(1, total, rate)
-    var d = out.getChannelData(0)
-    var off = 0
+    if (!total) return null
+    var d = new Float32Array(total), off = 0
     for (var j = 0; j < buffers.length; j++) {
       if (!buffers[j]) continue
-      d.set(buffers[j].getChannelData(0), off)
-      off += buffers[j].length
+      d.set(buffers[j].getChannelData(0), off); off += buffers[j].length
     }
+    return { data: d, rate: rate }
+  }
+
+  function playJoined() {
+    var j = joinedSamples(); if (!j) return
+    var c = ctx()
+    var out = c.createBuffer(1, j.data.length, j.rate)
+    out.getChannelData(0).set(j.data)
     var src = c.createBufferSource()
     src.buffer = out; src.connect(c.destination); src.start()
-    log('joined playback: one buffer, ' + out.duration.toFixed(2) + 's')
+    log('TAKE via Web Audio: one buffer, ' + out.duration.toFixed(2) + 's, mic ' + (stream ? 'OPEN' : 'released'))
+  }
+
+  // Same samples, written to a WAV and handed to an <audio> element — the phone's
+  // ordinary media player, not the Web Audio engine. If this is clean and the
+  // Web Audio version isn't, the recording was fine all along.
+  function playJoinedNative() {
+    var j = joinedSamples(); if (!j) return
+    var a = new Audio(URL.createObjectURL(wavBlob(j.data, j.rate)))
+    a.play().catch(function (e) { log('native play blocked: ' + e.name) })
+    log('TAKE via <audio> (native): ' + (j.data.length / j.rate).toFixed(2) + 's, mic ' + (stream ? 'OPEN' : 'released'))
   }
 
   // Naive: one <audio> after another. Shows what the lazy implementation sounds like.
@@ -661,6 +774,7 @@
         log('control: ' + controlBuf.duration.toFixed(2) + 's, ' + (controlBlob.size / 1024).toFixed(1) + 'KB')
       } catch (e) { log('control decode failed: ' + e.name) }
       document.getElementById('ctlPlay').disabled = false
+      document.getElementById('ctlPlayNative').disabled = false
     }
     ctlRec.start()
     ctlRecording = true
@@ -669,12 +783,17 @@
   }
 
   function playControl() {
-    if (controlBuf) {
-      var c = ctx()
-      var s = c.createBufferSource(); s.buffer = controlBuf; s.connect(c.destination); s.start()
-    } else if (controlBlob) {
-      new Audio(URL.createObjectURL(controlBlob)).play()
-    }
+    if (!controlBuf) { playControlNative(); return }
+    var c = ctx()
+    var s = c.createBufferSource(); s.buffer = controlBuf; s.connect(c.destination); s.start()
+    log('CONTROL via Web Audio: ' + controlBuf.duration.toFixed(2) + 's, mic ' + (stream ? 'OPEN' : 'released'))
+  }
+
+  function playControlNative() {
+    if (!controlBlob) return
+    var a = new Audio(URL.createObjectURL(controlBlob))
+    a.play().catch(function (e) { log('native play blocked: ' + e.name) })
+    log('CONTROL via <audio> (native): ' + (controlBlob.size / 1024).toFixed(1) + 'KB ' + controlBlob.type + ', mic ' + (stream ? 'OPEN' : 'released'))
   }
 
   // ---- wiring -----------------------------------------------------------
@@ -687,6 +806,8 @@
   document.getElementById('playTrim').addEventListener('click', function () { playGapless(true) })
   document.getElementById('playGapless').addEventListener('click', function () { playGapless(false) })
   document.getElementById('playJoined').addEventListener('click', playJoined)
+  document.getElementById('playJoinedNative').addEventListener('click', playJoinedNative)
+  document.getElementById('ctlPlayNative').addEventListener('click', playControlNative)
   document.getElementById('playNaive').addEventListener('click', playNaive)
   document.getElementById('ctlRec').addEventListener('click', toggleControl)
   document.getElementById('ctlPlay').addEventListener('click', playControl)
