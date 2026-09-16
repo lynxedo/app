@@ -60,6 +60,11 @@
 <h1>📻 Radio — Phase 0</h1>
 <p class="sub">Does recycling the recorder every few seconds clip a syllable on this phone?</p>
 
+<div class="card script" style="border-left-color:var(--warn)">
+  <b>⚠ Take your Bluetooth headset off first.</b>
+  <p class="note" style="margin-top:6px">A web page can't manage a Bluetooth microphone properly — capture through AirPods came out clean for ~30 seconds and then degraded, on every method tried. That's a known limitation of the web audio path and is the reason Radio's Bluetooth support is a native-app phase. Test with the phone's own mic. The log now names the microphone on every take.</p>
+</div>
+
 <div class="card script">
   <b>Two different tests — do both</b>
   <ol>
@@ -230,7 +235,11 @@
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: vp, noiseSuppression: vp, autoGainControl: vp }
     })
-    var st = stream.getAudioTracks()[0] && stream.getAudioTracks()[0].getSettings ? stream.getAudioTracks()[0].getSettings() : {}
+    var tr0 = stream.getAudioTracks()[0]
+    var st = tr0 && tr0.getSettings ? tr0.getSettings() : {}
+    // A result without the device it was measured on isn't a result. Two hours of
+    // this test were spent on the transport while the variable was a Bluetooth headset.
+    log('MICROPHONE: "' + ((tr0 && tr0.label) || 'unnamed device') + '"')
     log('mic opened, voice processing ' + (vp ? 'ON' : 'OFF')
       + (st.sampleRate ? ', track ' + st.sampleRate + 'Hz' : '')
       + (typeof st.echoCancellation === 'boolean' ? ', echoCancellation=' + st.echoCancellation : ''))
@@ -476,7 +485,8 @@
     holding = true; finished = false
     micBtn.classList.add('live')
     micBtn.innerHTML = '🔴 Talking<small>let go when done</small>'
-    log('--- hold start [' + modeIs() + '] (first=' + firstMs() + 'ms rest=' + restMs() + 'ms) ---')
+    var trH = stream && stream.getAudioTracks()[0]
+    log('--- hold start [' + modeIs() + '] (first=' + firstMs() + 'ms rest=' + restMs() + 'ms) mic="' + ((trH && trH.label) || '?') + '" ---')
     if (modeIs() === 'continuous') {
       await startContinuous()
       // Released while the capture graph was still being built: tear it down
