@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireCompany } from '@/lib/company-auth'
 import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
+import { tzOffset } from '@/lib/tz'
 
 // ── Visits query ─────────────────────────────────────────────────────────────
 const VISITS_QUERY = `
@@ -159,17 +160,6 @@ function formatStop(type: StopType, i: number, data: {
 // assessment into a Tuesday pull (test-findings #8). Build the bounds with the
 // correct local offset instead (DST-aware).
 const ROUTING_TZ = 'America/Chicago'
-
-function tzOffset(date: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone, timeZoneName: 'longOffset',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date(`${date}T12:00:00Z`))
-  const name = parts.find(p => p.type === 'timeZoneName')?.value ?? ''
-  const m = name.match(/GMT([+-])(\d{2}):?(\d{2})?/)
-  if (!m) return '-06:00' // CST fallback
-  return `${m[1]}${m[2]}:${m[3] ?? '00'}`
-}
 
 function localDayBounds(date: string, timeZone = ROUTING_TZ): { start: string; end: string } {
   const offset = tzOffset(date, timeZone)

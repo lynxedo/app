@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireCompany } from '@/lib/company-auth'
 import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
+import { tzOffset } from '@/lib/tz'
 
 // "Send day + team to Jobber" — pushes each visit's DAY and TECH ASSIGNMENT back
 // to Jobber via the official OAuth API, leaving the stops as "anytime" (no clock
@@ -107,18 +108,6 @@ interface AssessmentMoveResult {
   errors?: Array<{ message: string }>
 }
 
-// taskEdit takes a real ISO8601DateTime, so a bare date would be read as UTC.
-function tzOffset(date: string, timeZone = TIMEZONE): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone, timeZoneName: 'longOffset',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date(`${date}T12:00:00Z`))
-  const name = parts.find(p => p.type === 'timeZoneName')?.value ?? ''
-  const m = name.match(/GMT([+-])(\d{2}):?(\d{2})?/)
-  if (!m) return '-06:00'
-  return `${m[1]}${m[2]}:${m[3] ?? '00'}`
-}
-
 export async function POST(req: NextRequest) {
   const auth = await requireCompany()
   if ('error' in auth) return auth.error
@@ -190,6 +179,8 @@ export async function POST(req: NextRequest) {
           const res = await jobberGraphQLAdmin<TaskMoveResult>(jobberUserId, TASK_MOVE_MUTATION, {
             id: visitId,
             input: {
+              // taskEdit takes a real ISO8601DateTime, so a bare date would be
+              // read as UTC and land the task on the wrong day.
               ...(assignedDate
                 ? { startAt: `${assignedDate}T00:00:00${tzOffset(assignedDate)}`, allDay: true }
                 : {}),
