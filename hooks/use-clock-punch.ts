@@ -19,6 +19,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { startWarmingLocation, getWarmLocation } from '@/lib/native-geo'
+import { enqueue, startDraining, onPendingChange, onDropped } from '@/lib/offline-queue'
 
 export type ClockEmployee = {
   id: string
@@ -55,6 +56,7 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
   const [clocking, setClocking] = useState(false)
   const [note, setNote] = useState('')
   const [lastOut, setLastOut] = useState<{ time: string; hours: number } | null>(null)
+  const [pendingPunches, setPendingPunches] = useState(0)
 
   // Start warming a location fix now, so that by the time somebody actually taps
   // the button we already have one and the punch costs nothing extra.
@@ -66,26 +68,45 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
     return () => clearInterval(t)
   }, [tickMs])
 
+  // Ask the server what it thinks the state is. Used on mount, and again
+  // whenever a held punch turns out to have been refused — after that the screen
+  // and the server disagree, and the server is right.
+  const refreshStatus = useCallback(async () => {
+    try {
+      const data = await (await fetch('/api/timesheet/me')).json()
+      if (data.employee) {
+        setEmployee(data.employee)
+        setClockedIn(data.clocked_in)
+        setSince(data.since)
+      } else {
+        setNotLinked(true)
+      }
+    } catch {
+      // Offline. Leave the screen as it is rather than blanking it.
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   // Load current status from /me unless seeded with initial data.
   useEffect(() => {
     if (initial) return
-    let cancelled = false
-    fetch('/api/timesheet/me')
-      .then(r => r.json())
-      .then(data => {
-        if (cancelled) return
-        if (data.employee) {
-          setEmployee(data.employee)
-          setClockedIn(data.clocked_in)
-          setSince(data.since)
-        } else {
-          setNotLinked(true)
-        }
-        setLoading(false)
-      })
-      .catch(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [initial])
+    void refreshStatus()
+  }, [initial, refreshStatus])
+
+  // Drain anything a dead zone left behind, and keep the count honest on screen.
+  useEffect(() => {
+    startDraining()
+    const offCount = onPendingChange(setPendingPunches)
+    const offDrop = onDropped(({ item, message }) => {
+      if (item.kind !== 'punch') return
+      // A held punch the server refused. Never let this one pass quietly — it is
+      // the difference between being paid for a shift and not.
+      ;(onWarning ?? defaultWarn)(`${item.label} could not be saved. ${message}`)
+      void refreshStatus()
+    })
+    return () => { offCount(); offDrop() }
+  }, [onWarning, refreshStatus])
 
   const elapsed = since ? now - new Date(since).getTime() : 0
 
@@ -94,15 +115,56 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
     const action = clockedIn ? 'out' : 'in'
     const outTime = action === 'out' ? new Date().toISOString() : null
     const outHours = action === 'out' ? elapsed / 3600000 : 0
+    // ⚠ Stamped HERE, not on the server, and sent with the punch. If this one has
+    // to wait in a dead zone, the time that matters is the moment the thumb hit
+    // the button — not the moment a truck came back into signal.
+    const punchedAt = new Date().toISOString()
+    const payload = {
+      employee_id: employee.id, action, note: note || null, lat, lng, punched_at: punchedAt,
+    }
     setClocking(true)
     let data: { warning?: string } | null = null
     try {
       const res = await fetch('/api/timesheet/punch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: employee.id, action, note: note || null, lat, lng }),
+        body: JSON.stringify(payload),
       })
+      if (!res.ok) {
+        // The server read it and said no. That is an answer, not a dead zone —
+        // queueing it would only make it fail again later, out of sight.
+        const err = await res.json().catch(() => null) as { error?: string } | null
+        setClocking(false)
+        ;(onWarning ?? defaultWarn)(err?.error ?? 'That punch did not save. Try again.')
+        return
+      }
       data = await res.json().catch(() => null)
+    } catch {
+      // ⚠⚠ We never reached the server. This used to throw straight out of the
+      // hook: no catch, no message, and the button simply appeared not to work
+      // while the punch was lost. Hold it instead.
+      const held = await enqueue({
+        url: '/api/timesheet/punch',
+        body: payload,
+        kind: 'punch',
+        label: action === 'in' ? 'Clock in' : 'Clock out',
+        createdAt: new Date(punchedAt).getTime(),
+      })
+      setClocking(false)
+      setNote('')
+      // Move the UI as though it worked, because as far as the day is concerned
+      // it did — the time is already recorded and will be sent.
+      if (action === 'out') {
+        setClockedIn(false); setSince(null); setLastOut({ time: outTime!, hours: outHours })
+      } else {
+        setClockedIn(true); setSince(punchedAt); setLastOut(null)
+      }
+      if (!held) {
+        (onWarning ?? defaultWarn)(
+          'No signal, and this phone could not hold the punch. Tell a manager the time you clocked ' + action + '.'
+        )
+      }
+      return
     } finally {
       setClocking(false)
     }
@@ -140,6 +202,8 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
     setNote,
     lastOut,
     handleClock,
+    /** Punches taken with no signal that have not reached the server yet. */
+    pendingPunches,
   }
 }
 

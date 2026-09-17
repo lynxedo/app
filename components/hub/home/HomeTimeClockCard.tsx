@@ -24,6 +24,7 @@ export default function HomeTimeClockCard({ initial }: { initial: HomeTimeClockI
     clocking,
     lastOut,
     handleClock,
+    pendingPunches,
   } = useClockPunch({ initial, tickMs: 60000 })
 
   // Tell the Home announcement gate the moment the worker clocks in, so unread
@@ -77,6 +78,12 @@ export default function HomeTimeClockCard({ initial }: { initial: HomeTimeClockI
             View full timesheet →
           </Link>
         </div>
+        {pendingPunches > 0 && (
+          <div className="w-full sm:w-auto rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            {pendingPunches === 1 ? 'A punch is' : `${pendingPunches} punches are`} waiting to send
+            {' '}&mdash; the time you tapped is saved.
+          </div>
+        )}
         <button
           onClick={handleClock}
           disabled={clocking}
