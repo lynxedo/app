@@ -98,10 +98,15 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
   useEffect(() => {
     startDraining()
     const offCount = onPendingChange(setPendingPunches)
-    const offDrop = onDropped(({ item, message }) => {
+    const offDrop = onDropped(({ item, message, benign }) => {
       if (item.kind !== 'punch') return
-      // A held punch the server refused. Never let this one pass quietly — it is
-      // the difference between being paid for a shift and not.
+      // ⚠ "Already clocked in" is not a failure. We time out at 8s, so a slow
+      // connection can deliver the punch and still look like a dead zone from
+      // here — the retry then arrives at a server that already has it. The
+      // person got what they asked for; just resync and say nothing.
+      if (benign) { void refreshStatus(); return }
+      // A held punch the server genuinely refused. Never let this one pass
+      // quietly — it is the difference between being paid for a shift and not.
       ;(onWarning ?? defaultWarn)(`${item.label} could not be saved. ${message}`)
       void refreshStatus()
     })
@@ -125,10 +130,17 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
     setClocking(true)
     let data: { warning?: string } | null = null
     try {
+      // ⚠⚠ A dead zone does NOT reject — it HANGS. Measured on a real phone with
+      // the radio cut: the request simply never settles, so the button sat on
+      // "…" indefinitely, nothing queued, and the punch was lost exactly as
+      // before. A queue that only catches a rejection catches nothing. Eight
+      // seconds is long enough for a bad-but-working connection and short
+      // enough that nobody stands there wondering.
       const res = await fetch('/api/timesheet/punch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(8000),
       })
       if (!res.ok) {
         // The server read it and said no. That is an answer, not a dead zone —

@@ -42,7 +42,10 @@ export type QueuedWrite = {
   attempts: number
 }
 
-export type DropReason = { item: QueuedWrite; message: string }
+/** `benign` marks the server saying the work is already done — a duplicate
+ *  from a request that timed out here but landed there. Not worth alarming
+ *  anyone about; the caller should just resync. */
+export type DropReason = { item: QueuedWrite; message: string; benign?: boolean }
 
 let dbPromise: Promise<IDBDatabase | null> | null = null
 
@@ -146,6 +149,10 @@ export async function flush(): Promise<void> {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(item.body),
+          // ⚠ Same reason as the original attempt: a dead zone hangs rather than
+          // rejecting. Without this the drain parks on one item forever and, since
+          // the queue is deliberately strict FIFO, everything behind it waits too.
+          signal: AbortSignal.timeout(15_000),
         })
       } catch {
         // Never reached the server. Keep it, keep the order, try again later.
@@ -173,17 +180,19 @@ export async function flush(): Promise<void> {
 
       // 4xx: it was read and refused. Retrying changes nothing.
       const body = await res.json().catch(() => null) as { error?: string } | null
-      await drop(item, body?.error ?? 'That was not accepted when it finally sent.')
+      // 409 means the server already has this state — most often because our
+      // own request timed out after the server had in fact processed it.
+      await drop(item, body?.error ?? 'That was not accepted when it finally sent.', res.status === 409)
     }
   } finally {
     draining = false
   }
 }
 
-async function drop(item: QueuedWrite, message: string) {
+async function drop(item: QueuedWrite, message: string, benign = false) {
   await tx('readwrite', (s) => s.delete(item.id) as IDBRequest<undefined>)
   await notify()
-  dropListeners.forEach((l) => { try { l({ item, message }) } catch { /* ignore */ } })
+  dropListeners.forEach((l) => { try { l({ item, message, benign }) } catch { /* ignore */ } })
 }
 
 let started = false
