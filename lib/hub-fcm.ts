@@ -86,33 +86,39 @@ export async function sendFcmPush(
   const endpoint = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
 
   const typeConfig = FCM_TYPE_MAP[payload.type ?? ''] ?? { channel_id: 'hub', color: '#0ea5e9' }
-  const androidNotification: Record<string, unknown> = {
-    channel_id: typeConfig.channel_id,
-    color:      typeConfig.color,
-  }
-  if (typeof payload.badge === 'number') {
-    // Samsung One UI honors notification_count for numeric badge display.
-    // Pixel + most other launchers show a dot regardless (managed by the OS).
-    androidNotification.notification_count = payload.badge
-  }
-  // tag replaces any prior notification with the same key — prevents flooding
-  // when many messages arrive in quick succession in the same conversation.
-  if (payload.groupKey) androidNotification.tag = payload.groupKey
 
   const staleTokens: string[] = []
   await Promise.all(tokens.map(async (token) => {
+    // ⚠⚠ DATA-ONLY, DELIBERATELY. Send a `notification` block and FCM's own SDK
+    // draws the notification whenever the app is backgrounded — and our code is
+    // never called, so it cannot attach the Reply action. The action would then
+    // appear only while the app was OPEN, which is precisely when nobody needs
+    // to reply from the shade. Data-only hands every message to
+    // LynxedoFcmService.onMessageReceived, foreground or not, and the app builds
+    // the notification itself: channel, tag, badge, reply action and all.
+    //
+    // ⚠ priority high is not optional here. A normal-priority data message is
+    // held back in Doze, which for a phone in a truck pocket means a DM arriving
+    // whenever the device next wakes. High priority is what an ordinary
+    // notification message got for free.
     const message: Record<string, unknown> = {
       token,
-      notification: { title: payload.title, body: payload.body },
-      // Top-level data — Android delivers these as Intent extras to
-      // MainActivity when the user taps the notification.
       data: {
-        url: payload.url,
+        title: payload.title,
+        body:  payload.body,
+        url:   payload.url,
+        channel_id: typeConfig.channel_id,
+        color:      typeConfig.color,
         ...(typeof payload.badge === 'number' ? { badge: String(payload.badge) } : {}),
+        // The Android app reads these two to decide whether this notification
+        // can be ANSWERED from the shade, and what to answer. A DM and a room
+        // message both POST to /api/hub/messages — only the id field differs —
+        // so type says which, and groupKey is already that id. A voicemail or an
+        // inbound text carries a type we deliberately do not offer a reply for.
+        ...(payload.type ? { type: payload.type } : {}),
+        ...(payload.groupKey ? { groupKey: payload.groupKey } : {}),
       },
-    }
-    if (Object.keys(androidNotification).length > 0) {
-      message.android = { notification: androidNotification }
+      android: { priority: 'high' },
     }
     const { stale } = await postFcm(endpoint, accessToken, message)
     if (stale) staleTokens.push(token)
