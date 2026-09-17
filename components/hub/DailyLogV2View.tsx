@@ -7,6 +7,7 @@ import { Spinner, EmptyState } from '@/components/ui'
 import { fmtQty, type StoredRouteLoadout, type StoredLoadoutProduct } from '@/lib/route-capacity'
 import { formatPhone, formatCurrency, formatDurationMs, formatDurationSec } from '@/lib/format'
 import { keepAwake } from '@/lib/native-device'
+import { getDailyLog, saveDailyLog } from '@/lib/hub-cache'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -222,6 +223,8 @@ export default function DailyLogV2View({
   const [pendingActionStopId, setPendingActionStopId] = useState<string | null>(null)
   const [skipReasons, setSkipReasons] = useState<SkipReason[]>([])
   const [routeCompleteEntryId, setRouteCompleteEntryId] = useState<string | null>(null)
+  /** When the copy on screen was saved, or null when it came from the server just now. */
+  const [savedAt, setSavedAt] = useState<number | null>(null)
 
   // The route sheet is the screen a crew keeps open in the truck all morning.
   // Letting the phone sleep on it means unlocking to read the next stop, so hold
@@ -404,6 +407,18 @@ export default function DailyLogV2View({
   const load = useCallback(async (d: string) => {
     setLoading(true)
     setError(null)
+
+    // Paint the saved copy first so the sheet is on screen immediately, then
+    // correct it from the server. A crew opening this in a yard behind a house
+    // used to get a bare error and no route at all.
+    const cached = await getDailyLog<ApiResponse>(d)
+    if (cached) {
+      setEntries(cached.data.entries ?? [])
+      setDepot(cached.data.depot ?? null)
+      setSavedAt(cached.savedAt)
+      setLoading(false)
+    }
+
     try {
       const res = await fetch(`/api/hub/daily-log-v2?date=${d}`)
       if (!res.ok) {
@@ -413,8 +428,13 @@ export default function DailyLogV2View({
       const data = (await res.json()) as ApiResponse
       setEntries(data.entries ?? [])
       setDepot(data.depot ?? null)
+      setSavedAt(null)               // this is live now
+      void saveDailyLog(d, data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load')
+      // ⚠ With a saved copy in hand this is NOT an error state — it is a stale
+      // one, and the banner says so. Blanking the screen would take away the
+      // route they still need to drive.
+      if (!cached) setError(e instanceof Error ? e.message : 'Failed to load')
     } finally {
       setLoading(false)
     }
@@ -487,6 +507,17 @@ export default function DailyLogV2View({
           {error && (
             <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm mb-4">
               {error}
+            </div>
+          )}
+          {/* ⚠ A cached route sheet must never pass for a live one. The stops
+              carry state that only the server has, and marking one complete from
+              here would go nowhere, so say plainly what this is and how old. */}
+          {savedAt !== null && (
+            <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-lg px-4 py-3 text-sm mb-4">
+              <strong className="text-amber-200">Saved copy</strong> from{' '}
+              {new Date(savedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+              {' '}&mdash; no connection right now. You can read the route, but
+              anything you tap won&apos;t save until you&apos;re back in signal.
             </div>
           )}
           {!loading && !error && visibleEntries.length === 0 && (
