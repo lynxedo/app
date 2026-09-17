@@ -15,6 +15,8 @@ import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
 import { RadioCapture, bluetoothWarningFor } from '@/lib/radio/capture'
 import { RadioPlayQueue } from '@/lib/radio/playQueue'
 import { radioTopic, type RadioStatus } from '@/lib/radio/types'
+import { startRadioInviteRing, stopRadioInviteRing } from '@/lib/radio/ring'
+import { playRadioTone } from '@/lib/hub-chime'
 import { MicIcon, SpeakerIcon, RadioIcon } from './RadioIcons'
 
 const AMBER_AT_MS = 45_000
@@ -67,22 +69,42 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
   // ---- realtime: the fast path. The rows stay the truth; a missed broadcast is
   // recovered by refresh() on resume. Handlers are released, never the channel.
   useEffect(() => {
+    // Their turn starts twice over: 'talking-start' lands on the press (before any
+    // audio exists) and the play queue starts when sound actually arrives. Whichever
+    // is first owns the chirp — the ref is set synchronously so the second one in the
+    // same tick sees it and stays quiet.
+    const turnOn = () => {
+      if (theirTurnRef.current) return
+      theirTurnRef.current = true
+      setTheirTurn(true)
+      buzz(40)
+      playRadioTone('radio-incoming')
+    }
+    // The over beep. Not "they stopped" but "the channel is yours" — which is the
+    // moment you need to know about without looking at the screen.
+    const turnOff = () => {
+      if (!theirTurnRef.current) return
+      theirTurnRef.current = false
+      setTheirTurn(false)
+      buzz(15)
+      playRadioTone('radio-over')
+    }
+
     const queue = new RadioPlayQueue({
-      onStart: () => { setTheirTurn(true); buzz(40) },
-      onFinish: () => setTheirTurn(false),
+      onStart: turnOn,
+      onFinish: turnOff,
     })
     queueRef.current = queue
 
     const release = subscribeSharedBroadcast(radioTopic(sessionId), {
       accepted: () => { setState(s => ({ ...s, session: { ...s.session, status: 'active' } })); void refresh() },
       declined: () => setState(s => ({ ...s, session: { ...s.session, status: 'declined' } })),
-      closed: () => { queue.stop(); setState(s => ({ ...s, session: { ...s.session, status: 'closed' } })) },
+      closed: () => { queue.stop(); theirTurnRef.current = false; setTheirTurn(false); setState(s => ({ ...s, session: { ...s.session, status: 'closed' } })) },
       'talking-start': (payload) => {
         const p = (payload ?? {}) as { senderId?: string }
         if (p.senderId === state.me.id) return
         // Lock before any audio exists — that is what makes the far press feel instant.
-        setTheirTurn(true)
-        buzz(40)
+        turnOn()
       },
       'piece-ready': (payload) => {
         const p = (payload ?? {}) as { senderId?: string; transmissionId?: string; seq?: number; pieceId?: string }
@@ -131,6 +153,14 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
     }
   }, [isLive])
 
+  // ---- the invite ring. The person being invited hears it; the one who opened the
+  // channel does not — they know, they just pressed the button. Bounded in ring.ts.
+  useEffect(() => {
+    if (status === 'pending' && !state.me.isInitiator) startRadioInviteRing()
+    else stopRadioInviteRing()
+    return () => stopRadioInviteRing()
+  }, [status, state.me.isInitiator])
+
   // ---- a channel goes quiet and closes itself; come back to a screen telling the truth.
   useEffect(() => {
     const onFocus = () => { void refresh() }
@@ -140,7 +170,7 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
 
   async function press() {
     if (!isLive || pressedRef.current) return
-    if (theirTurnRef.current) { buzz([20, 40, 20]); setNotice(`${state.other.name} is talking.`); return }
+    if (theirTurnRef.current) { buzz([20, 40, 20]); playRadioTone('radio-blocked'); setNotice(`${state.other.name} is talking.`); return }
     const cap = captureRef.current
     if (!cap) return
     pressedRef.current = true
@@ -167,6 +197,7 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
         setTalking(false)
         if (holdTimer.current) { clearInterval(holdTimer.current); holdTimer.current = null }
         buzz([20, 40, 20])
+        playRadioTone('radio-blocked')
         setNotice(res.status === 409 ? (body.error ?? `${state.other.name} is talking.`) : 'Could not start — try again.')
         if (body.status && body.status !== 'active') setState(s => ({ ...s, session: { ...s.session, status: body.status } }))
         return

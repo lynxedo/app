@@ -1927,6 +1927,22 @@ function RadioTab() {
         <Note>⏱ <strong className="text-white">One minute per go.</strong> The timer turns amber at 45 seconds and lets go for you at 60. If you need longer, give them a call instead.</Note>
       </Section>
 
+      <Section title="The sounds">
+        <p>Radio tells you what is happening without you having to look at the screen — the point being that you are usually holding something else.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">A rising beep</strong> means they have started talking.</li>
+          <li><strong className="text-white">A falling beep</strong> — the &ldquo;over&rdquo; — means they have finished and the channel is yours.</li>
+          <li><strong className="text-white">A low double thud</strong> means you pressed while they were still talking, so nothing was sent.</li>
+          <li><strong className="text-white">A short ring</strong> means someone wants to open a channel with you. It rings a few times and stops.</li>
+        </ul>
+        <p>Your phone also buzzes on each of these if it supports it.</p>
+        <Note>🔕 All of it is under <strong className="text-white">Settings → Notifications</strong>, on each device separately. You can pick the ring for invites there, or turn Hub sounds off entirely on that phone.</Note>
+      </Section>
+
+      <Section title="When you cannot radio someone">
+        <p>If the radio icon is greyed out, that person is <strong className="text-white">on a phone call</strong> right now. Tap it and it will tell you. Give it a minute and try again.</p>
+      </Section>
+
       <Section title="How long a channel stays open">
         <p>A channel stays open for <strong className="text-white">one hour after the last time anyone talks</strong>, then closes itself. The screen shows when that will be.</p>
         <p>Leaving the screen does <strong className="text-white">not</strong> close it — go back to the chat, check a job, come back and carry on. Either of you can tap <strong className="text-white">Close channel</strong> to end it early, and the other person is told.</p>
@@ -1941,7 +1957,7 @@ function RadioTab() {
 
       <Section title="Things worth knowing">
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Radio is recorded.</strong> Transmissions are saved so they can be played back, and kept for 30 days.</li>
+          <li><strong className="text-white">Radio keeps no record.</strong> Nothing is saved to the chat, there is nothing to play back and nothing is written down. If you missed it, ask them to say it again. (Audio sits on our server just long enough to reach the other phone — under a day — and then deletes itself.)</li>
           <li><strong className="text-white">It works in a weak signal.</strong> Your words are sent in small pieces as you talk, and a piece that does not get through is retried — where a normal call would simply drop.</li>
           <li><strong className="text-white">Both people need Radio turned on</strong> in Admin → People. If the radio icon is missing from a conversation, that is usually why.</li>
           <li><strong className="text-white">Keep the screen on while you are using it.</strong> Radio cannot play through a locked phone yet.</li>

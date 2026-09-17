@@ -3,10 +3,14 @@
 // Listens for "someone wants to open a radio channel with you" anywhere in the Hub.
 //
 // Two ways an invite reaches you and they are deliberately different:
-//  - In the Hub → this banner. No sound of its own and no ringing; Radio is a tap on
-//    the shoulder, not a phone call.
+//  - In the Hub → this banner, with a short ring (Phase 2, Ben Sep 16 2026: "a little
+//    persistent. Almost like a ring tone. But shorter."). In here we own the sound
+//    completely, so it is a few repeats of the tone chosen for "Radio invites" in
+//    Settings, and the master Sounds switch silences it. Bounded — see ring.ts.
 //  - Away from the Hub → one push notification (sent by the open-channel route,
 //    subject to Hub DND like anything else). Tapping it opens the channel directly.
+//    ⚠ That one is the platform's notification sound; iOS web push cannot loop one, so
+//    a true ring-until-answered waits for the native release.
 //
 // It is mounted once in the Hub layout, so the banner appears whatever page you are
 // on. An invite that arrives while you're already on the channel screen is ignored —
@@ -16,6 +20,7 @@ import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
 import { RADIO_INVITE_TTL_MS, radioUserTopic } from '@/lib/radio/types'
+import { startRadioInviteRing, stopRadioInviteRing } from '@/lib/radio/ring'
 import { RadioIcon } from './RadioIcons'
 
 type Invite = { sessionId: string; fromName: string }
@@ -45,6 +50,14 @@ export default function RadioInviteListener({ currentUserId }: { currentUserId: 
     if (!invite) return
     const t = setTimeout(() => setInvite(null), RADIO_INVITE_TTL_MS)
     return () => clearTimeout(t)
+  }, [invite])
+
+  // The ring is tied to the banner being up, so every way an invite ends — accepted,
+  // declined, withdrawn, expired, or this component unmounting — stops it in one place.
+  useEffect(() => {
+    if (invite) startRadioInviteRing()
+    else stopRadioInviteRing()
+    return () => stopRadioInviteRing()
   }, [invite])
 
   if (!invite) return null

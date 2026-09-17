@@ -63,18 +63,37 @@ export const CHIME_SOUNDS: { id: ChimeSoundId; label: string; notes: Note[] }[] 
   { id: 'alert',   label: 'Alert',      notes: [{ freq: 1567.98, at: 0, decay: 18 }, { freq: 1567.98, at: 0.08, decay: 18 }, { freq: 1567.98, at: 0.16, decay: 14 }] },
 ]
 
-const SOUND_BY_ID: Record<string, Note[]> = Object.fromEntries(
-  CHIME_SOUNDS.map((s) => [s.id, s.notes])
-)
+// Radio's three interface tones. These are deliberately NOT in CHIME_SOUNDS and so
+// never appear in the sound picker: an "over" beep someone has set to Marimba has
+// stopped meaning "over". They are part of Radio's interface the way a real radio's
+// roger beep is, and they are silenced by the master Sounds switch like everything
+// else. What IS pickable is the radio-invite ring below, because that one is a
+// notification rather than a piece of the channel.
+export type RadioTone = 'radio-over' | 'radio-incoming' | 'radio-blocked'
+
+const RADIO_TONES: Record<RadioTone, Note[]> = {
+  // Falling pair, short and dry — the classic "over". The channel is yours.
+  'radio-over':     [{ freq: 1046.50, at: 0, decay: 22 }, { freq: 783.99, at: 0.075, decay: 20 }],
+  // Rising pair — someone is about to speak. Deliberately the inverse of "over".
+  'radio-incoming': [{ freq: 659.25,  at: 0, decay: 24 }, { freq: 987.77, at: 0.065, decay: 20 }],
+  // Low double thud — explains a dead button without a glance. Pairs with the haptic.
+  'radio-blocked':  [{ freq: 207.65,  at: 0, decay: 26 }, { freq: 207.65, at: 0.085, decay: 26 }],
+}
+
+const SOUND_BY_ID: Record<string, Note[]> = {
+  ...Object.fromEntries(CHIME_SOUNDS.map((s) => [s.id, s.notes])),
+  ...RADIO_TONES,
+}
 
 // The kinds of event that can ring. Each maps to a sound below.
-export type ChimeKind = 'message' | 'txt' | 'email' | 'daily-log'
+export type ChimeKind = 'message' | 'txt' | 'email' | 'daily-log' | 'radio-invite'
 
 export const CHIME_KINDS: { kind: ChimeKind; label: string; hint: string }[] = [
   { kind: 'message',   label: 'Hub messages',   hint: 'Rooms and DMs you belong to' },
   { kind: 'txt',       label: 'Customer texts', hint: 'New inbound text in Txt' },
   { kind: 'email',     label: 'Inbox email',    hint: 'New mail in the shared Inbox, or a reply on a thread assigned to you' },
   { kind: 'daily-log', label: 'Daily Log',      hint: 'New Daily Log updates' },
+  { kind: 'radio-invite', label: 'Radio invites', hint: 'Someone opening a radio channel with you. Radio also plays its own short over, incoming and blocked tones while a channel is open.' },
 ]
 
 // Hub messages keep the sound this app has always played; the other kinds get
@@ -84,6 +103,8 @@ const DEFAULT_SOUNDS: Record<ChimeKind, ChimeSoundId> = {
   txt: 'marimba',
   email: 'soft',
   'daily-log': 'double',
+  // Three repeats — the closest thing in the library to a ring.
+  'radio-invite': 'alert',
 }
 
 function readSoundMap(): Partial<Record<ChimeKind, ChimeSoundId>> {
@@ -263,6 +284,7 @@ function playFallback(soundId: string): void {
 function soundsToPrime(): string[] {
   const ids = new Set<string>(fallbackAudio.keys())
   for (const { kind } of CHIME_KINDS) ids.add(getChimeSound(kind))
+  for (const id of Object.keys(RADIO_TONES)) ids.add(id)
   return Array.from(ids)
 }
 
@@ -321,6 +343,14 @@ function playTones(c: AudioContext, soundId: string): void {
 // `kind` defaults to 'message' so any older call site keeps its original sound.
 export function playChime(kind: ChimeKind = 'message'): void {
   playSoundId(getChimeSound(kind))
+}
+
+// Play one of Radio's fixed interface tones. Honours the master Sounds switch —
+// Radio's call sites are inside a live channel rather than the notifier, so the
+// check that WebChimeNotifier does for chimes has to happen here.
+export function playRadioTone(tone: RadioTone): void {
+  if (!isChimeEnabled()) return
+  playSoundId(tone)
 }
 
 // Play one specific sound regardless of the kind mapping — used by the Settings

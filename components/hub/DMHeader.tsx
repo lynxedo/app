@@ -84,7 +84,7 @@ export default function DMHeader({
         <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{othersCount + 1} people</span>
       )}
       <div className="ml-auto flex items-center gap-1">
-        {canRadio && <RadioButton conversationId={conversationId} />}
+        {canRadio && <RadioButton conversationId={conversationId} onCall={!!solo && onCallUsers.has(solo.id)} />}
         <PopoutButton
           target={{ kind: 'dm', conversationId, title: convTitle, currentUserId }}
         />
