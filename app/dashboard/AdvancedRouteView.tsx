@@ -20,6 +20,8 @@ interface BatchStop {
   // Which kind of Jobber scheduled item the id points at. Optional because
   // batches parked before tasks existed have no such key — those were all visits.
   stop_type?: 'visit' | 'assessment' | 'task'
+  // False for a task with no address. Absent on batches parked before tasks.
+  routable?: boolean
   client_name: string
   client_phone: string | null
   address: string
@@ -260,8 +262,6 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   const [depotCoord, setDepotCoord] = useState<{ lat: number; lng: number } | null>(null)
   const [usingMatrix, setUsingMatrix] = useState<boolean | null>(null)
   const [geocodeFailed, setGeocodeFailed] = useState<string[]>([])
-  // Address-less tasks left out of this view (see loadVisits).
-  const [unroutableCount, setUnroutableCount] = useState(0)
   const [fallbackStops, setFallbackStops] = useState<string[]>([])
   // Matrix + speed kept so a manual drag-reorder can recompute ETAs client-side.
   const [durationMatrix, setDurationMatrix] = useState<number[][] | null>(null)
@@ -444,7 +444,9 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       const res = await fetch('/api/geocode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addresses: loaded.map(v => v.addressString) }),
+        // An address-less task has nothing to look up; sending '' just wastes a
+        // slot and comes back null anyway.
+        body: JSON.stringify({ addresses: loaded.map(v => v.routable === false ? '' : v.addressString) }),
       })
       const data = res.ok ? await res.json() : null
       const coords: ({ lat: number; lng: number } | null)[] = Array.isArray(data?.coords) ? data.coords : []
@@ -490,19 +492,15 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
         const res = await fetch(`/api/visits?date=${d}&userId=${encodeURIComponent(uid)}`)
         const data = await res.json()
         if (data.error) throw new Error(data.error)
-        const all = data.visits as Visit[]
-        // This view is map-and-lasso driven; an address-less task (a parts run)
-        // has no pin to select and no leg to optimize. Count them so the tally
-        // below can say they were left out rather than dropping them silently.
-        const routable = all.filter(v => v.routable !== false)
+        // Address-less tasks are KEPT. They have no pin and no leg, but they are
+        // still work on that tech's day, so they ride along and render at the top
+        // of their day group instead of being dropped with a count.
         return {
-          visits: routable.map(v => ({ ...v, techId: uid, dayDate: d })),
+          visits: (data.visits as Visit[]).map(v => ({ ...v, techId: uid, dayDate: d })),
           truncated: !!data.truncated,
-          skipped: all.length - routable.length,
         }
       }))
       setVisitsTruncated(settled.some(s => s.truncated))
-      setUnroutableCount(settled.reduce((n, s) => n + s.skipped, 0))
       const merged = settled.flatMap(s => s.visits)
       setVisits(merged)
       geocodeVisits(merged)
@@ -718,6 +716,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       ord: v.stopNumber,
       jobber_visit_id: v.id,
       stop_type: v.type ?? 'visit',
+      routable: v.routable !== false,
       client_name: v.clientName,
       client_phone: v.phone,
       address: v.addressString,
@@ -736,6 +735,38 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       distance_km: v.distanceKm,
       original_day: v.dayDate,
     }))
+
+    // Address-less tasks never make it into `optimized` (no coordinates, so they
+    // are never selectable on the map), but they are still that day's work and
+    // have to travel with the parked batch or they vanish from the printed sheet.
+    // Ord 0 keeps them above stop 1 wherever the batch is re-sorted by order.
+    const dayTasks = (visits ?? []).filter(v => v.routable === false && v.dayDate === batchDate)
+    for (const t of dayTasks) {
+      stops.unshift({
+        ord: 0,
+        jobber_visit_id: t.id,
+        stop_type: 'task',
+        routable: false,
+        client_name: t.clientName,
+        client_phone: t.phone,
+        address: '',
+        lat: null,
+        lng: null,
+        job_title: t.jobTitle,
+        line_items: [],
+        instructions: t.instructions,
+        services: t.services,
+        total_price: 0,
+        eta: '',
+        start_at_iso: null,
+        end_at_iso: null,
+        drive_minutes: 0,
+        onsite_minutes: 0,
+        distance_km: 0,
+        original_day: t.dayDate,
+      })
+    }
+
     try {
       const res = await fetch('/api/hub/routing/batches', {
         method: 'POST',
@@ -881,7 +912,10 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       setBatchMsg(prev => ({ ...prev, [b.id]: { ok: false, text: 'Batch has no assigned tech — cannot send to Daily Log.' } }))
       return
     }
-    const stops = orderedStops(b).map(s => ({
+    // Daily Log is a stop-completion workflow — arrive, do the work, photograph it.
+    // An address-less task has nothing to arrive at, so it would land there as a
+    // malformed stop. It still reaches the tech on the attached route sheet below.
+    const stops = orderedStops(b).filter(s => s.routable !== false).map(s => ({
       jobber_visit_id: s.jobber_visit_id,
       client_name: s.client_name,
       client_phone: s.client_phone,
@@ -900,6 +934,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       // DL v2 entry gets an identical "Print / Save as PDF" route sheet.
       const sheetStops: RouteSheetStop[] = orderedStops(b).map(s => ({
         stopNumber: s.ord,
+        routable: s.routable !== false,
         clientName: s.client_name,
         addressString: s.address,
         phone: s.client_phone,
@@ -951,6 +986,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     runBatchAction(b.id, 'dlv1', async () => {
       const sheetStops: RouteSheetStop[] = orderedStops(b).map(s => ({
         stopNumber: s.ord,
+        routable: s.routable !== false,
         clientName: s.client_name,
         addressString: s.address,
         phone: s.client_phone,
@@ -1001,6 +1037,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     runBatchAction(b.id, 'sheet', async () => {
       const sheetStops: RouteSheetStop[] = orderedStops(b).map(s => ({
         stopNumber: s.ord,
+        routable: s.routable !== false,
         clientName: s.client_name,
         addressString: s.address,
         phone: s.client_phone,
@@ -1071,6 +1108,8 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     }
     for (const arr of groups.values()) {
       arr.sort((a, b) => {
+        // No-address tasks first — they're what you handle before setting off.
+        if ((a.routable === false) !== (b.routable === false)) return a.routable === false ? -1 : 1
         if (a.startAt && b.startAt) return a.startAt.localeCompare(b.startAt)
         if (a.startAt) return -1
         if (b.startAt) return 1
@@ -1086,7 +1125,10 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   // fixes the address in Jobber and reloads. Only meaningful once geocoding settles.
   const unmappableVisits = useMemo(() => {
     if (!visits || coordsLoading) return []
-    return visits.filter(v => !heldVisitIds.has(v.id) && !coordsById.has(v.id))
+    // `routable === false` is not a broken address — it is a task with no address
+    // at all. Calling it unmappable would tell the user to go fix something in
+    // Jobber that isn't wrong.
+    return visits.filter(v => !heldVisitIds.has(v.id) && v.routable !== false && !coordsById.has(v.id))
   }, [visits, coordsById, coordsLoading, heldVisitIds])
 
   // ── Derived: map pins ──────────────────────────────────────────────────────
@@ -1152,7 +1194,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   }
 
   function selectDay(day: string, on: boolean) {
-    const ids = (visits ?? []).filter(v => v.dayDate === day).map(v => v.id)
+    const ids = (visits ?? []).filter(v => v.dayDate === day && v.routable !== false).map(v => v.id)
     setSelectedIds(prev => {
       const next = new Set(prev)
       ids.forEach(id => on ? next.add(id) : next.delete(id))
@@ -1287,12 +1329,6 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       )}
       {optimizeError && (
         <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">Optimization failed: {optimizeError}</div>
-      )}
-      {unroutableCount > 0 && (
-        <div className="bg-gray-900 border border-gray-800 text-gray-400 rounded-lg px-4 py-3 text-sm">
-          {unroutableCount} task{unroutableCount !== 1 ? 's' : ''} with no address {unroutableCount !== 1 ? 'were' : 'was'} left out —
-          {' '}they can&apos;t be mapped or routed. They&apos;re still in Jobber, and the basic Route Optimizer lists them.
-        </div>
       )}
       {geocodeFailed.length > 0 && (
         <div className="bg-yellow-900/40 border border-yellow-700 text-yellow-300 rounded-lg px-4 py-3 text-sm">
@@ -1697,8 +1733,10 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
               ) : (
                 visitsByDay.map(([day, dayVisits]) => {
                   const collapsed = collapsedDays.has(day)
-                  const daySelected = dayVisits.filter(v => selectedIds.has(v.id)).length
-                  const allDaySelected = daySelected === dayVisits.length && dayVisits.length > 0
+                  const dayRoutable = dayVisits.filter(v => v.routable !== false)
+                  const dayTaskCount = dayVisits.length - dayRoutable.length
+                  const daySelected = dayRoutable.filter(v => selectedIds.has(v.id)).length
+                  const allDaySelected = daySelected === dayRoutable.length && dayRoutable.length > 0
                   return (
                     <div key={day} className="border-b border-gray-800 last:border-b-0">
                       <div className="px-4 py-2.5 bg-gray-950/50 flex items-center gap-3">
@@ -1707,7 +1745,11 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                         </button>
                         <div className="flex-1 min-w-0">
                           <span className="text-sm font-semibold text-white">{dayHeading(day)}</span>
-                          <span className="text-xs text-gray-500 ml-2">{dayVisits.length} stop{dayVisits.length !== 1 ? 's' : ''}{daySelected > 0 ? ` · ${daySelected} selected` : ''}</span>
+                          <span className="text-xs text-gray-500 ml-2">
+                            {dayRoutable.length} stop{dayRoutable.length !== 1 ? 's' : ''}
+                            {dayTaskCount > 0 ? ` · ${dayTaskCount} task${dayTaskCount !== 1 ? 's' : ''}` : ''}
+                            {daySelected > 0 ? ` · ${daySelected} selected` : ''}
+                          </span>
                         </div>
                         <button
                           onClick={() => selectDay(day, !allDaySelected)}
@@ -1722,7 +1764,10 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                             const sel = selectedIds.has(v.id)
                             const route = routePosById.get(v.id)
                             const hl = highlightId === v.id
-                            const located = coordsById.has(v.id) || !!route
+                            // A task with no address: nothing to select, nothing to
+                            // pin, and no missing-address warning to raise.
+                            const noAddress = v.routable === false
+                            const located = noAddress || coordsById.has(v.id) || !!route
                             return (
                               <li
                                 key={v.id}
@@ -1730,19 +1775,23 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                                 className={`px-4 py-2.5 flex gap-2.5 items-start cursor-pointer transition-colors ${hl ? 'bg-orange-500/10 ring-1 ring-inset ring-orange-500/40' : 'hover:bg-gray-800/40'}`}
                                 onClick={() => setHighlightId(v.id)}
                               >
-                                <input
-                                  type="checkbox"
-                                  checked={sel}
-                                  onClick={e => e.stopPropagation()}
-                                  onChange={e => {
-                                    setSelectedIds(prev => {
-                                      const next = new Set(prev)
-                                      if (e.target.checked) next.add(v.id); else next.delete(v.id)
-                                      return next
-                                    })
-                                  }}
-                                  className="mt-1 w-4 h-4 shrink-0 accent-orange-500 cursor-pointer"
-                                />
+                                {noAddress ? (
+                                  <span className="mt-1 w-4 h-4 shrink-0 flex items-center justify-center text-teal-400 text-xs" title="No address — not part of the drive">✅</span>
+                                ) : (
+                                  <input
+                                    type="checkbox"
+                                    checked={sel}
+                                    onClick={e => e.stopPropagation()}
+                                    onChange={e => {
+                                      setSelectedIds(prev => {
+                                        const next = new Set(prev)
+                                        if (e.target.checked) next.add(v.id); else next.delete(v.id)
+                                        return next
+                                      })
+                                    }}
+                                    className="mt-1 w-4 h-4 shrink-0 accent-orange-500 cursor-pointer"
+                                  />
+                                )}
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
                                     {route && (
@@ -1751,9 +1800,15 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                                     <p className="font-medium text-sm text-white truncate">{v.clientName}</p>
                                     {!located && <span className="shrink-0 text-[10px] text-yellow-500" title="Address could not be located on the map">⚠</span>}
                                   </div>
-                                  <p className="text-xs text-gray-400 truncate">{v.addressString}</p>
+                                  <p className="text-xs text-gray-400 truncate">
+                                    {noAddress ? 'No address — not routed' : v.addressString}
+                                  </p>
                                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                    <span className="text-[11px] text-orange-300">{stopTime(v.startAt)}</span>
+                                    {noAddress ? (
+                                      <span className="text-[10px] bg-teal-900/50 text-teal-300 border border-teal-700 px-1.5 py-0.5 rounded">Task</span>
+                                    ) : (
+                                      <span className="text-[11px] text-orange-300">{stopTime(v.startAt)}</span>
+                                    )}
                                     {v.jobTitle && (
                                       <span className="text-[10px] bg-gray-800 text-gray-300 border border-gray-700 px-1.5 py-0.5 rounded truncate max-w-[160px]">{v.jobTitle}</span>
                                     )}
@@ -1831,7 +1886,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                             <li key={s.jobber_visit_id} className="flex items-center gap-2 text-sm">
                               <span className="w-5 h-5 shrink-0 rounded-full bg-indigo-700 text-[#fff] text-[10px] font-bold flex items-center justify-center">{s.ord}</span>
                               <span className="flex-1 min-w-0 truncate text-gray-200">{s.client_name}</span>
-                              <span className="hidden sm:block text-xs text-gray-500 truncate max-w-[40%]">{s.address}</span>
+                              <span className="hidden sm:block text-xs text-gray-500 truncate max-w-[40%]">{s.routable === false ? 'Task — no address' : s.address}</span>
                               <span className="text-xs text-orange-400 shrink-0">{s.eta}</span>
                             </li>
                           ))}

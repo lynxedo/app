@@ -753,7 +753,19 @@ export default function RouteBuilder() {
           <td class="sl-eta" style="color:#333;font-weight:normal">${sheetReturnMin} min</td>
         </tr>`
       : ''
-    const summaryRows = optimizedVisits.map(v => `
+    // No-address tasks print ABOVE the numbered stops — they aren't part of the
+    // drive, so they get no number and no ETA, but the tech needs to read them
+    // before setting off. Derived here rather than closed over so this stays
+    // correct whenever the sheet is generated.
+    const sheetTasks = (visits ?? []).filter(v => v.routable === false)
+    const taskRows = sheetTasks.map(v => `
+      <tr>
+        <td class="sl-num"><span class="sl-circle" style="font-size:12px">&#10003;</span></td>
+        <td class="sl-name">${v.jobTitle || v.clientName}</td>
+        <td class="sl-addr">${v.instructions ? v.instructions : 'Task &mdash; no address'}</td>
+        <td class="sl-eta"></td>
+      </tr>`).join('')
+    const summaryRows = taskRows + optimizedVisits.map(v => `
       <tr>
         <td class="sl-num"><span class="sl-circle">${v.stopNumber}</span></td>
         <td class="sl-name">${v.clientName}</td>
@@ -1062,10 +1074,13 @@ export default function RouteBuilder() {
     }
   }
 
-  // Address-less stops are shown in their own list below the route, not in it —
-  // they have no ETA, no pin, and no place in the drive order.
+  // Address-less stops ride at the TOP of the list — no pin, no ETA, no place in
+  // the drive order, but the first thing the tech reads. Optimizing only reorders
+  // the stops that have somewhere to drive to, so they are prepended back on.
   const unroutableStops = (visits ?? []).filter(v => v.routable === false)
-  const displayVisits = optimizedVisits ?? (visits ? visits.filter(v => v.routable !== false) : null)
+  const displayVisits = optimizedVisits
+    ? [...unroutableStops, ...optimizedVisits]
+    : visits
   const skippedVisits = (visits && optimizedVisits)
     ? visits.filter(v => !selectedIds.has(v.id) && !sentIds.has(v.id))
     : []
@@ -1276,29 +1291,6 @@ export default function RouteBuilder() {
         </div>
       )}
 
-      {unroutableStops.length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 text-sm">
-          <p className="font-medium text-gray-300 mb-1.5">
-            Also on this day — no address, so not routed
-          </p>
-          <ul className="space-y-1">
-            {unroutableStops.map(u => (
-              <li key={u.id} className="text-gray-400 flex items-start gap-2">
-                <span className="shrink-0 text-xs bg-teal-900/50 text-teal-300 border border-teal-700 px-1.5 py-0.5 rounded">
-                  ✅ Task
-                </span>
-                <span className="min-w-0">
-                  <span className="text-gray-200">{u.jobTitle || u.clientName}</span>
-                  {u.instructions && (
-                    <span className="block text-xs text-gray-500">{u.instructions}</span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {/* Main content: map LEFT + visit list RIGHT */}
       {displayVisits !== null && (
         <div className="flex flex-col lg:flex-row gap-4 items-start">
@@ -1456,39 +1448,46 @@ export default function RouteBuilder() {
                 <ul className="divide-y divide-gray-800">
                   {displayVisits.map((v, idx) => {
                     const optimized = v as OptimizedVisit
-                    const hasEta = 'eta' in v && optimized.eta
+                    const noAddress = v.routable === false
+                    const hasEta = !noAddress && 'eta' in v && optimized.eta
                     const result = sendResultMap.get(v.id)
-                    const isDragging = draggingIdx === idx
-                    const isDragTarget = dragOverIdx === idx && draggingIdx !== idx
+                    // No-address tasks are prepended to the rendered list but are NOT
+                    // in optimizedVisits, so a drag index has to be shifted back by
+                    // however many of them sit above — otherwise a drop reorders the
+                    // wrong stop. They are not draggable themselves.
+                    const routeIdx = optimizedVisits ? idx - unroutableStops.length : idx
+                    const canDrag = !!optimizedVisits && !noAddress
+                    const isDragging = canDrag && draggingIdx === routeIdx
+                    const isDragTarget = canDrag && dragOverIdx === routeIdx && draggingIdx !== routeIdx
                     const isSent = sentIds.has(v.id)
                     const isChecked = selectedIds.has(v.id) && !isSent
                     return (
                       <li
                         key={v.id}
-                        draggable={!!optimizedVisits}
-                        onDragStart={optimizedVisits ? () => setDraggingIdx(idx) : undefined}
-                        onDragOver={optimizedVisits ? (e) => { e.preventDefault(); setDragOverIdx(idx) } : undefined}
-                        onDrop={optimizedVisits ? (e) => {
+                        draggable={canDrag}
+                        onDragStart={canDrag ? () => setDraggingIdx(routeIdx) : undefined}
+                        onDragOver={canDrag ? (e) => { e.preventDefault(); setDragOverIdx(routeIdx) } : undefined}
+                        onDrop={canDrag && optimizedVisits ? (e) => {
                           e.preventDefault()
-                          if (draggingIdx === null || draggingIdx === idx) { setDragOverIdx(null); return }
+                          if (draggingIdx === null || draggingIdx === routeIdx) { setDragOverIdx(null); return }
                           const newList = [...optimizedVisits]
                           const [moved] = newList.splice(draggingIdx, 1)
-                          newList.splice(idx, 0, moved)
+                          newList.splice(routeIdx, 0, moved)
                           setOptimizedVisits(newList.map((s, i) => ({ ...s, stopNumber: i + 1 })))
                           setIsManualOrder(true)
                           setDraggingIdx(null)
                           setDragOverIdx(null)
                         } : undefined}
-                        onDragEnd={optimizedVisits ? () => { setDraggingIdx(null); setDragOverIdx(null) } : undefined}
+                        onDragEnd={canDrag ? () => { setDraggingIdx(null); setDragOverIdx(null) } : undefined}
                         className={[
                           'px-6 py-4 flex gap-3 items-start transition-opacity',
                           isDragging ? 'opacity-30' : isSent ? 'opacity-40' : 'opacity-100',
                           isDragTarget ? 'border-t-2 border-orange-500' : '',
-                          optimizedVisits ? 'cursor-grab active:cursor-grabbing' : '',
+                          canDrag ? 'cursor-grab active:cursor-grabbing' : '',
                         ].join(' ')}
                       >
                         {/* Checkbox — shown before optimization only */}
-                        {!optimizedVisits && (
+                        {!optimizedVisits && !noAddress && (
                           <input
                             type="checkbox"
                             checked={isChecked}
@@ -1504,11 +1503,14 @@ export default function RouteBuilder() {
                             className="mt-1.5 w-4 h-4 shrink-0 rounded border-gray-600 accent-orange-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           />
                         )}
-                        {optimizedVisits && (
+                        {optimizedVisits && !noAddress && (
                           <span className="text-gray-600 shrink-0 mt-1 select-none text-lg leading-none" title="Drag to reorder">⠿</span>
                         )}
+                        {noAddress && (
+                          <span className="shrink-0 mt-1 select-none text-lg leading-none" title="No address — not part of the drive">✅</span>
+                        )}
                         <span className="text-2xl font-bold text-gray-600 w-8 shrink-0 text-right mt-0.5">
-                          {v.stopNumber}
+                          {noAddress ? '·' : v.stopNumber}
                         </span>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1537,7 +1539,9 @@ export default function RouteBuilder() {
                           {v.jobTitle && (
                             <p className="text-sm text-orange-300 truncate">{v.jobTitle}</p>
                           )}
-                          <p className="text-sm text-gray-400 truncate">{v.addressString}</p>
+                          <p className="text-sm text-gray-400 truncate">
+                            {noAddress ? 'No address — not routed' : v.addressString}
+                          </p>
                           {v.services && (
                             <p className="text-xs text-gray-500 mt-0.5 truncate">{v.services}</p>
                           )}

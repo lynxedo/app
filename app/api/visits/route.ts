@@ -166,15 +166,10 @@ function localDayBounds(date: string, timeZone = ROUTING_TZ): { start: string; e
   return { start: `${date}T00:00:00${offset}`, end: `${date}T23:59:59${offset}` }
 }
 
-// Jobber spells the Task member of ScheduledItemType as either TASK or
-// BASIC_TASK depending on which you read — the filter's own description calls
-// them "Basic Tasks", but the object type is `Task`, and the enum values are not
-// readable through the introspection helper we have. Rather than guess, try one
-// and fall back to the other on a validation error, then remember the winner for
-// the life of the process. Once the log below has told us which it is, this can
-// collapse to a constant.
-const TASK_ENUM_CANDIDATES = ['BASIC_TASK', 'TASK'] as const
-let resolvedTaskEnum: string | null = null
+// Confirmed from the served prod build's own log on Sep 17 2026
+// ("[visits] ScheduledItemType for tasks resolved to BASIC_TASK") and by the
+// query then returning a real task. No longer a guess.
+const TASK_ITEM_TYPE = 'BASIC_TASK'
 
 type ScheduledItemsResponse = {
   data?: { scheduledItems?: { nodes?: Array<Record<string, unknown>> } }
@@ -184,35 +179,27 @@ type ScheduledItemsResponse = {
 async function fetchTasks(
   jobberUserId: string, dayStart: string, dayEnd: string, assignedTo: string,
 ): Promise<JobberTask[]> {
-  const candidates = resolvedTaskEnum ? [resolvedTaskEnum] : TASK_ENUM_CANDIDATES
+  const res = await jobberGraphQLAdmin<ScheduledItemsResponse>(
+    jobberUserId, TASKS_QUERY,
+    { filter: {
+      scheduleItemType: TASK_ITEM_TYPE,
+      occursWithin: { startAt: dayStart, endAt: dayEnd },
+      assignedTo: [assignedTo],
+    }},
+  ).catch((err: unknown) => {
+    console.warn(`[visits] tasks request threw: ${err instanceof Error ? err.message : String(err)}`)
+    return null
+  })
 
-  for (const value of candidates) {
-    const res = await jobberGraphQLAdmin<ScheduledItemsResponse>(
-      jobberUserId, TASKS_QUERY,
-      { filter: {
-        scheduleItemType: value,
-        occursWithin: { startAt: dayStart, endAt: dayEnd },
-        assignedTo: [assignedTo],
-      }},
-    ).catch(() => null)
-
-    // A bad enum value fails GraphQL validation, which arrives as `errors` with
-    // no `data` — distinct from a query that ran and simply found nothing.
-    if (res?.data?.scheduledItems) {
-      if (resolvedTaskEnum !== value) {
-        resolvedTaskEnum = value
-        console.info(`[visits] ScheduledItemType for tasks resolved to "${value}"`)
-      }
-      return (res.data.scheduledItems.nodes ?? []) as unknown as JobberTask[]
-    }
-    if (res?.errors?.length) {
-      console.warn(`[visits] task enum "${value}" rejected: ${res.errors[0].message}`)
-    }
+  if (res?.errors?.length) {
+    // Loud on purpose: a task quietly not arriving is indistinguishable from a
+    // day that simply has none, and that cost a round of wrong diagnosis.
+    console.warn(`[visits] tasks query rejected: ${res.errors[0].message}`)
+    return []
   }
 
   // Tasks are additive — a failure here must not cost the caller their visits.
-  console.warn('[visits] tasks could not be fetched; returning visits/assessments only')
-  return []
+  return (res?.data?.scheduledItems?.nodes ?? []) as unknown as JobberTask[]
 }
 
 export async function GET(request: Request) {
@@ -344,10 +331,11 @@ export async function GET(request: Request) {
     }
 
     // Sort by startAt (timed visits first, then untimed). Stops with no address
-    // sink to the bottom — they aren't part of the drive, so they shouldn't sit
-    // between two stops that are.
+    // rise to the TOP: they aren't part of the drive, so they can't sit between
+    // two stops that are, and the top is where a tech reads them before setting
+    // off (Ben's ask — "always the first on the list").
     stops.sort((a, b) => {
-      if (a.routable !== b.routable) return a.routable ? -1 : 1
+      if (a.routable !== b.routable) return a.routable ? 1 : -1
       if (a.startAt && b.startAt) return a.startAt.localeCompare(b.startAt)
       if (a.startAt) return -1
       if (b.startAt) return 1
