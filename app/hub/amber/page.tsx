@@ -9,8 +9,10 @@ import AmberNotesCard from '@/components/hub/home/AmberNotesCard'
 // is deliberately hidden there — so Home is a once-a-morning screen you reach only via
 // the 14-hour idle bounce. Ben: *"I'm not seeing this in Hub anywhere"* → *"we need to
 // put it in the hub. right along with task boards, rooms and DMs."* So it now lives in
-// the Hub sidebar like any other destination. The Home card stays too — it is genuinely
-// useful first thing in the morning.
+// the Hub sidebar like any other destination — and ONLY there. The Home copy of the card
+// was removed on Ben's word: two places to set a note that re-points the phone is one
+// too many, and the sidebar row already carries an amber count when anything is in
+// force, so nothing is lost by not showing it on Home.
 
 export const dynamic = 'force-dynamic'
 
