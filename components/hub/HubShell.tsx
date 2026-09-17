@@ -338,6 +338,12 @@ export default function HubShell({
   // are now surfaced ONLY by <UpdateNotifier> (a user-initiated reload), and a
   // freshly-granted app icon surfaces on the user's next navigation instead.
   // Do not re-add a focus/visibility router.refresh() here.
+  // ⚠ The ONE narrow exception lives in components/hub/HubWarmResume.tsx (Sep 17
+  // 2026): a refresh after 30+ minutes backgrounded, in the native app only, and
+  // never while hasUnsavedWork() is true. It exists because Radio's premise is a
+  // channel staying warm in a pocket, so pulling the phone out to a frozen screen
+  // is the one failure it cannot afford. It is gated precisely to avoid both
+  // failures above — widen it and you will re-create them.
   // Lightweight conversation list so DM tokens on the rail/dock/drawer can show
   // a label + avatar. (The sidebar fetches its own richer copy.)
   const [railConversations, setRailConversations] = useState<RailConversation[]>([])

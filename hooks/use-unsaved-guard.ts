@@ -18,6 +18,13 @@ function beforeUnload(e: BeforeUnloadEvent) {
   e.returnValue = '' // required for the prompt to show in most browsers
 }
 
+/** True while ANY mounted editor reports an unsaved draft. Read by anything that
+ *  wants to refresh the page out from under the user — see HubWarmResume, which
+ *  refuses to when this is true. */
+export function hasUnsavedWork(): boolean {
+  return dirtyCount > 0
+}
+
 export function useUnsavedGuard(isDirty: boolean) {
   useEffect(() => {
     if (!isDirty) return

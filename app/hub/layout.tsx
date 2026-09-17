@@ -14,6 +14,7 @@ import PushInit from '@/components/hub/PushInit'
 import ElectronNotifier from '@/components/hub/ElectronNotifier'
 import WebChimeNotifier from '@/components/hub/WebChimeNotifier'
 import HubIdleTracker from '@/components/hub/HubIdleTracker'
+import HubWarmResume from '@/components/hub/HubWarmResume'
 import { UpdateNotifier } from '@/components/hub/UpdateNotifier'
 import { ToastProvider, ConfirmProvider } from '@/components/ui'
 import { markActive } from '@/lib/hub-activity'
@@ -478,6 +479,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       />
       {canAccessRadio && <RadioInviteListener currentUserId={user.id} />}
       <HubIdleTracker />
+      <HubWarmResume />
       <UpdateNotifier loadedBuildId={buildId} />
       </HubMessagesProvider>
       </ConfirmProvider>
