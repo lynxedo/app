@@ -11,6 +11,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 interface BatchStop {
   ord: number
   jobber_visit_id: string
+  // Which kind of Jobber scheduled item the id points at, so the push-back can
+  // pick the right mutation. Absent on batches parked before tasks existed.
+  stop_type?: 'visit' | 'assessment' | 'task'
   client_name: string
   client_phone?: string | null
   address: string

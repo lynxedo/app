@@ -14,7 +14,7 @@ interface OptimizeRequest {
   addresses: string[]
   jobTitles?: string[]           // parallel to addresses
   visitLineItems?: string[][]    // parallel to addresses — line item names per stop
-  visitTypes?: string[]          // parallel to addresses — 'visit' | 'assessment'
+  visitTypes?: string[]          // parallel to addresses — 'visit' | 'assessment' | 'task'
   startHour?: number
   date?: string
   lockedFirstIdx?: number
@@ -36,15 +36,21 @@ function parseLawnSizeK(jobTitle: string): number | null {
 function computeDuration(
   lineItemNames: string[],
   jobTitle: string,
-  isAssessment: boolean,
+  stopType: string,
   method: string,
   rules: DurationRulesConfig,
   fallbackMin: number,
 ): { minutes: number; usedFallback: boolean } {
 
   // Assessments always use fixed duration regardless of method
-  if (isAssessment) {
+  if (stopType === 'assessment') {
     return { minutes: Math.max(rules.minMinutes, rules.assessmentMinutes), usedFallback: false }
+  }
+
+  // Tasks likewise — they carry no line items, so there is nothing for the
+  // formula to match on and every task would otherwise fall back silently.
+  if (stopType === 'task') {
+    return { minutes: Math.max(rules.minMinutes, rules.taskMinutes), usedFallback: false }
   }
 
   if (method === 'default') {
@@ -317,10 +323,10 @@ export async function POST(req: NextRequest) {
     const originalIdx = order[i]
     const title = jobTitles?.[originalIdx] ?? ''
     const lineItems = visitLineItems?.[originalIdx] ?? []
-    const isAssessment = visitTypes?.[originalIdx] === 'assessment'
+    const stopType = visitTypes?.[originalIdx] ?? 'visit'
 
     const { minutes: onSiteMin, usedFallback } = computeDuration(
-      lineItems, title, isAssessment, method, rules, serviceMin
+      lineItems, title, stopType, method, rules, serviceMin
     )
 
     legs.push({

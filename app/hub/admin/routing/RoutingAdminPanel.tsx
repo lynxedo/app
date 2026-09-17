@@ -578,6 +578,16 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
                 Fixed duration for assessment stops — they have no line items to calculate from
               </p>
             </div>
+
+            <div className="border-t border-gray-800 pt-5">
+              <label className="block text-xs text-gray-400 mb-1.5">Tasks (min)</label>
+              <input type="number" min={1} max={240} value={rules.taskMinutes}
+                onChange={e => setRules(r => ({ ...r, taskMinutes: Number(e.target.value) }))}
+                className={inputCls} />
+              <p className="text-xs text-gray-500 mt-1">
+                Fixed duration for Jobber tasks — like assessments, they have no line items
+              </p>
+            </div>
           </div>
         )}
 
@@ -593,6 +603,12 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
               <label className="block text-xs text-gray-400 mb-1.5">Requests / Assessments (min)</label>
               <input type="number" min={1} max={240} value={rules.assessmentMinutes}
                 onChange={e => setRules(r => ({ ...r, assessmentMinutes: Number(e.target.value) }))}
+                className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Tasks (min)</label>
+              <input type="number" min={1} max={240} value={rules.taskMinutes}
+                onChange={e => setRules(r => ({ ...r, taskMinutes: Number(e.target.value) }))}
                 className={inputCls} />
             </div>
           </div>

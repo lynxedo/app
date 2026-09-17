@@ -20,6 +20,10 @@ export const maxDuration = 30
 
 interface AssignRequest {
   visit_ids?: unknown
+  // Parallel to visit_ids. Jobber has one mutation per kind of scheduled item
+  // and they are not interchangeable. Absent for older callers and for batches
+  // parked before tasks existed — those only ever held visits.
+  visit_types?: unknown
   // When set, every visit is reassigned to this Jobber user.
   assigned_user_id?: unknown
   // When set, every visit is moved to this date (YYYY-MM-DD) as an Anytime visit
@@ -73,6 +77,48 @@ interface AssignMutationResult {
   errors?: Array<{ message: string }>
 }
 
+// Tasks and assessments move days through their own mutations. In both, omitting
+// the time (or setting allDay) is what makes the item "Anytime" on that date.
+const TASK_MOVE_MUTATION = `
+  mutation TaskMoveDay($id: EncodedId!, $input: TaskEditInput!) {
+    taskEdit(id: $id, input: $input) {
+      task { id }
+      userErrors { message }
+    }
+  }
+`
+
+interface TaskMoveResult {
+  data?: { taskEdit: { task: { id: string } | null; userErrors: Array<{ message: string }> } }
+  errors?: Array<{ message: string }>
+}
+
+const ASSESSMENT_MOVE_MUTATION = `
+  mutation AssessmentMoveDay($id: EncodedId!, $input: AssessmentEditInput!) {
+    assessmentEdit(id: $id, input: $input) {
+      assessment { id }
+      userErrors { message }
+    }
+  }
+`
+
+interface AssessmentMoveResult {
+  data?: { assessmentEdit: { assessment: { id: string } | null; userErrors: Array<{ message: string }> } }
+  errors?: Array<{ message: string }>
+}
+
+// taskEdit takes a real ISO8601DateTime, so a bare date would be read as UTC.
+function tzOffset(date: string, timeZone = TIMEZONE): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, timeZoneName: 'longOffset',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(`${date}T12:00:00Z`))
+  const name = parts.find(p => p.type === 'timeZoneName')?.value ?? ''
+  const m = name.match(/GMT([+-])(\d{2}):?(\d{2})?/)
+  if (!m) return '-06:00'
+  return `${m[1]}${m[2]}:${m[3] ?? '00'}`
+}
+
 export async function POST(req: NextRequest) {
   const auth = await requireCompany()
   if ('error' in auth) return auth.error
@@ -107,6 +153,12 @@ export async function POST(req: NextRequest) {
   }
   const visitIds = raw as string[]
 
+  // Parallel array; anything missing or unrecognised is treated as a visit,
+  // which is what every caller sent before tasks existed.
+  const rawTypes = Array.isArray(body.visit_types) ? body.visit_types : []
+  const visitTypes = visitIds.map((_, i) =>
+    rawTypes[i] === 'task' || rawTypes[i] === 'assessment' ? rawTypes[i] as 'task' | 'assessment' : 'visit')
+
   const assignedUserId =
     typeof body.assigned_user_id === 'string' && body.assigned_user_id.length > 0
       ? body.assigned_user_id
@@ -127,8 +179,52 @@ export async function POST(req: NextRequest) {
   try {
     const results: AssignResultRow[] = []
 
-    for (const visitId of visitIds) {
+    for (const [idx, visitId] of visitIds.entries()) {
       let error: string | null = null
+      const stopType = visitTypes[idx]
+
+      // Tasks and assessments do both steps in one mutation, so they short-circuit
+      // the visit path below entirely.
+      if (stopType === 'task') {
+        try {
+          const res = await jobberGraphQLAdmin<TaskMoveResult>(jobberUserId, TASK_MOVE_MUTATION, {
+            id: visitId,
+            input: {
+              ...(assignedDate
+                ? { startAt: `${assignedDate}T00:00:00${tzOffset(assignedDate)}`, allDay: true }
+                : {}),
+              ...(assignedUserId ? { assignedTo: [assignedUserId] } : {}),
+            },
+          })
+          const errs = res?.data?.taskEdit?.userErrors ?? res?.errors
+          if (errs?.length) error = errs[0].message
+        } catch (err) {
+          error = err instanceof Error ? err.message : 'unknown error'
+        }
+        results.push({ visitId, success: !error, error: error ?? undefined })
+        continue
+      }
+
+      if (stopType === 'assessment') {
+        try {
+          const res = await jobberGraphQLAdmin<AssessmentMoveResult>(jobberUserId, ASSESSMENT_MOVE_MUTATION, {
+            id: visitId,
+            input: {
+              schedule: {
+                // No `time` key — that is what makes it Anytime on the date.
+                ...(assignedDate ? { startAt: { date: assignedDate, timezone: TIMEZONE } } : {}),
+                ...(assignedUserId ? { teamMemberIdsToAssign: [assignedUserId] } : {}),
+              },
+            },
+          })
+          const errs = res?.data?.assessmentEdit?.userErrors ?? res?.errors
+          if (errs?.length) error = errs[0].message
+        } catch (err) {
+          error = err instanceof Error ? err.message : 'unknown error'
+        }
+        results.push({ visitId, success: !error, error: error ?? undefined })
+        continue
+      }
 
       // Step 1: move to the target date as an Anytime visit (date only, no time).
       if (assignedDate) {

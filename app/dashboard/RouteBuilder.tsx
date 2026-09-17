@@ -30,7 +30,10 @@ interface Visit {
   jobTitle: string
   instructions: string | null
   startAt: string | null
-  type: 'visit' | 'assessment'
+  type: 'visit' | 'assessment' | 'task'
+  // False for a stop with no address — a task like "pick up parts". It still
+  // belongs on the tech's day, but there is nothing to route to.
+  routable?: boolean
   // Originating Jobber user the visit was assigned to. Decorated client-side
   // during loadVisits so multi-tech routes can show which tech each stop
   // came from. May be empty for legacy data.
@@ -158,7 +161,7 @@ export default function RouteBuilder() {
   const [optimizedVisits, setOptimizedVisits] = useState<OptimizedVisit[] | null>(null)
   const [optimizing, setOptimizing] = useState(false)
   const [optimizeError, setOptimizeError] = useState<string | null>(null)
-  const [geocodeFailed, setGeocodeFailed] = useState<number[]>([])
+  const [geocodeFailed, setGeocodeFailed] = useState<string[]>([])
   const [usingMatrix, setUsingMatrix] = useState<boolean | null>(null)
 
   // Depot coords (returned from optimize API, used for map)
@@ -362,8 +365,12 @@ export default function RouteBuilder() {
   }
 
   async function optimizeRoute() {
-    // Only optimize the selected (checked) visits
-    const selectedVisits = (visits ?? []).filter(v => selectedIds.has(v.id))
+    // Only optimize the selected (checked) visits that have somewhere to drive to.
+    // An address-less task would otherwise fail geocoding and be reported as a
+    // broken address, which it isn't — it just isn't a stop on the map.
+    const selectedVisits = (visits ?? [])
+      .filter(v => selectedIds.has(v.id))
+      .filter(v => v.routable !== false)
     if (selectedVisits.length === 0) return
     setOptimizing(true)
     setOptimizeError(null)
@@ -405,7 +412,10 @@ export default function RouteBuilder() {
       } = await res.json()
       if (data.error) { setOptimizeError(data.error); return }
 
-      setGeocodeFailed(data.geocodeFailed ?? [])
+      setGeocodeFailed(
+        (data.geocodeFailed ?? [])
+          .map(i => selectedVisits[i]?.clientName)
+          .filter(Boolean) as string[])
       setUsingMatrix(data.usingMatrix ?? false)
       if (data.depotCoord) setDepotCoord(data.depotCoord)
       setDurationMatrix(data.durationMatrix ?? null)
@@ -470,7 +480,7 @@ export default function RouteBuilder() {
 
     const visitsPayload = optimizedVisits
       .filter(v => v.startAtISO && v.endAtISO)
-      .map(v => ({ visitId: v.id, startAt: v.startAtISO!, endAt: v.endAtISO! }))
+      .map(v => ({ visitId: v.id, startAt: v.startAtISO!, endAt: v.endAtISO!, type: v.type ?? 'visit' }))
 
     if (visitsPayload.length === 0) {
       setSendError('No visits have timestamps — re-optimize to generate times.')
@@ -517,6 +527,7 @@ export default function RouteBuilder() {
     setSendMode('order')
 
     const visitIds = optimizedVisits.map(v => v.id)
+    const visitTypes = optimizedVisits.map(v => v.type ?? 'visit')
 
     try {
       const res = await fetch('/api/reorder-jobber', {
@@ -524,6 +535,7 @@ export default function RouteBuilder() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           visit_ids: visitIds,
+          visit_types: visitTypes,
           assigned_user_id: reassignUserId !== '__keep__' ? reassignUserId : null,
         }),
       })
@@ -1050,7 +1062,10 @@ export default function RouteBuilder() {
     }
   }
 
-  const displayVisits = optimizedVisits ?? visits
+  // Address-less stops are shown in their own list below the route, not in it —
+  // they have no ETA, no pin, and no place in the drive order.
+  const unroutableStops = (visits ?? []).filter(v => v.routable === false)
+  const displayVisits = optimizedVisits ?? (visits ? visits.filter(v => v.routable !== false) : null)
   const skippedVisits = (visits && optimizedVisits)
     ? visits.filter(v => !selectedIds.has(v.id) && !sentIds.has(v.id))
     : []
@@ -1252,12 +1267,35 @@ export default function RouteBuilder() {
       {geocodeFailed.length > 0 && visits && (
         <div className="bg-yellow-900/40 border border-yellow-700 text-yellow-300 rounded-lg px-4 py-3 text-sm">
           Could not geocode {geocodeFailed.length} address{geocodeFailed.length !== 1 ? 'es' : ''}
-          {' '}({geocodeFailed.map(i => (optimizedVisits ?? visits ?? [])[i]?.clientName).join(', ')}) — those stops were excluded from optimization.
+          {' '}({geocodeFailed.join(', ')}) — those stops were excluded from optimization.
         </div>
       )}
       {fallbackStops.length > 0 && (
         <div className="bg-yellow-900/40 border border-yellow-700 text-yellow-300 rounded-lg px-4 py-3 text-sm">
           ⚠️ Duration fallback used for: {fallbackStops.join(', ')} — no matching line items found. Check Duration Rules in Settings.
+        </div>
+      )}
+
+      {unroutableStops.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 text-sm">
+          <p className="font-medium text-gray-300 mb-1.5">
+            Also on this day — no address, so not routed
+          </p>
+          <ul className="space-y-1">
+            {unroutableStops.map(u => (
+              <li key={u.id} className="text-gray-400 flex items-start gap-2">
+                <span className="shrink-0 text-xs bg-teal-900/50 text-teal-300 border border-teal-700 px-1.5 py-0.5 rounded">
+                  ✅ Task
+                </span>
+                <span className="min-w-0">
+                  <span className="text-gray-200">{u.jobTitle || u.clientName}</span>
+                  {u.instructions && (
+                    <span className="block text-xs text-gray-500">{u.instructions}</span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -1344,13 +1382,18 @@ export default function RouteBuilder() {
                   {visits && !optimizedVisits && visits.length > 0 && (
                     <button
                       onClick={() => {
-                        const unsent = visits.filter(v => !sentIds.has(v.id)).map(v => v.id)
+                        // Only the stops actually on screen — an address-less task
+                        // has no checkbox, so counting it would leave the label
+                        // stuck on "Select All" with everything already ticked.
+                        const unsent = visits
+                          .filter(v => v.routable !== false && !sentIds.has(v.id))
+                          .map(v => v.id)
                         const allSelected = unsent.every(id => selectedIds.has(id))
                         setSelectedIds(allSelected ? new Set() : new Set(unsent))
                       }}
                       className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs font-medium transition-colors"
                     >
-                      {visits.filter(v => !sentIds.has(v.id)).every(v => selectedIds.has(v.id)) ? 'Deselect All' : 'Select All'}
+                      {visits.filter(v => v.routable !== false && !sentIds.has(v.id)).every(v => selectedIds.has(v.id)) ? 'Deselect All' : 'Select All'}
                     </button>
                   )}
                   {visits && selectedCount > 1 && !optimizedVisits && (
@@ -1473,6 +1516,11 @@ export default function RouteBuilder() {
                             {v.type === 'assessment' && (
                               <span className="shrink-0 text-xs bg-blue-900/50 text-blue-300 border border-blue-700 px-1.5 py-0.5 rounded">
                                 📋 Assessment
+                              </span>
+                            )}
+                            {v.type === 'task' && (
+                              <span className="shrink-0 text-xs bg-teal-900/50 text-teal-300 border border-teal-700 px-1.5 py-0.5 rounded">
+                                ✅ Task
                               </span>
                             )}
                             {selectedUserIds.length > 1 && v.techId && (

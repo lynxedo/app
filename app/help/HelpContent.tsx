@@ -1075,7 +1075,7 @@ function RoutingTab() {
   return (
     <>
       <Section title="What It Does">
-        <p>Route Optimizer pulls your scheduled visits and assessments from Jobber, reorders them for the shortest total drive time, calculates an ETA for each stop, and lets you push those times back to Jobber and print a route sheet.</p>
+        <p>Route Optimizer pulls your scheduled visits, assessments and tasks from Jobber, reorders them for the shortest total drive time, calculates an ETA for each stop, and lets you push those times back to Jobber and print a route sheet.</p>
       </Section>
 
       <Section title="First-Time Setup">
@@ -1088,7 +1088,7 @@ function RoutingTab() {
         <Step n={1}><strong className="text-white">Pick team member(s)</strong> — click the Team Member(s) dropdown and check one or more techs. The list comes from the allowlist your admin set at <Link href="/admin/routing" className="text-orange-400 hover:text-orange-300">Admin → Routing → Team Members</Link>. Selecting multiple combines their visits into one route — useful for consolidating two routes onto one tech when someone&apos;s out.</Step>
         <Step n={2}><strong className="text-white">Pick a date</strong> — defaults to today.</Step>
         <Step n={3}><strong className="text-white">Set a start time</strong> — when the tech leaves the depot. Used to calculate ETAs.</Step>
-        <Step n={4}><strong className="text-white">Load Stops</strong> — fetches all visits and assessments scheduled for the selected tech(s) on that date. When multiple techs are loaded, each stop shows a small purple chip with the originating tech&apos;s first name.</Step>
+        <Step n={4}><strong className="text-white">Load Stops</strong> — fetches all visits, assessments and tasks scheduled for the selected tech(s) on that date. When multiple techs are loaded, each stop shows a small purple chip with the originating tech&apos;s first name.</Step>
         <Step n={5}><strong className="text-white">Optimize</strong> — reorders the stops to minimize total drive time. The depot is always locked first and last.</Step>
         <p className="mt-2">After optimizing, each stop shows:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
@@ -1096,10 +1096,17 @@ function RoutingTab() {
           <li>Drive time from the previous stop</li>
           <li>Client name, address, and job details</li>
           <li>📋 badge = assessment/request stop</li>
+          <li>✅ badge = task — something to do that isn&apos;t a job (stop by a client&apos;s property, pick something up). Completed tasks are skipped.</li>
           <li>Purple tech-name chip = originating tech (multi-tech routes only)</li>
           <li>🗺 badge = real road times used (vs straight-line estimate)</li>
           <li>Yellow banner = duration fell back to default (no matching line items)</li>
         </ul>
+      </Section>
+
+      <Section title="Tasks Without an Address">
+        <p>A Jobber task attached to a client or property routes like any other stop. A task attached to nothing — &ldquo;pick up parts on the way back&rdquo; — has no address to drive to, so it can&apos;t be put in a drive order.</p>
+        <p className="mt-2">Those tasks are not thrown away. In the <strong className="text-white">basic</strong> Route Optimizer they appear in their own list under the route, headed <em>&ldquo;Also on this day — no address, so not routed&rdquo;</em>, so the tech still sees them. The <strong className="text-white">Advanced</strong> builder is map-and-lasso driven and leaves them out, telling you how many it skipped.</p>
+        <p className="mt-2 text-xs text-gray-500">Want a pickup routed properly? Attach the task to the supplier&apos;s property in Jobber, and it becomes a normal stop.</p>
       </Section>
 
       <Section title="Pinning a First or Last Stop">
@@ -1128,7 +1135,7 @@ function RoutingTab() {
 
         <div className="border border-gray-700 rounded-xl p-4 mt-3">
           <p className="text-white font-medium mb-2">Send with Times (orange button)</p>
-          <p>Writes the calculated ETA as the scheduled appointment time for each visit (and each assessment). This converts anytime visits to scheduled visits in Jobber — so the Jobber day view shows them <strong className="text-white">in the optimized order</strong>.</p>
+          <p>Writes the calculated ETA as the scheduled appointment time for each stop — visits, assessments and tasks alike. This converts anytime visits to scheduled visits in Jobber — so the Jobber day view shows them <strong className="text-white">in the optimized order</strong>.</p>
           <p className="mt-2 text-xs text-gray-500">This is the way to get the optimized order into Jobber itself. The times are sequence markers, not promises — if you don&apos;t want customers to see a specific time, edit the Jobber visit-reminder template to show only the date.</p>
         </div>
 
@@ -1213,6 +1220,7 @@ function RoutingTab() {
               <Step n={4}>Optionally check <strong className="text-white">Add lawn size (K = minutes)</strong> — &ldquo;6K&rdquo; in the job title adds 6 minutes.</Step>
               <Step n={5}>Set <strong className="text-white">Padding</strong> (extra minutes per stop) and <strong className="text-white">Minimum</strong> (floor).</Step>
               <Step n={6}>Set <strong className="text-white">Assessments</strong> — fixed duration for 📋 stops.</Step>
+              <Step n={7}>Set <strong className="text-white">Tasks</strong> — fixed duration for ✅ stops. Like assessments, tasks carry no line items, so there is nothing for the formula to measure.</Step>
             </div>
             <Note>If a stop can&apos;t be calculated (no matching line items), it falls back to <em>Default service time</em>. A yellow banner shows on that stop.</Note>
           </div>

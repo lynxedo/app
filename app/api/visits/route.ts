@@ -77,6 +77,42 @@ const ASSESSMENTS_QUERY = `
   }
 `
 
+// ── Tasks query ──────────────────────────────────────────────────────────────
+// A Jobber Task is a scheduled item that is not a job: "swing by and look at the
+// backflow", "pick up parts on the way home". It carries no line items and no
+// price, and it may have no property at all.
+const TASKS_QUERY = `
+  query GetTasks($filter: ScheduledItemsFilterAttributes!) {
+    scheduledItems(filter: $filter, first: 50) {
+      nodes {
+        ... on Task {
+          id
+          title
+          instructions
+          startAt
+          endAt
+          allDay
+          isComplete
+          client {
+            name
+            phones { number }
+          }
+          property {
+            address {
+              street1
+              city
+              province
+              postalCode
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
+type StopType = 'visit' | 'assessment' | 'task'
+
 interface JobberVisit {
   id: string; startAt: string | null; endAt: string | null
   client: { name: string; phones: Array<{ number: string }> }
@@ -95,14 +131,24 @@ interface JobberAssessment {
   property: { street: string; city: string; province: string; postalCode: string }
 }
 
-function formatStop(type: 'visit' | 'assessment', i: number, data: {
+interface JobberTask {
+  id: string; title: string | null; startAt: string | null; endAt: string | null
+  instructions: string | null; allDay: boolean; isComplete: boolean
+  client: { name: string; phones: Array<{ number: string }> } | null
+  property: { address: { street1: string; city: string; province: string; postalCode: string } } | null
+}
+
+function formatStop(type: StopType, i: number, data: {
   id: string; clientName: string; phone: string | null
   addressString: string; services: string; totalPrice: number
   lineItems: Array<{ name: string; qty: number; unitPrice: number; totalPrice: number }>
   lineItemNames: string[]
   jobTitle: string; instructions: string | null
-  startAt: string | null; endAt: string | null; type: 'visit' | 'assessment'
+  startAt: string | null; endAt: string | null; type: StopType
   jobId: string | null
+  /** False when the stop has no address to drive to — a task like "pick up
+   *  parts". Unroutable stops are kept and shown, but never optimized. */
+  routable: boolean
 }) {
   return { stopNumber: i + 1, ...data }
 }
@@ -130,6 +176,55 @@ function localDayBounds(date: string, timeZone = ROUTING_TZ): { start: string; e
   return { start: `${date}T00:00:00${offset}`, end: `${date}T23:59:59${offset}` }
 }
 
+// Jobber spells the Task member of ScheduledItemType as either TASK or
+// BASIC_TASK depending on which you read — the filter's own description calls
+// them "Basic Tasks", but the object type is `Task`, and the enum values are not
+// readable through the introspection helper we have. Rather than guess, try one
+// and fall back to the other on a validation error, then remember the winner for
+// the life of the process. Once the log below has told us which it is, this can
+// collapse to a constant.
+const TASK_ENUM_CANDIDATES = ['BASIC_TASK', 'TASK'] as const
+let resolvedTaskEnum: string | null = null
+
+type ScheduledItemsResponse = {
+  data?: { scheduledItems?: { nodes?: Array<Record<string, unknown>> } }
+  errors?: Array<{ message: string }>
+}
+
+async function fetchTasks(
+  jobberUserId: string, dayStart: string, dayEnd: string, assignedTo: string,
+): Promise<JobberTask[]> {
+  const candidates = resolvedTaskEnum ? [resolvedTaskEnum] : TASK_ENUM_CANDIDATES
+
+  for (const value of candidates) {
+    const res = await jobberGraphQLAdmin<ScheduledItemsResponse>(
+      jobberUserId, TASKS_QUERY,
+      { filter: {
+        scheduleItemType: value,
+        occursWithin: { startAt: dayStart, endAt: dayEnd },
+        assignedTo: [assignedTo],
+      }},
+    ).catch(() => null)
+
+    // A bad enum value fails GraphQL validation, which arrives as `errors` with
+    // no `data` — distinct from a query that ran and simply found nothing.
+    if (res?.data?.scheduledItems) {
+      if (resolvedTaskEnum !== value) {
+        resolvedTaskEnum = value
+        console.info(`[visits] ScheduledItemType for tasks resolved to "${value}"`)
+      }
+      return (res.data.scheduledItems.nodes ?? []) as unknown as JobberTask[]
+    }
+    if (res?.errors?.length) {
+      console.warn(`[visits] task enum "${value}" rejected: ${res.errors[0].message}`)
+    }
+  }
+
+  // Tasks are additive — a failure here must not cost the caller their visits.
+  console.warn('[visits] tasks could not be fetched; returning visits/assessments only')
+  return []
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const date = searchParams.get('date')
@@ -155,8 +250,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Fetch visits and assessments in parallel
-    const [visitResult, assessResult] = await Promise.all([
+    // Fetch visits, assessments and tasks in parallel
+    const [visitResult, assessResult, taskNodes] = await Promise.all([
       jobberGraphQLAdmin<{ data: { visits: { nodes: JobberVisit[] } }; errors?: Array<{ message: string }> }>(
         jobberUserId, VISITS_QUERY,
         { filter: { startAt: { after: dayStart, before: dayEnd }, assignedTo } }
@@ -169,6 +264,7 @@ export async function GET(request: Request) {
           assignedTo: [assignedTo],
         }}
       ).catch(() => null),  // assessments are optional — don't break if they fail
+      fetchTasks(jobberUserId, dayStart, dayEnd, assignedTo),
     ])
 
     if (visitResult.errors?.length)
@@ -197,6 +293,7 @@ export async function GET(request: Request) {
         startAt: v.startAt, endAt: v.endAt,
         type: 'visit',
         jobId: v.job?.id ?? null,
+        routable: !!addr,
       }))
     }
 
@@ -221,11 +318,46 @@ export async function GET(request: Request) {
         startAt: a.startAt, endAt: a.endAt,
         type: 'assessment',
         jobId: null,
+        routable: !!prop,
       }))
     }
 
-    // Sort by startAt (timed visits first, then untimed)
+    // Map tasks. A task is "stop here, but there's no job" — either at a client's
+    // property (routable, sits in the route like any other stop) or attached to
+    // nothing at all (a parts run), which has no address to optimize against.
+    for (const t of taskNodes) {
+      if (!t.id) continue          // skip empty inline fragments
+      if (t.isComplete) continue   // already done — don't route someone to it
+      const addr = t.property?.address
+      const title = t.title?.trim() || 'Task'
+      stops.push(formatStop('task', stops.length, {
+        id: t.id,
+        clientName: t.client?.name ?? title,
+        phone: t.client?.phones?.[0]?.number ?? null,
+        addressString: addr
+          ? `${addr.street1}, ${addr.city}, ${addr.province} ${addr.postalCode}`
+          : '',
+        services: 'Task',
+        totalPrice: 0,
+        lineItems: [],
+        lineItemNames: [],
+        jobTitle: title,
+        instructions: t.instructions ?? null,
+        // An all-day task has no meaningful clock time; treating it as untimed
+        // lets the optimizer place it rather than pinning it to midnight.
+        startAt: t.allDay ? null : t.startAt,
+        endAt: t.allDay ? null : t.endAt,
+        type: 'task',
+        jobId: null,
+        routable: !!addr,
+      }))
+    }
+
+    // Sort by startAt (timed visits first, then untimed). Stops with no address
+    // sink to the bottom — they aren't part of the drive, so they shouldn't sit
+    // between two stops that are.
     stops.sort((a, b) => {
+      if (a.routable !== b.routable) return a.routable ? -1 : 1
       if (a.startAt && b.startAt) return a.startAt.localeCompare(b.startAt)
       if (a.startAt) return -1
       if (b.startAt) return 1
@@ -238,7 +370,8 @@ export async function GET(request: Request) {
     // The visits/assessments queries cap at 50 each. Surface a flag so the UI can
     // warn that a (very busy) tech-day might have more stops than were returned.
     const truncated =
-      visitResult.data.visits.nodes.length >= 50 || assessNodes.length >= 50
+      visitResult.data.visits.nodes.length >= 50 || assessNodes.length >= 50 ||
+      taskNodes.length >= 50
     if (truncated) console.warn(`[visits] 50-cap reached for user ${assignedTo} on ${date}`)
 
     return NextResponse.json({ visits: stops, truncated })

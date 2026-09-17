@@ -17,6 +17,9 @@ interface LineItem { name: string; qty: number; unitPrice: number; totalPrice: n
 interface BatchStop {
   ord: number
   jobber_visit_id: string
+  // Which kind of Jobber scheduled item the id points at. Optional because
+  // batches parked before tasks existed have no such key — those were all visits.
+  stop_type?: 'visit' | 'assessment' | 'task'
   client_name: string
   client_phone: string | null
   address: string
@@ -67,7 +70,8 @@ interface Visit {
   jobTitle: string
   instructions: string | null
   startAt: string | null
-  type: 'visit' | 'assessment'
+  type: 'visit' | 'assessment' | 'task'
+  routable?: boolean
   jobId: string | null  // Jobber Job ID — used to look up days-since-last-visit
   // Decorated client-side during the multi-day pull:
   techId: string   // originating Jobber user
@@ -256,6 +260,8 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   const [depotCoord, setDepotCoord] = useState<{ lat: number; lng: number } | null>(null)
   const [usingMatrix, setUsingMatrix] = useState<boolean | null>(null)
   const [geocodeFailed, setGeocodeFailed] = useState<string[]>([])
+  // Address-less tasks left out of this view (see loadVisits).
+  const [unroutableCount, setUnroutableCount] = useState(0)
   const [fallbackStops, setFallbackStops] = useState<string[]>([])
   // Matrix + speed kept so a manual drag-reorder can recompute ETAs client-side.
   const [durationMatrix, setDurationMatrix] = useState<number[][] | null>(null)
@@ -484,9 +490,19 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
         const res = await fetch(`/api/visits?date=${d}&userId=${encodeURIComponent(uid)}`)
         const data = await res.json()
         if (data.error) throw new Error(data.error)
-        return { visits: (data.visits as Visit[]).map(v => ({ ...v, techId: uid, dayDate: d })), truncated: !!data.truncated }
+        const all = data.visits as Visit[]
+        // This view is map-and-lasso driven; an address-less task (a parts run)
+        // has no pin to select and no leg to optimize. Count them so the tally
+        // below can say they were left out rather than dropping them silently.
+        const routable = all.filter(v => v.routable !== false)
+        return {
+          visits: routable.map(v => ({ ...v, techId: uid, dayDate: d })),
+          truncated: !!data.truncated,
+          skipped: all.length - routable.length,
+        }
       }))
       setVisitsTruncated(settled.some(s => s.truncated))
+      setUnroutableCount(settled.reduce((n, s) => n + s.skipped, 0))
       const merged = settled.flatMap(s => s.visits)
       setVisits(merged)
       geocodeVisits(merged)
@@ -701,6 +717,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     const stops: BatchStop[] = optimized.map(v => ({
       ord: v.stopNumber,
       jobber_visit_id: v.id,
+      stop_type: v.type ?? 'visit',
       client_name: v.clientName,
       client_phone: v.phone,
       address: v.addressString,
@@ -816,6 +833,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           visit_ids: stops.map(s => s.jobber_visit_id),
+          visit_types: stops.map(s => s.stop_type ?? 'visit'),
           assigned_user_id: b.assigned_tech_jobber_id ?? null,
           assigned_date: b.assigned_date,
         }),
@@ -837,6 +855,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
         visitId: s.jobber_visit_id,
         startAt: swapDate(s.start_at_iso, b.assigned_date)!,
         endAt: swapDate(s.end_at_iso, b.assigned_date)!,
+        type: s.stop_type ?? 'visit',
       }))
     if (visitsPayload.length === 0) {
       setBatchMsg(prev => ({ ...prev, [b.id]: { ok: false, text: 'No stops have times — re-optimize before parking.' } }))
@@ -1268,6 +1287,12 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       )}
       {optimizeError && (
         <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">Optimization failed: {optimizeError}</div>
+      )}
+      {unroutableCount > 0 && (
+        <div className="bg-gray-900 border border-gray-800 text-gray-400 rounded-lg px-4 py-3 text-sm">
+          {unroutableCount} task{unroutableCount !== 1 ? 's' : ''} with no address {unroutableCount !== 1 ? 'were' : 'was'} left out —
+          {' '}they can&apos;t be mapped or routed. They&apos;re still in Jobber, and the basic Route Optimizer lists them.
+        </div>
       )}
       {geocodeFailed.length > 0 && (
         <div className="bg-yellow-900/40 border border-yellow-700 text-yellow-300 rounded-lg px-4 py-3 text-sm">
