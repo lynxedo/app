@@ -1105,8 +1105,8 @@ function RoutingTab() {
 
       <Section title="Tasks Without an Address">
         <p>A Jobber task attached to a client or property routes like any other stop. A task attached to nothing — &ldquo;pick up parts on the way back&rdquo; — has no address to drive to, so it can&apos;t be put in a drive order.</p>
-        <p className="mt-2">Those tasks are not thrown away. In the <strong className="text-white">basic</strong> Route Optimizer they appear in their own list under the route, headed <em>&ldquo;Also on this day — no address, so not routed&rdquo;</em>, so the tech still sees them. The <strong className="text-white">Advanced</strong> builder is map-and-lasso driven and leaves them out, telling you how many it skipped.</p>
-        <p className="mt-2 text-xs text-gray-500">Want a pickup routed properly? Attach the task to the supplier&apos;s property in Jobber, and it becomes a normal stop.</p>
+        <p className="mt-2">Those tasks still appear, <strong className="text-white">always at the top of the list</strong>, in both the basic and Advanced builders and on the printed route sheet. They show a ✅ instead of a stop number, no ETA and no drive time, and they get <strong className="text-white">no pin on the map</strong> — there is nowhere to put one. Optimizing never moves them: the optimizer only reorders stops that have somewhere to drive to, so a task stays first.</p>
+        <p className="mt-2 text-xs text-gray-500">They are also left out of route totals (miles, drive time, revenue) and out of Daily Log, which is a stop-by-stop completion workflow. Want a pickup routed properly instead? Attach the task to the supplier&apos;s property in Jobber and it becomes a normal stop.</p>
       </Section>
 
       <Section title="Pinning a First or Last Stop">

@@ -16,6 +16,9 @@ export interface RouteSheetLineItem {
 
 export interface RouteSheetStop {
   stopNumber: number
+  /** False for a task with no address: printed above the numbered stops, with
+   *  no number, no ETA and no map pin. Absent on sheets built before tasks. */
+  routable?: boolean
   clientName: string
   addressString: string
   phone: string | null
@@ -90,9 +93,14 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
     sheetReturnMin = Math.round((sheetReturnKm / AVG_SPEED_KMH) * 60)
   }
 
-  const totalDriveMin = stops.reduce((s, v) => s + v.driveMinutes, 0) + sheetReturnMin
-  const totalMiles = ((stops.reduce((s, v) => s + v.distanceKm, 0) + sheetReturnKm) / 1.609).toFixed(1)
-  const totalRevenue = stops.reduce((s, v) => s + v.totalPrice, 0)
+  // Everything that is actually on the drive. A no-address task has no
+  // coordinates, no drive time and no revenue, so it must stay out of the map,
+  // the totals and the per-stop cards — it only appears as a line to read.
+  const mapStops = stops.filter(v => v.routable !== false)
+
+  const totalDriveMin = mapStops.reduce((s, v) => s + v.driveMinutes, 0) + sheetReturnMin
+  const totalMiles = ((mapStops.reduce((s, v) => s + v.distanceKm, 0) + sheetReturnKm) / 1.609).toFixed(1)
+  const totalRevenue = mapStops.reduce((s, v) => s + v.totalPrice, 0)
   const driveHours = Math.floor(totalDriveMin / 60)
   const driveRemMin = totalDriveMin % 60
   const driveSummary = driveHours > 0
@@ -102,7 +110,7 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
   // ── Mapbox Static Image URL (Directions geometry → straight-line fallback) ──
   let staticMapUrl = ''
   if (mapboxToken && depot) {
-    const stopWaypoints = stops.map(v => ({ lat: v.lat, lng: v.lng }))
+    const stopWaypoints = mapStops.map(v => ({ lat: v.lat, lng: v.lng }))
     const allWaypoints = [depot, ...stopWaypoints, depot]
     let pathCoords: Array<{ lat: number; lng: number }> = allWaypoints
     if (allWaypoints.length >= 2 && allWaypoints.length <= 25) {
@@ -128,7 +136,7 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
     const polyline = encodePolyline5(pathCoords)
     const pathOverlay = `path-3+1f77b4-0.85(${encodeURIComponent(polyline)})`
     const depotMarker = `pin-s-d+16a34a(${depot.lng.toFixed(6)},${depot.lat.toFixed(6)})`
-    const stopMarkers = stops.map((v, i) => {
+    const stopMarkers = mapStops.map((v, i) => {
       // Mapbox static pin labels support 0–99, so use the plain stop number for
       // every stop (the old scheme switched to letters a, b, c… past stop 9).
       const label = String(i + 1)
@@ -151,7 +159,14 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
         <td class="sl-eta" style="color:#333;font-weight:normal">${sheetReturnMin} min</td>
       </tr>`
     : ''
-  const summaryRows = stops.map(v => `
+  const taskRows = stops.filter(v => v.routable === false).map(v => `
+    <tr>
+      <td class="sl-num"><span class="sl-circle" style="font-size:12px">&#10003;</span></td>
+      <td class="sl-name">${v.jobTitle || v.clientName}</td>
+      <td class="sl-addr">${v.instructions ? v.instructions : 'Task &mdash; no address'}</td>
+      <td class="sl-eta"></td>
+    </tr>`).join('')
+  const summaryRows = taskRows + stops.filter(v => v.routable !== false).map(v => `
     <tr>
       <td class="sl-num"><span class="sl-circle">${v.stopNumber}</span></td>
       <td class="sl-name">${v.clientName}</td>
@@ -160,7 +175,7 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
     </tr>`).join('') + returnRow
 
   // Pages 2+: detailed stop cards
-  const cardHtml = stops.map(v => {
+  const cardHtml = stops.filter(v => v.routable !== false).map(v => {
     const instructionsHtml = v.instructions
       ? `<div class="instr-box">${v.instructions}</div>`
       : ''
