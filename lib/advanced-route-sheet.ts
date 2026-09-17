@@ -84,19 +84,20 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   })
 
-  // Return-to-depot leg (haversine estimate)
+  // Everything that is actually on the drive. A no-address task has no
+  // coordinates, no drive time and no revenue, so it stays out of the map, the
+  // totals and the route geometry — it appears only as a line and a card.
+  // Declared before the return leg because that leg is measured from it.
+  const mapStops = stops.filter(v => v.routable !== false)
+
+  // Return-to-depot leg (haversine estimate), measured from the last DRIVEN stop
   let sheetReturnMin = 0
   let sheetReturnKm = 0
-  if (depot && stops.length > 0) {
-    const last = stops[stops.length - 1]
+  if (depot && mapStops.length > 0) {
+    const last = mapStops[mapStops.length - 1]
     sheetReturnKm = Math.round(haversineKm({ lat: last.lat, lng: last.lng }, depot) * 10) / 10
     sheetReturnMin = Math.round((sheetReturnKm / AVG_SPEED_KMH) * 60)
   }
-
-  // Everything that is actually on the drive. A no-address task has no
-  // coordinates, no drive time and no revenue, so it must stay out of the map,
-  // the totals and the per-stop cards — it only appears as a line to read.
-  const mapStops = stops.filter(v => v.routable !== false)
 
   const totalDriveMin = mapStops.reduce((s, v) => s + v.driveMinutes, 0) + sheetReturnMin
   const totalMiles = ((mapStops.reduce((s, v) => s + v.distanceKm, 0) + sheetReturnKm) / 1.609).toFixed(1)
@@ -174,8 +175,77 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
       <td class="sl-eta">${v.eta ?? ''}</td>
     </tr>`).join('') + returnRow
 
-  // Pages 2+: detailed stop cards
-  const cardHtml = stops.filter(v => v.routable !== false).map(v => {
+  // Pages 2+: detailed stop cards. Address-less tasks get a card too, first and
+  // formatted like any other stop — the fields we genuinely don't have are left
+  // EMPTY rather than zeroed. "$0.00" would say this job earned nothing; blank
+  // says it was never a job. Only existing classes are used, so the print CSS
+  // block stays byte-identical with its copy in RouteBuilder.tsx.
+  const taskCardHtml = stops.filter(v => v.routable === false).map(v => {
+    const title = v.jobTitle || v.clientName
+    // With no client attached, clientName falls back to the title — printing it
+    // twice, once bold and once under itself, reads like a mistake.
+    const subtitle = v.jobTitle && v.jobTitle !== v.clientName ? v.jobTitle : ''
+    const instructionsHtml = v.instructions
+      ? `<div class="instr-box">${v.instructions}</div>`
+      : ''
+    return `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-circle">&#10003;</span>
+        <div class="card-title-block">
+          <div class="card-client">${v.clientName || title}</div>
+          <div class="card-jobtitle">${subtitle}</div>
+        </div>
+      </div>
+      <div class="card-meta">
+        <div class="card-meta-col">
+          <div class="meta-label">ADDRESS</div>
+          <div class="meta-val"></div>
+        </div>
+        <div class="card-meta-col">
+          <div class="meta-label">PHONE</div>
+          <div class="meta-val">${v.phone ?? ''}</div>
+        </div>
+        <div class="card-meta-col card-meta-col--narrow">
+          <div class="meta-label">DRIVE</div>
+          <div class="meta-val"></div>
+        </div>
+        <div class="card-meta-col card-meta-col--narrow">
+          <div class="meta-label">ON-SITE</div>
+          <div class="meta-val"></div>
+        </div>
+      </div>
+      ${instructionsHtml}
+      <table class="li-table">
+        <thead>
+          <tr>
+            <th class="li-name">SERVICE / LINE ITEM</th>
+            <th class="li-qty">QTY</th>
+            <th class="li-rate">RATE</th>
+            <th class="li-amt">AMOUNT</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="li-name">Task</td>
+            <td class="li-qty"></td>
+            <td class="li-rate"></td>
+            <td class="li-amt"></td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr class="li-total">
+            <td colspan="3">JOB TOTAL</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="field-notes-label">FIELD NOTES</div>
+      <div class="field-lines"></div>
+    </div>`
+  }).join('')
+
+  const cardHtml = taskCardHtml + stops.filter(v => v.routable !== false).map(v => {
     const instructionsHtml = v.instructions
       ? `<div class="instr-box">${v.instructions}</div>`
       : ''
@@ -356,7 +426,7 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
       <span class="sh-meta">${dateFormatted}</span>
     </div>
     <div class="summary-subhead">
-      ${driveSummary} &nbsp;|&nbsp; ${totalMiles} miles &nbsp;|&nbsp; ${stops.length} Stops
+      ${driveSummary} &nbsp;|&nbsp; ${totalMiles} miles &nbsp;|&nbsp; ${mapStops.length} Stops
       ${totalRevenue > 0 ? ` &nbsp;|&nbsp; $${totalRevenue.toFixed(2)}` : ''}
     </div>
     <div class="summary-body">
