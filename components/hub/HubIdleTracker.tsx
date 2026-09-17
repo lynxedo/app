@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { HUB_IDLE_THRESHOLD_MS, HUB_LAST_ACTIVE_KEY, HUB_LAST_ROUTE_KEY } from '@/lib/hub-idle'
+import { HUB_IDLE_THRESHOLD_MS, HUB_LAST_ACTIVE_KEY, HUB_LAST_ROUTE_KEY, staleLandingRoute } from '@/lib/hub-idle'
 
 // Routes we never save as "last route" because they are themselves landing /
 // redirect pages — saving them would defeat the restore on the next cold load.
@@ -10,7 +10,10 @@ function isLandingRoute(path: string) {
   return path === '/hub' || path === '/hub/home'
 }
 
-export default function HubIdleTracker() {
+export default function HubIdleTracker(
+  { canAccessDailyLog = false, fallbackRoute = '/hub/home' }:
+  { canAccessDailyLog?: boolean; fallbackRoute?: string } = {},
+) {
   const router = useRouter()
   const pathname = usePathname()
   const didInitialCheck = useRef(false)
@@ -28,15 +31,16 @@ export default function HubIdleTracker() {
       const prev = raw ? Number(raw) : 0
       const elapsed = Date.now() - prev
       const fromPush = new URLSearchParams(window.location.search).get('source') === 'push'
-      const alreadyOnHome = pathname === '/hub/home'
+      const target = staleLandingRoute(canAccessDailyLog, fallbackRoute)
+      const alreadyThere = pathname === target
 
-      if (prev > 0 && elapsed > HUB_IDLE_THRESHOLD_MS && !fromPush && !alreadyOnHome) {
-        router.replace('/hub/home')
+      if (prev > 0 && elapsed > HUB_IDLE_THRESHOLD_MS && !fromPush && !alreadyThere) {
+        router.replace(target)
       }
     } catch {
       // localStorage unavailable (private mode, etc.) — silently skip the reset
     }
-  }, [pathname, router])
+  }, [pathname, router, canAccessDailyLog, fallbackRoute])
 
   // Refresh the activity stamp + last-route on every route change inside Hub.
   // Landing pages are intentionally NOT saved as last route so the next cold

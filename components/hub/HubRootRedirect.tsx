@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { HUB_IDLE_THRESHOLD_MS, HUB_LAST_ACTIVE_KEY, HUB_LAST_ROUTE_KEY } from '@/lib/hub-idle'
+import { HUB_IDLE_THRESHOLD_MS, HUB_LAST_ACTIVE_KEY, HUB_LAST_ROUTE_KEY, staleLandingRoute } from '@/lib/hub-idle'
 
 // Renders nothing — its only job is to pick where to send the user when they
 // land on the bare /hub URL (cold app open, manifest start_url, etc).
@@ -11,9 +11,12 @@ import { HUB_IDLE_THRESHOLD_MS, HUB_LAST_ACTIVE_KEY, HUB_LAST_ROUTE_KEY } from '
 //   1. ?source=push → never redirect away; the parent /hub page handled it.
 //   2. Recent active session (under 14h) AND we have a saved last route →
 //      restore to that last route.
-//   3. Stale session (over 14h) → /hub/home (matches HubIdleTracker reset).
+//   3. Stale session (over 14h) → staleLandingRoute() — the day's work on a phone,
+//      /hub/home on desktop. Same helper HubIdleTracker uses, so the two agree.
 //   4. Otherwise → fallback (server-rendered general room id).
-export default function HubRootRedirect({ fallback }: { fallback: string }) {
+export default function HubRootRedirect(
+  { fallback, canAccessDailyLog = false }: { fallback: string; canAccessDailyLog?: boolean },
+) {
   const router = useRouter()
 
   useEffect(() => {
@@ -30,7 +33,7 @@ export default function HubRootRedirect({ fallback }: { fallback: string }) {
       const lastRoute = window.localStorage.getItem(HUB_LAST_ROUTE_KEY)
 
       if (lastActive > 0 && elapsed > HUB_IDLE_THRESHOLD_MS) {
-        router.replace('/hub/home')
+        router.replace(staleLandingRoute(canAccessDailyLog, fallback))
         return
       }
 
@@ -43,7 +46,7 @@ export default function HubRootRedirect({ fallback }: { fallback: string }) {
     } catch {
       router.replace(fallback)
     }
-  }, [router, fallback])
+  }, [router, fallback, canAccessDailyLog])
 
   return (
     <div className="flex-1 flex items-center justify-center text-gray-500">

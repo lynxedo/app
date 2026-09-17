@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentProfile } from '@/lib/supabase/current-user'
 import HubRootRedirect from '@/components/hub/HubRootRedirect'
 
 export default async function HubPage() {
@@ -16,6 +17,11 @@ export default async function HubPage() {
   const general = rooms?.find(r => r.name === 'general')
   const first = general ?? rooms?.[0]
 
+  // A long-idle phone lands on the day's work rather than the home screen — the
+  // same rule HubIdleTracker applies once you are inside. Request-cached, so this
+  // costs nothing on top of the layout's own read.
+  const profile = await getCurrentProfile()
+
   if (!first) {
     return (
       <div className="flex-1 flex items-center justify-center text-gray-500">
@@ -24,5 +30,10 @@ export default async function HubPage() {
     )
   }
 
-  return <HubRootRedirect fallback={`/hub/${first.id}`} />
+  return (
+    <HubRootRedirect
+      fallback={`/hub/${first.id}`}
+      canAccessDailyLog={profile?.can_access_daily_log_v2 ?? false}
+    />
+  )
 }

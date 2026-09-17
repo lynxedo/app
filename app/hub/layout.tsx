@@ -223,6 +223,13 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canComposeSharedEmail = isAdmin || (profileResult.data?.can_compose_shared_email ?? false)
   const canAccessForms = profileResult.data?.can_access_forms ?? true
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
+  // Where a long-idle phone lands when the person has no Daily Log access: the
+  // general room beats an empty home screen. Falls back to /hub/home if they are
+  // in no rooms at all.
+  const generalRoomRoute = (() => {
+    const general = rooms.find(r => r.name === 'general') ?? rooms[0]
+    return general ? `/hub/${general.id}` : '/hub/home'
+  })()
   const canAccessPricer = isAdmin || (profileResult.data?.can_access_pricer ?? false)
   const rawCanAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
   const rawCanAccessReports = profileResult.data?.can_access_reports ?? false
@@ -478,7 +485,10 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
       />
       {canAccessRadio && <RadioInviteListener currentUserId={user.id} />}
-      <HubIdleTracker />
+      <HubIdleTracker
+        canAccessDailyLog={canAccessDailyLogV2 && moduleOn('daily_log')}
+        fallbackRoute={generalRoomRoute}
+      />
       <HubWarmResume />
       <UpdateNotifier loadedBuildId={buildId} />
       </HubMessagesProvider>
