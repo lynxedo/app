@@ -3,13 +3,22 @@
 // Shared clock-punch logic (Phase 5, TS6). Owns the clock-in/out flow: status,
 // the live elapsed tick, and the failed-payroll-entry warning.
 //
-// LOCATION REMOVED (June 26, 2026): clocking in/out no longer requests GPS. The
-// location ping caused too many issues in the field (hung iOS permission prompts,
-// denied-permission dead-ends) for little operational value, so punches now always
-// submit without a lat/lng, and the GPS request/warning flow + the gpsStatus/
-// gpsErrorType/retry/clockWithoutLocation/dismissWarning surface were removed.
+// LOCATION, TAKE TWO (September 17, 2026). It was removed on June 26 2026 because
+// the punch WAITED on a fix: hung iOS permission prompts and denied-permission
+// dead-ends, for little operational value. This version cannot repeat that,
+// because it never waits. A fix is warmed in the background from the moment this
+// hook mounts, and the punch takes whatever is already in hand — if there is
+// nothing, it submits without a lat/lng exactly as it has since June. There is no
+// GPS state in this hook, nothing to retry, and no "clock in without location"
+// button, because there is never a moment where the user is asked to wait.
+//
+// ⚠ The web app has no say in whether a fix is even possible: until the native
+// release, WKWebView does not implement geolocation at all, so on the iPhone app
+// this simply always returns null and punches carry no location — the same
+// behaviour as today, with no regression. See lib/native-geo.ts.
 
 import { useState, useEffect, useCallback } from 'react'
+import { startWarmingLocation, getWarmLocation } from '@/lib/native-geo'
 
 export type ClockEmployee = {
   id: string
@@ -46,6 +55,10 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
   const [clocking, setClocking] = useState(false)
   const [note, setNote] = useState('')
   const [lastOut, setLastOut] = useState<{ time: string; hours: number } | null>(null)
+
+  // Start warming a location fix now, so that by the time somebody actually taps
+  // the button we already have one and the punch costs nothing extra.
+  useEffect(() => startWarmingLocation(), [])
 
   // Live tick for the elapsed display.
   useEffect(() => {
@@ -107,10 +120,12 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
     }
   }, [employee, clockedIn, elapsed, note, onWarning])
 
-  // Clock in/out. No GPS request — punches always submit without a location.
+  // Clock in/out. Takes the warm fix if there is one and submits immediately
+  // either way — this call never waits on location.
   const handleClock = useCallback(async () => {
     if (!employee) return
-    await submitPunch(null, null)
+    const here = getWarmLocation()
+    await submitPunch(here?.lat ?? null, here?.lng ?? null)
   }, [employee, submitPunch])
 
   return {
