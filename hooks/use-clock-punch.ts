@@ -19,7 +19,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { startWarmingLocation, getWarmLocation } from '@/lib/native-geo'
-import { enqueue, startDraining, onPendingChange, onDropped } from '@/lib/offline-queue'
+import { startDraining, onPendingChange, onDropped } from '@/lib/offline-queue'
+import { sendPunch } from '@/lib/clock-punch-request'
 
 export type ClockEmployee = {
   id: string
@@ -117,7 +118,7 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
 
   const submitPunch = useCallback(async (lat: number | null, lng: number | null) => {
     if (!employee) return
-    const action = clockedIn ? 'out' : 'in'
+    const action: 'in' | 'out' = clockedIn ? 'out' : 'in'
     const outTime = action === 'out' ? new Date().toISOString() : null
     const outHours = action === 'out' ? elapsed / 3600000 : 0
     // ⚠ Stamped HERE, not on the server, and sent with the punch. If this one has
@@ -128,58 +129,24 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
       employee_id: employee.id, action, note: note || null, lat, lng, punched_at: punchedAt,
     }
     setClocking(true)
-    let data: { warning?: string } | null = null
-    try {
-      // ⚠⚠ A dead zone does NOT reject — it HANGS. Measured on a real phone with
-      // the radio cut: the request simply never settles, so the button sat on
-      // "…" indefinitely, nothing queued, and the punch was lost exactly as
-      // before. A queue that only catches a rejection catches nothing. Eight
-      // seconds is long enough for a bad-but-working connection and short
-      // enough that nobody stands there wondering.
-      const res = await fetch('/api/timesheet/punch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(8000),
-      })
-      if (!res.ok) {
-        // The server read it and said no. That is an answer, not a dead zone —
-        // queueing it would only make it fail again later, out of sight.
-        const err = await res.json().catch(() => null) as { error?: string } | null
-        setClocking(false)
-        ;(onWarning ?? defaultWarn)(err?.error ?? 'That punch did not save. Try again.')
-        return
-      }
-      data = await res.json().catch(() => null)
-    } catch {
-      // ⚠⚠ We never reached the server. This used to throw straight out of the
-      // hook: no catch, no message, and the button simply appeared not to work
-      // while the punch was lost. Hold it instead.
-      const held = await enqueue({
-        url: '/api/timesheet/punch',
-        body: payload,
-        kind: 'punch',
-        label: action === 'in' ? 'Clock in' : 'Clock out',
-        createdAt: new Date(punchedAt).getTime(),
-      })
-      setClocking(false)
-      setNote('')
-      // Move the UI as though it worked, because as far as the day is concerned
-      // it did — the time is already recorded and will be sent.
-      if (action === 'out') {
-        setClockedIn(false); setSince(null); setLastOut({ time: outTime!, hours: outHours })
-      } else {
-        setClockedIn(true); setSince(punchedAt); setLastOut(null)
-      }
-      if (!held) {
-        (onWarning ?? defaultWarn)(
-          'No signal, and this phone could not hold the punch. Tell a manager the time you clocked ' + action + '.'
-        )
-      }
+    const result = await sendPunch(payload)
+    setClocking(false)
+
+    if (result.status === 'refused') {
+      // The server read it and said no. That is an answer, not a dead zone —
+      // queueing it would only make it fail again later, out of sight.
+      ;(onWarning ?? defaultWarn)(result.message)
       return
-    } finally {
-      setClocking(false)
     }
+    if (result.status === 'lost') {
+      (onWarning ?? defaultWarn)(
+        `No signal, and this phone could not hold the punch. Tell a manager you clocked ${action} just now.`
+      )
+      return
+    }
+    // 'sent' or 'held'. Held counts: the time is recorded and it will go.
+    const data = result.status === 'sent' ? result : null
+
     setNote('')
     if (action === 'out') {
       setClockedIn(false)
@@ -189,7 +156,7 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
       if (data?.warning) (onWarning ?? defaultWarn)(data.warning)
     } else {
       setClockedIn(true)
-      setSince(new Date().toISOString())
+      setSince(punchedAt)      // the moment they tapped, not the moment it sent
       setLastOut(null)
     }
   }, [employee, clockedIn, elapsed, note, onWarning])

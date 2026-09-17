@@ -14,6 +14,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { formatDurationMs } from '@/lib/format'
+import { sendPunch } from '@/lib/clock-punch-request'
+import { startDraining, onPendingChange } from '@/lib/offline-queue'
+import { startWarmingLocation, getWarmLocation } from '@/lib/native-geo'
 
 type Employee = {
   id: string
@@ -113,6 +116,7 @@ export default function TimesheetPage({
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [clocking, setClocking] = useState(false)
+  const [pendingPunches, setPendingPunches] = useState(0)
   const [note, setNote] = useState('')
   const [showNote, setShowNote] = useState(false)
   const [weekTotal, setWeekTotal] = useState(0)
@@ -185,27 +189,48 @@ export default function TimesheetPage({
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Clock in/out — no GPS request (location capture was removed).
+  // Warm a location fix, and drain anything a dead zone left behind.
+  useEffect(() => startWarmingLocation(), [])
+  useEffect(() => {
+    startDraining()
+    return onPendingChange(setPendingPunches)
+  }, [])
+
+  // Clock in/out. Goes through the one shared sender so this screen behaves the
+  // same as the Home card and the clock modal — ⚠ it used to have its own copy,
+  // which is how it kept losing punches in dead zones after the other two were
+  // fixed. A punch taken with no signal is held and sent later; the time
+  // recorded is the moment the button was tapped.
   async function handleClock() {
     if (!employee || !isCurrentWeek) return
     const action = clockedIn ? 'out' : 'in'
-    const clockOutTime = action === 'out' ? new Date().toISOString() : null
+    const punchedAt = new Date().toISOString()
+    const clockOutTime = action === 'out' ? punchedAt : null
     const clockOutHours = action === 'out' ? elapsed / 3600000 : 0
     setClocking(true)
-    const res = await fetch('/api/timesheet/punch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_id: employee.id, action, note: note || null, lat: null, lng: null }),
+    const here = getWarmLocation()
+    const result = await sendPunch({
+      employee_id: employee.id, action, note: note || null,
+      lat: here?.lat ?? null, lng: here?.lng ?? null, punched_at: punchedAt,
     })
-    const data = await res.json().catch(() => null)
+    setClocking(false)
+
+    if (result.status === 'refused') { alert(result.message); return }
+    if (result.status === 'lost') {
+      alert(`No signal, and this phone could not hold the punch. Tell a manager you clocked ${action} just now.`)
+      return
+    }
+
     setNote('')
     setShowNote(false)
-    setClocking(false)
     if (clockOutTime) setLastOut({ time: clockOutTime, hours: clockOutHours })
     else setLastOut(null)
     // #4 — server warns if the payroll entry failed to save.
-    if (data?.warning) alert(data.warning)
-    loadData()
+    if (result.status === 'sent' && result.warning) alert(result.warning)
+    // A held punch has not reached the server, so re-reading the week would
+    // paint over the change we just made. The queue will send it.
+    if (result.status === 'sent') loadData()
+    else setClockedIn(action === 'in')
   }
 
   function openEdit(entry: TimeEntry) {
@@ -346,6 +371,13 @@ export default function TimesheetPage({
                     rows={2}
                     className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 mb-4 resize-none"
                   />
+                )}
+
+                {pendingPunches > 0 && (
+                  <div className="mb-3 w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                    {pendingPunches === 1 ? 'A punch is' : `${pendingPunches} punches are`} waiting to send
+                    {' '}&mdash; the time you tapped is saved and will go through when you have signal.
+                  </div>
                 )}
 
                 <button
