@@ -82,35 +82,29 @@ const ASSESSMENTS_QUERY = `
 // A Jobber Task is a scheduled item that is not a job: "swing by and look at the
 // backflow", "pick up parts on the way home". It carries no line items and no
 // price, and it may have no property at all.
-//
-// ⚠ This uses the ROOT `tasks` query, not `scheduledItems`. scheduledItems
-// scopes to the AUTHENTICATED user unless you pass `schedulingAspects` — and we
-// authenticate as the company's connected Jobber account, not as the tech whose
-// day is being built. So it returned nothing for anyone but the connected user,
-// which is exactly how this shipped broken. `tasks` takes the same filter shape
-// as `visits` (which is why visits always worked for every tech): a
-// `{ after, before }` range and a SINGULAR assignedTo id.
 const TASKS_QUERY = `
-  query GetTasksForRoute($filter: TaskFilterAttributes) {
-    tasks(first: 50, filter: $filter) {
+  query GetTasks($filter: ScheduledItemsFilterAttributes!) {
+    scheduledItems(filter: $filter, first: 50) {
       nodes {
-        id
-        title
-        instructions
-        startAt
-        endAt
-        allDay
-        isComplete
-        client {
-          name
-          phones { number }
-        }
-        property {
-          address {
-            street1
-            city
-            province
-            postalCode
+        ... on Task {
+          id
+          title
+          instructions
+          startAt
+          endAt
+          allDay
+          isComplete
+          client {
+            name
+            phones { number }
+          }
+          property {
+            address {
+              street1
+              city
+              province
+              postalCode
+            }
           }
         }
       }
@@ -172,35 +166,53 @@ function localDayBounds(date: string, timeZone = ROUTING_TZ): { start: string; e
   return { start: `${date}T00:00:00${offset}`, end: `${date}T23:59:59${offset}` }
 }
 
-type TasksResponse = {
-  data?: { tasks?: { nodes?: JobberTask[] } }
+// Jobber spells the Task member of ScheduledItemType as either TASK or
+// BASIC_TASK depending on which you read — the filter's own description calls
+// them "Basic Tasks", but the object type is `Task`, and the enum values are not
+// readable through the introspection helper we have. Rather than guess, try one
+// and fall back to the other on a validation error, then remember the winner for
+// the life of the process. Once the log below has told us which it is, this can
+// collapse to a constant.
+const TASK_ENUM_CANDIDATES = ['BASIC_TASK', 'TASK'] as const
+let resolvedTaskEnum: string | null = null
+
+type ScheduledItemsResponse = {
+  data?: { scheduledItems?: { nodes?: Array<Record<string, unknown>> } }
   errors?: Array<{ message: string }>
 }
 
 async function fetchTasks(
   jobberUserId: string, dayStart: string, dayEnd: string, assignedTo: string,
 ): Promise<JobberTask[]> {
-  const res = await jobberGraphQLAdmin<TasksResponse>(
-    jobberUserId, TASKS_QUERY,
-    { filter: { startAt: { after: dayStart, before: dayEnd }, assignedTo } },
-  ).catch((err: unknown) => {
-    console.warn(`[visits] tasks request threw: ${err instanceof Error ? err.message : String(err)}`)
-    return null
-  })
+  const candidates = resolvedTaskEnum ? [resolvedTaskEnum] : TASK_ENUM_CANDIDATES
 
-  if (res?.errors?.length) {
-    // Loud on purpose. The first version of this failed silently — it returned a
-    // valid empty list — and the feature looked shipped while pulling nothing.
-    console.warn(`[visits] tasks query rejected: ${res.errors[0].message}`)
-    return []
+  for (const value of candidates) {
+    const res = await jobberGraphQLAdmin<ScheduledItemsResponse>(
+      jobberUserId, TASKS_QUERY,
+      { filter: {
+        scheduleItemType: value,
+        occursWithin: { startAt: dayStart, endAt: dayEnd },
+        assignedTo: [assignedTo],
+      }},
+    ).catch(() => null)
+
+    // A bad enum value fails GraphQL validation, which arrives as `errors` with
+    // no `data` — distinct from a query that ran and simply found nothing.
+    if (res?.data?.scheduledItems) {
+      if (resolvedTaskEnum !== value) {
+        resolvedTaskEnum = value
+        console.info(`[visits] ScheduledItemType for tasks resolved to "${value}"`)
+      }
+      return (res.data.scheduledItems.nodes ?? []) as unknown as JobberTask[]
+    }
+    if (res?.errors?.length) {
+      console.warn(`[visits] task enum "${value}" rejected: ${res.errors[0].message}`)
+    }
   }
 
-  const nodes = res?.data?.tasks?.nodes ?? []
-  if (!res?.data?.tasks) {
-    console.warn('[visits] tasks returned no data block; returning visits/assessments only')
-    return []
-  }
-  return nodes
+  // Tasks are additive — a failure here must not cost the caller their visits.
+  console.warn('[visits] tasks could not be fetched; returning visits/assessments only')
+  return []
 }
 
 export async function GET(request: Request) {
@@ -303,10 +315,9 @@ export async function GET(request: Request) {
     // Map tasks. A task is "stop here, but there's no job" — either at a client's
     // property (routable, sits in the route like any other stop) or attached to
     // nothing at all (a parts run), which has no address to optimize against.
-    let tasksSkippedComplete = 0
     for (const t of taskNodes) {
       if (!t.id) continue          // skip empty inline fragments
-      if (t.isComplete) { tasksSkippedComplete++; continue }  // don't route someone to finished work
+      if (t.isComplete) continue   // already done — don't route someone to it
       const addr = t.property?.address
       const title = t.title?.trim() || 'Task'
       stops.push(formatStop('task', stops.length, {
@@ -330,13 +341,6 @@ export async function GET(request: Request) {
         jobId: null,
         routable: !!addr,
       }))
-    }
-
-    // One line per load, so "the task didn't show" is answerable from the log
-    // instead of a guess: it separates "Jobber returned nothing" from "we filtered
-    // it out", which is the distinction the first version of this could not make.
-    if (taskNodes.length > 0 || tasksSkippedComplete > 0) {
-      console.info(`[visits] tasks: ${taskNodes.length} returned, ${tasksSkippedComplete} skipped as complete, for user ${assignedTo} on ${date}`)
     }
 
     // Sort by startAt (timed visits first, then untimed). Stops with no address
