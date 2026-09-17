@@ -11,7 +11,7 @@
 import type { HubMessage, HubUser } from '@/components/hub/MessageFeed'
 
 const DB_NAME = 'lynxedo-hub-cache'
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 const MAX_MESSAGES_PER_SCOPE = 50
 
 type Scope = 'room' | 'conv'
@@ -63,6 +63,7 @@ const STORE_READ_RECEIPTS = 'read_receipts'
 const STORE_UNREAD = 'unread'
 const STORE_HUB_USERS = 'hub_users'
 const STORE_META = 'meta'
+const STORE_DAILY_LOG = 'daily_log'
 
 function isCacheDisabled(): boolean {
   if (typeof window === 'undefined') return true
@@ -101,6 +102,7 @@ function openDB(): Promise<IDBDatabase | null> {
         db.createObjectStore(STORE_UNREAD, { keyPath: 'user_id' })
         db.createObjectStore(STORE_HUB_USERS, { keyPath: 'id' })
         db.createObjectStore(STORE_META, { keyPath: 'key' })
+        db.createObjectStore(STORE_DAILY_LOG, { keyPath: 'date' })
       }
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => resolve(null)
@@ -462,4 +464,42 @@ export async function persistStorage(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+// -- Daily Log route sheet ----------------------------------------------------
+//
+// ⚠⚠ The one screen a crew keeps open all morning, and the one place they are
+// most likely to have no signal — a property in a yard behind a house. It had no
+// cache at all: no connection meant a bare error and no route sheet.
+//
+// ⚠ Cached for READING ONLY, and the screen must say so. The stops carry live
+// state (arrived, completed, skipped) and those writes are NOT queued, so a
+// cached sheet shown as though it were current would invite somebody to tap
+// Complete into the void. Freshness is stored with it precisely so the screen
+// can be honest about the age of what it is showing.
+
+export type CachedDailyLog<T> = { data: T; savedAt: number }
+
+export async function saveDailyLog<T>(date: string, data: T): Promise<void> {
+  const db = await openDB()
+  if (!db) return
+  const t = tx(db, STORE_DAILY_LOG, 'readwrite')
+  if (!t) return
+  try {
+    t.objectStore(STORE_DAILY_LOG).put({ date, data, savedAt: Date.now() })
+  } catch {
+    // Best-effort, like everything else here.
+  }
+}
+
+export async function getDailyLog<T>(date: string): Promise<CachedDailyLog<T> | null> {
+  const db = await openDB()
+  if (!db) return null
+  const t = tx(db, STORE_DAILY_LOG, 'readonly')
+  if (!t) return null
+  const row = await promisify<{ date: string; data: T; savedAt: number } | undefined>(
+    t.objectStore(STORE_DAILY_LOG).get(date) as IDBRequest<{ date: string; data: T; savedAt: number } | undefined>,
+  )
+  if (!row) return null
+  return { data: row.data, savedAt: row.savedAt }
 }
