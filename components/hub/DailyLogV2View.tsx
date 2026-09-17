@@ -6,6 +6,7 @@ import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { Spinner, EmptyState } from '@/components/ui'
 import { fmtQty, type StoredRouteLoadout, type StoredLoadoutProduct } from '@/lib/route-capacity'
 import { formatPhone, formatCurrency, formatDurationMs, formatDurationSec } from '@/lib/format'
+import { keepAwake } from '@/lib/native-device'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -221,6 +222,11 @@ export default function DailyLogV2View({
   const [pendingActionStopId, setPendingActionStopId] = useState<string | null>(null)
   const [skipReasons, setSkipReasons] = useState<SkipReason[]>([])
   const [routeCompleteEntryId, setRouteCompleteEntryId] = useState<string | null>(null)
+
+  // The route sheet is the screen a crew keeps open in the truck all morning.
+  // Letting the phone sleep on it means unlocking to read the next stop, so hold
+  // it on for as long as this screen is up. No-op off a phone.
+  useEffect(() => keepAwake(), [])
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')

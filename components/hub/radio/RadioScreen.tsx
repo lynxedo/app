@@ -16,6 +16,7 @@ import { RadioCapture, bluetoothWarningFor } from '@/lib/radio/capture'
 import { RadioPlayQueue } from '@/lib/radio/playQueue'
 import { radioTopic, type RadioStatus } from '@/lib/radio/types'
 import { startRadioInviteRing, stopRadioInviteRing } from '@/lib/radio/ring'
+import { haptic, keepAwake } from '@/lib/native-device'
 import { playRadioTone } from '@/lib/hub-chime'
 import { MicIcon, SpeakerIcon, RadioIcon } from './RadioIcons'
 
@@ -28,11 +29,6 @@ type SessionState = {
   other: { id: string; name: string }
 }
 
-function buzz(pattern: number | number[]) {
-  // Android honours this; iOS Safari has no vibration API, so the colour change and
-  // the audio itself carry the signal there.
-  try { navigator.vibrate?.(pattern) } catch { /* not supported */ }
-}
 
 export default function RadioScreen({ sessionId, initial }: { sessionId: string; initial: SessionState }) {
   const router = useRouter()
@@ -61,6 +57,14 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
   const status = state.session.status
   const isLive = status === 'active'
 
+  // Hold the screen on while the channel is open. A radio you have to wake the
+  // phone to answer is not a radio, and the OS sleep timer does not care that
+  // audio is arriving. Released the moment the channel ends or the screen closes.
+  useEffect(() => {
+    if (!isLive) return
+    return keepAwake()
+  }, [isLive])
+
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/hub/radio/session/${sessionId}`)
     if (res.ok) setState(await res.json())
@@ -77,7 +81,7 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
       if (theirTurnRef.current) return
       theirTurnRef.current = true
       setTheirTurn(true)
-      buzz(40)
+      haptic('heavy')          // they have started talking
       playRadioTone('radio-incoming')
     }
     // The over beep. Not "they stopped" but "the channel is yours" — which is the
@@ -86,7 +90,7 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
       if (!theirTurnRef.current) return
       theirTurnRef.current = false
       setTheirTurn(false)
-      buzz(15)
+      haptic('light')          // over — the channel is yours
       playRadioTone('radio-over')
     }
 
@@ -170,12 +174,12 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
 
   async function press() {
     if (!isLive || pressedRef.current) return
-    if (theirTurnRef.current) { buzz([20, 40, 20]); playRadioTone('radio-blocked'); setNotice(`${state.other.name} is talking.`); return }
+    if (theirTurnRef.current) { haptic('error'); playRadioTone('radio-blocked'); setNotice(`${state.other.name} is talking.`); return }
     const cap = captureRef.current
     if (!cap) return
     pressedRef.current = true
     setNotice(null)
-    buzz(25)
+    haptic('medium')          // you are on
 
     // Capture from this instant; the transmission id catches up. Waiting on the
     // round trip would cost the first syllable.
@@ -196,7 +200,7 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
         pressedRef.current = false
         setTalking(false)
         if (holdTimer.current) { clearInterval(holdTimer.current); holdTimer.current = null }
-        buzz([20, 40, 20])
+        haptic('error')
         playRadioTone('radio-blocked')
         setNotice(res.status === 409 ? (body.error ?? `${state.other.name} is talking.`) : 'Could not start — try again.')
         if (body.status && body.status !== 'active') setState(s => ({ ...s, session: { ...s.session, status: body.status } }))
@@ -218,7 +222,7 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
     if (holdTimer.current) { clearInterval(holdTimer.current); holdTimer.current = null }
     setTalking(false)
     setElapsed(0)
-    buzz(15)
+    haptic('light')          // you are off
     if (!cap) return
     const { pieceCount, durationMs } = await cap.end()
     const transmissionId = cap.currentTransmissionId

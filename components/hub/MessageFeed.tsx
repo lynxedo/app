@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle, memo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { haptic } from '@/lib/native-device'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
 import SaveToFilesModal from './SaveToFilesModal'
@@ -1387,7 +1388,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     longPressTimer.current = setTimeout(() => {
       longPressFired.current = true
       setActionSheetMsgId(msgId)
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(10)
+      haptic('light')       // the long press landed — iOS felt nothing before this
     }, 500)
   }, [])
 

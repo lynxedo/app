@@ -5,6 +5,7 @@ import { useToast, useConfirm } from '@/components/ui'
 import dynamic from 'next/dynamic'
 import { init, SearchIndex } from 'emoji-mart'
 import { createClient } from '@/lib/supabase/client'
+import { haptic } from '@/lib/native-device'
 import { FileAttachment } from './MessageFeed'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
@@ -905,7 +906,7 @@ export default function ThreadPanel({
     longPressTimer.current = setTimeout(() => {
       longPressFired.current = true
       setActionSheetMsgId(msgId)
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(10)
+      haptic('light')       // the long press landed — iOS felt nothing before this
     }, 500)
   }
 
