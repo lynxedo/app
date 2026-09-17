@@ -31,17 +31,9 @@
 import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { hasUnsavedWork } from '@/hooks/use-unsaved-guard'
+import { isNativeApp } from '@/lib/hub-idle'
 
 const STALE_AFTER_MS = 30 * 60 * 1000
-
-function isNativeApp(): boolean {
-  try {
-    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
-    return !!cap?.isNativePlatform?.()
-  } catch {
-    return false
-  }
-}
 
 export default function HubWarmResume() {
   const router = useRouter()

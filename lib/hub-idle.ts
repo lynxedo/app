@@ -21,11 +21,21 @@ export const HUB_LAST_ROUTE_KEY = 'hub_last_route'
 // HubRootRedirect (landing on the bare /hub URL) both make this decision and MUST
 // agree — they already share the constants above for the same reason. Change the
 // rule here, not in either component.
+// ⚠⚠ BOTH halves are required, and this cost a real bug: on ANDROID
+// `window.Capacitor` does not exist on our pages at all. The shell loads a local
+// bootstrap page and then navigates the webview to lynxedo.com, and Android only
+// injects the Capacitor bridge into its own local origin — iOS injects it as a
+// user script, so it survives onto remote pages. Proven on the connected Pixel:
+// window.Capacitor was undefined while localStorage.lynxedo_native was "1".
+//
+// So a Capacitor-only check is silently false on every Android phone, and anything
+// gated on it never runs there. `lynxedo_native` is set by the native-redirect page
+// and re-set by MainActivity on every lynxedo page load. The login page has used
+// exactly this pair since the shells were built — follow it, don't invent a third.
 export function isNativeApp(): boolean {
   if (typeof window === 'undefined') return false
   try {
-    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
-    return !!cap?.isNativePlatform?.()
+    return 'Capacitor' in window || window.localStorage.getItem('lynxedo_native') === '1'
   } catch {
     return false
   }

@@ -17,6 +17,8 @@
 // but routing both platforms through the plugin keeps one code path and one
 // permission story.
 
+import { isNativeApp } from '@/lib/hub-idle'
+
 export type Fix = { lat: number; lng: number; at: number }
 
 type CapShape = {
@@ -34,9 +36,11 @@ function cap(): CapShape | undefined {
   return (window as unknown as { Capacitor?: CapShape }).Capacitor
 }
 
-function isNative(): boolean {
-  const c = cap()
-  return !!c?.isNativePlatform?.() && !!c.Plugins?.Geolocation
+/** The Capacitor Geolocation plugin, when the bridge is actually reachable. In
+ *  practice that means iOS: Android does not inject the bridge onto our remote
+ *  pages at all (see isNativeApp in lib/hub-idle). */
+function plugin() {
+  return cap()?.Plugins?.Geolocation
 }
 
 let fix: Fix | null = null
@@ -46,18 +50,22 @@ async function refresh(): Promise<void> {
   if (inFlight) return
   inFlight = true
   try {
-    const c = cap()
-    if (isNative()) {
+    const geo = plugin()
+    if (geo) {
+      // iOS. WKWebView does not implement the web geolocation API for an embedded
+      // app — navigator.geolocation there exists but never calls back — so the
+      // native plugin is the only way to get a fix.
       // enableHighAccuracy false: a street-level fix is all a punch needs, and the
       // coarse one comes back far faster and costs much less battery.
-      const pos = await c!.Plugins!.Geolocation!.getCurrentPosition({
+      const pos = await geo.getCurrentPosition({
         enableHighAccuracy: false, timeout: 15_000, maximumAge: 60_000,
       })
       fix = { lat: pos.coords.latitude, lng: pos.coords.longitude, at: Date.now() }
     } else if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      // Only reachable if a caller asks for a fix explicitly — startWarmingLocation
-      // never takes this path (see its note). Kept so a future opt-in web surface
-      // has something to call.
+      // Android, and any ordinary browser. The webview's own geolocation works now
+      // that MainActivity answers the permission prompt — verified on a real Pixel,
+      // which returned a fix to ~100m. Before that handler existed this call never
+      // settled at all, which is the "geolocation is broken in the app" report.
       fix = await new Promise<Fix | null>((resolve) => {
         navigator.geolocation.getCurrentPosition(
           (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, at: Date.now() }),
@@ -84,7 +92,7 @@ async function refresh(): Promise<void> {
  *  in a truck — is exactly the small unexplained thing that makes people distrust
  *  an app. Desktop keeps today's behaviour: no prompt, no location on the punch. */
 export function startWarmingLocation(): () => void {
-  if (!isNative()) return () => {}
+  if (!isNativeApp()) return () => {}
   void refresh()
   // Re-warm while the screen is up: somebody who opened the Hub at the shop and
   // clocks in at the first property should not be stamped at the shop.
