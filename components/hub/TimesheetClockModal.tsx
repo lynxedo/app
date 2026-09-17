@@ -24,6 +24,7 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
     setNote,
     lastOut,
     handleClock,
+    pendingPunches,
   } = useClockPunch({ tickMs: 1000 })
   const [showNote, setShowNote] = useState(false)
 
@@ -100,6 +101,12 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
                 />
               )}
 
+              {pendingPunches > 0 && (
+                <div className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                  {pendingPunches === 1 ? 'A punch is' : `${pendingPunches} punches are`} waiting to send
+                  {' '}&mdash; the time you tapped is saved and will go through when you have signal.
+                </div>
+              )}
               <button
                 onClick={handleClock}
                 disabled={clocking}

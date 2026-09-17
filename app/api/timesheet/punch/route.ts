@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { employee_id, action, note, lat, lng } = body
+  const { employee_id, action, note, lat, lng, punched_at: clientPunchedAt } = body
 
   if (!employee_id || !action) {
     return NextResponse.json({ error: 'employee_id and action required' }, { status: 400 })
@@ -98,16 +98,56 @@ export async function POST(req: NextRequest) {
 
   const now = new Date()
 
+  // ⚠⚠ THE PUNCH TIME IS PAY. A punch taken in a dead zone is held on the device
+  // and sent when signal returns, so the client may tell us when the button was
+  // actually tapped — but a client clock is not evidence, and every minute we
+  // accept here is a minute somebody is paid for. So the offered time is bounded
+  // on all three sides and we fall back to now() the moment it looks wrong:
+  //
+  //   • Not in the future. A device clock running fast must not buy time. Two
+  //     minutes of skew is tolerated and then clamped, not rejected.
+  //   • Not more than 24h old. Beyond that a person, not a queue, should be
+  //     deciding — an admin edit leaves an audit trail (edited_by, edit_reason)
+  //     and a silent late write does not.
+  //   • Not at or before the previous punch. Out-of-order punches would compute
+  //     a negative shift, and recomputeDayEntry would pay it.
+  //
+  // Whatever we take, created_at still records when it reached us, so the gap is
+  // always visible afterwards.
+  let punchedAt = now
+  let queuedOffline = false
+  if (typeof clientPunchedAt === 'string') {
+    const offered = new Date(clientPunchedAt)
+    const prior = lastPunch ? new Date(lastPunch.punched_at) : null
+    const ageMs = now.getTime() - offered.getTime()
+    const usable =
+      !Number.isNaN(offered.getTime()) &&
+      ageMs > -120_000 &&                       // not from the future
+      ageMs < 24 * 60 * 60 * 1000 &&            // not stale enough to need a human
+      (!prior || offered.getTime() > prior.getTime())
+    if (!usable) {
+      return NextResponse.json({
+        error: 'That punch was held too long to send on its own. Ask a manager to add it by hand.',
+        code: 'stale_queued_punch',
+      }, { status: 422 })
+    }
+    // Clamp forward skew rather than reject it: a slightly fast phone is common
+    // and the person did tap the button.
+    punchedAt = offered.getTime() > now.getTime() ? now : offered
+    queuedOffline = true
+  }
+
   // Insert the punch
   const { data: newPunch, error: punchError } = await supabase
     .from('time_punches')
     .insert({
       employee_id,
       punch_type: action,
-      punched_at: now.toISOString(),
+      punched_at: punchedAt.toISOString(),
       note: note || null,
       lat: lat || null,
       lng: lng || null,
+      queued_offline: queuedOffline,
       company_id: punchEmp.company_id,
     })
     .select()
