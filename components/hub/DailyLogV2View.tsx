@@ -434,7 +434,20 @@ export default function DailyLogV2View({
       // ⚠ With a saved copy in hand this is NOT an error state — it is a stale
       // one, and the banner says so. Blanking the screen would take away the
       // route they still need to drive.
-      if (!cached) setError(e instanceof Error ? e.message : 'Failed to load')
+      if (!cached) {
+        // ⚠⚠ But with NOTHING saved for this day, the stops still on screen
+        // belong to the day we just moved away from. Leaving them under the new
+        // date is the exact trap this whole feature exists to avoid: a route
+        // sheet that looks current and is not. Clear it.
+        setEntries([])
+        setDepot(null)
+        setSavedAt(null)
+        setError(
+          e instanceof TypeError
+            ? "No connection — this day hasn't been opened on this phone yet."
+            : e instanceof Error ? e.message : 'Failed to load',
+        )
+      }
     } finally {
       setLoading(false)
     }
