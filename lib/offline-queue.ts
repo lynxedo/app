@@ -49,12 +49,13 @@ export type DropReason = { item: QueuedWrite; message: string; benign?: boolean 
 
 let dbPromise: Promise<IDBDatabase | null> | null = null
 
-function openDb(): Promise<IDBDatabase | null> {
-  if (typeof indexedDB === 'undefined') return Promise.resolve(null)
-  if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve) => {
+/** Marks a transaction that failed because our cached handle went bad. */
+const STALE = Symbol('stale')
+
+function open(version?: number): Promise<IDBDatabase | null> {
+  return new Promise((resolve) => {
     try {
-      const req = indexedDB.open(DB_NAME, SCHEMA_VERSION)
+      const req = version === undefined ? indexedDB.open(DB_NAME) : indexedDB.open(DB_NAME, version)
       req.onupgradeneeded = () => {
         const db = req.result
         if (!db.objectStoreNames.contains(STORE)) {
@@ -63,25 +64,53 @@ function openDb(): Promise<IDBDatabase | null> {
       }
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => resolve(null)
+      req.onblocked = () => resolve(null)
     } catch {
       resolve(null)
     }
   })
+}
+
+function openDb(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(null)
+  if (dbPromise) return dbPromise
+  dbPromise = (async () => {
+    const db = await open(SCHEMA_VERSION)
+    if (!db) return null
+    if (db.objectStoreNames.contains(STORE)) return db
+
+    // ⚠⚠ The database exists at our version but has no store in it. Opening at
+    // the same version never fires onupgradeneeded, so nothing would ever create
+    // one and EVERY punch would be reported lost, forever, on this phone. Seen
+    // for real: a stray open() with no version argument had created an empty v1.
+    // Whatever the cause, the recovery is the same — go up a version, which is
+    // the only thing that gets us an upgrade transaction.
+    const version = db.version + 1
+    db.close()
+    const repaired = await open(version)
+    if (!repaired) return null
+    return repaired.objectStoreNames.contains(STORE) ? repaired : null
+  })()
   return dbPromise
 }
 
-async function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T | null> {
+async function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>, retry = true): Promise<T | null> {
   const db = await openDb()
   if (!db) return null
-  return new Promise((resolve) => {
+  const result = await new Promise<T | null | typeof STALE>((resolve) => {
     try {
       const request = fn(db.transaction(STORE, mode).objectStore(STORE))
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => resolve(null)
     } catch {
-      resolve(null)
+      // The handle we cached is closed or the store went away under us.
+      resolve(STALE)
     }
   })
+  if (result !== STALE) return result
+  if (!retry) return null
+  dbPromise = null          // drop the bad handle and let openDb rebuild it
+  return tx(mode, fn, false)
 }
 
 async function allItems(): Promise<QueuedWrite[]> {
