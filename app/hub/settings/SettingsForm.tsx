@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
@@ -328,6 +328,38 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
     } catch (e) {
       setEmailSigErr(e instanceof Error ? e.message : 'Network error')
       setEmailSigSave('error')
+    }
+  }
+
+  // ── App lock (phone app only) ─────────────────────────────────────────────
+  // ⚠ The switch is here because Settings is where people look, but the lock
+  // itself is native: a web page cannot ask for a fingerprint, and a lock the
+  // page could switch off would not be a lock. The bridge is Android-only —
+  // window.Capacitor does not exist on our remote pages there, so this is a
+  // plain JavascriptInterface, same as the others.
+  const [lockAvailable, setLockAvailable] = useState(false)
+  const [lockEnabled, setLockEnabled] = useState(false)
+
+  useEffect(() => {
+    try {
+      const lock = (window as unknown as { LynxedoLock?: {
+        isAvailable(): boolean; isEnabled(): boolean; setEnabled(on: boolean): void
+      } }).LynxedoLock
+      if (!lock) return                       // web, desktop, or an older app build
+      setLockAvailable(lock.isAvailable())    // false when the phone has no fingerprint or PIN set
+      setLockEnabled(lock.isEnabled())
+    } catch {
+      // No bridge. The section simply never appears.
+    }
+  }, [])
+
+  const toggleLock = (next: boolean) => {
+    try {
+      (window as unknown as { LynxedoLock?: { setEnabled(on: boolean): void } })
+        .LynxedoLock?.setEnabled(next)
+      setLockEnabled(next)
+    } catch {
+      // Nothing to do — without the bridge there is nothing to lock.
     }
   }
 
@@ -813,6 +845,44 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
           single-screen layout with the bottom bar, whatever this is set to.
         </p>
       </section>
+
+      {/* App lock — only exists inside the phone app, and only where the phone
+          can actually ask. On the web there is nothing to lock: the browser and
+          the computer already have their own. */}
+      {lockAvailable && (
+        <section className="bg-gray-900/40 border border-gray-800 rounded-2xl p-5">
+          <h2 className="font-semibold text-lg mb-1">Lock this app</h2>
+          <p className="text-gray-400 text-sm mb-5">
+            Ask for your fingerprint before opening the Hub on this phone. You stay
+            signed in — this is about the phone being picked up by someone else,
+            not about signing in again.
+          </p>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={lockEnabled}
+              onChange={e => toggleLock(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-gray-700 bg-gray-950 text-orange-500 focus:ring-orange-500 focus:ring-offset-0"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium">Require a fingerprint to open Lynxedo</div>
+              <p className="text-xs text-gray-500 mt-1">
+                You will not be asked every time you glance at it — only after the app
+                has been closed or in the background for about five minutes, so sending
+                an OMW or following Navigate into Maps and coming back does not challenge
+                you mid-stop. Your phone&apos;s own PIN always works as a way in, so a wet
+                or cut finger can never lock you out of your route.
+              </p>
+            </div>
+          </label>
+
+          <p className="text-xs text-gray-500 mt-4">
+            This setting lives on this phone, not on your account — turning it on here
+            does not lock Lynxedo on anyone else&apos;s device, or on a computer.
+          </p>
+        </section>
+      )}
 
       </div>
       )}
