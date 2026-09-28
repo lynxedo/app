@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import EmojiPicker from '@/components/hub/EmojiPicker'
 import AutomationBuilder from '@/components/hub/admin/AutomationBuilder'
+import StatusTimeReport from '@/components/hub/admin/StatusTimeReport'
 import { useToast, useConfirm } from '@/components/ui'
 
 type Room = { id: string; name: string; description: string | null; is_private: boolean; archived_at: string | null; claude_enabled: boolean }
@@ -200,7 +201,7 @@ export default function HubAdminPanel({
   })
 
   // Section tabs
-  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'automation' | 'chat-synx' | 'file-tags'>(only ?? 'rooms')
+  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'automation' | 'chat-synx' | 'file-tags' | 'status-time'>(only ?? 'rooms')
 
   // In single-section ("only") mode the tab bar is hidden, so load that
   // section's lazy data on mount instead of on a tab click.
@@ -690,6 +691,7 @@ export default function HubAdminPanel({
           ['settings', 'Settings'],
           ['automation', 'Automation'],
           ['chat-synx', 'Chat Synx'],
+          ['status-time', 'Status Time'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -908,6 +910,9 @@ export default function HubAdminPanel({
           </div>
         </div>
       )}
+
+      {/* ── STATUS TIME TAB ── */}
+      {tab === 'status-time' && <StatusTimeReport />}
 
       {/* ── AUTOMATION TAB ── */}
       {tab === 'automation' && (
