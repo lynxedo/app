@@ -417,7 +417,7 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
   </style>
 </head>
 <body>
-  <button class="print-btn" onclick="window.print()">&#x1F5A8;&nbsp; Print / Save as PDF</button>
+  <button class="print-btn" onclick="window.LynxedoPrint ? window.LynxedoPrint.printPage() : window.print()">&#x1F5A8;&nbsp; Print / Save as PDF</button>
 
   <!-- Page 1: Summary -->
   <div class="summary">

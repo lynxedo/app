@@ -8,6 +8,8 @@ import { fmtQty, type StoredRouteLoadout, type StoredLoadoutProduct } from '@/li
 import { formatPhone, formatCurrency, formatDurationMs, formatDurationSec } from '@/lib/format'
 import { keepAwake } from '@/lib/native-device'
 import { getDailyLog, saveDailyLog } from '@/lib/hub-cache'
+import { isNativeApp } from '@/lib/hub-idle'
+import { useOutsideClose } from '@/hooks/use-outside-close'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1604,6 +1606,15 @@ function StopNotesAndAttachments({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [sending, setSending] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const photoRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLInputElement>(null)
+  const attachMenuRef = useRef<HTMLDivElement>(null)
+  const [attachOpen, setAttachOpen] = useState(false)
+  // ⚠ Read in an effect, never during render: isNativeApp() looks at window, so
+  // deciding this on the server would hydrate the wrong control.
+  const [nativeAttach, setNativeAttach] = useState(false)
+  useEffect(() => { setNativeAttach(isNativeApp()) }, [])
+  useOutsideClose(attachMenuRef, attachOpen, () => setAttachOpen(false))
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
@@ -1815,13 +1826,72 @@ function StopNotesAndAttachments({
 
       {/* Composer */}
       <div className="flex gap-2 items-end">
-        <button
-          onClick={() => fileRef.current?.click()}
-          className="flex-none px-2.5 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded transition-colors text-sm"
-          title="Attach photo or file"
-        >
-          📎
-        </button>
+        {/* ⚠⚠ On a phone the paperclip used to go straight to the FILE PICKER
+            with no way to reach the camera — which is backwards for a crew
+            standing at the property. The cause is the accept list: a mixed
+            image+pdf+video list makes Android offer documents only. A camera
+            needs its own input with capture=, so the choice has to be made
+            BEFORE the picker opens, not inside it.
+            Native only: on a desktop, capture= is ignored and a three-way
+            menu would just be an extra click in front of the same dialog. */}
+        <div className="relative flex-none" ref={attachMenuRef}>
+          <button
+            onClick={() => (nativeAttach ? setAttachOpen(o => !o) : fileRef.current?.click())}
+            className="px-2.5 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded transition-colors text-sm"
+            title="Attach photo or file"
+            aria-haspopup={nativeAttach ? 'menu' : undefined}
+            aria-expanded={nativeAttach ? attachOpen : undefined}
+          >
+            📎
+          </button>
+          {nativeAttach && attachOpen && (
+            <div
+              role="menu"
+              className="absolute bottom-full left-0 mb-1 z-20 w-44 bg-gray-800 border border-gray-700 rounded shadow-lg overflow-hidden"
+            >
+              {([
+                ['📷', 'Take photo', photoRef],
+                ['🎥', 'Record video', videoRef],
+                ['📁', 'Choose a file', fileRef],
+              ] as const).map(([icon, label, ref]) => (
+                <button
+                  key={label}
+                  role="menuitem"
+                  onClick={() => { setAttachOpen(false); ref.current?.click() }}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-700"
+                >
+                  <span aria-hidden>{icon}</span>{label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* capture="environment" = the rear camera, opened directly. Verified on
+            the Pixel only after a <queries> block was added to the manifest —
+            without it Android 11+ hides the camera app and Capacitor concludes
+            the phone has none, silently falling back to the gallery. */}
+        <input
+          ref={photoRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={e => {
+            if (e.target.files?.length) stageFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
+        <input
+          ref={videoRef}
+          type="file"
+          accept="video/*"
+          capture="environment"
+          className="hidden"
+          onChange={e => {
+            if (e.target.files?.length) stageFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
         <input
           ref={fileRef}
           type="file"
