@@ -902,6 +902,12 @@ function HubTab() {
         </AdminOnly>
       </Section>
 
+      <Section title="Status Time (who was Green, Yellow, Red)">
+        <p>Admins and Hub admins can see how long each person&apos;s status dot was <strong className="text-white">Green / Available</strong>, <strong className="text-white">Yellow / Busy</strong>, <strong className="text-white">Red / Do Not Disturb</strong> or <strong className="text-white">Offline</strong>. Open <code className="text-green-400">/admin/hub → Status Time</code>, then pick Today, Yesterday, This week, Last 7 days, Last 30 days, or your own dates (Central time).</p>
+        <p>Hub checks everyone&apos;s dot once a minute, so totals are accurate to about a minute. Green is whatever the dot showed: an hourly person counts as Green only while clocked in, and anyone else while they&apos;ve been active in Hub in the last 2 hours. Busy and Do Not Disturb count for as long as the person leaves them on, even after they go home.</p>
+        <p>Tracking started September 28, 2026. Nothing before that was recorded, so earlier dates show blank.</p>
+      </Section>
+
       <Section title="Chat Synx (Slack bridge)">
         <p>Chat Synx mirrors messages between Hub rooms and Slack channels, both directions, in real time. Anyone on Slack stays in the loop without needing a Hub account, and vice versa.</p>
         <p><strong className="text-white">How it appears in Slack:</strong> a message you send in Hub shows up in the linked Slack channel wearing your name and profile picture — as far as anyone reading Slack is concerned, it looks like you typed it there. (Under the hood it&apos;s the <code className="text-green-400">@Chat Synx</code> bot posting on your behalf, but you&apos;d have to look closely to tell.)</p>
