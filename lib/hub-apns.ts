@@ -156,7 +156,21 @@ export async function sendApnsPush(
   // conversation type + id (e.g. "dm:abc123", "room:xyz789").
   if (payload.groupKey) aps['thread-identifier'] = payload.groupKey
 
-  const apnsBody = JSON.stringify({ aps, url: payload.url })
+  // ⚠ The category is what puts a Reply box on the notification. iOS looks up
+  // actions registered under this identifier at launch, so a payload without it
+  // is a notification you can only tap. Only DMs and rooms get one — they are
+  // the two things a reply can be POSTed to; a voicemail or an inbound text has
+  // no single endpoint to answer.
+  const canReply = payload.type === 'dm' || payload.type === 'room'
+  if (canReply && payload.groupKey) aps.category = 'LYNXEDO_REPLY'
+
+  const apnsBody = JSON.stringify({
+    aps,
+    url: payload.url,
+    // The app needs these to know WHERE the reply goes — same two fields the
+    // Android side reads, so one server shape serves both.
+    ...(canReply ? { type: payload.type, groupKey: payload.groupKey } : {}),
+  })
 
   const staleTokens: string[] = []
   await Promise.all(
