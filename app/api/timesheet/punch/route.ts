@@ -134,7 +134,19 @@ export async function POST(req: NextRequest) {
     // Clamp forward skew rather than reject it: a slightly fast phone is common
     // and the person did tap the button.
     punchedAt = offered.getTime() > now.getTime() ? now : offered
-    queuedOffline = true
+
+    // ⚠⚠ queued_offline means "this punch was HELD and sent later", not "the
+    // client told us when it happened". It used to be set whenever a
+    // punched_at was offered — but every screen now sends one on every punch,
+    // so the flag went true 50 times out of 50, every one of them delivered in
+    // under a tenth of a second. A flag that is always on tells a manager
+    // reviewing hours precisely nothing.
+    //
+    // The gap is what separates them, and the client's own timeout draws the
+    // line for us: lib/clock-punch-request.ts gives up at 8s and only then
+    // queues, so a punch that reached us live is always younger than that.
+    // 10s leaves a margin without letting a real dropout through.
+    queuedOffline = ageMs > 10_000
   }
 
   // Insert the punch

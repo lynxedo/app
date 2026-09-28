@@ -1,5 +1,6 @@
 'use client'
 
+import { printPage } from '@/lib/native-print'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { DEFAULT_MIX_ROWS, fmtAmt, orderColumns } from '@/lib/mix-sheet'
@@ -266,7 +267,7 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
               <button aria-pressed={phone} onClick={() => setPhone(true)}>📱 Phone</button>
             </div>
           </div>
-          <button className="btn" onClick={() => window.print()}>⬇ Landscape PDF</button>
+          <button className="btn" onClick={() => printPage()}>⬇ Landscape PDF</button>
           {saved && <span className="saved">Saved {saved}</span>}
         </div>
 

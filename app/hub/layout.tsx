@@ -11,6 +11,7 @@ import HubShell from '@/components/hub/HubShell'
 import RadioInviteListener from '@/components/hub/radio/RadioInviteListener'
 import { HubMessagesProvider } from '@/components/hub/HubMessagesProvider'
 import PushInit from '@/components/hub/PushInit'
+import OfflineShell from '@/components/hub/OfflineShell'
 import ElectronNotifier from '@/components/hub/ElectronNotifier'
 import WebChimeNotifier from '@/components/hub/WebChimeNotifier'
 import HubIdleTracker from '@/components/hub/HubIdleTracker'
@@ -473,6 +474,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         {children}
       </HubShell>
       <PushInit />
+      <OfflineShell />
       <ElectronNotifier
         currentUserId={user.id}
         companyId={companyId}

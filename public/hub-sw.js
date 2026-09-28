@@ -1,11 +1,60 @@
-// Shell caching — cache static assets on install, serve from cache when offline
-const CACHE_NAME = 'hub-shell-v2'
+// Shell caching — keep a copy of the few screens that have to open with no signal.
+//
+// ⚠⚠ WHY THIS EXISTS AT ALL: until Sep 2026 this worker was only ever registered
+// on the web/PWA path, because the registration sat inside PushInit AFTER the
+// native branches returned. So inside the phone apps there was no worker, no
+// cache, and a cold start with no signal showed the webview's own "webpage not
+// available" — the offline punch queue and the route-sheet cache were both
+// unreachable, because the page holding them could not load in the first place.
+// components/hub/OfflineShell.tsx now registers this on every platform.
+//
+// ⚠ Only these three routes are kept. Clocking in is the one that costs real
+// money when it fails, and the route sheet is the one people need mid-route;
+// everything else can wait for signal. Keeping every page would mean serving
+// stale screens nobody asked to be saved.
+const CACHE_NAME = 'hub-shell-v3'
 const SHELL_ASSETS = [
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/apple-touch-icon.png',
 ]
+const OFFLINE_ROUTES = ['/hub', '/hub/timesheet', '/hub/daily-log-v2']
+
+/** Cache key for a page: pathname only, so /hub/timesheet?source=push finds the
+ *  copy saved by a plain visit. */
+function pageKey(url) {
+  return new Request(new URL(url.pathname, self.location.origin).toString())
+}
+
+function isOfflineRoute(pathname) {
+  const p = pathname.replace(/\/+$/, '') || '/hub'
+  return OFFLINE_ROUTES.includes(p)
+}
+
+// Shown only when the network is gone AND we have no saved copy of that screen.
+// A plain browser error tells someone nothing; this at least says what happened
+// and which screens will work.
+const OFFLINE_FALLBACK = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>No signal</title>
+<style>
+ :root { color-scheme: dark }
+ body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+        background:#0b1220; color:#e2e8f0; font:16px/1.5 system-ui,-apple-system,sans-serif; padding:24px }
+ .box { max-width:22rem; text-align:center }
+ h1 { font-size:1.25rem; margin:0 0 .5rem }
+ p { color:#94a3b8; margin:0 0 1.25rem }
+ a { display:block; padding:.75rem 1rem; margin:.5rem 0; border-radius:.5rem;
+     background:#1e293b; color:#e2e8f0; text-decoration:none }
+</style></head>
+<body><div class="box">
+  <h1>No signal</h1>
+  <p>This screen wasn't saved for offline use. Clocking in and the route sheet are.</p>
+  <a href="/hub/timesheet">Time clock</a>
+  <a href="/hub/daily-log-v2">Route sheet</a>
+</div></body></html>`
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -23,17 +72,55 @@ self.addEventListener('activate', event => {
   self.clients.claim()
 })
 
+// ⚠⚠ A saved page must not outlive the person who loaded it. These copies are
+// of SIGNED-IN screens — someone else's name, stops and hours — so signing out
+// has to take them with it, or the next person to open the app with no signal
+// sees the last user's route sheet. lib/hub-signout.ts sends this.
+self.addEventListener('message', event => {
+  if (event.data?.type !== 'clear-offline-pages') return
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(async cache => {
+      const keys = await cache.keys()
+      await Promise.all(
+        keys
+          .filter(req => isOfflineRoute(new URL(req.url).pathname))
+          .map(req => cache.delete(req))
+      )
+    })
+  )
+})
+
 self.addEventListener('fetch', event => {
   const { request } = event
   if (request.method !== 'GET' || !request.url.startsWith(self.location.origin)) return
   const url = new URL(request.url)
   if (url.pathname.startsWith('/api/') || url.hostname.includes('supabase')) return
 
-  // Navigation requests (page loads): always go to network so auth redirects work correctly.
-  // Only fall back to cache if the network is completely unavailable.
+  // Navigation requests (page loads): always go to network so auth redirects work
+  // correctly. Only fall back to a saved copy if the network is gone.
+  //
+  // ⚠⚠ NEVER cache a redirected response. A signed-out load answers 200 at the
+  // END of a redirect to /login — saving that under /hub/timesheet would pin the
+  // login page as "the time clock" for as long as the cache lives, offline AND
+  // online. response.redirected is the only thing that tells them apart.
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match(request))
+      fetch(request)
+        .then(response => {
+          if (response.ok && !response.redirected && isOfflineRoute(url.pathname)) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then(cache => cache.put(pageKey(url), clone))
+          }
+          return response
+        })
+        .catch(async () => {
+          const saved = await caches.match(pageKey(url))
+          if (saved) return saved
+          return new Response(OFFLINE_FALLBACK, {
+            status: 503,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          })
+        })
     )
     return
   }

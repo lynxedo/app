@@ -10,6 +10,7 @@
 // screen on a real phone. One path now, so a fix cannot land on half of them.
 
 import { enqueue } from '@/lib/offline-queue'
+import { haptic } from '@/lib/native-device'
 
 export type PunchPayload = {
   employee_id: string
@@ -37,6 +38,21 @@ export type PunchResult =
  *  forever and nothing is ever queued. */
 const GIVE_UP_MS = 8000
 
+/** A punch is the one thing in the Hub done with gloves on, in a truck, often
+ *  without looking. Three outcomes that matter, so three different buzzes —
+ *  the point is to know it landed without reading the screen.
+ *
+ *  ⚠ Haptics existed but nothing outside a message long-press and Radio ever
+ *  called them, so the app felt dead to the touch everywhere people actually
+ *  press things. Android has navigator.vibrate (VIBRATE is in the manifest);
+ *  iOS has no Vibration API at all and goes through the native plugin. */
+function feel(result: PunchResult) {
+  if (result.status === 'sent') haptic('success')
+  else if (result.status === 'held') haptic('warning')
+  else haptic('error')
+  return result
+}
+
 export async function sendPunch(payload: PunchPayload): Promise<PunchResult> {
   try {
     const res = await fetch('/api/timesheet/punch', {
@@ -47,10 +63,10 @@ export async function sendPunch(payload: PunchPayload): Promise<PunchResult> {
     })
     if (!res.ok) {
       const body = await res.json().catch(() => null) as { error?: string } | null
-      return { status: 'refused', message: body?.error ?? 'That punch did not save. Try again.' }
+      return feel({ status: 'refused', message: body?.error ?? 'That punch did not save. Try again.' })
     }
     const body = await res.json().catch(() => null) as { warning?: string } | null
-    return { status: 'sent', warning: body?.warning }
+    return feel({ status: 'sent', warning: body?.warning })
   } catch {
     // Unreachable, or we gave up waiting. Either way the person tapped the
     // button and the time that matters is already in the payload.
@@ -61,6 +77,6 @@ export async function sendPunch(payload: PunchPayload): Promise<PunchResult> {
       label: payload.action === 'in' ? 'Clock in' : 'Clock out',
       createdAt: new Date(payload.punched_at).getTime(),
     })
-    return held ? { status: 'held' } : { status: 'lost' }
+    return feel(held ? { status: 'held' } : { status: 'lost' })
   }
 }
