@@ -3,6 +3,7 @@
 import { useEffect, useState, type DragEvent } from 'react'
 import LeadCard from './LeadCard'
 import type { Stage, StageGroup } from '../TrackerPage'
+import { chipVars } from '@/lib/themes'
 
 // Kanban cockpit: each pipeline stage is a column of draggable LeadCards, colored
 // by drip state. Drag a card to another column → optimistic stage move via the
@@ -75,8 +76,8 @@ export default function BoardView({
             >
               {/* Column header tinted with the stage color */}
               <div
-                className="flex items-center gap-2 px-3 py-2 rounded-t-xl border-b border-white/5"
-                style={{ backgroundColor: group.color + (lightMode ? '26' : '22') }}
+                className="lx-chip flex items-center gap-2 px-3 py-2 rounded-t-xl border-b border-white/5"
+                style={{ ...chipVars(group.color), backgroundColor: group.color + (lightMode ? '26' : '22') }}
               >
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: group.color }} />
                 <span className={`text-sm font-semibold truncate ${lightMode ? 'text-gray-800' : 'text-white'}`}>{group.label}</span>

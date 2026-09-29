@@ -6,6 +6,7 @@ import { computeFormulas, summarize, type RecurringRow, type RecurringFormulas }
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
 import { formatCurrency } from '@/lib/format'
 import { useToast, useConfirm } from '@/components/ui'
+import { chipVars } from '@/lib/themes'
 
 // ---- Option lists (mirrored exactly from Monday board 18188676554) ----
 const SERVICE_OPTIONS = ['IRR Install', 'WF - Lawn Health', 'Pet Waste', 'Other', 'Landscape', 'IRR', 'IRR SC', 'Winterize', 'Spam/Sales', 'Drain', 'Aeration', 'Mow', 'MOS', 'phc', 'Upgrade', 'IR- Gold']
@@ -376,8 +377,8 @@ export default function RecurringServicesPage() {
                 <div key={group.name} className="rounded-lg overflow-hidden shadow-sm">
                   <div
                     onClick={() => setCollapsed(prev => { const n = new Set(prev); n.has(group.name) ? n.delete(group.name) : n.add(group.name); return n })}
-                    className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:opacity-90 transition-opacity"
-                    style={{ backgroundColor: headerColor }}
+                    className="lx-chip flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:opacity-90 transition-opacity"
+                    style={{ ...chipVars(headerColor), backgroundColor: headerColor }}
                   >
                     <span className="text-sm font-semibold text-white">{group.name}</span>
                     <span className="text-white/70 text-xs">{group.rows.length}</span>

@@ -26,6 +26,7 @@ export const THEMES: ThemeDef[] = [
   // Hybrid — dark nav + light workspace
   { id: 'eclipse',   label: 'Eclipse',   accent: '#4f46e5', dark: true,  cat: 'Hybrid' },
   { id: 'pine',      label: 'Pine',      accent: '#16a34a', dark: true,  cat: 'Hybrid' },
+  { id: 'sharp',     label: 'Sharp',     accent: '#1d4ed8', dark: true,  cat: 'Hybrid' },
   // Glossy — frosted panels over a gradient base (all dark)
   { id: 'aurora',      label: 'Aurora Glass',   accent: '#c4a6ff', dark: true, cat: 'Glossy' },
   { id: 'nebula',      label: 'Nebula Glass',   accent: '#ff9ad1', dark: true, cat: 'Glossy' },
@@ -39,3 +40,24 @@ export const THEME_IDS = THEMES.map(t => t.id)
 
 // Display order for grouped pickers (settings page).
 export const THEME_CATEGORIES: ThemeCat[] = ['Dark', 'Light', 'Hybrid', 'Glossy']
+
+// Black or white — whichever reads on a user-picked background color. Used by
+// the Sharp theme's "text is only black or white" rule for colors that live in
+// data (Tracker stages / statuses), which CSS alone can't judge. WCAG relative
+// luminance; 0.179 is the point where black and white give equal contrast.
+export function inkOn(hex: string): '#000' | '#fff' {
+  const m = /^#?([0-9a-f]{6})/i.exec(hex.trim())
+  if (!m) return '#fff'
+  const lin = (i: number) => {
+    const c = parseInt(m[1].slice(i, i + 2), 16) / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const L = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4)
+  return L > 0.179 ? '#000' : '#fff'
+}
+
+// Inline style vars for an `lx-chip` element — Sharp paints it solid `--chip`
+// with `--chip-ink` text; every other theme ignores them.
+export function chipVars(hex: string): Record<string, string> {
+  return { '--chip': hex, '--chip-ink': inkOn(hex) }
+}
