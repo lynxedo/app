@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/ui'
 import { formatPhone, formatCurrency } from '@/lib/format'
 import type { Lead, Stage } from '../TrackerPage'
+import { chipVars } from '@/lib/themes'
 
 // A single lead rendered as a card for the Board / Needs-me cockpit views.
 // One-tap phone → opens (or creates) the Txt thread. A colored left border + a
@@ -129,8 +130,8 @@ export default function LeadCard({
         <span className={`font-medium truncate ${nameCls}`} title={name}>{name}</span>
         {chipLabel && (
           <span
-            style={{ backgroundColor: accent + (lightMode ? '2e' : '22'), color: lightMode ? '#374151' : accent, borderColor: accent + '55' }}
-            className="inline-flex items-center shrink-0 px-1.5 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap"
+            style={{ ...chipVars(accent), backgroundColor: accent + (lightMode ? '2e' : '22'), color: lightMode ? '#374151' : accent, borderColor: accent + '55' }}
+            className="lx-chip inline-flex items-center shrink-0 px-1.5 py-0.5 rounded text-[11px] font-medium border whitespace-nowrap"
             title={lead.drip?.campaign_name ?? undefined}
           >
             {chipLabel}

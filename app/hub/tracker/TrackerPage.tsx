@@ -11,6 +11,7 @@ import LeadContactActions, { LeadContactPermsProvider } from '@/components/hub/t
 import TableView from './leads/TableView'
 import BoardView from './leads/BoardView'
 import NeedsMeView from './leads/NeedsMeView'
+import { chipVars } from '@/lib/themes'
 
 // ── Types ────────────────────────────────────────
 export type Stage = { id: string; key: string; label: string; color: string; sort_order: number; system_role?: string | null }
@@ -188,8 +189,8 @@ function StatusCell({ value, options, statusColors, lightMode, onSave }: {
   if (color) {
     return (
       <span onClick={() => setEditing(true)}
-        style={{ backgroundColor: color + (lightMode ? '45' : '25'), color: lightMode ? '#374151' : color, borderColor: color + '60' }}
-        className="inline-block px-2 py-0.5 rounded text-xs font-medium border cursor-pointer hover:opacity-80 transition-opacity truncate max-w-full"
+        style={{ ...chipVars(color), backgroundColor: color + (lightMode ? '45' : '25'), color: lightMode ? '#374151' : color, borderColor: color + '60' }}
+        className="lx-chip inline-block px-2 py-0.5 rounded text-xs font-medium border cursor-pointer hover:opacity-80 transition-opacity truncate max-w-full"
         title={value ?? ''}>
         {value || <span className="opacity-50">—</span>}
       </span>
@@ -861,8 +862,8 @@ export function GroupSection({
     <div className="rounded-lg shadow-sm">
       {/* Stage header — collapse arrow on LEFT near checkbox */}
       <div onClick={onToggle}
-        className={`flex items-center gap-2 px-4 py-2.5 cursor-pointer hover:opacity-90 transition-opacity rounded-t-lg ${collapsed ? 'rounded-b-lg' : ''}`}
-        style={{ backgroundColor: stageColor }}>
+        className={`lx-chip flex items-center gap-2 px-4 py-2.5 cursor-pointer hover:opacity-90 transition-opacity rounded-t-lg ${collapsed ? 'rounded-b-lg' : ''}`}
+        style={{ ...chipVars(stageColor), backgroundColor: stageColor }}>
         {/* Collapse/expand arrow — left side near select-all */}
         <span className="text-white/80 text-xs w-4 text-center shrink-0">{collapsed ? '▶' : '▼'}</span>
         <div onClick={e => e.stopPropagation()}>
