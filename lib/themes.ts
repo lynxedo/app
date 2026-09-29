@@ -26,6 +26,7 @@ export const THEMES: ThemeDef[] = [
   // Hybrid — dark nav + light workspace
   { id: 'eclipse',   label: 'Eclipse',   accent: '#4f46e5', dark: true,  cat: 'Hybrid' },
   { id: 'pine',      label: 'Pine',      accent: '#16a34a', dark: true,  cat: 'Hybrid' },
+  { id: 'sharp',     label: 'Sharp',     accent: '#1d4ed8', dark: true,  cat: 'Hybrid' },
   // Glossy — frosted panels over a gradient base (all dark)
   { id: 'aurora',      label: 'Aurora Glass',   accent: '#c4a6ff', dark: true, cat: 'Glossy' },
   { id: 'nebula',      label: 'Nebula Glass',   accent: '#ff9ad1', dark: true, cat: 'Glossy' },

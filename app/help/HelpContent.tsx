@@ -2191,7 +2191,7 @@ function SettingsTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Dark</strong> — Midnight (default), Carbon</li>
           <li><strong className="text-white">Light</strong> — Daylight, Blossom</li>
-          <li><strong className="text-white">Hybrid</strong> (dark sidebar, light workspace) — Eclipse, Pine</li>
+          <li><strong className="text-white">Hybrid</strong> (dark sidebar, light workspace) — Eclipse, Pine, and Sharp (charcoal sidebar, pure white workspace, and every colored tag drawn as a solid box with white text so it is easy to read)</li>
           <li><strong className="text-white">Glossy</strong> (frosted panels over a color gradient) — Aurora, Nebula, Tide, Obsidian, Ember Glass, Heroes Glass</li>
         </ul>
         <p>Everyone on your team can have their own theme — it&apos;s a personal preference and doesn&apos;t affect what other users see.</p>
