@@ -519,8 +519,9 @@ export default function SchedulingPanel() {
                           <code className="text-white/60">[NEIGHBORHOOD]</code>,{' '}
                           <code className="text-white/60">[SERVICE]</code> — for example{' '}
                           <code className="text-white/60">IR SVC $[PRICE] [NEIGHBORHOOD]</code>. The price comes from
-                          the product in Jobber. The neighborhood is taken from this customer&apos;s own earlier jobs;
-                          if there isn&apos;t one to go on, it&apos;s left out and the job says so rather than guessing.
+                          the product in Jobber. The neighborhood is taken from this customer&apos;s own earlier jobs, or
+                          if they don&apos;t name one, from your neighborhood map (Knowledge tab); if neither gives an
+                          answer, it&apos;s left out and the job says so rather than guessing.
                           Leave blank to use the line item name.
                         </p>
                       </div>
