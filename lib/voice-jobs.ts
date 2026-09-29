@@ -13,6 +13,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { jobberGraphQLAdmin } from '@/lib/jobber'
 import { normalizeServiceName } from '@/lib/voice-capacity'
+import { lookupNeighborhood } from '@/lib/neighborhood-map'
 
 // ── The Jobber product behind a configured line item ───────────────────────────
 // Same catalog + same normalization the capacity counter uses, so "the product we
@@ -92,8 +93,9 @@ export async function findJobberProduct(
  * customer: a title the office itself wrote for this same client.
  *
  * Longest match wins, so "Woodlands West" beats a bare "Woodlands", and newest jobs
- * are consulted first. Returns null when nothing matches — the caller must then leave
- * the neighborhood OFF and flag the job rather than invent one. ~70% of Heroes'
+ * are consulted first. Returns null when nothing matches — the caller then tries the
+ * company's neighborhood map (neighborhoodFromMap, below), and failing that leaves
+ * the neighborhood OFF and flags the job rather than invent one. ~70% of Heroes'
  * existing customers resolve; the remainder are a human's five-second fix, which is
  * cheaper than a truck in the wrong subdivision.
  */
@@ -130,6 +132,41 @@ export async function neighborhoodFromClientHistory(
     }
   }
   return null
+}
+
+/**
+ * The fallback when history has no answer: where this job's property sits on the
+ * company's own neighborhood map (Admin → AI → Knowledge).
+ *
+ * This is still evidence, not inference — a geocoded house point inside a polygon
+ * the office drew — which is the line the rule above draws against zips and city
+ * names. It stays strict anyway: an address that can't be placed to the house, a
+ * point outside every area, or a point where two areas overlap all return null,
+ * and the job is flagged exactly as before. A point close to another area's edge
+ * is still used, but reported so the job can say "double-check".
+ *
+ * Reads the property from the local Jobber mirror only; a property that hasn't
+ * synced yet simply falls through to the flag.
+ */
+export async function neighborhoodFromMap(
+  admin: SupabaseClient,
+  companyId: string,
+  jobberPropertyId: string,
+): Promise<{ name: string; nearBorder: string[] } | null> {
+  const { data } = await admin
+    .from('properties')
+    .select('address_line1, city, state, zip')
+    .eq('company_id', companyId)
+    .eq('external_id', jobberPropertyId)
+    .is('deleted_at', null)
+    .limit(1)
+  const p = (data as { address_line1: string | null; city: string | null; state: string | null; zip: string | null }[] | null)?.[0]
+  if (!p?.address_line1) return null
+  const address = [p.address_line1, p.city, [p.state, p.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+
+  const r = await lookupNeighborhood(admin, companyId, address)
+  if (r.status !== 'found') return null
+  return { name: r.matches[0], nearBorder: r.nearBorder }
 }
 
 // ── Title ──────────────────────────────────────────────────────────────────────

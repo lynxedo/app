@@ -43,6 +43,7 @@ import {
   createJobberVisit,
   findJobberProduct,
   neighborhoodFromClientHistory,
+  neighborhoodFromMap,
   primaryPropertyId,
 } from '@/lib/voice-jobs'
 
@@ -223,13 +224,17 @@ export async function POST(request: Request) {
       )
     }
 
-    // Evidence, never inference — see neighborhoodFromClientHistory.
-    const neighborhood = await neighborhoodFromClientHistory(
+    // Evidence, never inference — see neighborhoodFromClientHistory. The office's own
+    // earlier titles win; the neighborhood map is the fallback for a customer whose
+    // history doesn't name one (see neighborhoodFromMap).
+    const fromHistory = await neighborhoodFromClientHistory(
       admin,
       companyId,
       jobberClientId,
       vr.neighborhoods,
     ).catch(() => null)
+    const fromMap = fromHistory ? null : await neighborhoodFromMap(admin, companyId, propertyId).catch(() => null)
+    const neighborhood = fromHistory ?? fromMap?.name ?? null
 
     const template = (svc.job_title_template || '').trim() || svc.line_item
     const title = `${testMode ? '[TEST] ' : ''}${buildJobTitle(template, {
@@ -245,7 +250,10 @@ export async function POST(request: Request) {
     const instructionLines = [
       `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked on a call with the AI receptionist.`,
       startHHMM ? `Caller was offered a ${startHHMM}${endHHMM ? `\u2013${endHHMM}` : ''} arrival window.` : 'Booked as an Anytime visit.',
-      neighborhood ? null : '\u26a0 Neighborhood could not be determined from this customer\u2019s previous jobs \u2014 please add it to the job title.',
+      fromMap
+        ? `Neighborhood taken from the neighborhood map${fromMap.nearBorder.length ? ` \u2014 \u26a0 the address is close to the ${fromMap.nearBorder.join(' / ')} border, please double-check` : ''}.`
+        : null,
+      neighborhood ? null : '\u26a0 Neighborhood could not be determined from this customer\u2019s previous jobs or the neighborhood map \u2014 please add it to the job title.',
     ].filter(Boolean) as string[]
 
     let created: { id: string; jobNumber: string | null; title: string }
@@ -303,7 +311,7 @@ export async function POST(request: Request) {
         end_hhmm: endHHMM || null,
         jobber_client_id: jobberClientId,
         neighborhood,
-        needs_office_attention: !neighborhood || !visitOk,
+        needs_office_attention: !neighborhood || !visitOk || Boolean(fromMap?.nearBorder.length),
       })
       .then(({ error }) => {
         if (error) console.warn('[voice.book] booking record failed', error.message)

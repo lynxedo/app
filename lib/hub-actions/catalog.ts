@@ -19,6 +19,7 @@ import { consumePendingAction, newestPendingShortId, stageOutwardAction } from '
 import { addContactNoteAction, customerOverviewAction, findContactAction } from './actions-contacts'
 import { queryDataAction } from './actions-data'
 import { getScheduleAction } from './actions-schedule'
+import { lookupNeighborhoodAction } from './actions-geo'
 import {
   previewCustomerText,
   readTextConversationAction,
@@ -71,6 +72,7 @@ const ALL_ACTIONS: HubAction[] = [
   customerOverviewAction,
   queryDataAction,
   getScheduleAction,
+  lookupNeighborhoodAction,
   searchTextsAction,
   readTextConversationAction,
   callActivityAction,
