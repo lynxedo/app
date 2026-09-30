@@ -117,6 +117,7 @@ export async function POST(request: NextRequest) {
       wsKey: process.env.VOICE_WS_SECRET || '',
       voiceId: settings.voiceId,
       greeting,
+      hints: settings.neighborhoods,
     })
   )
 }

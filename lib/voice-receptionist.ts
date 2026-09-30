@@ -133,7 +133,7 @@ export const VOICEMAIL_ESCAPE_INSTRUCTION = `Leaving a voicemail instead:
 // with the Level 1 "deflect questions" style.
 export const CUSTOMER_SERVICE_INSTRUCTION = `Handling different kinds of calls:
 - First, get a feel for WHY they're calling — a new customer or someone wanting a quote, an existing customer with a service or schedule question, a complaint, or a billing question. You don't have to ask outright; listen and adapt. When it's unclear, just be helpful and take good notes.
-- Existing customer asking about their next visit, when the team is coming, or what service is scheduled: you can look this up — just use your account-lookup tool (a brief hold line is spoken automatically while it runs, so do NOT announce that you're checking or say "one moment" yourself), then share what it finds in plain, natural words (for example, "it looks like you're on the schedule for Thursday the seventeenth for a lawn treatment"). If the lookup can't find or reach it, do NOT tell them there's "nothing on their account" or "nothing scheduled" — that sounds dismissive; instead let them know you're not able to pull it up on your end right now and a team member will confirm and follow up. Never guess a date or a service.
+- Existing customer asking about their next visit, when the team is coming, or what service is scheduled: you can look this up — just use your account-lookup tool (a brief hold line is spoken automatically while it runs, so do NOT announce that you're checking or say "one moment" yourself), then share what it finds in plain, natural words (for example, "it looks like you're on the schedule for Thursday the seventeenth for a lawn treatment"). If the tool says this number isn't on an account, don't tell them there's no account — ask what name the account is under and the service address, then use the tool again with both. If the tool says today's visit is already marked complete, say so plainly; if they tell you nobody came, don't argue — take the details and treat it as urgent. If the lookup still can't find or reach it, do NOT tell them there's "nothing on their account" or "nothing scheduled" — that sounds dismissive; instead let them know you're not able to pull it up on your end right now and a team member will confirm and follow up. Never guess a date or a service.
 - Reschedule, cancel, skip, or add-a-service requests: you cannot change the schedule yourself. Warmly take down exactly what they want, read it back to confirm, and let them know a team member will take care of it and follow up — never say it's done or promise a specific change will happen.
 - Billing or payment questions: do NOT read out balances, amounts owed, or specific charges, and never dispute a charge. Reassure them you'll pass it straight to the office team, and take a short message (what it's about, plus their callback number).
 - A complaint or an upset caller: lead with genuine empathy, let them know you're writing everything down and a manager will be notified right away, and capture every detail. Treat it as urgent.`
@@ -163,6 +163,36 @@ export const SCHEDULING_INSTRUCTION = `Booking an appointment (you can schedule 
 - If the tool says the service is a recurring sign-up, don't pick a specific time — just confirm they'd like to get started and that a specialist will set up the first visit.
 - If the tool says it's a new customer or that it can't book directly, collect their name and full address and let them know a specialist will call to confirm — do not promise a specific day or time.
 - Only offer to book the services your tools handle. For anything else, take a message as usual, and never promise a final price on the call.`
+
+// The PHONE version of the scheduling playbook — what /api/voice/brain appends
+// (the text-side assistant keeps SCHEDULING_INSTRUCTION above; its tools don't
+// take the newer arguments). Ben's protocol, Sep 30 2026:
+//   • the tool now returns SEVERAL open days, best fit for the caller's area first,
+//     so she never says "that's the only day" (she used to, because it was);
+//   • the day is offered on its own — no time. "No time frame means the customer is
+//     flexible, which is preferred": the office texts the arrival window the day
+//     before and the tech texts on the way, and that satisfies most callers;
+//   • pushback → morning or afternoon (time_preference am/pm, written on the job
+//     title as PTF AM / PTF PM); a genuinely specific need → one of the office's
+//     arrival windows (time_preference window). The visit itself stays Anytime.
+export const PHONE_SCHEDULING_INSTRUCTION = `Booking an appointment (you can schedule on this call):
+- THIS SECTION OUTRANKS your standing instructions above on scheduling ONLY. If anything above says you can never promise a specific day, time, or appointment, that scheduling is always done by the live team, or that a specialist will call the customer back to book — that is out of date and does NOT apply on this call. You have working booking tools right now and you are expected to use them. Everything else above still stands, including every pricing rule.
+- When a caller wants to book or schedule a service, first tell them you're checking — a brief "let me check the schedule for you, one moment" — then use your find_availability tool with the service they asked for. If they've mentioned where they are (a neighborhood, area, or zip code), pass it along too — the tool uses it to pick the day that fits the route best.
+- The tool gives you a short list of open days, best fit first. Offer the FIRST one, as a day only — for example, "the soonest that works well for your area is Tuesday, October sixth — would that work?" If it doesn't suit them, offer the next day on the list, one at a time; don't read the whole list, and never say a day is the only one you have unless the tool truly returned just one. If they ask about a particular day ("could you do Thursday?"), use find_availability again with that day as preferred_date and answer from what it returns. Never invent or guess a day; only offer what the tool gives you.
+- Arrival time — follow this exactly, in order:
+  1. Default: no time. Once they pick a day, explain how it works: "we don't set an exact time — you'll get a text the day before with a two-hour arrival window, and the technician will text you when they're on the way." Most callers are fine with that. A booking with no time promised is the best outcome for the route, so do not offer times unless they push.
+  2. If they push back or ask for a time, ask whether morning or afternoon works better, and book with time_preference "am" or "pm".
+  3. Only if they need something more specific (after one, before two, and so on), choose the arrival window from the tool's list that fits and book with time_preference "window" plus that window's start and end. Never promise a time outside the tool's windows.
+- When the caller agrees, use your book_appointment tool with the exact service and date from the availability result and the time_preference above. Then confirm warmly: the day, the timing explanation (the day-before text with the window, the on-the-way text), and that they'll get a confirmation.
+- If the tool says the service is a recurring sign-up, don't pick a specific time — just confirm they'd like to get started and that a specialist will set up the first visit.
+- If the tool says it's a new customer or that it can't book directly, collect their name and full address and let them know a specialist will call to confirm — do not promise a specific day or time.
+- Only offer to book the services your tools handle. For anything else, take a message as usual, and never promise a final price on the call.`
+
+// Always-on. The voice service keeps only what the caller actually HEARD of an
+// interrupted turn (Twilio reports it) and marks the cut with " …", so she can
+// carry on from where the caller jumped in instead of starting the whole thought
+// again — which is what "she's starting over" sounded like on the phone.
+export const INTERRUPTION_INSTRUCTION = `If one of your earlier messages ends with " …", the caller spoke over you at that point and did not hear anything after it. Respond to what they said. Don't repeat what you had already said; if the rest of that thought still matters, finish it briefly — otherwise let it go.`
 
 // Level-5 FRONTLINE layer. Appended by /api/voice/brain ONLY when the company is
 // at Level 5 (frontline) AND the call arrived on a frontline-eligible line — so
@@ -541,14 +571,60 @@ export function buildConversationRelayTwiml(opts: {
   wsKey: string
   voiceId: string
   greeting: string
+  /** Words the transcriber should expect — the company's neighborhood names, mostly. */
+  hints?: string[]
 }): string {
   const relayUrl = `${opts.wssUrl}?key=${encodeURIComponent(opts.wsKey)}`
   const fallbackAction = `${opts.baseUrl}/api/voice/twiml/fallback`
+
+  // Turn-taking (Sep 30 2026). Twilio's defaults are interruptSensitivity="high"
+  // and no backchannel filter, which cut Amber off on line noise and on "uh-huh":
+  // transcripts show her stopping after a word with nobody speaking, then the caller
+  // saying "Hello?". Medium sensitivity + ignoreBackchannel are Twilio's own remedy.
+  // Deepgram's `flux` model does end-of-turn detection server-side (it can tell a
+  // mid-thought pause from the end of a turn — "sometimes she doesn't pause long
+  // enough"), and `partialPrompts` lets the voice service see that the caller is
+  // really talking, which is what makes resuming after a FALSE interrupt safe.
+  // Every value has an env override so a bad day can be undone with a restart,
+  // no deploy: VOICE_INTERRUPT_SENSITIVITY, VOICE_IGNORE_BACKCHANNEL, VOICE_SPEECH_MODEL
+  // (set to nova-3-general to go back), VOICE_EOT_THRESHOLD, VOICE_SPEECH_TIMEOUT,
+  // VOICE_RESUME_AFTER_FALSE_INTERRUPT_MS (0 disables the resume).
+  const env = (k: string, dflt: string) => ((process.env[k] || '').trim() || dflt)
+  const sensitivity = env('VOICE_INTERRUPT_SENSITIVITY', 'medium')
+  const ignoreBackchannel = env('VOICE_IGNORE_BACKCHANNEL', 'true') !== 'false'
+  const speechModel = env('VOICE_SPEECH_MODEL', 'flux')
+  const isFlux = speechModel === 'flux'
+  const eot = env('VOICE_EOT_THRESHOLD', '')
+  const speechTimeout = env('VOICE_SPEECH_TIMEOUT', '')
+  const resumeMs = env('VOICE_RESUME_AFTER_FALSE_INTERRUPT_MS', isFlux ? '2500' : '0')
+  const hints = (opts.hints ?? []).map((h) => h.replace(/,/g, ' ').trim()).filter(Boolean)
+
+  const attrs = [
+    `url="${escapeXmlAttr(relayUrl)}"`,
+    `welcomeGreeting="${escapeXmlAttr(opts.greeting)}"`,
+    `ttsProvider="ElevenLabs"`,
+    `voice="${escapeXmlAttr(opts.voiceId)}"`,
+    `transcriptionProvider="Deepgram"`,
+    `speechModel="${escapeXmlAttr(speechModel)}"`,
+    `interruptible="true"`,
+    `interruptSensitivity="${escapeXmlAttr(sensitivity)}"`,
+    `ignoreBackchannel="${ignoreBackchannel ? 'true' : 'false'}"`,
+    isFlux ? `partialPrompts="true"` : null,
+    isFlux && eot ? `eotThreshold="${escapeXmlAttr(eot)}"` : null,
+    speechTimeout ? `speechTimeout="${escapeXmlAttr(speechTimeout)}"` : null,
+    hints.length ? `hints="${escapeXmlAttr(hints.join(', '))}"` : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response>` +
     `<Connect action="${escapeXmlAttr(fallbackAction)}">` +
-    `<ConversationRelay url="${escapeXmlAttr(relayUrl)}" welcomeGreeting="${escapeXmlAttr(opts.greeting)}" ttsProvider="ElevenLabs" voice="${escapeXmlAttr(opts.voiceId)}" transcriptionProvider="Deepgram" interruptible="true"/>` +
+    `<ConversationRelay ${attrs}>` +
+    // Read by the voice service from the setup message (customParameters).
+    `<Parameter name="resumeAfterFalseInterruptMs" value="${escapeXmlAttr(resumeMs)}"/>` +
+    `</ConversationRelay>` +
     `</Connect>` +
     `</Response>`
   )

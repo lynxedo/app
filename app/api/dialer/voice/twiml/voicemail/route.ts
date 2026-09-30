@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
           wsKey: process.env.VOICE_WS_SECRET || '',
           voiceId: vr.voiceId,
           greeting,
+          hints: vr.neighborhoods,
         })
       )
     }

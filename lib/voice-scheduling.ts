@@ -285,6 +285,32 @@ export function firstOpenDay(
   return null
 }
 
+/** Every candidate day with room left, earliest first, capped at `limit`.
+ *
+ *  Same rules as firstOpenDay — it IS firstOpenDay without the early return — so
+ *  the two can never disagree about whether a day is open. Exists because the
+ *  availability tool used to hand Amber exactly ONE day, which left her saying
+ *  "that's the only day I have" whenever the caller couldn't do it: the tool had
+ *  nothing else to say, not the calendar. */
+export function openDays(
+  candidates: string[],
+  countByDay: Record<string, number>,
+  maxPerDay: number,
+  capOverrides: Record<string, number> = {},
+  limit = 6,
+): string[] {
+  const out: string[] = []
+  for (const ymd of candidates) {
+    const cap = capOverrides[ymd] ?? maxPerDay
+    if (cap <= 0) continue
+    if ((countByDay[ymd] ?? 0) < cap) {
+      out.push(ymd)
+      if (out.length >= limit) break
+    }
+  }
+  return out
+}
+
 /** Match a caller's spoken service to a configured schedulable service (enabled
  *  only): exact name → substring either direction → shared word. */
 export function matchSchedulableService(

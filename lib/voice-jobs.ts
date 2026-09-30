@@ -182,16 +182,23 @@ export async function neighborhoodFromMap(
  */
 export function buildJobTitle(
   template: string,
-  vars: { price: number; neighborhood: string | null; service: string; lastName: string | null },
+  vars: { price: number; neighborhood: string | null; service: string; lastName: string | null; ptf?: string | null },
 ): string {
   const price = Number.isFinite(vars.price)
     ? String(Math.round(vars.price * 100) / 100).replace(/\.0+$/, '')
     : ''
-  const out = template
+  // The promised time frame, for the office only. Per the company's own convention
+  // it is title text ("PTF AM", "PTF 12-2pm") and NEVER a timed visit — see
+  // createJobberVisit. A template may place it with [PTF]; otherwise it goes last,
+  // "in the last part" of the title, and only when one was actually promised.
+  const ptf = (vars.ptf || '').trim()
+  const withPtf = template.includes('[PTF]') ? template : ptf ? `${template} [PTF]` : template
+  const out = withPtf
     .replace(/\[PRICE\]/g, price)
     .replace(/\[NEIGHBORHOOD\]/g, vars.neighborhood ?? '')
     .replace(/\[SERVICE\]/g, vars.service)
     .replace(/\[LASTNAME\]/g, vars.lastName ?? '')
+    .replace(/\[PTF\]/g, ptf)
   return out.replace(/\s+/g, ' ').trim()
 }
 

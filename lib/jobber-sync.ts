@@ -404,6 +404,20 @@ async function completeSyncLog(
 
 // ── Clients ──────────────────────────────────────────────────────────────────
 
+// Every phone on the record as a 10-digit string, deduped. The receptionist and the
+// Dialer match callers on this list (clients.phone_digits_all), not only on the
+// primary phone — a customer calling from the second number on their own account
+// used to be "not found". Anything shorter than 10 digits is not a dialable US
+// number and is dropped rather than stored as a near-miss.
+const phoneDigitsAll = (nums: Array<string | null | undefined>): string[] => {
+  const out = new Set<string>()
+  for (const n of nums) {
+    const d = (n || '').replace(/\D/g, '')
+    if (d.length >= 10) out.add(d.slice(-10))
+  }
+  return [...out]
+}
+
 const CLIENTS_QUERY = `
   query SyncClients($cursor: String, $filter: ClientFilterAttributes) {
     clients(first: 40, after: $cursor, filter: $filter) {
@@ -540,6 +554,7 @@ async function syncClients(
           is_lead: raw.isLead ?? false,
           email: primaryEmail,
           phone: primaryPhone,
+          phone_digits_all: phoneDigitsAll((raw.phones ?? []).map(p => p.number)),
           balance: raw.balance ?? null,
           is_archived: raw.isArchived ?? false,
           lead_source: raw.leadSource ?? null,
@@ -592,6 +607,7 @@ async function syncClients(
         name: raw.name ?? null,
         email: primaryEmail,
         phone: primaryPhone,
+        phone_digits_all: phoneDigitsAll((raw.phones ?? []).map(p => p.number)),
         last_synced_at: nowIso,
         external_created_at: raw.createdAt ?? null,
         updated_at: nowIso,
@@ -611,6 +627,7 @@ async function syncClients(
           role: c.role ?? null,
           email: c.emails?.nodes?.[0]?.address ?? null,
           phone: c.phones?.nodes?.[0]?.number ?? null,
+          phone_digits_all: phoneDigitsAll((c.phones?.nodes ?? []).map(p => p.number)),
           is_billing_contact: c.isBillingContact ?? false,
           receives_followups: c.receivesFollowUps ?? null,
           receives_reminders: c.receivesReminders ?? null,
@@ -2882,6 +2899,7 @@ interface ContactUpsert {
   is_primary: boolean; first_name?: string | null; last_name?: string | null
   name?: string | null; title?: string | null; role?: string | null
   email?: string | null; phone?: string | null
+  phone_digits_all?: string[]
   is_billing_contact?: boolean; receives_followups?: boolean | null
   receives_reminders?: boolean | null; last_synced_at: string
   external_created_at?: string | null; updated_at: string
