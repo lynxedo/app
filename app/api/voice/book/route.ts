@@ -56,6 +56,18 @@ const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
 const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
+// "08:00"/"10:00" → "8-10am"; "12:00"/"14:00" → "12-2pm" — how the office writes a
+// promised window on a title. The am/pm follows the END of the window.
+function hourRange(startHHMM: string, endHHMM: string): string {
+  const h12 = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number)
+    const hh = h % 12 === 0 ? 12 : h % 12
+    return m ? `${hh}:${String(m).padStart(2, '0')}` : String(hh)
+  }
+  if (!endHHMM) return `${h12(startHHMM)}${Number(startHHMM.slice(0, 2)) < 12 ? 'am' : 'pm'}`
+  return `${h12(startHHMM)}-${h12(endHHMM)}${Number(endHHMM.slice(0, 2)) < 12 ? 'am' : 'pm'}`
+}
+
 function bearerAuthorized(request: Request): boolean {
   const secret = process.env.VOICE_SERVICE_SECRET || ''
   if (!secret) return false
@@ -87,7 +99,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  let body: { from?: string; to?: string; callSid?: string; service?: string; date?: string; start?: string; end?: string } = {}
+  let body: { from?: string; to?: string; callSid?: string; service?: string; date?: string; start?: string; end?: string; time_preference?: string } = {}
   try {
     body = (await request.json()) as typeof body
   } catch {
@@ -95,9 +107,40 @@ export async function POST(request: Request) {
   }
   const requested = typeof body.service === 'string' ? body.service : ''
   const date = typeof body.date === 'string' && YMD_RE.test(body.date) ? body.date : ''
-  const startHHMM = typeof body.start === 'string' && HHMM_RE.test(body.start) ? body.start : ''
-  const endHHMM = typeof body.end === 'string' && HHMM_RE.test(body.end) ? body.end : ''
+  let startHHMM = typeof body.start === 'string' && HHMM_RE.test(body.start) ? body.start : ''
+  let endHHMM = typeof body.end === 'string' && HHMM_RE.test(body.end) ? body.end : ''
   const from = typeof body.from === 'string' ? body.from : ''
+
+  // How firm a time the caller was given — Ben's protocol (Sep 30 2026): no time is
+  // the default and the preferred outcome ("no time frame means the customer is
+  // flexible"); "am"/"pm" only when they push back; a specific window only when they
+  // truly need one. Whatever was promised goes on the JOB TITLE for the office
+  // ("PTF AM", "PTF 12-2pm" — the company's own convention) and the visit stays
+  // Anytime, so the office can still order the day's stops for driving. A caller
+  // that supplied a window without saying so is treated as a window request.
+  const prefRaw = typeof body.time_preference === 'string' ? body.time_preference.trim().toLowerCase() : ''
+  const timePreference: 'none' | 'am' | 'pm' | 'window' =
+    prefRaw === 'am' || prefRaw === 'pm' ? prefRaw : prefRaw === 'window' || (!prefRaw && startHHMM) ? 'window' : 'none'
+  if (timePreference !== 'window') {
+    startHHMM = ''
+    endHHMM = ''
+  }
+  const ptf =
+    timePreference === 'am'
+      ? 'PTF AM'
+      : timePreference === 'pm'
+        ? 'PTF PM'
+        : timePreference === 'window' && startHHMM
+          ? `PTF ${hourRange(startHHMM, endHHMM)}`
+          : null
+  const preferenceLine =
+    timePreference === 'am'
+      ? 'Caller asked for the morning.'
+      : timePreference === 'pm'
+        ? 'Caller asked for the afternoon.'
+        : timePreference === 'window' && startHHMM
+          ? `Caller asked for a ${startHHMM}${endHHMM ? `\u2013${endHHMM}` : ''} arrival window.`
+          : 'Caller is flexible on timing (no time promised).'
 
   const companyId = HEROES_COMPANY_ID
   const admin = createAdminClient()
@@ -259,6 +302,7 @@ export async function POST(request: Request) {
       neighborhood,
       service: svc.line_item,
       lastName: null,
+      ptf,
     })}`
 
     // The office needs to know two things from the job itself: what the caller
@@ -266,7 +310,7 @@ export async function POST(request: Request) {
     // neighborhood is called out by name rather than left as a silently short title.
     const instructionLines = [
       `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked on a call with the AI receptionist.`,
-      startHHMM ? `Caller was offered a ${startHHMM}${endHHMM ? `\u2013${endHHMM}` : ''} arrival window.` : 'Booked as an Anytime visit.',
+      `Anytime visit. ${preferenceLine}${ptf ? ` Noted on the title as "${ptf}"; the visit is deliberately left Anytime.` : ''}`,
       fromMap
         ? `Neighborhood taken from the neighborhood map${fromMap.nearBorder.length ? ` \u2014 \u26a0 the address is close to the ${fromMap.nearBorder.join(' / ')} border, please double-check` : ''}.`
         : null,
@@ -290,16 +334,16 @@ export async function POST(request: Request) {
       )
     }
 
-    // The visit is what puts it on the calendar. A window is passed through ONLY if
-    // one was actually agreed; otherwise the time is omitted, which is what makes it
-    // an Anytime visit — the shape this company's catalog says irrigation always uses.
+    // The visit is what puts it on the calendar. ALWAYS Anytime — no time is passed
+    // even when the caller was promised a window. Ben (Sep 30 2026): "keep them as
+    // anytime visits but put the time frame in the job title"; the office orders the
+    // day's stops for driving, and a timed visit pins one it can't move. The promise
+    // lives on the title (see `ptf` above), exactly as the company's catalog says.
     let visitOk = true
     try {
       await createJobberVisit(userId, {
         jobId: created.id,
         date,
-        startHHMM: startHHMM || undefined,
-        endHHMM: endHHMM || undefined,
         timezone: SCHEDULING_TZ,
         assignedUserIds: svc.assigned_user_ids,
       })
@@ -335,8 +379,16 @@ export async function POST(request: Request) {
       })
 
     const dLabel = dateLabelForSpeech(date)
+    const promised =
+      timePreference === 'am'
+        ? ', noted for the morning'
+        : timePreference === 'pm'
+          ? ', noted for the afternoon'
+          : timePreference === 'window' && startHHMM
+            ? `, noted for a ${hourRange(startHHMM, endHHMM)} arrival window`
+            : ''
     const answer = visitOk
-      ? `Done \u2014 ${svc.line_item} is on the schedule for ${dLabel}${startHHMM ? `, arriving between ${startHHMM} and ${endHHMM || 'later that day'}` : ''}. Let the caller know warmly that they're booked${startHHMM ? '' : ", and tell them what your instructions say about when they'll hear their arrival window"}.`
+      ? `Done \u2014 ${svc.line_item} is on the schedule for ${dLabel}${promised}. Let the caller know warmly that they're booked, and tell them how arrival timing works per your booking rules (the arrival window is texted the day before and the technician texts when on the way).`
       : `The job is created for ${dLabel} but it isn't on the calendar yet, so DON'T promise a time. Tell the caller they're booked in and the office will confirm the day's details.`
 
     return ok(answer, {
@@ -347,24 +399,25 @@ export async function POST(request: Request) {
       commitment: 'direct',
       jobNumber: created.jobNumber,
       scheduled: visitOk,
+      timePreference,
+      ptf,
     })
   }
 
-  // Chosen slot → scheduled assessment (a human confirms the exact time). Whole
-  // day when no window was offered/agreed.
+  // Chosen day → scheduled assessment (a human confirms the exact time). Always the
+  // whole day; any promised time frame rides on the title + instructions, same as
+  // the direct path.
   const schedule: Record<string, unknown> = {
     notifyTeam: true,
-    startAt: { date, timezone: SCHEDULING_TZ, ...(startHHMM ? { time: `${startHHMM}:00` } : {}) },
+    startAt: { date, timezone: SCHEDULING_TZ },
   }
-  if (endHHMM) schedule.endAt = { date, time: `${endHHMM}:00`, timezone: SCHEDULING_TZ }
   if (svc.assigned_user_ids.length) schedule.teamMemberIdsToAssign = svc.assigned_user_ids
 
-  const windowNote = startHHMM ? ` — caller offered a ${startHHMM}${endHHMM ? `–${endHHMM}` : ''} arrival window` : ''
   const input = {
     clientId: jobberClientId,
-    title: `${testMode ? '[TEST] ' : ''}${svc.line_item}`,
+    title: `${testMode ? '[TEST] ' : ''}${svc.line_item}${ptf ? ` ${ptf}` : ''}`,
     assessment: {
-      instructions: `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked via the AI receptionist${windowNote}. Please confirm the exact time with the customer.`,
+      instructions: `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked via the AI receptionist. ${preferenceLine} Please confirm the exact time with the customer.`,
       schedule,
     },
   }
@@ -391,9 +444,11 @@ export async function POST(request: Request) {
   }
 
   const label = dateLabelForSpeech(date)
-  const answer = `Done — I've got ${svc.line_item} down for ${label}${startHHMM ? `, with a ${startHHMM} arrival window` : ''}. Let the caller know warmly that they're set and will get a confirmation shortly, and that a specialist will lock in the exact timing.`
+  const promisedReq =
+    timePreference === 'am' ? ', noted for the morning' : timePreference === 'pm' ? ', noted for the afternoon' : timePreference === 'window' && startHHMM ? `, noted for a ${hourRange(startHHMM, endHHMM)} arrival window` : ''
+  const answer = `Done — I've got ${svc.line_item} down for ${label}${promisedReq}. Let the caller know warmly that they're set and will get a confirmation shortly, and tell them how arrival timing works per your booking rules.`
 
-  return ok(answer, { booked: true, service: svc.line_item, date, dateLabel: label, commitment: svc.commitment })
+  return ok(answer, { booked: true, service: svc.line_item, date, dateLabel: label, commitment: svc.commitment, timePreference, ptf })
 }
 
 export async function GET() {

@@ -13,7 +13,8 @@ import {
   buildWelcomeGreeting,
   CUSTOMER_SERVICE_INSTRUCTION,
   FRONTLINE_INSTRUCTION,
-  SCHEDULING_INSTRUCTION,
+  INTERRUPTION_INSTRUCTION,
+  PHONE_SCHEDULING_INSTRUCTION,
   VOICEMAIL_ESCAPE_INSTRUCTION,
   type ReceptionistLevel,
 } from '@/lib/voice-receptionist'
@@ -321,7 +322,8 @@ export async function POST(request: Request) {
     settings.instructions,
     VOICEMAIL_ESCAPE_INSTRUCTION,
     CUSTOMER_SERVICE_INSTRUCTION,
-    canSchedule ? SCHEDULING_INSTRUCTION : null,
+    INTERRUPTION_INSTRUCTION,
+    canSchedule ? PHONE_SCHEDULING_INSTRUCTION : null,
     // Level 5 replaces the flat transfer instruction with the frontline routing
     // layer (route_call → the routing directory). Below Level 5, the usual
     // single-transfer instruction applies.

@@ -123,6 +123,17 @@ async function addressForClient(admin: Admin, companyId: string, clientId: strin
   return parts.length ? parts.join(', ') : null
 }
 
+// The PostgREST filter that matches a phone against BOTH the primary phone
+// (`phone_digits`, in every stored digit form) and every phone on the record
+// (`phone_digits_all`, 10-digit forms — see migration 2026-09-30_client_phone_digits_all).
+// Before the second half existed, a customer calling from the other number on
+// their own Jobber account was "not found" by the receptionist and the screen-pop.
+function anyPhoneFilter(variants: string[]): string {
+  const last10 = [...new Set(variants.map((v) => v.slice(-10)).filter((v) => v.length === 10))]
+  const primary = `phone_digits.in.(${variants.join(',')})`
+  return last10.length ? `${primary},phone_digits_all.ov.{${last10.join(',')}}` : primary
+}
+
 // Find a client by phone digits. Prefers a non-archived match when several exist.
 async function clientByPhone(admin: Admin, companyId: string, variants: string[]): Promise<ClientRow | null> {
   const { data } = await admin
@@ -130,7 +141,7 @@ async function clientByPhone(admin: Admin, companyId: string, variants: string[]
     .select(CLIENT_COLS)
     .eq('company_id', companyId)
     .is('deleted_at', null)
-    .in('phone_digits', variants)
+    .or(anyPhoneFilter(variants))
     .order('is_archived', { ascending: true, nullsFirst: true })
     .limit(1)
     .maybeSingle()
@@ -174,7 +185,7 @@ async function contactPersonByPhone(
     .select('name, first_name, last_name, client_id, is_primary')
     .eq('company_id', companyId)
     .is('deleted_at', null)
-    .in('phone_digits', variants)
+    .or(anyPhoneFilter(variants))
     .order('is_primary', { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle()
@@ -372,4 +383,106 @@ export async function lookupByPhone(
     txtContactId: (tc?.id as string) ?? null,
     balance: client && typeof client.balance === 'number' ? client.balance : null,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Find a client by the NAME on the account (+ optionally the service address)
+// ---------------------------------------------------------------------------
+// The receptionist's fallback when the caller's number matches nothing: she asks
+// "what name is the account under?" and "what's the service address?" and calls
+// her lookup again with both. Company-scoped, mirror only (no Jobber round-trip).
+//
+// Deliberately conservative — it returns a client only when the evidence points
+// at ONE record. A name alone that matches several households returns
+// `ambiguous`, so she asks for the address rather than reading out someone
+// else's schedule. Archived clients are considered (a returning customer is
+// still "on the account") but a live one wins over an archived namesake.
+export type ClientByNameMatch =
+  | { status: 'found'; jobberClientId: string; name: string; address: string | null }
+  | { status: 'ambiguous'; count: number }
+  | { status: 'none' }
+
+const nameTokens = (raw: string): string[] =>
+  (raw || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s'-]/g, ' ')
+    .split(/\s+/)
+    .map((t) => t.replace(/^['-]+|['-]+$/g, ''))
+    .filter((t) => t.length >= 2)
+
+export async function findClientByNameAndAddress(
+  companyId: string,
+  nameRaw: string,
+  addressRaw?: string | null,
+): Promise<ClientByNameMatch> {
+  const tokens = nameTokens(nameRaw)
+  if (!tokens.length) return { status: 'none' }
+  const admin = createAdminClient()
+
+  // Every token must appear somewhere in the name fields (so "Mary Evans" won't
+  // match every Mary). Chained ilike filters AND together.
+  let q = admin
+    .from('clients')
+    .select('id, external_id, name, first_name, last_name, company_name, is_archived')
+    .eq('company_id', companyId)
+    .eq('source', 'jobber')
+    .is('deleted_at', null)
+    .limit(25)
+  for (const t of tokens) {
+    const pat = `%${t.replace(/[%_]/g, '')}%`
+    q = q.or(`name.ilike.${pat},first_name.ilike.${pat},last_name.ilike.${pat},company_name.ilike.${pat}`)
+  }
+  const { data } = await q
+  type Row = { id: string; external_id: string | null; name: string | null; first_name: string | null; last_name: string | null; company_name: string | null; is_archived: boolean | null }
+  const rows = ((data as Row[] | null) ?? []).filter((r) => r.external_id)
+  if (!rows.length) return { status: 'none' }
+
+  // Property addresses for the candidates, used both to disambiguate and to hand
+  // back a confirmable address.
+  const { data: props } = await admin
+    .from('properties')
+    .select('client_id, address_line1, city, zip, is_billing_address')
+    .eq('company_id', companyId)
+    .is('deleted_at', null)
+    .in('client_id', rows.map((r) => r.id))
+  type Prop = { client_id: string; address_line1: string | null; city: string | null; zip: string | null; is_billing_address: boolean | null }
+  const propsByClient = new Map<string, Prop[]>()
+  for (const p of (props as Prop[] | null) ?? []) {
+    const list = propsByClient.get(p.client_id) ?? []
+    list.push(p)
+    propsByClient.set(p.client_id, list)
+  }
+  const displayAddress = (r: Row): string | null => {
+    const list = [...(propsByClient.get(r.id) ?? [])].sort((a, b) => Number(b.is_billing_address) - Number(a.is_billing_address))
+    const p = list[0]
+    if (!p?.address_line1) return null
+    return [p.address_line1, p.city, p.zip].filter(Boolean).join(', ')
+  }
+
+  // Address narrowing: the street number, or any street-name token, or the zip.
+  let candidates = rows
+  const addrTokens = nameTokens(addressRaw || '')
+  if (addrTokens.length && candidates.length > 1) {
+    const narrowed = candidates.filter((r) =>
+      (propsByClient.get(r.id) ?? []).some((p) => {
+        const hay = `${p.address_line1 || ''} ${p.city || ''} ${p.zip || ''}`.toLowerCase()
+        return addrTokens.some((t) => hay.includes(t))
+      }),
+    )
+    if (narrowed.length) candidates = narrowed
+  }
+  // A live client beats an archived namesake.
+  const live = candidates.filter((r) => !r.is_archived)
+  if (live.length) candidates = live
+
+  if (candidates.length === 1) {
+    const r = candidates[0]
+    return {
+      status: 'found',
+      jobberClientId: r.external_id as string,
+      name: clientDisplayName(r as ClientRow) || nameRaw,
+      address: displayAddress(r),
+    }
+  }
+  return { status: 'ambiguous', count: candidates.length }
 }
