@@ -50,11 +50,21 @@ const HEROES_MCP_COMPANY_ID =
 // ceiling is higher, and running out is now a wrap-up (answer with what you have,
 // say what's missing) instead of a silent failure. So a generous cap is safe —
 // the worst case is a partial answer, not a lie.
-const MAX_TOOL_ITERATIONS = 16
+//
+// Raised 16 → 30 (Sep 30 2026) when Amber was asked to handle whole jobs across
+// the Hub ("go through the open leads, check texts and calls, update the
+// Tracker"). The bulk actions (review_leads, update_leads) do most of that in
+// one round each, but a real job still chains lookups — a lead, its email, a
+// Jobber client, a board task — and 16 cut those off mid-way. This runs in
+// after() on our own server, so there is no platform timeout to fit inside.
+const MAX_TOOL_ITERATIONS = 30
 // Wall-clock ceiling for the whole agentic turn. The iteration count alone can't
 // bound latency: 16 rounds of a slow external API is minutes of silence in a chat
 // window. Whichever limit is reached first triggers the same wrap-up.
-const TOOL_LOOP_BUDGET_MS = 180_000
+// Raised 180s → 420s alongside the iteration cap: the slow-ack message already
+// tells the person it's working, and a finished bulk job a few minutes later
+// beats a partial one in three.
+const TOOL_LOOP_BUDGET_MS = 420_000
 const TOOLS_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
 const WEB_SEARCH_TOOL_TYPE = 'web_search_20250305'
 const PER_QUESTION_SEARCH_BUDGET = 3

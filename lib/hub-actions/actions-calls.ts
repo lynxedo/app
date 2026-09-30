@@ -1,7 +1,7 @@
 // Call + voicemail actions: get_call_activity.
 
 import type { HubAction } from './types'
-import { limitArg, str } from './types'
+import { limitArg, str, uuidArg } from './types'
 import { clip, lines, phone, stampLabel } from './format'
 
 const CALL_GATE = {
@@ -58,13 +58,14 @@ export const callActivityAction: HubAction = {
       }>
       if (vms.length === 0) return `No voicemails in ${windowLabel}.`
 
-      const needing = vms.filter((v) => v.follow_up_status !== 'done' && v.follow_up_status !== 'taken_care_of')
+      const needing = vms.filter((v) => v.follow_up_status !== 'resolved')
       return lines(
         `${vms.length} voicemail${vms.length === 1 ? '' : 's'} in ${windowLabel}; ${needing.length} not marked taken care of.`,
         ...vms.map((v) =>
           lines(
             `• ${phone(v.from_number)} · ${stampLabel(v.created_at)}${v.heard_at ? '' : ' · UNHEARD'}` +
-              `${v.follow_up_status ? ` · follow-up: ${v.follow_up_status}` : ''}`,
+              `${v.follow_up_status === 'resolved' ? ' · taken care of' : v.follow_up_status === 'follow_up' ? ' · marked for follow-up' : ''}` +
+              ` · voicemail_id ${v.id}`,
             v.summary || v.transcript ? `  ${clip(v.summary || v.transcript || '', 240)}` : null,
           ),
         ),
@@ -139,5 +140,47 @@ export const callActivityAction: HubAction = {
         )
       }),
     )
+  },
+}
+
+export const resolveVoicemailAction: HubAction = {
+  name: 'resolve_voicemail',
+  description:
+    'Mark a voicemail as taken care of (or flag it back for follow-up) in the Dialer inbox. Use this once ' +
+    'the caller has actually been called or texted back. Needs the voicemail_id from get_call_activity ' +
+    'with kind "voicemails".',
+  input_schema: {
+    type: 'object',
+    properties: {
+      voicemail_id: { type: 'string', description: 'The voicemail_id from get_call_activity.' },
+      status: {
+        type: 'string',
+        enum: ['resolved', 'follow_up'],
+        description: '"resolved" = taken care of (default); "follow_up" = still needs someone.',
+      },
+    },
+    required: ['voicemail_id'],
+  },
+  kind: 'write',
+  gate: CALL_GATE,
+  consentLabel: 'mark voicemails as handled',
+  run: async (ctx, args) => {
+    const id = uuidArg(args, 'voicemail_id')
+    if (!id) return 'Give me the voicemail_id from get_call_activity.'
+    const status = str(args, 'status') === 'follow_up' ? 'follow_up' : 'resolved'
+    const { data, error } = await ctx.admin
+      .from('voicemails')
+      .update({ follow_up_status: status, follow_up_by: ctx.actor.userId, follow_up_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('company_id', ctx.actor.companyId)
+      .is('deleted_at', null)
+      .select('from_number')
+      .maybeSingle()
+    if (error) return `Couldn't update that voicemail (${error.message}). Nothing was changed.`
+    if (!data) return "There's no voicemail with that id."
+    const from = phone((data as { from_number: string | null }).from_number)
+    return status === 'resolved'
+      ? `Marked the voicemail from ${from} as taken care of.`
+      : `Flagged the voicemail from ${from} for follow-up.`
   },
 }
