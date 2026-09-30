@@ -30,6 +30,8 @@ import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 import { countBookedVisitsByDay } from '@/lib/voice-capacity'
 import {
   SCHEDULING_TZ,
+  bookingDateProblem,
+  centralYmd,
   dateLabelForSpeech,
   getSchedulableServices,
   getSchedulingEnabled,
@@ -117,6 +119,21 @@ export async function POST(request: Request) {
   }
   if (!date) {
     return ok('I need a specific date to book. Ask the caller which day works and try again.', { booked: false })
+  }
+  // A well-formed date can still be the wrong one: Amber once sent 2025-10-06 for a
+  // "Tuesday, October 6" that find_availability had given her as 2026-10-06, and it
+  // went onto the live schedule a year in the past. Refuse anything outside today ..
+  // the service's horizon and point her back at the tool's own date.
+  const todayYmd = centralYmd(new Date())
+  const dateProblem = bookingDateProblem(date, todayYmd, svc.horizon_days)
+  if (dateProblem) {
+    console.warn(`[voice.book] refused ${dateProblem} date ${date} (today ${todayYmd})`)
+    return ok(
+      dateProblem === 'past'
+        ? `That date (${date}) is in the past — today is ${todayYmd}. Don't book it. Call find_availability again and pass its date exactly as given.`
+        : `That date (${date}) is further out than this service can be booked. Don't book it. Call find_availability again and pass its date exactly as given.`,
+      { booked: false, reason: `date_${dateProblem}`, date },
+    )
   }
   if (!from) {
     return ok("There's no caller number to attach this to, so take the caller's details for a specialist to book.", { booked: false })

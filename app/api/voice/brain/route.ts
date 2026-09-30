@@ -5,7 +5,7 @@ import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { CLAUDE_MODEL } from '@/lib/anthropic'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
-import { getSchedulingEnabled } from '@/lib/voice-scheduling'
+import { buildTodayLine, getSchedulingEnabled } from '@/lib/voice-scheduling'
 import {
   buildCallContextNote,
   buildRoutingDirectoryNote,
@@ -315,6 +315,9 @@ export async function POST(request: Request) {
   }
 
   const task = [
+    // First, and on every call (not only when she can book): account lookups and
+    // callbacks speak dates too. See buildTodayLine for the 2025-for-2026 booking.
+    buildTodayLine(),
     settings.instructions,
     VOICEMAIL_ESCAPE_INSTRUCTION,
     CUSTOMER_SERVICE_INSTRUCTION,

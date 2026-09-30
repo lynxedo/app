@@ -205,6 +205,43 @@ export function dateLabelForSpeech(ymd: string): string {
   }).format(new Date(`${ymd}T12:00:00Z`))
 }
 
+/** The date line at the top of Amber's phone task.
+ *
+ *  ⚠ Without it the model has no idea what year it is. Kathy Hardy's call (Sep 30
+ *  2026): find_availability handed her `date="2026-10-06"`, she told the caller
+ *  "Tuesday, October 6" correctly, then passed `2025-10-06` to book_appointment —
+ *  retyping the date and filling the year from her own sense of "now", which is her
+ *  training data, not the calendar. Nothing in the prompt said otherwise. */
+export function buildTodayLine(now: Date = new Date()): string {
+  const todayYmd = centralYmd(now)
+  const spoken = new Intl.DateTimeFormat('en-US', {
+    timeZone: SCHEDULING_TZ,
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(now)
+  const year = todayYmd.slice(0, 4)
+  return `TODAY'S DATE: ${spoken} (${todayYmd}, Central time). The current year is ${year}. Every date you mention or pass to a tool is relative to today — "October 6" means the next October 6 on or after today, never a past one. When you book, pass the date EXACTLY as find_availability returned it; never retype or reconstruct it.`
+}
+
+/** Why a booking date is unacceptable, or null when it is fine.
+ *
+ *  The server-side net under buildTodayLine: book_appointment used to check only that
+ *  the date LOOKED like YYYY-MM-DD, so a year-old date went straight onto the Jobber
+ *  schedule. A booking must land between today and the service's own horizon — the
+ *  same window find_availability searches, so a date it offered always passes. Lead
+ *  days are deliberately NOT enforced: an office note can open a sooner day. */
+export function bookingDateProblem(
+  ymd: string,
+  todayYmd: string,
+  horizonDays: number,
+): 'past' | 'too_far' | null {
+  if (ymd < todayYmd) return 'past'
+  if (ymd > addDaysYmd(todayYmd, Math.max(0, horizonDays))) return 'too_far'
+  return null
+}
+
 /** Candidate booking dates (earliest first): lead..horizon days out, limited to
  *  the offered weekdays (empty offeredDays = any day). */
 export function candidateDays(opts: {
