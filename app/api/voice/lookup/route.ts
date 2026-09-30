@@ -52,15 +52,20 @@ function bearerAuthorized(request: Request): boolean {
 // connection isn't reliably date-sorted, so we pick the earliest in code.
 // VisitFilterAttributes has no client filter — hence the client -> jobs -> visits
 // traversal (confirmed via introspection).
-const NEXT_VISIT_QUERY = `
-  query AmberNextVisit($clientId: EncodedId!, $filter: VisitFilterAttributes) {
+// The date literal is baked into the query text rather than passed as a variable:
+// the nested `Job.visits(filter:)` argument and the root `visits(filter:)` don't
+// share a declared input type name we can rely on, and a variable declared with
+// the wrong one fails the whole query at validation. `sinceIso` is generated
+// server-side (never caller input) and validated to a strict shape below.
+const nextVisitQuery = (sinceIso: string) => `
+  query AmberNextVisit($clientId: EncodedId!) {
     client(id: $clientId) {
       id
       jobs(first: 50) {
         nodes {
           id
           lineItems(first: 20) { nodes { name totalPrice } }
-          visits(first: 10, filter: $filter) {
+          visits(first: 10, filter: { startAt: { after: "${sinceIso}" } }) {
             nodes {
               id
               title
@@ -206,11 +211,12 @@ export async function POST(request: Request) {
   try {
     const userId = await companyJobberUserId(companyId, '')
     if (!userId) throw new Error('no connected Jobber user for company')
-    const resp = await jobberGraphQLAdmin<NextVisitResp>(userId, NEXT_VISIT_QUERY, {
+    // Padded a day so a visit early today (Central) isn't cut off by the UTC edge;
+    // the Central-date check below does the exact work.
+    const sinceIso = `${addDaysYmd(today, -1)}T00:00:00Z`
+    if (!/^\d{4}-\d{2}-\d{2}T00:00:00Z$/.test(sinceIso)) throw new Error(`bad since ${sinceIso}`)
+    const resp = await jobberGraphQLAdmin<NextVisitResp>(userId, nextVisitQuery(sinceIso), {
       clientId: jobberClientId,
-      // Padded a day so a visit early today (Central) isn't cut off by the UTC edge;
-      // the Central-date check below does the exact work.
-      filter: { startAt: { after: `${addDaysYmd(today, -1)}T00:00:00Z` } },
     })
     visits = (resp.data?.client?.jobs?.nodes ?? [])
       .flatMap((j) => (j?.visits?.nodes ?? []).map((v) => ({ v, jobLineItems: j?.lineItems?.nodes ?? [] })))
