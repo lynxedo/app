@@ -26,7 +26,7 @@ import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { lookupByPhone } from '@/lib/dialer-lookup'
-import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
+import { jobberGraphQLPatient, companyJobberUserId } from '@/lib/jobber'
 import { countBookedVisitsByDay } from '@/lib/voice-capacity'
 import {
   SCHEDULING_TZ,
@@ -423,7 +423,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const resp = await jobberGraphQLAdmin<{
+    const resp = await jobberGraphQLPatient<{
       data: { requestCreate: { request: { id: string } | null; userErrors: { message: string }[] } }
     }>(userId, REQUEST_CREATE, { input })
     const userErrors = resp.data?.requestCreate?.userErrors ?? []

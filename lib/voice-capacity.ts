@@ -11,7 +11,7 @@
 // a Jobber hiccup must not take booking off the air, and the downstream callers treat
 // "no counts" as "no known conflicts" exactly as they did before.
 
-import { jobberGraphQLAdmin } from '@/lib/jobber'
+import { jobberGraphQLPatient } from '@/lib/jobber'
 import { addDaysYmd, centralYmd } from '@/lib/voice-scheduling'
 
 // ⚠ Jobber caps a connection page at 100 REGARDLESS of what `first:` asks for, and
@@ -91,7 +91,7 @@ export async function countBookedVisitsByDay(opts: {
     // PRODUCT_IDS_QUERY. Bounded so a bad cursor can't spin forever.
     for (let page = 0; page < 20 && !productId; page++) {
       const vars: Record<string, unknown> = { after }
-      const p: ProductPage = await jobberGraphQLAdmin<ProductPage>(
+      const p: ProductPage = await jobberGraphQLPatient<ProductPage>(
         opts.jobberUserId,
         PRODUCT_IDS_QUERY,
         vars,
@@ -130,7 +130,7 @@ export async function countBookedVisitsByDay(opts: {
     let after: string | null = null
     for (let page = 0; page < 40; page++) {
       const vars: Record<string, unknown> = { filter, after }
-      const resp: VisitPage = await jobberGraphQLAdmin<VisitPage>(
+      const resp: VisitPage = await jobberGraphQLPatient<VisitPage>(
         opts.jobberUserId,
         VISITS_QUERY,
         vars,

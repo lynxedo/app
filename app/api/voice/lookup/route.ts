@@ -26,7 +26,7 @@ import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { findClientByNameAndAddress, lookupByPhone } from '@/lib/dialer-lookup'
-import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
+import { jobberGraphQLPatient, companyJobberUserId } from '@/lib/jobber'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 import { decodeServiceFromTitle, decodeServiceFromLineItems } from '@/lib/voice-receptionist'
 import { addDaysYmd } from '@/lib/voice-scheduling'
@@ -215,7 +215,7 @@ export async function POST(request: Request) {
     // the Central-date check below does the exact work.
     const sinceIso = `${addDaysYmd(today, -1)}T00:00:00Z`
     if (!/^\d{4}-\d{2}-\d{2}T00:00:00Z$/.test(sinceIso)) throw new Error(`bad since ${sinceIso}`)
-    const resp = await jobberGraphQLAdmin<NextVisitResp>(userId, nextVisitQuery(sinceIso), {
+    const resp = await jobberGraphQLPatient<NextVisitResp>(userId, nextVisitQuery(sinceIso), {
       clientId: jobberClientId,
     })
     visits = (resp.data?.client?.jobs?.nodes ?? [])

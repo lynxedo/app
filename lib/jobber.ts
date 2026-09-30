@@ -211,6 +211,35 @@ export async function jobberGraphQLAdmin<T = unknown>(
   return jobberGraphQLWith(getJobberTokenAdmin, userId, query, variables, true)
 }
 
+// jobberGraphQLAdmin that waits out a rate limit instead of failing on it.
+//
+// Jobber's budget is shared by everything this app does on the account, and the
+// sync alone logged ~2,600 "Throttled" retries on Sep 30 2026. The receptionist's
+// live reads (next visit, open days, the product catalog) and her booking writes
+// run mid-call and were failing the moment a sync burst had drained the bucket —
+// "I'm not able to pull that up right now" to a customer whose data was fine.
+// A throttled request is rejected before it executes, so retrying a mutation is
+// safe. Two short waits keep the whole thing inside the voice service's 9-second
+// tool budget; anything else (auth, field errors) is rethrown at once.
+export async function jobberGraphQLPatient<T = unknown>(
+  userId: string,
+  query: string,
+  variables?: Record<string, unknown>,
+  waitsMs: number[] = [1500, 3000],
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await jobberGraphQLAdmin<T>(userId, query, variables)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const wait = waitsMs[attempt]
+      if (!/throttled/i.test(msg) || wait === undefined) throw err
+      console.warn(`[jobber] throttled — retrying in ${wait}ms (attempt ${attempt + 1}/${waitsMs.length})`)
+      await new Promise((r) => setTimeout(r, wait))
+    }
+  }
+}
+
 // Find a Jobber-connected user in the company so admin-token mutations work
 // regardless of which user is signed in (techs don't connect their own Jobber
 // account; the connection is usually one admin user). Returns `preferUserId`
