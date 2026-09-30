@@ -41,12 +41,13 @@ export async function PATCH(
     )
   }
 
-  // Look up the hub_users.id for this auth user (for heard_by / follow_up_by).
+  // hub_users.id IS the auth user id (there is no user_id column) — confirm the
+  // row exists in this company before stamping heard_by / follow_up_by.
   const admin = createAdminClient()
   const { data: hubUser } = await admin
     .from('hub_users')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('id', user.id)
     .eq('company_id', profile.company_id)
     .maybeSingle()
 
@@ -104,7 +105,7 @@ export async function DELETE(
   const { data: hubUser } = await admin
     .from('hub_users')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('id', user.id)
     .eq('company_id', profile.company_id)
     .maybeSingle()
 
