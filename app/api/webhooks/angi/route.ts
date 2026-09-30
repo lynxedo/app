@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
 import { postOfficeAlert } from '@/lib/office-alerts'
+import { angiAutoText } from '@/lib/angi-auto-text'
 
 // Angi "Standard Lead API" webhook.
 //
@@ -12,8 +13,10 @@ import { postOfficeAlert } from '@/lib/office-alerts'
 //
 // Each lead becomes a row in the Hub Lead Tracker (`leads`, stage 'current',
 // lead_source 'Angi') plus the unified contacts directory, with the questionnaire
-// + comments captured as the lead's first note. Idempotent on Angi's leadOid via
-// leads.external_lead_id (Angi re-POSTs the same lead on retry).
+// + comments captured as the lead's first note, then worked in the Txt inbox
+// (auto-text as Amber + thread note, unassigned in the Queue — lib/angi-auto-text).
+// Idempotent on Angi's leadOid via leads.external_lead_id (Angi re-POSTs the
+// same lead on retry).
 
 export const runtime = 'nodejs'
 
@@ -182,10 +185,11 @@ export async function POST(request: Request) {
   }
 
   // First note: the Angi questionnaire + comments + fee/meta.
+  const note = buildNote(body)
   await admin.from('lead_notes').insert({
     lead_id: lead.id,
     company_id: HEROES_COMPANY_ID,
-    note: buildNote(body),
+    note,
     created_by: 'Angi',
   })
 
@@ -216,6 +220,24 @@ export async function POST(request: Request) {
     phone,
     email,
   }).catch(() => {}))
+
+  // Work the lead in the Txt inbox like a Google LSA message lead: text the
+  // customer as Amber, pin the Angi write-up to the thread as an internal note,
+  // and leave the thread UNASSIGNED so it shows in the Queue. Best-effort.
+  after(() =>
+    angiAutoText(admin, HEROES_COMPANY_ID, {
+      phone,
+      firstName: first,
+      lastName: last,
+      email,
+      service: svc,
+      note,
+    })
+      .then((r) => {
+        if (!r.ok) console.warn('[angi] auto-text not sent', r)
+      })
+      .catch((e) => console.warn('[angi] auto-text failed', (e as Error).message))
+  )
 
   return NextResponse.json({ ok: true, lead_id: lead.id })
 }
