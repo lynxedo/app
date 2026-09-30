@@ -11,7 +11,7 @@
 // live from the Jobber product catalog so they cannot drift from what is in Jobber.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { jobberGraphQLAdmin } from '@/lib/jobber'
+import { jobberGraphQLPatient } from '@/lib/jobber'
 import { normalizeServiceName } from '@/lib/voice-capacity'
 import { lookupNeighborhood } from '@/lib/neighborhood-map'
 
@@ -62,7 +62,7 @@ export async function findJobberProduct(
   let after: string | null = null
   for (let page = 0; page < 20; page++) {
     const vars: Record<string, unknown> = { after }
-    const resp: ProductPage = await jobberGraphQLAdmin<ProductPage>(jobberUserId, PRODUCT_QUERY, vars)
+    const resp: ProductPage = await jobberGraphQLPatient<ProductPage>(jobberUserId, PRODUCT_QUERY, vars)
     const conn = resp.data?.productOrServices
     const hit = conn?.nodes?.find((n) => normalizeServiceName(n.name) === want)
     if (hit) {
@@ -260,7 +260,7 @@ export async function createJobberJob(
       },
     ],
   }
-  const resp = await jobberGraphQLAdmin<{
+  const resp = await jobberGraphQLPatient<{
     data?: { jobCreate?: { job?: { id: string; jobNumber: string | null; title: string } | null; userErrors?: { message: string }[] } }
   }>(jobberUserId, JOB_CREATE, { input })
 
@@ -302,7 +302,7 @@ export async function createJobberVisit(
   }
   if (opts.assignedUserIds.length) schedule.teamMemberIdsToAssign = opts.assignedUserIds
 
-  const resp = await jobberGraphQLAdmin<{
+  const resp = await jobberGraphQLPatient<{
     data?: { visitCreate?: { createdVisits?: { id: string }[]; userErrors?: { message: string }[] } }
   }>(jobberUserId, VISIT_CREATE, { jobId: opts.jobId, input: { visits: [schedule ? { schedule } : {}] } })
 
@@ -345,7 +345,7 @@ export async function primaryPropertyId(
     // fall through to Jobber
   }
 
-  const resp = await jobberGraphQLAdmin<{
+  const resp = await jobberGraphQLPatient<{
     data?: { client?: { properties?: { id: string }[] } }
   }>(
     jobberUserId,
