@@ -16,7 +16,7 @@ import { actorPassesGate, str } from './types'
 import type { AssistantSettings } from './settings'
 import { consumePendingAction, newestPendingShortId, stageOutwardAction } from './pending'
 
-import { addContactNoteAction, customerOverviewAction, findContactAction } from './actions-contacts'
+import { addContactNoteAction, customerOverviewAction, findContactAction, updateContactAction } from './actions-contacts'
 import { queryDataAction } from './actions-data'
 import { getScheduleAction } from './actions-schedule'
 import { lookupNeighborhoodAction } from './actions-geo'
@@ -26,9 +26,11 @@ import {
   searchTextsAction,
   sendCustomerTextAction,
 } from './actions-txt'
-import { callActivityAction } from './actions-calls'
+import { callActivityAction, resolveVoicemailAction } from './actions-calls'
 import { listLeadsAction, upsertLeadAction } from './actions-tracker'
-import { createTaskAction, listTasksAction } from './actions-boards'
+import { previewLeadUpdates, reviewLeadsAction, updateLeadsAction } from './actions-leads'
+import { createTaskAction, listTasksAction, updateTaskAction } from './actions-boards'
+import { previewEmailReply, readEmailThreadAction, replyEmailAction, searchEmailAction } from './actions-email'
 import { postHubMessageAction } from './actions-hub'
 import { JOBBER_ACTIONS, JOBBER_PREVIEW_BUILDERS } from './actions-jobber'
 
@@ -76,11 +78,19 @@ const ALL_ACTIONS: HubAction[] = [
   searchTextsAction,
   readTextConversationAction,
   callActivityAction,
+  resolveVoicemailAction,
   listLeadsAction,
   upsertLeadAction,
+  reviewLeadsAction,
+  updateLeadsAction,
   listTasksAction,
   createTaskAction,
+  updateTaskAction,
   addContactNoteAction,
+  updateContactAction,
+  searchEmailAction,
+  readEmailThreadAction,
+  replyEmailAction,
   postHubMessageAction,
   sendCustomerTextAction,
   ...JOBBER_ACTIONS,
@@ -95,6 +105,8 @@ const PREVIEW_BUILDERS: Record<
   (ctx: ActionContext, args: Record<string, unknown>) => Promise<{ ok: true; preview: string } | { ok: false; message: string }>
 > = {
   [sendCustomerTextAction.name]: previewCustomerText,
+  [replyEmailAction.name]: previewEmailReply,
+  [updateLeadsAction.name]: previewLeadUpdates,
   ...JOBBER_PREVIEW_BUILDERS,
 }
 
@@ -157,7 +169,15 @@ function mcpRefusal(a: HubAction): string {
   )
 }
 
-function confirmationRequired(a: HubAction, settings: AssistantSettings): boolean {
+function confirmationRequired(
+  a: HubAction,
+  settings: AssistantSettings,
+  args?: Record<string, unknown>,
+): boolean {
+  // A bulk internal write asks for approval whatever the settings say — see
+  // HubAction.confirmWhen. Without args (the tool-list check) it only matters
+  // whether the action CAN ask, so confirm_action gets offered.
+  if (a.confirmWhen) return args ? a.confirmWhen(args) : true
   if (a.kind === 'outward') return settings.requireConfirmation
   if (a.kind === 'jobber_write') return settings.requireJobberConfirmation
   return false
@@ -196,7 +216,9 @@ export function listHubActions(actor: HubActor, settings: AssistantSettings): Hu
   })
 
   // confirm_action is only useful when something can actually need confirming.
-  const anyConfirmable = available.some((a) => isConsequential(a) && confirmationRequired(a, settings))
+  const anyConfirmable = available.some(
+    (a) => (isConsequential(a) || a.confirmWhen) && confirmationRequired(a, settings),
+  )
   return anyConfirmable ? available : available.filter((a) => a.name !== CONFIRM_ACTION_NAME)
 }
 
@@ -251,6 +273,8 @@ export async function runHubAction(
       if (confirmationRequired(action, settings)) {
         return await stagePreview(ctx, action, args)
       }
+    } else if (action.confirmWhen && confirmationRequired(action, settings, args)) {
+      return await stagePreview(ctx, action, args)
     }
 
     return await action.run(ctx, args)

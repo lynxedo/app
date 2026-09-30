@@ -470,16 +470,29 @@ function HubAssistantTab() {
           <li><strong className="text-white">Read a text thread</strong> — the actual back-and-forth, in order, with who sent each message and when. <em>&ldquo;Read my texts with Bill Hamilton&rdquo;</em>, <em>&ldquo;what did we tell them about Thursday?&rdquo;</em> Messages that failed to send are flagged as failed, so it never tells you a customer saw something they didn&apos;t. Photos are noted but not shown.</li>
           <li><strong className="text-white">Check recent calls</strong> — plus missed calls and voicemails that still need follow-up.</li>
           <li><strong className="text-white">List sales leads</strong> from the <Link href="/hub/tracker" className="text-sky-400 hover:underline">Lead Tracker</Link>.</li>
-          <li><strong className="text-white">See your open board tasks</strong> — or a teammate&apos;s, when you need to know what&apos;s on their plate.</li>
+          <li><strong className="text-white">Review your leads against texts and calls</strong> — see <em>Working the Lead Tracker</em> below.</li>
+          <li><strong className="text-white">Search and read the Shared Inbox</strong> — has this customer emailed us, which emails are still waiting on a reply. It only sees the email threads you can already open in the inbox.</li>
+          <li><strong className="text-white">See your open board tasks</strong> — or a teammate&apos;s, or everything on one board.</li>
           <li><strong className="text-white">Ask for a whole list, or a count, across the business</strong> — &ldquo;all the pet waste customers with their service addresses&rdquo;, &ldquo;how many irrigation jobs are on the books&rdquo;. See <em>Lists and counts</em> below.</li>
         </ul>
         <p className="mt-3"><strong className="text-white">Getting things done</strong></p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Create a task</strong> on one of your boards.</li>
-          <li><strong className="text-white">Add a note</strong> to a contact.</li>
+          <li><strong className="text-white">Create a task</strong> on one of your boards, or <strong className="text-white">update one</strong>: mark it done, reopen it, reassign it, or change its text, due date or priority. Marking a repeating task done moves it to its next due date, the same as ticking it on the board.</li>
+          <li><strong className="text-white">Add a note</strong> to a contact, or <strong className="text-white">fix a contact&apos;s details</strong> (name, company, email, address). Phone numbers are changed on the contact screen only.</li>
+          <li><strong className="text-white">Mark a voicemail taken care of</strong>, or flag it back for follow-up.</li>
+          <li><strong className="text-white">Reply to an email</strong> in the Shared Inbox, from the mailbox the email came to. It always shows you the reply first and only sends when you say yes, the same as a text.</li>
           <li><strong className="text-white">Post a message</strong> to a room, or <strong className="text-white">DM a teammate</strong> — the message comes from the assistant, not from you, and ends with a short line saying it was posted at your request. It can only post in rooms you can already post in.</li>
           <li><strong className="text-white">Text a customer</strong> — always with your confirmation first (see below).</li>
         </ul>
+      </Section>
+
+      <Section title="Working the Lead Tracker">
+        <p>Ask the assistant to work through your leads the way you would: <em>&ldquo;go through the open leads, check who we&apos;ve texted and called, and update the Tracker&rdquo;</em>, <em>&ldquo;which leads haven&apos;t we contacted yet?&rdquo;</em>, <em>&ldquo;who replied and is waiting on us?&rdquo;</em></p>
+        <p className="mt-2">It pulls every lead in one go and puts each one next to its texts, calls, voicemails, logged contact attempts and latest note. Each lead gets a plain label: <strong className="text-white">No contact yet</strong>, <strong className="text-white">Waiting on us</strong> (they reached out last), <strong className="text-white">Gone quiet</strong> (we reached out and heard nothing for a week), or <strong className="text-white">Talking</strong>.</p>
+        <p className="mt-2">It can then change the leads for you: the status, stage, salesperson, lead source or your custom columns. It can also add a note or log a contact attempt. It follows the same rules as the Tracker screen: picking a status moves the lead to its linked stage, and a stage change starts or stops Drip campaigns exactly as dragging the card would.</p>
+        <Note><strong className="text-white">When a request changes more than one lead, it asks first.</strong> You get the full list of what it&apos;s about to change, lead by lead, and nothing moves until you say yes. If anything in the list doesn&apos;t match the Tracker (a status that doesn&apos;t exist, a sixth contact attempt), nothing changes at all, and it tells you what to fix. A change to a single lead goes straight through.</Note>
+        <p className="mt-2 text-gray-400 text-xs">Sales are still recorded one at a time, because a sale needs its service and annual value. Bigger jobs can take the assistant a few minutes; it posts a quick note that it&apos;s working, then the full answer.</p>
+        <AdminOnly>Changing leads is switched on per company in <strong className="text-white">Admin → AI → Assistant → Permissions</strong> (<em>update leads on your Lead Tracker</em>), and only works for people with Lead Tracker access. Email replies are switched on the same way (<em>reply to emails in the shared inbox</em>) and follow each person&apos;s Shared Inbox access.</AdminOnly>
       </Section>
 
       <Section title="Lists and Counts">

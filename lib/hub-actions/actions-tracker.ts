@@ -3,6 +3,7 @@
 import type { ActionContext, HubAction } from './types'
 import { limitArg, str, uuidArg } from './types'
 import { clip, lines, phone, resolveDateArg, stampLabel } from './format'
+import { enrollLeadInStageCampaigns, exitEnrollmentsForLead } from '@/lib/drip'
 
 const TRACKER_GATE = { anyFlag: ['can_access_tracker'] }
 
@@ -144,10 +145,10 @@ const LEAD_STAGES = new Set([
 const SOLD_SERVICE_CODES = new Set(['IRR SC', 'WF - Lawn Health', 'MOS'])
 
 /** Stages where a lead is still live — i.e. a sale could still be closing it. */
-const OPEN_STAGES = new Set(['current', 'appointment_set', 'follow_up_long_term'])
+export const OPEN_STAGES = new Set(['current', 'appointment_set', 'follow_up_long_term'])
 
 /** Digits only — the canonical storage form, and what matching compares. */
-function phoneDigits(raw: string): string {
+export function phoneDigits(raw: string): string {
   const d = raw.replace(/\D/g, '')
   // Strip a US country code so "+1 832…" and "832…" match each other.
   return d.length === 11 && d.startsWith('1') ? d.slice(1) : d
@@ -159,7 +160,7 @@ function phoneDigits(raw: string): string {
  * and some carry formatting. Exact `.in()` on a short list beats a LIKE scan:
  * it stays indexed, and it can't accidentally match a different number.
  */
-function phoneVariants(digits: string): string[] {
+export function phoneVariants(digits: string): string[] {
   if (digits.length !== 10) return [digits]
   const [a, b, c] = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6)]
   return [
@@ -428,6 +429,9 @@ export const upsertLeadAction: HubAction = {
           .eq('id', existing.id)
           .eq('company_id', ctx.actor.companyId)
         if (error) return `The Tracker refused that update: ${error.message}. Nothing was saved.`
+        // Same Drip hooks as moving the card on the Tracker screen — a lead
+        // closed here must stop receiving nurture texts.
+        if (stage && stage !== existing.stage) await runStageAutomations(ctx, existing.id, stage)
       }
       const noteResult = await addLeadNote(ctx, existing.id, note)
       return lines(
@@ -472,6 +476,7 @@ export const upsertLeadAction: HubAction = {
     if (error) return `The Tracker refused that new lead: ${error.message}. Nothing was saved.`
     const newId = ((created || []) as Array<{ id: string }>)[0]?.id
     if (!newId) return "The lead didn't save — nothing was added to the Tracker."
+    if (stage) await runStageAutomations(ctx, newId, stage)
 
     const who = [contactFields.first_name, contactFields.last_name].filter(Boolean).join(' ').trim()
     return lines(
@@ -501,4 +506,28 @@ async function addLeadNote(ctx: ActionContext, leadId: string, note: string): Pr
     created_by: ctx.actor.displayName,
   })
   return error ? `  ⚠ The sale saved but the note did not (${error.message}) — add it by hand.` : '  Note added.'
+}
+
+/**
+ * The automations a stage change triggers on the Tracker screen (see
+ * app/api/tracker/leads/[id]/route.ts). Best-effort, like there: the lead has
+ * already moved, and failing the whole change over a Drip hiccup would invite a
+ * retry that moves it twice.
+ */
+export async function runStageAutomations(ctx: ActionContext, leadId: string, stageKey: string): Promise<void> {
+  try {
+    await enrollLeadInStageCampaigns(ctx.admin, { companyId: ctx.actor.companyId, leadId, stageKey })
+    const { data: st } = await ctx.admin
+      .from('tracker_stages')
+      .select('system_role')
+      .eq('company_id', ctx.actor.companyId)
+      .eq('key', stageKey)
+      .maybeSingle()
+    const role = (st as { system_role?: string | null } | null)?.system_role
+    if (role === 'won' || role === 'lost') {
+      await exitEnrollmentsForLead(ctx.admin, { companyId: ctx.actor.companyId, leadId })
+    }
+  } catch (err) {
+    console.warn('[hub-actions] stage automations failed', leadId, err)
+  }
 }

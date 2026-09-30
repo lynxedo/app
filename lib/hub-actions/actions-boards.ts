@@ -42,15 +42,48 @@ async function visibleBoards(ctx: ActionContext): Promise<Array<{ id: string; na
     .map((b) => ({ id: b.id, name: (b.name || 'Untitled board').trim() }))
 }
 
+/** Exact name first, then partial — the same rule create_task always used. */
+function matchBoards(boards: Array<{ id: string; name: string }>, raw: string): Array<{ id: string; name: string }> {
+  const needle = raw.toLowerCase()
+  const exact = boards.filter((b) => b.name.toLowerCase() === needle)
+  return exact.length ? exact : boards.filter((b) => b.name.toLowerCase().includes(needle))
+}
+
+/** One teammate by (partial) name, or a message saying why not. */
+async function findTeammate(
+  ctx: ActionContext,
+  name: string,
+): Promise<{ ok: true; id: string; label: string } | { ok: false; message: string }> {
+  const { data } = await ctx.admin
+    .from('hub_users')
+    .select('id, display_name')
+    .eq('company_id', ctx.actor.companyId)
+    .ilike('display_name', `%${name.replace(/[%_]/g, '')}%`)
+    .limit(5)
+  const rows = (data || []) as Array<{ id: string; display_name: string | null }>
+  if (rows.length === 0) return { ok: false, message: `No teammate named "${name}".` }
+  const exact = rows.filter((r) => (r.display_name || '').trim().toLowerCase() === name.trim().toLowerCase())
+  const pickRows = exact.length === 1 ? exact : rows
+  if (pickRows.length > 1) {
+    return { ok: false, message: `"${name}" matches ${rows.map((p) => p.display_name).join(', ')}. Ask which one.` }
+  }
+  return { ok: true, id: pickRows[0].id, label: (pickRows[0].display_name || '').trim() }
+}
+
 export const listTasksAction: HubAction = {
   name: 'list_tasks',
   description:
     'Open board tasks assigned to you (or, if you name someone, to that teammate). Shows what is due ' +
     'and what is overdue. Use this for "what\'s on my plate?", "anything overdue?", or "what does ' +
-    'Kathryn have open?".',
+    'Kathryn have open?". Pass board_name to see every open task on one board instead. Each task comes ' +
+    'with a task_id for update_task.',
   input_schema: {
     type: 'object',
     properties: {
+      board_name: {
+        type: 'string',
+        description: 'List every task on this board (partial names work) instead of one person\'s tasks.',
+      },
       assignee_name: {
         type: 'string',
         description: "A teammate's name to look up instead of yourself. Omit for your own tasks.",
@@ -67,6 +100,7 @@ export const listTasksAction: HubAction = {
     const includeDone = args.include_done === true || args.include_done === 'true'
     const limit = limitArg(args, 20, 50)
     const assigneeName = str(args, 'assignee_name')
+    const boardFilter = str(args, 'board_name')
 
     let targetUserId = ctx.actor.userId
     let targetLabel = 'you'
@@ -86,8 +120,18 @@ export const listTasksAction: HubAction = {
       targetLabel = (people[0].display_name || 'they').trim()
     }
 
-    const boards = await visibleBoards(ctx)
-    if (boards.length === 0) return 'There are no task boards you can see.'
+    const allBoards = await visibleBoards(ctx)
+    if (allBoards.length === 0) return 'There are no task boards you can see.'
+    let boards = allBoards
+    if (boardFilter) {
+      const found = matchBoards(allBoards, boardFilter)
+      if (found.length === 0) {
+        return `No board matches "${boardFilter}". Boards you can see: ${allBoards.map((b) => b.name).join(', ')}.`
+      }
+      if (found.length > 1) return `"${boardFilter}" matches ${found.map((b) => b.name).join(', ')}. Ask which one.`
+      boards = found
+      if (!assigneeName) targetLabel = `the ${found[0].name} board`
+    }
     const boardNameById = new Map(boards.map((b) => [b.id, b.name]))
 
     // Assignment lives in two places: the legacy single assignee_id column and
@@ -108,9 +152,12 @@ export const listTasksAction: HubAction = {
       .limit(limit)
     if (!includeDone) q = q.eq('done', false)
 
-    const orParts = [`assignee_id.eq.${targetUserId}`]
-    if (joinIds.length) orParts.push(`id.in.(${joinIds.slice(0, 100).join(',')})`)
-    q = q.or(orParts.join(','))
+    // A board listing shows everyone's tasks on it; otherwise, one person's.
+    if (!boardFilter || assigneeName) {
+      const orParts = [`assignee_id.eq.${targetUserId}`]
+      if (joinIds.length) orParts.push(`id.in.(${joinIds.slice(0, 100).join(',')})`)
+      q = q.or(orParts.join(','))
+    }
 
     const { data } = await q
     const items = (data || []) as Array<{
@@ -140,7 +187,7 @@ export const listTasksAction: HubAction = {
           ? `${i.due_date < today && !i.done ? 'OVERDUE ' : 'due '}${dayLabel(i.due_date)}${i.due_time ? ` ${i.due_time.slice(0, 5)}` : ''}`
           : 'no due date'
         const pri = i.priority && i.priority !== 'none' ? ` · ${i.priority} priority` : ''
-        return `• [${board}] ${i.content || '(no text)'} — ${due}${pri}${i.done ? ' · done' : ''}`
+        return `• [${board}] ${i.content || '(no text)'} — ${due}${pri}${i.done ? ' · done' : ''} · task_id ${i.id}`
       }),
     )
   },
@@ -178,9 +225,7 @@ export const createTaskAction: HubAction = {
 
     const boards = await visibleBoards(ctx)
     if (boards.length === 0) return 'There are no task boards you can add to.'
-    const needle = boardName.toLowerCase()
-    let matches = boards.filter((b) => b.name.toLowerCase() === needle)
-    if (matches.length === 0) matches = boards.filter((b) => b.name.toLowerCase().includes(needle))
+    const matches = matchBoards(boards, boardName)
     if (matches.length === 0) {
       return `No board matches "${boardName}". Boards you can use: ${boards.map((b) => b.name).join(', ')}.`
     }
@@ -249,5 +294,157 @@ export const createTaskAction: HubAction = {
       dueDate ? `Due ${dayLabel(dueDate)}.` : null,
       priority !== 'none' ? `Priority: ${priority}.` : null,
     )
+  },
+}
+
+const RECURRENCES = new Set(['none', 'daily', 'weekly', 'biweekly', 'monthly'])
+
+/** Same roll-forward the board screen uses when a recurring task is ticked off. */
+function advanceDueDate(dueDate: string, recurrence: string): string {
+  const d = new Date(dueDate + 'T00:00:00Z')
+  switch (recurrence) {
+    case 'daily': d.setUTCDate(d.getUTCDate() + 1); break
+    case 'weekly': d.setUTCDate(d.getUTCDate() + 7); break
+    case 'biweekly': d.setUTCDate(d.getUTCDate() + 14); break
+    case 'monthly': d.setUTCMonth(d.getUTCMonth() + 1); break
+    default: return dueDate
+  }
+  return d.toISOString().slice(0, 10)
+}
+
+export const updateTaskAction: HubAction = {
+  name: 'update_task',
+  description:
+    'Change an existing board task: mark it done or reopen it, reassign it, change its text, due date or ' +
+    'priority. Needs the task_id from list_tasks. Marking a RECURRING task done rolls it forward to its ' +
+    'next due date (exactly like ticking it on the board) rather than closing it.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task_id: { type: 'string', description: 'The task_id from list_tasks.' },
+      done: { type: 'boolean', description: 'true to complete it, false to reopen it.' },
+      content: { type: 'string', description: 'New task text.' },
+      assignee_names: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Replace who it is assigned to. [] leaves it unassigned.',
+      },
+      due_date: { type: 'string', description: '"today", "tomorrow", YYYY-MM-DD, or "none" to clear it.' },
+      priority: { type: 'string', enum: ['none', 'low', 'medium', 'high'] },
+    },
+    required: ['task_id'],
+  },
+  kind: 'write',
+  gate: null,
+  consentLabel: 'update tasks on your boards',
+  run: async (ctx, args) => {
+    const taskId = uuidArg(args, 'task_id')
+    if (!taskId) return 'Give me the task_id from list_tasks.'
+
+    const { data: row } = await ctx.admin
+      .from('board_items')
+      .select('id, board_id, content, done, due_date, recurrence')
+      .eq('id', taskId)
+      .eq('company_id', ctx.actor.companyId)
+      .maybeSingle()
+    const item = row as { id: string; board_id: string; content: string | null; done: boolean | null; due_date: string | null; recurrence: string | null } | null
+    // A task on a private board this person can't see doesn't exist, as far as they're concerned.
+    const boards = await visibleBoards(ctx)
+    if (!item || !boards.some((b) => b.id === item.board_id)) return "There's no task with that id on a board you can see."
+
+    const update: Record<string, unknown> = {}
+    const said: string[] = []
+
+    const content = str(args, 'content')
+    if (content) {
+      if (content.length > 1000) return 'That task text is too long — keep it under about 1000 characters.'
+      update.content = content
+      said.push(`text → "${content}"`)
+    }
+    const dueRaw = str(args, 'due_date')
+    if (dueRaw) {
+      if (dueRaw.toLowerCase() === 'none') {
+        update.due_date = null
+        said.push('due date cleared')
+      } else {
+        const due = resolveDateArg(dueRaw)
+        if (!due) return `I couldn't read "${dueRaw}" as a date. Use "today", "tomorrow", or YYYY-MM-DD.`
+        update.due_date = due
+        said.push(`due ${dayLabel(due)}`)
+      }
+      update.overdue_notified_at = null
+      update.due_notified_at = null
+    }
+    const priority = str(args, 'priority').toLowerCase()
+    if (priority) {
+      if (!PRIORITIES.has(priority)) return 'priority must be none, low, medium or high.'
+      update.priority = priority
+      said.push(`priority ${priority}`)
+    }
+
+    let assigneeIds: string[] | null = null
+    if (Array.isArray(args.assignee_names)) {
+      assigneeIds = []
+      const labels: string[] = []
+      for (const n of args.assignee_names) {
+        if (typeof n !== 'string' || !n.trim()) continue
+        const who = await findTeammate(ctx, n)
+        if (!who.ok) return `${who.message} Nothing was changed.`
+        assigneeIds.push(who.id)
+        labels.push(who.label)
+      }
+      said.push(labels.length ? `assigned to ${labels.join(', ')}` : 'unassigned')
+    }
+
+    let recurred: string | null = null
+    if (args.done === true || args.done === 'true') {
+      const rec = item.recurrence && RECURRENCES.has(item.recurrence) ? item.recurrence : 'none'
+      if (rec !== 'none' && item.due_date) {
+        recurred = advanceDueDate(item.due_date, rec)
+        await ctx.admin.from('board_item_comments').insert({
+          board_item_id: item.id,
+          company_id: ctx.actor.companyId,
+          content: `✅ Completed ${dayLabel(item.due_date)} by ${ctx.actor.displayName}`,
+          created_by: ctx.actor.userId,
+        })
+        Object.assign(update, { done: false, done_at: null, due_date: recurred, overdue_notified_at: null, due_notified_at: null })
+        said.push(`completed — it repeats ${rec}, so it's now due ${dayLabel(recurred)}`)
+      } else {
+        Object.assign(update, { done: true, done_at: new Date().toISOString() })
+        said.push('marked done')
+      }
+    } else if (args.done === false || args.done === 'false') {
+      Object.assign(update, { done: false, done_at: null })
+      said.push('reopened')
+    }
+
+    if (Object.keys(update).length === 0 && assigneeIds === null) {
+      return 'Nothing to change — say what should change on that task.'
+    }
+
+    if (Object.keys(update).length) {
+      const { error } = await ctx.admin
+        .from('board_items')
+        .update(update)
+        .eq('id', item.id)
+        .eq('company_id', ctx.actor.companyId)
+      if (error) return `The board refused that change (${error.message}). Nothing was changed.`
+    }
+    if (assigneeIds !== null) {
+      // Both places assignment lives, kept in step (see list_tasks).
+      await ctx.admin.from('board_item_assignees').delete().eq('board_item_id', item.id)
+      if (assigneeIds.length) {
+        await ctx.admin
+          .from('board_item_assignees')
+          .insert(assigneeIds.map((uid) => ({ board_item_id: item.id, user_id: uid })))
+      }
+      await ctx.admin
+        .from('board_items')
+        .update({ assignee_id: assigneeIds[0] ?? null })
+        .eq('id', item.id)
+        .eq('company_id', ctx.actor.companyId)
+    }
+
+    return `Updated "${item.content || 'task'}": ${said.join('; ')}.`
   },
 }

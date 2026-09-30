@@ -73,12 +73,12 @@ export async function stageOutwardAction(
     .then(undefined, () => {})
 
   return (
-    `READY TO SEND — nothing has been sent yet.\n${preview}\n\n` +
+    `READY FOR APPROVAL — nothing has been sent or changed yet.\n${preview}\n\n` +
     `Show this to the user exactly as written, INCLUDING the line below, and ask them to confirm.\n` +
     `Confirmation id: ${shortId}\n` +
     `If they agree, call confirm_action with id="${shortId}" — do NOT stage this again. ` +
     `If they change anything, start over with a new preview. ` +
-    `This expires in 15 minutes. Never claim it was sent until confirm_action succeeds.`
+    `This expires in 15 minutes. Never claim it was sent or done until confirm_action succeeds.`
   )
 }
 

@@ -11,8 +11,8 @@ import { clip, contactLabel, dayLabel, lines, opsYmd, phone, stampLabel } from '
 // Log requires its own flags), and search_texts / get_call_activity in this very
 // layer are gated. So this action stays ungated for identity + schedule, and gates
 // those two sections per-actor — otherwise the gates elsewhere are cosmetic.
-const TXT_VIEW_GATE = { anyFlag: ['can_access_txt', 'can_admin_txt', 'can_access_unified_inbox'] }
-const CALL_VIEW_GATE = {
+export const TXT_VIEW_GATE = { anyFlag: ['can_access_txt', 'can_admin_txt', 'can_access_unified_inbox'] }
+export const CALL_VIEW_GATE = {
   anyFlag: ['can_access_call_log', 'can_access_call_log2', 'can_access_dialer', 'can_admin_dialer'],
 }
 
@@ -336,5 +336,92 @@ export const addContactNoteAction: HubAction = {
     if (error) return "I couldn't save that note just now."
 
     return `Note added to ${contactLabel(row)}.`
+  },
+}
+
+// Editable directory fields — the same set the contact screen's edit form saves
+// (app/api/contacts/[id]/route.ts). Phone is deliberately NOT here: a changed
+// number re-points every text thread and call match for that person, which is a
+// job for a human on the contact screen, not a side effect of a chat request.
+const CONTACT_EDIT_FIELDS = [
+  'first_name',
+  'last_name',
+  'company_name',
+  'email',
+  'address_line1',
+  'address_line2',
+  'city',
+  'state',
+  'postal_code',
+] as const
+
+export const updateContactAction: HubAction = {
+  name: 'update_contact',
+  description:
+    "Correct a contact's details in the Contacts directory: name, company name, email, or address. Needs " +
+    'a contact id from find_contact. Only pass the fields that change. Never guess a value — use what the ' +
+    'user or the customer actually said. This cannot change a phone number (do that on the contact screen) ' +
+    'and does not touch Jobber.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      contact_id: { type: 'string', description: 'The contact id from find_contact.' },
+      name: { type: 'string', description: 'Full display name, e.g. "Jane Smith".' },
+      first_name: { type: 'string' },
+      last_name: { type: 'string' },
+      company_name: { type: 'string' },
+      email: { type: 'string' },
+      address_line1: { type: 'string' },
+      address_line2: { type: 'string' },
+      city: { type: 'string' },
+      state: { type: 'string' },
+      postal_code: { type: 'string' },
+    },
+    required: ['contact_id'],
+  },
+  kind: 'write',
+  gate: null,
+  consentLabel: 'edit contact details',
+  run: async (ctx, args) => {
+    const contactId = uuidArg(args, 'contact_id')
+    if (!contactId) return 'Give me the contact id from find_contact.'
+    const { data: row } = await ctx.admin
+      .from('txt_contacts')
+      .select('id, name')
+      .eq('id', contactId)
+      .eq('company_id', ctx.actor.companyId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (!row) return "There's no contact with that id in this company's directory."
+
+    const update: Record<string, unknown> = {}
+    const changed: string[] = []
+    const name = str(args, 'name')
+    if (name) {
+      update.name = name
+      // A person confirmed it → trusted, clears the AI-suggested-name dot, and a
+      // named contact belongs in the directory (same as the edit form).
+      update.name_source = 'manual'
+      update.in_directory = true
+      changed.push(`name → ${name}`)
+    }
+    for (const f of CONTACT_EDIT_FIELDS) {
+      const v = str(args, f)
+      if (!v) continue
+      if (f === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return `"${v}" doesn't look like an email address. Nothing was changed.`
+      update[f] = v
+      changed.push(`${f.replace(/_/g, ' ')} → ${v}`)
+    }
+    if (changed.length === 0) return 'Nothing to change — pass the fields that should be updated.'
+    update.manually_edited = true
+    update.updated_at = new Date().toISOString()
+
+    const { error } = await ctx.admin
+      .from('txt_contacts')
+      .update(update)
+      .eq('id', contactId)
+      .eq('company_id', ctx.actor.companyId)
+    if (error) return `The directory refused that change (${error.message}). Nothing was changed.`
+    return `Updated ${(row as { name: string | null }).name || 'the contact'}: ${changed.join('; ')}.`
   },
 }

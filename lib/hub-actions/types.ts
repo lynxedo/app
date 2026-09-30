@@ -102,6 +102,16 @@ export type HubAction = {
    * deliberately rather than discover the capability by accident.
    */
   defaultOn?: boolean
+  /**
+   * Internal writes that must still be previewed and approved before they run,
+   * decided per call. Used for BULK changes (several Tracker leads at once): a
+   * single edit goes straight through like any write, but a batch is exactly the
+   * "complex task" where a person wants to see the whole list before anything
+   * moves — and where one misread instruction touches dozens of rows. Needs a
+   * preview builder, or it fails closed. Unlike outward/jobber_write, this is not
+   * switchable off in settings: the approval IS the feature.
+   */
+  confirmWhen?: (args: Record<string, unknown>) => boolean
   /** Short human phrase for the OAuth consent screen, e.g. "text customers". */
   consentLabel: string
   run: (ctx: ActionContext, args: Record<string, unknown>) => Promise<string>
