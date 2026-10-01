@@ -64,6 +64,28 @@ const UUID_RE = /^[0-9a-f-]{36}$/i
 
 export type AmberThreadStatus = 'active' | 'human' | 'handed_off' | 'opted_out' | 'completed'
 
+/** "Thanks!", "Ok", "👍", a "Liked …" reaction — a closing, not a question. 60% of
+ *  the same-day text-backs in the last two weeks were exactly this. Nobody should
+ *  answer it: not Amber, and not a teammate woken by a DM. */
+export function isBareAcknowledgment(body: string | null | undefined): boolean {
+  const t = (body || '').trim()
+  if (!t) return false
+  if (/^(liked|loved|emphasized|laughed at|disliked|questioned)\s+[“"']/i.test(t)) return true // iMessage tapback
+  if (/^[^A-Za-z0-9]{1,8}$/.test(t)) return true // emoji / punctuation only
+  if (t.length > 40) return false
+  const w = t.toLowerCase().replace(/[^a-z0-9' ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const ACK = /^(ok|okay|k|kk|yes|yep|yeah|yup|no|nope|sure|thanks?|thank you|thank u|thx|ty|great|perfect|awesome|sounds good|got it|will do|good|cool|alright|all right|noted|received|roger|10 4|understood|you too|same to you|have a (great|good|nice) (day|one|weekend|evening)|no problem|np|appreciate it|much appreciated)$/
+  // Allow a short name or sign-off tail: "Thanks Mike", "Ok thank you", "Thanks, have a great day"
+  const parts = w.split(' ')
+  if (ACK.test(w)) return true
+  for (let i = 1; i < Math.min(parts.length, 4); i++) {
+    const head = parts.slice(0, i).join(' ')
+    const tail = parts.slice(i).join(' ')
+    if (ACK.test(head) && (ACK.test(tail) || tail.split(' ').length <= 2)) return true
+  }
+  return false
+}
+
 // ─── Settings ─────────────────────────────────────────────────────────────────
 // One switch an admin sees (voice_receptionist_settings.text_enabled, "Reply to
 // texts") plus the head-start option. Level: text_level → the spoken level →
@@ -305,6 +327,11 @@ export async function routeInboundToTodaysTeammate(
       who = cc?.name?.trim() || (cc?.phone ? formatPhone(cc.phone) || cc.phone : who)
     }
     const preview = (opts.preview || '').trim()
+    if (isBareAcknowledgment(preview)) {
+      // "Thanks Mike!" after "I'm all done" — it's in their inbox, nothing to act on.
+      console.log('[amber-text] routed an acknowledgment to today\'s teammate quietly', { conversationId: opts.conversationId, userId: u.id })
+      return u.id
+    }
     const body =
       `📱 ${who} texted back after your conversation with them earlier today, so I put it in your Txt inbox instead of answering myself.` +
       (preview ? `\n\n"${preview.length > 240 ? preview.slice(0, 237) + '…' : preview}"` : '') +
@@ -425,6 +452,11 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
     const last = messages[messages.length - 1]
     if (!last || last.direction !== 'inbound') return skip(conversationId, 'last_message_not_inbound')
     const lastInbound = (last.body || '').trim() || null
+    const priorOutbound = messages.slice(0, -1).some((m) => m.direction === 'outbound')
+    if (priorOutbound && isBareAcknowledgment(lastInbound) && !(Array.isArray(last.media_urls) && last.media_urls.length)) {
+      // A closing ("Thanks!", "Ok", 👍) after something we sent needs no answer.
+      return skip(conversationId, 'bare_acknowledgment')
+    }
 
     const toolCtx: AmberToolContext = {
       companyId,
