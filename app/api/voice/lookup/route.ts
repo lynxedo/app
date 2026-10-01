@@ -57,22 +57,29 @@ function bearerAuthorized(request: Request): boolean {
 // share a declared input type name we can rely on, and a variable declared with
 // the wrong one fails the whole query at validation. `sinceIso` is generated
 // server-side (never caller input) and validated to a strict shape below.
+//
+// ⚠ Page sizes are a COST, and the cost multiplies through nesting. Jobber prices a
+// query as roughly jobs × (job line items + visits × visit line items) and refuses
+// anything over its ~10,000-point ceiling with the SAME "Throttled" error a busy
+// account gets — permanently, retries included. 50 × (20 + 10 × 20) = 11,000 was
+// refused on every call; 30 × (15 + 6 × 10) = 2,250 is comfortably inside. The
+// visits are already filtered to today-onward, so 6 per job is plenty.
 const nextVisitQuery = (sinceIso: string) => `
   query AmberNextVisit($clientId: EncodedId!) {
     client(id: $clientId) {
       id
-      jobs(first: 50) {
+      jobs(first: 30) {
         nodes {
           id
-          lineItems(first: 20) { nodes { name totalPrice } }
-          visits(first: 10, filter: { startAt: { after: "${sinceIso}" } }) {
+          lineItems(first: 15) { nodes { name totalPrice } }
+          visits(first: 6, filter: { startAt: { after: "${sinceIso}" } }) {
             nodes {
               id
               title
               startAt
               endAt
               completedAt
-              lineItems(first: 20) { nodes { name totalPrice } }
+              lineItems(first: 10) { nodes { name totalPrice } }
             }
           }
         }
