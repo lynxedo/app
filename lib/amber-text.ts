@@ -180,10 +180,13 @@ async function evaluateAmberEngagement(
   if (opts.phone) {
     const { data: own } = await admin.from('txt_phone_numbers').select('id').eq('company_id', opts.companyId).eq('twilio_number', opts.phone).limit(1)
     if (own && own.length) return { engage: false, dial, reason: 'internal_number' }
+    // Admins are exempt — they're the ones who test her from their own phone.
     const last10 = opts.phone.replace(/\D/g, '').slice(-10)
     if (last10.length === 10) {
-      const { data: staff } = await admin.from('user_profiles').select('id, phone').eq('company_id', opts.companyId).not('phone', 'is', null).is('deactivated_at', null)
-      const hit = ((staff as { id: string; phone: string | null }[] | null) ?? []).some((u) => (u.phone || '').replace(/\D/g, '').slice(-10) === last10)
+      const { data: staff } = await admin.from('user_profiles').select('id, phone, role').eq('company_id', opts.companyId).not('phone', 'is', null).is('deactivated_at', null)
+      const hit = ((staff as { id: string; phone: string | null; role: string | null }[] | null) ?? []).some(
+        (u) => u.role !== 'admin' && (u.phone || '').replace(/\D/g, '').slice(-10) === last10,
+      )
       if (hit) return { engage: false, dial, reason: 'staff_number' }
     }
   }
@@ -574,6 +577,7 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
     }
     if (res.message_id) await admin.from('txt_messages').update({ is_ai: true }).eq('id', res.message_id)
     await admin.from('amber_text_threads').update({ turn_count: thread.turn_count + 1, last_turn_at: nowIso }).eq('id', thread.id)
+    console.log('[amber-text] SENT', { conversationId, turn: thread.turn_count + 1, chars: finalText.length, handedOff: handedOffThisTurn })
   } catch (err) {
     console.warn('[amber-text] runAmberTextTurn failed', conversationId, err)
   }
