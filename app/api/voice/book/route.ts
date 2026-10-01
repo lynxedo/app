@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  let body: { from?: string; to?: string; callSid?: string; service?: string; date?: string; start?: string; end?: string; time_preference?: string; details?: string } = {}
+  let body: { from?: string; to?: string; callSid?: string; service?: string; date?: string; start?: string; end?: string; time_preference?: string; time_note?: string; details?: string } = {}
   try {
     body = (await request.json()) as typeof body
   } catch {
@@ -123,8 +123,20 @@ export async function POST(request: Request) {
   // Anytime, so the office can still order the day's stops for driving. A caller
   // that supplied a window without saying so is treated as a window request.
   const prefRaw = typeof body.time_preference === 'string' ? body.time_preference.trim().toLowerCase() : ''
-  const timePreference: 'none' | 'am' | 'pm' | 'window' =
-    prefRaw === 'am' || prefRaw === 'pm' ? prefRaw : prefRaw === 'window' || (!prefRaw && startHHMM) ? 'window' : 'none'
+  // A constraint in the customer's own words ("after 1pm", "before 10am") — the
+  // company's convention writes exactly that on the title: PTF after 1pm. Kept
+  // short and plain; anything else is dropped rather than put on a job title.
+  const timeNote = typeof body.time_note === 'string'
+    ? body.time_note.trim().toLowerCase().replace(/[^a-z0-9: .\-]/g, '').replace(/\s+/g, ' ').replace(/\.$/, '').slice(0, 24)
+    : ''
+  const timePreference: 'none' | 'am' | 'pm' | 'window' | 'custom' =
+    prefRaw === 'am' || prefRaw === 'pm'
+      ? prefRaw
+      : prefRaw === 'custom' && timeNote
+        ? 'custom'
+        : prefRaw === 'window' || (!prefRaw && startHHMM)
+          ? 'window'
+          : 'none'
   if (timePreference !== 'window') {
     startHHMM = ''
     endHHMM = ''
@@ -134,17 +146,21 @@ export async function POST(request: Request) {
       ? 'PTF AM'
       : timePreference === 'pm'
         ? 'PTF PM'
-        : timePreference === 'window' && startHHMM
-          ? `PTF ${hourRange(startHHMM, endHHMM)}`
-          : null
+        : timePreference === 'custom'
+          ? `PTF ${timeNote}`
+          : timePreference === 'window' && startHHMM
+            ? `PTF ${hourRange(startHHMM, endHHMM)}`
+            : null
   const preferenceLine =
     timePreference === 'am'
       ? 'Caller asked for the morning.'
       : timePreference === 'pm'
         ? 'Caller asked for the afternoon.'
-        : timePreference === 'window' && startHHMM
-          ? `Caller asked for a ${startHHMM}${endHHMM ? `\u2013${endHHMM}` : ''} arrival window.`
-          : 'Caller is flexible on timing (no time promised).'
+        : timePreference === 'custom'
+          ? `Caller asked for: ${timeNote}.`
+          : timePreference === 'window' && startHHMM
+            ? `Caller asked for a ${startHHMM}${endHHMM ? `\u2013${endHHMM}` : ''} arrival window.`
+            : 'Caller is flexible on timing (no time promised).'
 
   const companyId = HEROES_COMPANY_ID
   const admin = createAdminClient()
@@ -389,6 +405,8 @@ export async function POST(request: Request) {
         ? ', noted for the morning'
         : timePreference === 'pm'
           ? ', noted for the afternoon'
+          : timePreference === 'custom'
+            ? `, noted "${timeNote}"`
           : timePreference === 'window' && startHHMM
             ? `, noted for a ${hourRange(startHHMM, endHHMM)} arrival window`
             : ''
@@ -450,7 +468,7 @@ export async function POST(request: Request) {
 
   const label = dateLabelForSpeech(date)
   const promisedReq =
-    timePreference === 'am' ? ', noted for the morning' : timePreference === 'pm' ? ', noted for the afternoon' : timePreference === 'window' && startHHMM ? `, noted for a ${hourRange(startHHMM, endHHMM)} arrival window` : ''
+    timePreference === 'am' ? ', noted for the morning' : timePreference === 'pm' ? ', noted for the afternoon' : timePreference === 'custom' ? `, noted "${timeNote}"` : timePreference === 'window' && startHHMM ? `, noted for a ${hourRange(startHHMM, endHHMM)} arrival window` : ''
   const answer = `Done — I've got ${svc.line_item} down for ${label}${promisedReq}. Let the caller know warmly that they're set and will get a confirmation shortly, and tell them how arrival timing works per your booking rules.`
 
   return ok(answer, { booked: true, service: svc.line_item, date, dateLabel: label, commitment: svc.commitment, timePreference, ptf })
