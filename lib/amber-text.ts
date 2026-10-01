@@ -268,6 +268,9 @@ export async function inboundNeedsNoReply(admin: Admin, conversationId: string, 
   const rows = ((data as MessageRow[] | null) ?? [])
   const lastOutboundIdx = rows.findIndex((m) => m.direction === 'outbound')
   if (lastOutboundIdx === -1) return false // nothing of ours to acknowledge yet
+  // If our last message asked a question, a short "Yes" / "No" / "Ok" is the ANSWER,
+  // not a closing — Ben's test: "…you're looking for an irrigation service call?" → "Yes".
+  if (/\?/.test(rows[lastOutboundIdx]?.body || '')) return false
   const unanswered = rows.slice(0, lastOutboundIdx) // newest first, all inbound
   return unanswered.every((m) => isBareAcknowledgment(m.body) && !(Array.isArray(m.media_urls) && m.media_urls.length))
 }
@@ -478,7 +481,10 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
     // doesn't cancel the question in front of it (Ben's first live test, Oct 1).
     const lastOutboundFromEnd = [...messages].reverse().findIndex((m) => m.direction === 'outbound')
     const unansweredRun = lastOutboundFromEnd === -1 ? [] : messages.slice(messages.length - lastOutboundFromEnd)
+    const ourLast = lastOutboundFromEnd === -1 ? null : messages[messages.length - lastOutboundFromEnd - 1]
+    const weAskedAQuestion = /\?/.test(ourLast?.body || '')
     if (
+      !weAskedAQuestion && // a "Yes" to our question is an answer, never a closing
       unansweredRun.length > 0 &&
       unansweredRun.every((m) => isBareAcknowledgment(m.body) && !(Array.isArray(m.media_urls) && m.media_urls.length))
     ) {
