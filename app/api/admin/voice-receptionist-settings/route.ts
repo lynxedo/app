@@ -55,6 +55,10 @@ export async function GET() {
     instructions: row?.instructions ?? '',
     voice_id: row?.voice_id ?? '',
     recap_text_enabled: effective.recapTextEnabled,
+    // Amber-over-text — raw row values (no code default beyond the column defaults).
+    text_enabled: Boolean(row?.text_enabled) && (row?.text_autonomy || 'draft') === 'auto',
+    text_head_start_enabled: Boolean(row?.text_head_start_enabled),
+    text_head_start_minutes: typeof row?.text_head_start_minutes === 'number' ? row.text_head_start_minutes : 3,
     transfer_method: effective.transferMethod,
     transfer_user_ids: effective.transferUserIds,
     transfer_cell_numbers: effective.transferCellNumbers,
@@ -115,6 +119,18 @@ export async function PATCH(req: NextRequest) {
   if ('instructions' in body) update.instructions = normalizeText(body.instructions)
   if ('voice_id' in body) update.voice_id = normalizeText(body.voice_id)
   if ('recap_text_enabled' in body) update.recap_text_enabled = Boolean(body.recap_text_enabled)
+  // "Reply to texts". Turning it ON also sets autonomy to 'auto' (she sends);
+  // 'draft' (compose-only, logged) is a dark mode reachable only directly in the DB.
+  if ('text_enabled' in body) {
+    const on = Boolean(body.text_enabled)
+    update.text_enabled = on
+    if (on) update.text_autonomy = 'auto'
+  }
+  if ('text_head_start_enabled' in body) update.text_head_start_enabled = Boolean(body.text_head_start_enabled)
+  if ('text_head_start_minutes' in body) {
+    const m = Math.round(Number(body.text_head_start_minutes))
+    update.text_head_start_minutes = Number.isFinite(m) ? Math.max(1, Math.min(120, m)) : 3
+  }
   if ('transfer_method' in body) {
     const m = String(body.transfer_method || 'off')
     if (!['off', 'cell', 'softphone'].includes(m)) {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { amberStatusByConversation } from '@/lib/amber-text'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { getAccessibleNumberIds } from '@/lib/phone-number-access'
 import { fetchAllRows } from '@/lib/email-contacts'
@@ -126,6 +127,9 @@ async function enrichWithCallActivity(
     if (!row.heard_at) a.hasUnheardVm = true
   }
 
+  // Amber's status per thread, for the Queue badges ("Amber" / "Needs a human").
+  const amberStatus = await amberStatusByConversation(admin, convs.map((c) => c.id as string)).catch(() => new Map())
+
   const enriched = convs.map((c) => {
     const cid = contactIdOf(c)
     const a = cid ? byContact.get(cid) : undefined
@@ -143,6 +147,7 @@ async function enrichWithCallActivity(
     }
     return {
       ...c,
+      amber_status: amberStatus.get(c.id as string) ?? null,
       last_call_at: lastCallAt,
       last_voicemail_at: lastVmAt,
       last_activity_at: lastActivityAt,

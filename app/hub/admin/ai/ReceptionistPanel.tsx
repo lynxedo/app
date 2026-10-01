@@ -13,6 +13,9 @@ type VoiceReceptionistInitial = {
   instructions: string
   voice_id: string
   recap_text_enabled: boolean
+  text_enabled: boolean
+  text_head_start_enabled: boolean
+  text_head_start_minutes: number
   transfer_method: string
   transfer_user_ids: string[]
   transfer_cell_numbers: Record<string, string>
@@ -73,6 +76,9 @@ export default function ReceptionistPanel({
     enabled: initialVoiceReceptionist.enabled,
     level: initialVoiceReceptionist.level,
     recap_text_enabled: initialVoiceReceptionist.recap_text_enabled,
+    text_enabled: initialVoiceReceptionist.text_enabled,
+    text_head_start_enabled: initialVoiceReceptionist.text_head_start_enabled,
+    text_head_start_minutes: initialVoiceReceptionist.text_head_start_minutes,
     greeting_business_hours: initialVoiceReceptionist.greeting_business_hours || DEFAULTS.greeting_business_hours,
     greeting_after_hours: initialVoiceReceptionist.greeting_after_hours || DEFAULTS.greeting_after_hours,
     instructions: initialVoiceReceptionist.instructions || DEFAULTS.instructions,
@@ -120,6 +126,9 @@ export default function ReceptionistPanel({
           enabled: vr.enabled,
           level: vr.level,
           recap_text_enabled: vr.recap_text_enabled,
+          text_enabled: vr.text_enabled,
+          text_head_start_enabled: vr.text_head_start_enabled,
+          text_head_start_minutes: vr.text_head_start_minutes,
           // receptionist_name is deliberately NOT sent — the route ignores it and
           // the persona owns the name (lib/ai-persona.ts).
           greeting_business_hours: asCustom(vr.greeting_business_hours, DEFAULTS.greeting_business_hours),
@@ -460,6 +469,66 @@ export default function ReceptionistPanel({
               vr.recap_text_enabled ? 'translate-x-4' : 'translate-x-0'
             }`} />
           </button>
+        </div>
+
+        {/* Amber over text */}
+        <div className="border border-white/10 rounded-lg p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="pr-3">
+              <p className="text-sm font-medium text-white">Reply to texts</p>
+              <p className="text-xs text-white/50 mt-0.5">
+                The assistant answers inbound texts on any one-on-one thread nobody has claimed, with the same rules she uses on the phone. She hands off to a person when she hits a roadblock (an alert lands in Office Alerts), and claiming or replying to a thread takes it over from her instantly.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={vr.text_enabled}
+              onClick={() => setVr(p => ({ ...p, text_enabled: !p.text_enabled }))}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors ${
+                vr.text_enabled ? 'bg-brand' : 'bg-white/20'
+              }`}
+            >
+              <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                vr.text_enabled ? 'translate-x-4' : 'translate-x-0'
+              }`} />
+            </button>
+          </div>
+          <div className={`flex items-center justify-between border-t border-white/10 pt-3 ${vr.text_enabled ? '' : 'opacity-50'}`}>
+            <div className="pr-3">
+              <p className="text-sm font-medium text-white">Give the team a head start</p>
+              <p className="text-xs text-white/50 mt-0.5">
+                During business hours, wait this many minutes for a teammate to claim the thread before she replies. Outside business hours she replies right away.
+              </p>
+              <label className="mt-2 inline-flex items-center gap-2 text-xs text-white/70">
+                Wait
+                <input
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={vr.text_head_start_minutes}
+                  disabled={!vr.text_enabled || !vr.text_head_start_enabled}
+                  onChange={(e) => setVr(p => ({ ...p, text_head_start_minutes: Math.max(1, Math.min(120, Math.round(Number(e.target.value) || 1))) }))}
+                  className="w-16 rounded border border-white/10 bg-white/5 px-2 py-1 text-sm text-white disabled:opacity-50"
+                />
+                minutes
+              </label>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={vr.text_head_start_enabled}
+              disabled={!vr.text_enabled}
+              onClick={() => setVr(p => ({ ...p, text_head_start_enabled: !p.text_head_start_enabled }))}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors ${
+                vr.text_head_start_enabled ? 'bg-brand' : 'bg-white/20'
+              }`}
+            >
+              <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                vr.text_head_start_enabled ? 'translate-x-4' : 'translate-x-0'
+              }`} />
+            </button>
+          </div>
         </div>
 
         {/* Voice ID */}

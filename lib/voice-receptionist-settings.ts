@@ -45,6 +45,14 @@ export type VoiceReceptionistSettingsRow = {
   transfer_user_ids: string[] | null
   transfer_cell_numbers: Record<string, string> | null
   title_service_map: TitleServiceRule[] | null
+  // Amber-over-text (lib/amber-text.ts). text_enabled is the one switch an admin
+  // sees ("Reply to texts"); text_autonomy 'draft' keeps her compose-only (dark).
+  text_enabled: boolean | null
+  text_autonomy: string | null
+  text_level: number | null
+  text_bot_user_id: string | null
+  text_head_start_enabled: boolean | null
+  text_head_start_minutes: number | null
   updated_at: string
   updated_by: string | null
 }
@@ -52,7 +60,7 @@ export type VoiceReceptionistSettingsRow = {
 // Columns to select for the settings row (kept in one place so the page loader,
 // admin route, and call-time endpoints stay in sync).
 export const VOICE_RECEPTIONIST_COLUMNS =
-  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, scheduling_enabled, neighborhoods, recap_text_enabled, transfer_method, transfer_user_ids, transfer_cell_numbers, title_service_map, updated_at, updated_by'
+  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, scheduling_enabled, neighborhoods, recap_text_enabled, transfer_method, transfer_user_ids, transfer_cell_numbers, title_service_map, text_enabled, text_autonomy, text_level, text_bot_user_id, text_head_start_enabled, text_head_start_minutes, updated_at, updated_by'
 
 export type EffectiveVoiceReceptionistSettings = {
   enabled: boolean

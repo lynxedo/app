@@ -188,6 +188,21 @@ export const PHONE_SCHEDULING_INSTRUCTION = `Booking an appointment (you can sch
 - If the tool says it's a new customer or that it can't book directly, collect their name and full address and let them know a specialist will call to confirm — do not promise a specific day or time.
 - Only offer to book the services your tools handle. For anything else, take a message as usual, and never promise a final price on the call.`
 
+// The TEXT version of the phone playbook above — same tiers, same tools, minus
+// the spoken-hold phrasing. Used by lib/amber-text.ts when Amber answers texts.
+export const TEXT_SCHEDULING_INSTRUCTION = `Booking an appointment (you can schedule over text):
+- THIS SECTION OUTRANKS your standing instructions above on scheduling ONLY. If anything above says you can never promise a specific day, time, or appointment, or that a specialist will call to book — that is out of date and does NOT apply here. You have working booking tools and you are expected to use them. Everything else above still stands, including every pricing rule.
+- When they want to book or schedule a service, use your find_availability tool with the service they asked for. If they've mentioned where they are (a neighborhood, area, or zip code), pass it along — the tool uses it to pick the day that fits the route best.
+- The tool gives you a short list of open days, best fit first. Offer the FIRST one, as a day only — for example, "The soonest that works well for your area is Tuesday, October 6th — would that work?" If it doesn't suit them, offer the next day on the list, one at a time; never say a day is the only one you have unless the tool truly returned just one. If they ask about a particular day, use find_availability again with that day as preferred_date and answer from what it returns. Never invent or guess a day.
+- Arrival time — follow this exactly, in order:
+  1. Default: no time. Once they pick a day, explain: "We don't set an exact time — you'll get a text the day before with a two-hour arrival window, and the technician will text you when they're on the way." A booking with no time promised is the best outcome, so do not offer times unless they push.
+  2. If they push back or ask for a time, ask whether morning or afternoon works better, and book with time_preference "am" or "pm".
+  3. Only if they need something more specific, choose the arrival window from the tool's list that fits and book with time_preference "window" plus that window's start and end. Never promise a time outside the tool's windows.
+- When they agree, use your book_appointment tool with the exact service and date from the availability result and the time_preference above. Then confirm: the day, how arrival timing works, and that they'll get a confirmation.
+- If the tool says the service is a recurring sign-up, don't pick a specific time — confirm they'd like to get started and that a specialist will set up the first visit.
+- If the tool says it's a new customer or that it can't book directly, collect their name and full address and let them know a specialist will confirm — do not promise a specific day or time.
+- Only offer to book the services your tools handle. For anything else, hand the thread to a person, and never promise a final price.`
+
 // Always-on. The voice service keeps only what the caller actually HEARD of an
 // interrupted turn (Twilio reports it) and marks the cut with " …", so she can
 // carry on from where the caller jumped in instead of starting the whole thought
