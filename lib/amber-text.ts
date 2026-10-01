@@ -59,12 +59,17 @@ const AMBER_MAX_TURNS = 8
 
 const MAX_HISTORY_MESSAGES = 20
 const MAX_TOOL_ITERATIONS = 6
-// SMS-length replies — but a TOOL CALL (its JSON input, a hand-off summary) counts
-// against this too. 320 truncated a tool_use into an empty reply on the first live
-// morning (stop_reason max_tokens, zero text). Generous here, short by prompt.
-const MAX_TOKENS = 900
+// SMS-length replies — but everything the model emits counts against this: a
+// THINKING block (the model reasons before answering), a tool call's JSON, a
+// hand-off summary. 320 and then 900 both truncated a hand_to_human into an empty
+// reply (stop_reason max_tokens, zero text) — Stephanie's burst pipe and an LSA
+// install lead went unanswered. Generous here; the prompt keeps the TEXT short.
+// If even this truncates, generateAmberReply retries once at triple.
+const MAX_TOKENS = 2500
 
 const UUID_RE = /^[0-9a-f-]{36}$/i
+/** Sentinel returned by generateAmberReply when the model decides a text needs no answer. */
+const NO_REPLY = '\u0000NO_REPLY'
 
 export type AmberThreadStatus = 'active' | 'human' | 'handed_off' | 'opted_out' | 'completed'
 
@@ -564,7 +569,20 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
 
     const finalText = await generateAmberReply({ model, system, userMessage, admin, toolCtx })
     const handedOffThisTurn = Boolean(toolCtx.handedOff)
-    if (!finalText) return skip(conversationId, 'empty_reply')
+    if (finalText === NO_REPLY) {
+      // Spam / a vendor pitch / an automated message: leave it in the Queue untouched.
+      await admin.from('amber_text_threads').update({ turn_count: thread.turn_count, last_turn_at: new Date().toISOString() }).eq('id', thread.id)
+      return skip(conversationId, 'no_reply_needed')
+    }
+    if (!finalText) {
+      // She couldn't compose anything (truncated twice, or an empty answer). Never
+      // let that be silent: hand the thread to a person with the alert, so it shows
+      // "Needs a human" instead of sitting unanswered for a day.
+      if (!handedOffThisTurn) {
+        await handThreadToHuman(admin, toolCtx, 'other', `Amber couldn't compose a reply to this text — please take a look. Their message: "${(lastInbound || '').slice(0, 200)}"`)
+      }
+      return skip(conversationId, 'empty_reply_handed_off')
+    }
 
     // ── RE-CHECK ownership + STOP right before sending ──
     const { data: fresh } = await admin.from('amber_text_threads').select('status').eq('id', thread.id).maybeSingle()
@@ -655,7 +673,8 @@ const PROMPT_TEXT_STYLE_TEMPLATE = `How to text:
 - Be warm, friendly, and human. Acknowledge what they said before moving on. Don't repeat an empathetic line more than once.
 - Don't say "hey there" or re-greet someone mid-conversation, and don't repeat the company name back to them.
 - Don't announce that you're an assistant or a bot, and never sign your texts with a title. If they ask whether they're texting a real person, or who you are, say you're ${'{'}NAME{'}'}, the team's virtual assistant — never claim to be human, and never pretend to be a specific teammate.
-- If they send a photo or attachment, you can't view it over text: say so plainly, and if seeing it matters (a leak, damage, a part), hand the thread to a person.`
+- If they send a photo or attachment, you can't view it over text: say so plainly, and if seeing it matters (a leak, damage, a part), hand the thread to a person.
+- If the message is clearly not from a customer — a marketing or carrier promo, an automated notice, a vendor or lead-generation pitch ("we have homeowners looking for quotes"), a scam — do not answer it at all: reply with exactly NO_REPLY and nothing else. A person will glance at it in the Queue.`
 
 const PROMPT_TEXT_COLLECT = `What to find out — one question per text, as it fits the flow (you already have their phone number, so never ask for it):
 - Their name, if you don't have it yet.
@@ -772,16 +791,29 @@ async function generateAmberReply(opts: {
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: opts.userMessage }]
 
   let finalText = ''
+  let budget = MAX_TOKENS
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
     const response = await anthropic.messages.create({
       model: opts.model,
-      max_tokens: MAX_TOKENS,
+      max_tokens: budget,
       system: opts.system,
       messages,
       ...(tools.length > 0 ? { tools } : {}),
     })
 
     const hasToolUse = response.content.some((b) => b.type === 'tool_use')
+    const textSoFar = response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('').trim()
+    // Truncated mid-thought or mid-tool-call with nothing speakable: try once more
+    // with three times the room before giving up — a lost hand-off is a customer
+    // nobody ever answers.
+    if (response.stop_reason === 'max_tokens' && !textSoFar && budget === MAX_TOKENS) {
+      console.warn('[amber-text] truncated at max_tokens — retrying with a larger budget', {
+        conversationId: opts.toolCtx.conversationId,
+        blocks: response.content.map((b) => (b.type === 'tool_use' ? `tool_use:${b.name}` : b.type)),
+      })
+      budget = MAX_TOKENS * 3
+      continue
+    }
     if (!hasToolUse || response.stop_reason === 'end_turn' || response.stop_reason === 'max_tokens') {
       finalText = response.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -816,5 +848,9 @@ async function generateAmberReply(opts: {
   }
 
   // Strip any stray voice markers (Amber over text never hangs up / transfers).
-  return finalText.replace(/\[\[(END_CALL|VOICEMAIL|TRANSFER)\]\]/g, '').replace(/\s…$/, '').trim()
+  const cleaned = finalText.replace(/\[\[(END_CALL|VOICEMAIL|TRANSFER)\]\]/g, '').replace(/\s…$/, '').trim()
+  // The model's way of saying "this needs no reply" (spam, a carrier promo, a vendor
+  // pitch) — see PROMPT_TEXT_STYLE_TEMPLATE. Never sent.
+  if (/^NO_REPLY\b/i.test(cleaned)) return NO_REPLY
+  return cleaned
 }

@@ -16,6 +16,7 @@ import { sendDirectTxtToPhone } from '@/lib/txt-send'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 import { getBusinessProfile } from '@/lib/business-profile'
 import { getAiTextBotUserId } from '@/lib/ai-text-identity'
+import { isWithinBusinessHours, type BusinessHoursSchedule } from '@/lib/twilio-voice'
 
 // AI Voice Receptionist — "wrap-up" endpoint (Phase 1a).
 //
@@ -509,13 +510,24 @@ export async function POST(request: Request) {
       console.warn('[voice.wrapup] directory sync failed', (e as Error).message)
     }
 
+    // "After-hours" was wrong for most of these: Amber also takes the calls nobody
+    // picked up during the day. Name the situation the office is actually in.
+    let inHours = false
+    try {
+      const { data: ds } = await admin.from('dialer_settings').select('business_hours').eq('company_id', companyId).maybeSingle()
+      inHours = isWithinBusinessHours(((ds as { business_hours?: BusinessHoursSchedule | null } | null)?.business_hours) ?? null)
+    } catch {
+      // label only — never fail the wrap-up over it
+    }
+    const callKind = inHours ? 'Missed call' : 'After-hours call'
+
     // Hub Queue — land the caller like any inbound so the office can triage.
     try {
       const queuePhone = fromNumber || callbackPhone
       if (queuePhone) {
         const contactId = await findOrCreateContactByPhone(admin, companyId, queuePhone)
         if (contactId) {
-          const preview = `☎️ After-hours AI call — ${service || 'message'} (${callerName})`
+          const preview = `☎️ ${callKind} (AI receptionist) — ${service || 'message'} (${callerName})`
           await ensureInboundQueueConversation(admin, {
             companyId,
             contactId,
@@ -543,7 +555,7 @@ export async function POST(request: Request) {
         .join(' · ')
       await postOfficeAlert(admin, companyId, {
         title:
-          `${urgentFlag ? '🔴 ' : ''}☎️ After-hours AI call: ${callerName}` +
+          `${urgentFlag ? '🔴 ' : ''}☎️ ${callKind} (AI receptionist): ${callerName}` +
           `${callbackPhone ? ` (${formatPhone(callbackPhone) || callbackPhone})` : ''}`,
         details: [
           extracted?.soft_commitment && '🔥 Soft commitment — said YES to moving forward',
