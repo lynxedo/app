@@ -43,6 +43,7 @@ import {
   clampReceptionistLevel,
 } from '@/lib/voice-receptionist'
 import { getAmberToolDefs, runAmberTool, handThreadToHuman, type AmberToolContext } from '@/lib/amber-tools'
+import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -516,6 +517,11 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
 
     const model = await getGuardianModel(admin, companyId).catch(() => CLAUDE_MODEL)
     const notes = await getActiveVoiceNotes(admin, companyId).catch(() => [])
+    // The company's own receptionist playbook (Admin → AI → Receptionist →
+    // instructions): per-service guidance, what to collect, pricing rules. Ben's
+    // first text test: she booked without explaining the $125 inspection or asking
+    // what was wrong — all of which the phone playbook covers.
+    const playbook = (await getEffectiveVoiceReceptionistSettings(admin, companyId).catch(() => null))?.instructions?.trim() || null
 
     // Account hint for a warm opener (the model still calls account_lookup for the
     // schedule). Name only — never a balance.
@@ -536,6 +542,7 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
       baseLevel,
       canSchedule,
       knownName,
+      playbook,
       notesBlock: buildNotesBlock(notes),
     })
     const system = await buildGuardianSystem({ companyId, knowledge: 'customer', surface: 'receptionist', task, jobberSummary, admin })
@@ -679,6 +686,8 @@ Pricing rules (follow exactly):
 ${PROMPT_TEXT_RULES_COMMON}`,
 }
 
+const PROMPT_TEXT_GATHER = `Before you book a service call or repair, find out what's going on — one question per text: what's wrong or what they're seeing, roughly where on the property or how many zones/areas, how long it's been happening, and anything the technician should know. Two or three questions is plenty; don't interrogate. Explain the visit the way the playbook says (what the fee covers, what the visit includes) before offering a day. When you book, pass what they told you to book_appointment as "details" so it goes on the job for the tech — never book a repair with nothing on the job about the problem.`
+
 const PROMPT_TEXT_HANDOFF = `When to hand the conversation to a person (use your hand_to_human tool, then send ONE short sign-off text and stop):
 - They ask for a person, a specific teammate, or say they don't want to text with an assistant.
 - They're upset, have a complaint, or describe an emergency or damage (a leak, flooding, water running, a safety issue). Lead with a sentence of empathy, then hand off.
@@ -692,6 +701,8 @@ function buildAmberTextTask(opts: {
   baseLevel: 1 | 2 | 3
   canSchedule: boolean
   knownName: string | null
+  /** The company's editable phone instructions, carried over to texting. */
+  playbook: string | null
   notesBlock: string
 }): string {
   // Ben (Oct 1 2026): no up-front "I'm a virtual receptionist" over text — it reads
@@ -704,8 +715,14 @@ function buildAmberTextTask(opts: {
   if (opts.knownName) {
     sections.push(`THIS THREAD: the number matches an existing contact named ${opts.knownName}. Use their name naturally, but don't assume it's them — a family member may share the phone.`)
   }
-  sections.push(PROMPT_TEXT_COLLECT, LEVEL_BEHAVIOR_TEXT[opts.baseLevel], CUSTOMER_SERVICE_INSTRUCTION)
-  if (opts.canSchedule) sections.push(TEXT_SCHEDULING_INSTRUCTION)
+  sections.push(PROMPT_TEXT_COLLECT, LEVEL_BEHAVIOR_TEXT[opts.baseLevel])
+  if (opts.playbook) {
+    sections.push(
+      `YOUR PHONE PLAYBOOK — the company's own instructions for you on the phone. Follow the same per-service guidance, what to collect, pricing rules, and how to close here, adapted to texting. IGNORE anything in it that only makes sense on a call: speaking aloud, pauses, "one moment", reading a number back, voicemail, transfers, recap texts, and the [[END_CALL]] / [[VOICEMAIL]] / [[TRANSFER]] markers (never write those).\n\n${opts.playbook}`,
+    )
+  }
+  sections.push(CUSTOMER_SERVICE_INSTRUCTION)
+  if (opts.canSchedule) sections.push(TEXT_SCHEDULING_INSTRUCTION, PROMPT_TEXT_GATHER)
   sections.push(PROMPT_TEXT_HANDOFF)
   if (opts.notesBlock) sections.push(opts.notesBlock) // LAST — the office's temporary instructions outrank everything above
   sections.push(`Reply with ONLY the exact text to send — no quotes, no labels, no commentary. Send at most one text.`)
