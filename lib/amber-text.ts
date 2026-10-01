@@ -77,12 +77,18 @@ type AmberDial = {
   headStartMinutes: number
 }
 
+// Every early exit says why — a silent skip is indistinguishable from a bug.
+function skip(conversationId: string, reason: string): void {
+  console.log('[amber-text] skip', { conversationId, reason })
+}
+
 async function resolveAmberDial(admin: Admin, companyId: string): Promise<AmberDial> {
-  const { data: vrs } = await admin
+  const { data: vrs, error: vrsErr } = await admin
     .from('voice_receptionist_settings')
     .select('level, text_enabled, text_level, text_autonomy, text_bot_user_id, receptionist_name, text_head_start_enabled, text_head_start_minutes')
     .eq('company_id', companyId)
     .maybeSingle()
+  if (vrsErr) console.warn('[amber-text] settings read failed', vrsErr.message)
   const v = (vrs || {}) as {
     level?: number | null
     text_enabled?: boolean | null
@@ -267,7 +273,7 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
       .eq('conversation_id', conversationId)
       .maybeSingle()
     const thread = threadData as ThreadRow | null
-    if (!thread || thread.status !== 'active') return
+    if (!thread || thread.status !== 'active') return skip(conversationId, `thread_${thread?.status ?? 'missing'}`)
 
     // Claim the turn: null next_turn_at so an overlapping cron tick won't re-select
     // this row while we generate. A human seize sets status='human' (checked again
@@ -276,15 +282,15 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
 
     const companyId = thread.company_id
     const dial = await resolveAmberDial(admin, companyId)
-    if (!dial.on) return // switched off mid-thread → quietly stop
+    if (!dial.on) return skip(conversationId, 'switch_off')
 
     // Ownership check #1 — a teammate may have claimed it during the grace.
     if (!(await conversationStillHers(admin, conversationId))) {
       await admin.from('amber_text_threads').update({ status: 'human', next_turn_at: null }).eq('id', thread.id).eq('status', 'active')
-      return
+      return skip(conversationId, 'claimed_before_turn')
     }
 
-    const { data: convRow } = await admin
+    const { data: convRow, error: convErr } = await admin
       .from('txt_conversations')
       .select(
         `id, kind, contact_id,
@@ -292,9 +298,9 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
       )
       .eq('id', conversationId)
       .maybeSingle()
-    if (!convRow) return
+    if (!convRow) return skip(conversationId, `conversation_not_loaded${convErr ? `: ${convErr.message}` : ''}`)
     const contact = (Array.isArray(convRow.contact) ? convRow.contact[0] : convRow.contact) as ContactRow | null
-    if (!contact) return
+    if (!contact) return skip(conversationId, 'no_contact')
     if (contact.do_not_text) {
       await admin.from('amber_text_threads').update({ status: 'opted_out', next_turn_at: null }).eq('id', thread.id)
       return
@@ -315,9 +321,9 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
       .order('created_at', { ascending: false })
       .limit(MAX_HISTORY_MESSAGES)
     const messages = ((msgData || []) as MessageRow[]).reverse() // chronological
-    if (messages.length === 0) return
+    if (messages.length === 0) return skip(conversationId, 'no_messages')
     const last = messages[messages.length - 1]
-    if (!last || last.direction !== 'inbound') return // nothing new from them since her last reply
+    if (!last || last.direction !== 'inbound') return skip(conversationId, 'last_message_not_inbound')
     const amberHasSpoken = messages.some((m) => m.direction === 'outbound' && m.is_ai)
     const lastInbound = (last.body || '').trim() || null
 
@@ -377,13 +383,13 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
 
     const finalText = await generateAmberReply({ model, system, userMessage, admin, toolCtx })
     const handedOffThisTurn = Boolean(toolCtx.handedOff)
-    if (!finalText) return
+    if (!finalText) return skip(conversationId, 'empty_reply')
 
     // ── RE-CHECK ownership + STOP right before sending ──
     const { data: fresh } = await admin.from('amber_text_threads').select('status').eq('id', thread.id).maybeSingle()
     const freshStatus = (fresh?.status as string | undefined) ?? ''
     const mayStillSend = freshStatus === 'active' || (freshStatus === 'handed_off' && handedOffThisTurn)
-    if (!mayStillSend) return // a human seized it mid-generation
+    if (!mayStillSend) return skip(conversationId, `seized_${freshStatus}`)
     if (!(await conversationStillHers(admin, conversationId))) {
       await admin.from('amber_text_threads').update({ status: 'human', next_turn_at: null }).eq('id', thread.id).in('status', ['active', 'handed_off'])
       return
@@ -588,8 +594,20 @@ async function generateAmberReply(opts: {
         .map((b) => b.text)
         .join('')
         .trim()
+      console.log('[amber-text] generated', {
+        conversationId: opts.toolCtx.conversationId,
+        round: i,
+        stop: response.stop_reason,
+        chars: finalText.length,
+        handedOff: Boolean(opts.toolCtx.handedOff),
+      })
       break
     }
+    console.log('[amber-text] tools', {
+      conversationId: opts.toolCtx.conversationId,
+      round: i,
+      names: response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use').map((b) => b.name),
+    })
 
     messages.push({ role: 'assistant', content: response.content })
     const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
