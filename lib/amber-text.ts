@@ -250,6 +250,19 @@ export async function maybeEnqueueAmberTurn(
 }
 
 /**
+ * "Thanks!", "Ok", 👍 after something we sent needs no action from Amber at all —
+ * no reply, no routing, no Amber record on the thread. It stays in the Queue
+ * exactly as it does today, for a person to glance at. Ben: "I just would rather
+ * a human make that decision than Amber." A first-ever text that happens to be
+ * short ("Yes") is NOT this — there's nothing we said for it to acknowledge.
+ */
+export async function inboundNeedsNoReply(admin: Admin, conversationId: string, body: string | null): Promise<boolean> {
+  if (!isBareAcknowledgment(body)) return false
+  const { data } = await admin.from('txt_messages').select('id').eq('conversation_id', conversationId).eq('direction', 'outbound').limit(1)
+  return Boolean(data && data.length)
+}
+
+/**
  * Ben's scenario (Oct 1 2026): Mike texts the customer during a treatment and
  * closes the thread; an hour later the customer texts a question for Mike. That
  * text should go back to Mike, not to Amber or the general Queue. So, before Amber
@@ -265,6 +278,9 @@ export async function routeInboundToTodaysTeammate(
   opts: { companyId: string; conversationId: string; contactId: string | null; preview: string | null },
 ): Promise<string | null> {
   try {
+    // Ben (Oct 1 2026): a bare "Thanks" / 👍 is never routed or assigned — it sits
+    // in the Queue untouched so a person decides whether anything needs doing.
+    if (isBareAcknowledgment(opts.preview)) return null
     const dial = await resolveAmberDial(admin, opts.companyId)
     if (!dial.on) return null
 
@@ -327,11 +343,6 @@ export async function routeInboundToTodaysTeammate(
       who = cc?.name?.trim() || (cc?.phone ? formatPhone(cc.phone) || cc.phone : who)
     }
     const preview = (opts.preview || '').trim()
-    if (isBareAcknowledgment(preview)) {
-      // "Thanks Mike!" after "I'm all done" — it's in their inbox, nothing to act on.
-      console.log('[amber-text] routed an acknowledgment to today\'s teammate quietly', { conversationId: opts.conversationId, userId: u.id })
-      return u.id
-    }
     const body =
       `📱 ${who} texted back after your conversation with them earlier today, so I put it in your Txt inbox instead of answering myself.` +
       (preview ? `\n\n"${preview.length > 240 ? preview.slice(0, 237) + '…' : preview}"` : '') +
