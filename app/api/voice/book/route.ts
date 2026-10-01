@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  let body: { from?: string; to?: string; callSid?: string; service?: string; date?: string; start?: string; end?: string; time_preference?: string } = {}
+  let body: { from?: string; to?: string; callSid?: string; service?: string; date?: string; start?: string; end?: string; time_preference?: string; details?: string } = {}
   try {
     body = (await request.json()) as typeof body
   } catch {
@@ -110,6 +110,10 @@ export async function POST(request: Request) {
   let startHHMM = typeof body.start === 'string' && HHMM_RE.test(body.start) ? body.start : ''
   let endHHMM = typeof body.end === 'string' && HHMM_RE.test(body.end) ? body.end : ''
   const from = typeof body.from === 'string' ? body.from : ''
+  // What the customer said about the problem — goes on the job for the tech.
+  const details = typeof body.details === 'string' ? body.details.trim().replace(/\s+/g, ' ').slice(0, 600) : ''
+  // Booked on a call, or over text (the text receptionist passes callSid "txt:<thread>").
+  const channel = typeof body.callSid === 'string' && body.callSid.startsWith('txt:') ? 'over text' : 'on a call'
 
   // How firm a time the caller was given — Ben's protocol (Sep 30 2026): no time is
   // the default and the preferred outcome ("no time frame means the customer is
@@ -309,7 +313,8 @@ export async function POST(request: Request) {
     // actually said, and whether anything was left for a human. A missing
     // neighborhood is called out by name rather than left as a silently short title.
     const instructionLines = [
-      `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked on a call with the AI receptionist.`,
+      `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked ${channel} with the AI receptionist.`,
+      details ? `Customer reported: ${details}` : null,
       `Anytime visit. ${preferenceLine}${ptf ? ` Noted on the title as "${ptf}"; the visit is deliberately left Anytime.` : ''}`,
       fromMap
         ? `Neighborhood taken from the neighborhood map${fromMap.nearBorder.length ? ` \u2014 \u26a0 the address is close to the ${fromMap.nearBorder.join(' / ')} border, please double-check` : ''}.`
@@ -417,7 +422,7 @@ export async function POST(request: Request) {
     clientId: jobberClientId,
     title: `${testMode ? '[TEST] ' : ''}${svc.line_item}${ptf ? ` ${ptf}` : ''}`,
     assessment: {
-      instructions: `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked via the AI receptionist. ${preferenceLine} Please confirm the exact time with the customer.`,
+      instructions: `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked ${channel} via the AI receptionist.${details ? ` Customer reported: ${details}` : ''} ${preferenceLine} Please confirm the exact time with the customer.`,
       schedule,
     },
   }

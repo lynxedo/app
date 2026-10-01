@@ -98,6 +98,7 @@ const BOOK_APPOINTMENT_TOOL: Anthropic.Tool = {
       service: { type: 'string', description: 'The service to book (same wording as find_availability).' },
       date: { type: 'string', description: 'The date as YYYY-MM-DD, exactly as given by find_availability.' },
       time_preference: { type: 'string', enum: ['none', 'am', 'pm', 'window'], description: '"none" = flexible (default); "am"/"pm" = morning/afternoon; "window" = a specific window (also pass start and end).' },
+      details: { type: 'string', description: "What they told you about the problem or the job, in a sentence or two, for the technician's note (e.g. 'Zone 3 not coming on; two heads leaking by the driveway; started last week')." },
       start: { type: 'string', description: 'Arrival-window start, HH:MM 24-hour — ONLY with time_preference "window".' },
       end: { type: 'string', description: 'Arrival-window end, HH:MM 24-hour — ONLY with time_preference "window".' },
     },
@@ -191,6 +192,7 @@ export async function runAmberTool(
         time_preference: str(args.time_preference),
         start: str(args.start),
         end: str(args.end),
+        details: str(args.details),
       })
     }
     if (name === 'hand_to_human') {
