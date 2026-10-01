@@ -220,14 +220,22 @@ export async function POST(request: Request) {
     const score = stops.sameNeighborhood > 0 ? 100 + stops.sameNeighborhood : stops.sameZip > 0 ? 10 + stops.sameZip : 0
     return { date: ymd, label: dateLabelForSpeech(ymd), stops, score, soonest: ymd === open[0] }
   }
-  const ranked = open.map(rank).sort((a, b) => b.score - a.score || a.date.localeCompare(b.date))
-  // The two best fits plus the soonest open day, so "as early as possible" is always
-  // one of the offers even when a later day fits the route better.
-  const chosen = ranked.slice(0, 2)
-  const soonest = ranked.find((d) => d.soonest)
-  if (soonest && !chosen.some((d) => d.date === soonest.date)) chosen.push(soonest)
-  else if (ranked[2]) chosen.push(ranked[2])
-  chosen.sort((a, b) => b.score - a.score || a.date.localeCompare(b.date))
+  // Fit beats earliness — but only among the SOONEST THREE open days. Ben's test
+  // (Oct 1 2026): one zip-code match eight days out outranked an open day five days
+  // out, and she led with "Friday the 9th" for a caller who could have had Tuesday.
+  // A later day with real neighborhood stops is still worth offering, so it replaces
+  // the window's weakest entry as an ALTERNATIVE — never the first offer.
+  const all = open.map(rank)
+  const byFit = (a: RankedDay, b: RankedDay) => b.score - a.score || a.date.localeCompare(b.date)
+  const chosen = all.slice(0, 3).sort(byFit)
+  const laterNeighborhood = all.slice(3).filter((d) => d.stops.sameNeighborhood > 0).sort(byFit)[0]
+  if (laterNeighborhood && chosen.length === 3 && (chosen[0]?.stops.sameNeighborhood ?? 0) === 0) {
+    const weakest = [...chosen].sort((a, b) => a.score - b.score || b.date.localeCompare(a.date))[0]
+    const idx = chosen.findIndex((d) => d.date === weakest?.date && !d.soonest)
+    if (idx >= 0) chosen[idx] = laterNeighborhood
+  }
+  chosen.sort(byFit)
+  const ranked = chosen
 
   const nearbyPhrase = (d: RankedDay): string => {
     if (d.stops.sameNeighborhood > 0 && locale.neighborhood) {
@@ -263,7 +271,7 @@ export async function POST(request: Request) {
 
   // A specific day the caller asked about ("can you do Thursday?").
   if (preferred) {
-    const hit = ranked.find((d) => d.date === preferred)
+    const hit = all.find((d) => d.date === preferred) // any open day, not just the three offered
     let why: string | null = null
     if (!hit) {
       if (preferred < todayYmd) why = 'that date is in the past'
