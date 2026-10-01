@@ -226,9 +226,20 @@ export async function maybeEnqueueAmberTurn(
     const evalRes = await evaluateAmberEngagement(admin, opts)
     if (!evalRes.engage) return
 
+    // Head start: ONLY before her first message in the thread. Once she's talking
+    // to someone, their replies get the normal typing grace — a 3-minute pause on
+    // every turn would make the conversation unusable (Ben, Oct 1 2026).
     let delayMs = AMBER_TURN_GRACE_MS
-    if (evalRes.dial.headStartEnabled && (await inBusinessHours(admin, opts.companyId))) {
-      delayMs = evalRes.dial.headStartMinutes * 60_000
+    if (evalRes.dial.headStartEnabled) {
+      const { data: existing } = await admin
+        .from('amber_text_threads')
+        .select('turn_count')
+        .eq('conversation_id', opts.conversationId)
+        .maybeSingle()
+      const sheHasSpoken = ((existing as { turn_count?: number } | null)?.turn_count ?? 0) > 0
+      if (!sheHasSpoken && (await inBusinessHours(admin, opts.companyId))) {
+        delayMs = evalRes.dial.headStartMinutes * 60_000
+      }
     }
     // turn_count / created_at are omitted so a NEW row gets its defaults while an
     // EXISTING active row keeps its count — we only (re)arm status + the due time.
