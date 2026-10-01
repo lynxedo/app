@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 type HubUserLite = { id: string; display_name: string; avatar_url: string | null }
 
@@ -45,7 +46,8 @@ export async function GET(request: Request) {
         duration_minutes, status, arrived_at, completed_at, notes,
         on_my_way_sent_at, on_my_way_eta_minutes, weather, pesticide_record_id,
         skip_reason_id, skip_reason_label, pesticide_tech_notes,
-        office_reviewed_at, office_reviewed_by
+        office_reviewed_at, office_reviewed_by,
+        contact_id, jobber_client_id, jobber_job_id
       )
     `)
     .eq('company_id', profile.company_id)
@@ -71,12 +73,66 @@ export async function GET(request: Request) {
   type StopRow = {
     id: string
     ord: number
+    jobber_visit_id?: string | null
     [key: string]: unknown
+  }
+
+  // Work Orders Phase 1 — attach the irrigation inspection done on each stop so
+  // the stop can say Start / Continue draft / View. Keyed on the Jobber visit id
+  // (stable across a route re-send, which recreates stop rows), falling back to
+  // stop_id. Read with the admin client, scoped to the company, and only for the
+  // stops the RLS'd entries query above already returned.
+  type InspLite = {
+    id: string; status: string; jobber_visit_id: string | null; stop_id: string | null
+    share_token: string | null; share_expires_at: string | null; finalized_at: string | null
+  }
+  const allStops = (entries ?? []).flatMap(e => (e.stops ?? []) as StopRow[])
+  const visitIds = allStops.map(s => s.jobber_visit_id).filter((x): x is string => !!x)
+  const stopIds = allStops.map(s => s.id)
+  const inspByVisit = new Map<string, InspLite>()
+  const inspByStop = new Map<string, InspLite>()
+  if (allStops.length > 0) {
+    const admin = createAdminClient()
+    const orParts = [
+      visitIds.length > 0 ? `jobber_visit_id.in.(${visitIds.map(v => `"${v}"`).join(',')})` : null,
+      `stop_id.in.(${stopIds.join(',')})`,
+    ].filter((x): x is string => !!x)
+    const { data: insps } = await admin
+      .from('irrigation_inspections')
+      .select('id, status, jobber_visit_id, stop_id, share_token, share_expires_at, finalized_at')
+      .eq('company_id', profile.company_id)
+      .or(orParts.join(','))
+      .order('finalized_at', { ascending: false, nullsFirst: true })
+    for (const i of (insps ?? []) as InspLite[]) {
+      // A draft outranks an older final (the tech is mid-inspection); among
+      // finals the newest wins (ordering above).
+      if (i.jobber_visit_id) {
+        const cur = inspByVisit.get(i.jobber_visit_id)
+        if (!cur || (i.status === 'draft' && cur.status !== 'draft')) inspByVisit.set(i.jobber_visit_id, i)
+      }
+      if (i.stop_id) {
+        const cur = inspByStop.get(i.stop_id)
+        if (!cur || (i.status === 'draft' && cur.status !== 'draft')) inspByStop.set(i.stop_id, i)
+      }
+    }
+  }
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
+  const inspectionFor = (s: StopRow) => {
+    const i = (s.jobber_visit_id ? inspByVisit.get(s.jobber_visit_id) : undefined) ?? inspByStop.get(s.id)
+    if (!i) return null
+    const shareActive = !!i.share_token && (!i.share_expires_at || new Date(i.share_expires_at) > new Date())
+    return {
+      id: i.id,
+      status: i.status === 'final' ? 'final' : 'draft',
+      share_url: i.status === 'final' && shareActive ? `${baseUrl}/irrigation/${i.share_token}` : null,
+    }
   }
 
   const sorted = (entries ?? []).map(e => ({
     ...e,
-    stops: [...((e.stops ?? []) as StopRow[])].sort((a, b) => a.ord - b.ord),
+    stops: [...((e.stops ?? []) as StopRow[])]
+      .sort((a, b) => a.ord - b.ord)
+      .map(s => ({ ...s, inspection: inspectionFor(s) })),
     secondary_techs: ((e.secondary_tech_user_ids ?? []) as string[])
       .map(id => techMap.get(id))
       .filter((t): t is HubUserLite => Boolean(t)),

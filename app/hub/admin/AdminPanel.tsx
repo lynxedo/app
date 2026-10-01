@@ -114,7 +114,7 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
     title: 'Field',
     items: [
       { key: 'can_access_timesheet', label: 'Timesheet' },
-      { key: 'can_access_daily_log_v2', label: 'Daily Log v2' },
+      { key: 'can_access_daily_log_v2', label: 'Work Orders' },
       { key: 'can_access_routing', label: 'Routing' },
       { key: 'can_access_fleet', label: 'Fleet Tracker' },
       { key: 'can_access_forms', label: 'Forms' },
