@@ -747,7 +747,13 @@ export default function TxtV2Sidebar({
                             {unread && (
                               <span className="w-2 h-2 rounded-full bg-orange-400 flex-none" aria-label="Unread" />
                             )}
-                            {activityIcon(c)}
+                            {!c.assigned_to && c.amber_status === 'active' && (
+                        <span className="flex-none text-[12px] leading-none" title="Amber is answering this thread">🤖</span>
+                      )}
+                      {!c.assigned_to && c.amber_status === 'handed_off' && (
+                        <span className="flex-none text-[12px] leading-none" title="Amber stopped — needs a human">🙋</span>
+                      )}
+                      {activityIcon(c)}
                             <span className={`text-sm truncate ${unread ? 'font-semibold text-white' : 'font-medium'}`}>
                               <AiDot c={c} />{displayNameFor(c)}
                             </span>
@@ -798,7 +804,16 @@ export default function TxtV2Sidebar({
                 const active = pathname === `/hub/txt/${c.id}`
                 const busy = actioningId === c.id
                 return (
-                  <li key={c.id} className="border-l-2 border-orange-400/70">
+                  <li
+                    key={c.id}
+                    className={`border-l-2 ${
+                      c.amber_status === 'handed_off'
+                        ? 'border-amber-400 bg-amber-500/[0.10]'
+                        : c.amber_status === 'active'
+                          ? 'border-sky-400 bg-sky-500/[0.08]'
+                          : 'border-orange-400/70'
+                    }`}
+                  >
                     <Link
                       href={`/hub/txt/${c.id}`}
                       onClick={(e) => { if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openTxtTab(c); return } onClose?.() }}
@@ -806,7 +821,13 @@ export default function TxtV2Sidebar({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="flex items-center gap-1.5 min-w-0">
-                          {activityIcon(c)}
+                          {!c.assigned_to && c.amber_status === 'active' && (
+                        <span className="flex-none text-[12px] leading-none" title="Amber is answering this thread">🤖</span>
+                      )}
+                      {!c.assigned_to && c.amber_status === 'handed_off' && (
+                        <span className="flex-none text-[12px] leading-none" title="Amber stopped — needs a human">🙋</span>
+                      )}
+                      {activityIcon(c)}
                           <span className="font-medium text-sm truncate">
                             <AiDot c={c} />{displayNameFor(c)}
                           </span>
@@ -918,7 +939,11 @@ export default function TxtV2Sidebar({
                   className={`block px-4 py-2 border-l-2 ${
                     active
                       ? 'bg-white/5 border-emerald-400'
-                      : 'border-transparent hover:bg-white/5'
+                      : !c.assigned_to && c.amber_status === 'handed_off'
+                        ? 'border-amber-400 bg-amber-500/[0.10] hover:bg-amber-500/[0.14]'
+                        : !c.assigned_to && c.amber_status === 'active'
+                          ? 'border-sky-400 bg-sky-500/[0.08] hover:bg-sky-500/[0.12]'
+                          : 'border-transparent hover:bg-white/5'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -928,6 +953,12 @@ export default function TxtV2Sidebar({
                           className="w-2 h-2 rounded-full bg-orange-400 flex-none"
                           aria-label="Unread"
                         />
+                      )}
+                      {!c.assigned_to && c.amber_status === 'active' && (
+                        <span className="flex-none text-[12px] leading-none" title="Amber is answering this thread">🤖</span>
+                      )}
+                      {!c.assigned_to && c.amber_status === 'handed_off' && (
+                        <span className="flex-none text-[12px] leading-none" title="Amber stopped — needs a human">🙋</span>
                       )}
                       {activityIcon(c)}
                       <span className={`text-sm truncate ${unread ? 'font-semibold text-white' : 'font-medium'}`}>

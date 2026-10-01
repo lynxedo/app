@@ -30,8 +30,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { sendDirectTxtMessage } from '@/lib/txt-send'
+import { fanoutGuardianNotification } from '@/lib/guardian-post'
+import { formatPhone } from '@/lib/format'
 import { lookupByPhone } from '@/lib/dialer-lookup'
-import { buildTodayLine, getSchedulingEnabled } from '@/lib/voice-scheduling'
+import { buildTodayLine, centralYmd, getSchedulingEnabled } from '@/lib/voice-scheduling'
 import { buildNotesBlock, getActiveVoiceNotes } from '@/lib/voice-notes'
 import { isWithinBusinessHours, type BusinessHoursSchedule } from '@/lib/twilio-voice'
 import {
@@ -151,10 +153,17 @@ async function evaluateAmberEngagement(
     if ((data as { do_not_text?: boolean } | null)?.do_not_text) return { engage: false, dial, reason: 'do_not_text' }
   }
 
-  // Never answer the company's own numbers (a test from the other line, a relay).
+  // Never answer the company's own numbers (a test from the other line, a relay),
+  // and never a teammate texting the main line from their own cell.
   if (opts.phone) {
     const { data: own } = await admin.from('txt_phone_numbers').select('id').eq('company_id', opts.companyId).eq('twilio_number', opts.phone).limit(1)
     if (own && own.length) return { engage: false, dial, reason: 'internal_number' }
+    const last10 = opts.phone.replace(/\D/g, '').slice(-10)
+    if (last10.length === 10) {
+      const { data: staff } = await admin.from('user_profiles').select('id, phone').eq('company_id', opts.companyId).not('phone', 'is', null).is('deactivated_at', null)
+      const hit = ((staff as { id: string; phone: string | null }[] | null) ?? []).some((u) => (u.phone || '').replace(/\D/g, '').slice(-10) === last10)
+      if (hit) return { engage: false, dial, reason: 'staff_number' }
+    }
   }
 
   // Her own thread record: none yet or 'active' = hers; a human seized it, she
@@ -215,6 +224,97 @@ export async function maybeEnqueueAmberTurn(
     )
   } catch (err) {
     console.warn('[amber-text] maybeEnqueueAmberTurn failed', err)
+  }
+}
+
+/**
+ * Ben's scenario (Oct 1 2026): Mike texts the customer during a treatment and
+ * closes the thread; an hour later the customer texts a question for Mike. That
+ * text should go back to Mike, not to Amber or the general Queue. So, before Amber
+ * is offered an inbound: if a real teammate (not the bot) sent the last human text
+ * in this thread EARLIER TODAY (Central), assign the thread to them, DM them from
+ * the assistant with the message, and keep Amber out. The regular inbound push
+ * then goes to the new owner because the thread is assigned by the time it runs.
+ * Only while "Reply to texts" is on (it's part of her protocol). Returns the user
+ * id it routed to, or null. Never throws.
+ */
+export async function routeInboundToTodaysTeammate(
+  admin: Admin,
+  opts: { companyId: string; conversationId: string; contactId: string | null; preview: string | null },
+): Promise<string | null> {
+  try {
+    const dial = await resolveAmberDial(admin, opts.companyId)
+    if (!dial.on) return null
+
+    const { data: convData } = await admin
+      .from('txt_conversations')
+      .select('id, kind, status, assigned_to')
+      .eq('id', opts.conversationId)
+      .maybeSingle()
+    const conv = convData as { kind: string | null; status: string | null; assigned_to: string | null } | null
+    if (!conv || (conv.kind || 'direct') !== 'direct') return null
+    if (conv.status !== 'unassigned' || conv.assigned_to) return null
+
+    // The most recent outbound in the last day, with who sent it.
+    const { data: outs } = await admin
+      .from('txt_messages')
+      .select('sent_by, is_ai, created_at')
+      .eq('conversation_id', opts.conversationId)
+      .eq('direction', 'outbound')
+      .gt('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+    const last = ((outs as { sent_by: string | null; is_ai: boolean | null; created_at: string }[] | null) ?? [])[0]
+    if (!last || last.is_ai || !last.sent_by) return null
+    if (dial.botUserId && last.sent_by === dial.botUserId) return null
+    if (centralYmd(new Date(last.created_at)) !== centralYmd(new Date())) return null // earlier TODAY only
+
+    // A real, active teammate who can work texts.
+    const { data: prof } = await admin
+      .from('user_profiles')
+      .select('id, role, can_access_txt, deactivated_at, locked_at')
+      .eq('id', last.sent_by)
+      .eq('company_id', opts.companyId)
+      .maybeSingle()
+    const u = prof as { id: string; role: string | null; can_access_txt: boolean | null; deactivated_at: string | null; locked_at: string | null } | null
+    if (!u || u.deactivated_at || u.locked_at) return null
+    if (!(u.role === 'admin' || u.can_access_txt)) return null
+    const { data: bot } = await admin.from('hub_users').select('is_bot').eq('id', u.id).maybeSingle()
+    if ((bot as { is_bot?: boolean } | null)?.is_bot) return null
+
+    // Assign — mirrors app/api/txt/conversations/[id]/assign.
+    await admin.from('txt_conversation_members').delete().eq('conversation_id', opts.conversationId).eq('role', 'owner')
+    await admin.from('txt_conversation_members').delete().match({ conversation_id: opts.conversationId, user_id: u.id })
+    await admin.from('txt_conversation_members').insert({ conversation_id: opts.conversationId, user_id: u.id, role: 'owner', added_by: dial.botUserId ?? u.id })
+    const { error: updErr } = await admin
+      .from('txt_conversations')
+      .update({ assigned_to: u.id, status: 'assigned' })
+      .eq('id', opts.conversationId)
+      .eq('status', 'unassigned')
+    if (updErr) return null
+    // Amber stays out of it from here.
+    await admin.from('amber_text_threads').upsert(
+      { company_id: opts.companyId, conversation_id: opts.conversationId, status: 'human', next_turn_at: null },
+      { onConflict: 'conversation_id' },
+    )
+
+    let who = 'A customer'
+    if (opts.contactId && UUID_RE.test(opts.contactId)) {
+      const { data: c } = await admin.from('txt_contacts').select('name, phone').eq('id', opts.contactId).maybeSingle()
+      const cc = c as { name: string | null; phone: string | null } | null
+      who = cc?.name?.trim() || (cc?.phone ? formatPhone(cc.phone) || cc.phone : who)
+    }
+    const preview = (opts.preview || '').trim()
+    const body =
+      `📱 ${who} texted back after your conversation with them earlier today, so I put it in your Txt inbox instead of answering myself.` +
+      (preview ? `\n\n"${preview.length > 240 ? preview.slice(0, 237) + '…' : preview}"` : '') +
+      `\n\nOpen it: /hub/txt/${opts.conversationId}`
+    await fanoutGuardianNotification({ companyId: opts.companyId, userIds: [u.id], roomIds: [], body, admin })
+    console.log('[amber-text] routed to today\'s teammate', { conversationId: opts.conversationId, userId: u.id })
+    return u.id
+  } catch (err) {
+    console.warn('[amber-text] routeInboundToTodaysTeammate failed', opts.conversationId, err)
+    return null
   }
 }
 
@@ -324,7 +424,6 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
     if (messages.length === 0) return skip(conversationId, 'no_messages')
     const last = messages[messages.length - 1]
     if (!last || last.direction !== 'inbound') return skip(conversationId, 'last_message_not_inbound')
-    const amberHasSpoken = messages.some((m) => m.direction === 'outbound' && m.is_ai)
     const lastInbound = (last.body || '').trim() || null
 
     const toolCtx: AmberToolContext = {
@@ -371,7 +470,6 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
       name,
       baseLevel,
       canSchedule,
-      firstAmberMessage: !amberHasSpoken,
       knownName,
       notesBlock: buildNotesBlock(notes),
     })
@@ -467,11 +565,13 @@ export async function seizeAmberThreadForHuman(admin: Admin, opts: { conversatio
 
 // ─── Prompt assembly (SMS task layered onto the shared brain) ─────────────────
 
-const PROMPT_TEXT_STYLE = `How to text:
+const PROMPT_TEXT_STYLE_TEMPLATE = `How to text:
 - This is a live SMS conversation. Keep EVERY reply short — one or two sentences, the way a real person texts. Ask for ONE thing at a time and wait for their answer. Never send a long paragraph, a list, or several questions at once.
 - Plain text only: no markdown, asterisks, bullet points, emoji, links, or formatting. Write numbers, dates, and times the way a person would type them.
 - Be warm, friendly, and human. Acknowledge what they said before moving on. Don't repeat an empathetic line more than once.
-- Don't say "hey there" or re-greet someone mid-conversation, and don't repeat the company name back to them.`
+- Don't say "hey there" or re-greet someone mid-conversation, and don't repeat the company name back to them.
+- Don't announce that you're an assistant or a bot, and never sign your texts with a title. If they ask whether they're texting a real person, or who you are, say you're ${'{'}NAME{'}'}, the team's virtual assistant — never claim to be human, and never pretend to be a specific teammate.
+- If they send a photo or attachment, you can't view it over text: say so plainly, and if seeing it matters (a leak, damage, a part), hand the thread to a person.`
 
 const PROMPT_TEXT_COLLECT = `What to find out — one question per text, as it fits the flow (you already have their phone number, so never ask for it):
 - Their name, if you don't have it yet.
@@ -525,20 +625,16 @@ function buildAmberTextTask(opts: {
   name: string
   baseLevel: 1 | 2 | 3
   canSchedule: boolean
-  firstAmberMessage: boolean
   knownName: string | null
   notesBlock: string
 }): string {
+  // Ben (Oct 1 2026): no up-front "I'm a virtual receptionist" over text — it reads
+  // oddly in SMS; she identifies as the team's virtual assistant only when asked.
   const sections: string[] = [
     buildTodayLine(),
-    `YOUR TASK — You are ${opts.name}, the company's virtual receptionist, answering a text to the company's number. Help them the way you would on a call: answer what you can from the company knowledge, look things up with your tools, get them booked when they want that, and hand the thread to a person the moment you hit something you can't handle.`,
-    PROMPT_TEXT_STYLE,
+    `YOUR TASK — You are ${opts.name}, answering a text to the company's number on behalf of the team. Help them the way you would on a call: answer what you can from the company knowledge, look things up with your tools, get them booked when they want that, and hand the thread to a person the moment you hit something you can't handle.`,
+    PROMPT_TEXT_STYLE_TEMPLATE.replace(/\{NAME\}/g, opts.name),
   ]
-  if (opts.firstAmberMessage) {
-    sections.push(
-      `IMPORTANT — this is your FIRST reply in this thread. Before anything else, briefly and naturally let them know they're texting with ${opts.name}, the company's virtual receptionist (for example, "Hi, this is ${opts.name}, the virtual receptionist for the team"). You must include this the first time. Never pretend to be a specific real person.`,
-    )
-  }
   if (opts.knownName) {
     sections.push(`THIS THREAD: the number matches an existing contact named ${opts.knownName}. Use their name naturally, but don't assume it's them — a family member may share the phone.`)
   }

@@ -14,7 +14,7 @@ import { enrichTxtContactName } from '@/lib/dialer-lookup'
 import { contactDisplayName, isPlaceholderName } from '@/lib/contact-name'
 import { parseLsaRelay } from '@/lib/lsa-relay'
 import { pauseEnrollmentsForInbound } from '@/lib/drip'
-import { maybeEnqueueAmberTurn, resetAmberThreadOnReopen } from '@/lib/amber-text'
+import { maybeEnqueueAmberTurn, resetAmberThreadOnReopen, routeInboundToTodaysTeammate } from '@/lib/amber-text'
 import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
 import { isNumberBlocked } from '@/lib/blocked-numbers'
 
@@ -509,7 +509,10 @@ async function processInboundSideEffects(args: {
   if (compliance !== 'stop') {
     try {
       if (reopened) await resetAmberThreadOnReopen(supabase, conversationId)
-      await maybeEnqueueAmberTurn(supabase, {
+      // A customer texting back the teammate who was texting them earlier today
+      // goes to that teammate (assigned + DM'd), not to Amber or the Queue.
+      const routedTo = await routeInboundToTodaysTeammate(supabase, { companyId, conversationId, contactId, preview: body || null })
+      if (!routedTo) await maybeEnqueueAmberTurn(supabase, {
         companyId,
         conversationId,
         contactId,
