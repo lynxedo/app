@@ -697,6 +697,8 @@ Pricing rules (follow exactly):
 ${PROMPT_TEXT_RULES_COMMON}`,
 }
 
+const PROMPT_TEXT_TRUTH = `The account lookup is the truth about the schedule. If it says there's no upcoming visit, there isn't one — even if earlier texts in this thread (including your own) said something was booked. Never tell someone they have an appointment unless the lookup shows it; if they ask about one that isn't there, say you don't see it on the schedule and offer to get them booked.`
+
 const PROMPT_TEXT_GATHER = `Before you book a service call or repair, find out what's going on — one question per text: what's wrong or what they're seeing, roughly where on the property or how many zones/areas, how long it's been happening, and anything the technician should know. Two or three questions is plenty; don't interrogate. Explain the visit the way the playbook says (what the fee covers, what the visit includes) before offering a day. When you book, pass what they told you to book_appointment as "details" so it goes on the job for the tech — never book a repair with nothing on the job about the problem.`
 
 const PROMPT_TEXT_HANDOFF = `When to hand the conversation to a person (use your hand_to_human tool, then send ONE short sign-off text and stop):
@@ -732,7 +734,7 @@ function buildAmberTextTask(opts: {
       `YOUR PHONE PLAYBOOK — the company's own instructions for you on the phone. Follow the same per-service guidance, what to collect, pricing rules, and how to close here, adapted to texting. IGNORE anything in it that only makes sense on a call: speaking aloud, pauses, "one moment", reading a number back, voicemail, transfers, recap texts, and the [[END_CALL]] / [[VOICEMAIL]] / [[TRANSFER]] markers (never write those).\n\n${opts.playbook}`,
     )
   }
-  sections.push(CUSTOMER_SERVICE_INSTRUCTION)
+  sections.push(CUSTOMER_SERVICE_INSTRUCTION, PROMPT_TEXT_TRUTH)
   if (opts.canSchedule) sections.push(TEXT_SCHEDULING_INSTRUCTION, PROMPT_TEXT_GATHER)
   sections.push(PROMPT_TEXT_HANDOFF)
   if (opts.notesBlock) sections.push(opts.notesBlock) // LAST — the office's temporary instructions outrank everything above
