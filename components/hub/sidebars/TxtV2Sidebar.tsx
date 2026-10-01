@@ -29,6 +29,8 @@ type Conversation = {
   created_at: string
   contact: { id: string; name: string; name_source?: string | null; phone: string; do_not_text: boolean } | null
   assignee: { id: string; display_name: string } | null
+  /** Amber-over-text: 'active' = she's answering; 'handed_off' = she stopped and a person is needed. */
+  amber_status?: 'active' | 'human' | 'handed_off' | 'opted_out' | 'completed' | null
   members?: Array<{ user_id: string; role?: string | null }>
   group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
   phone_number_id?: string | null
@@ -810,7 +812,13 @@ export default function TxtV2Sidebar({
                           </span>
                         </span>
                         <span className="flex items-center gap-1.5 flex-none">
-                          {showNumberBadges && numberLabelFor(c) && (
+                          {!c.assigned_to && c.amber_status === 'active' && (
+                        <span className="px-1 py-0.5 rounded bg-sky-500/15 text-sky-300 text-[9px] uppercase tracking-wide">Amber</span>
+                      )}
+                      {!c.assigned_to && c.amber_status === 'handed_off' && (
+                        <span className="px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] uppercase tracking-wide">Needs a human</span>
+                      )}
+                      {showNumberBadges && numberLabelFor(c) && (
                             <span className="px-1 py-0.5 rounded bg-white/10 text-white/55 uppercase tracking-wide text-[9px]">
                               {numberLabelFor(c)}
                             </span>
@@ -935,6 +943,12 @@ export default function TxtV2Sidebar({
                       {previewFor(c)}
                     </span>
                     <span className="flex items-center gap-1 text-[10px] flex-none">
+                      {!c.assigned_to && c.amber_status === 'active' && (
+                        <span className="px-1 py-0.5 rounded bg-sky-500/15 text-sky-300 text-[9px] uppercase tracking-wide">Amber</span>
+                      )}
+                      {!c.assigned_to && c.amber_status === 'handed_off' && (
+                        <span className="px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] uppercase tracking-wide">Needs a human</span>
+                      )}
                       {showNumberBadges && numberLabelFor(c) && (
                         <span className="px-1 py-0.5 rounded bg-white/10 text-white/55 uppercase tracking-wide text-[9px]">
                           {numberLabelFor(c)}

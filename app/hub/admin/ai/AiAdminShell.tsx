@@ -51,6 +51,9 @@ type VoiceReceptionistInitial = {
   instructions: string
   voice_id: string
   recap_text_enabled: boolean
+  text_enabled: boolean
+  text_head_start_enabled: boolean
+  text_head_start_minutes: number
   transfer_method: string
   transfer_user_ids: string[]
   transfer_cell_numbers: Record<string, string>

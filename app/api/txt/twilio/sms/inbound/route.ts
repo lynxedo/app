@@ -14,7 +14,7 @@ import { enrichTxtContactName } from '@/lib/dialer-lookup'
 import { contactDisplayName, isPlaceholderName } from '@/lib/contact-name'
 import { parseLsaRelay } from '@/lib/lsa-relay'
 import { pauseEnrollmentsForInbound } from '@/lib/drip'
-import { maybeEnqueueAmberTurn } from '@/lib/amber-text'
+import { maybeEnqueueAmberTurn, resetAmberThreadOnReopen } from '@/lib/amber-text'
 import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
 import { isNumberBlocked } from '@/lib/blocked-numbers'
 
@@ -240,10 +240,12 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
 
   let conversationId: string
+  let reopened = false
   if (existingConv) {
     conversationId = existingConv.id
     const reopenPatch: Record<string, unknown> = {}
     const reopening = existingConv.status === 'archived'
+    reopened = reopening
     if (reopening) {
       // Reopen UNASSIGNED, with a genuinely clean slate. The archive paths already
       // clear the owner + drop every member, so this is normally a no-op — but the
@@ -412,7 +414,7 @@ export async function POST(req: NextRequest) {
         }
       }
       await processInboundSideEffects({
-        supabase, companyId, conversationId, contactId, from, body, compliance, now, sid,
+        supabase, companyId, conversationId, contactId, from, body, compliance, now, sid, reopened,
       })
     } catch (err) {
       console.warn('[txt:inbound] background processing failed', err)
@@ -435,8 +437,10 @@ async function processInboundSideEffects(args: {
   compliance: ComplianceKind
   now: string
   sid: string
+  /** The thread was archived and this text reopened it (a fresh conversation). */
+  reopened?: boolean
 }) {
-  const { supabase, companyId, conversationId, contactId, from, body, compliance, now } = args
+  const { supabase, companyId, conversationId, contactId, from, body, compliance, now, reopened } = args
 
   // Drip auto-pause (Drip Marketing PRD §6): the instant a lead replies, stop
   // their active drip enrollments so a human/Amber takes over — STOP → opted_out,
@@ -495,13 +499,21 @@ async function processInboundSideEffects(args: {
     } catch (err) {
       console.warn('[txt:inbound] drip auto-move failed', err)
     }
+  }
+
+  // Amber replies to texts (Oct 1 2026): offer EVERY non-STOP inbound to her. She
+  // decides inside (switch on, thread unassigned + one-on-one, not opted out, not
+  // our own number, not already handed to a human) and schedules her turn for the
+  // cron. A thread this text just REOPENED from the archive is a fresh conversation,
+  // so her old record (human-seized / handed off) is dropped first.
+  if (compliance !== 'stop') {
     try {
+      if (reopened) await resetAmberThreadOnReopen(supabase, conversationId)
       await maybeEnqueueAmberTurn(supabase, {
         companyId,
         conversationId,
         contactId,
         phone: from,
-        phoneNumberId: null, // per-line dial resolved inside; null fails closed (dark) until wired
         enrollmentId: pausedEnrollmentIds[0] ?? null,
       })
     } catch (err) {

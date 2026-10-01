@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { amberStatusByConversation } from '@/lib/amber-text'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
 import { getAssistantPersona } from '@/lib/ai-persona'
 
@@ -102,8 +103,11 @@ export async function GET(
   }
 
   const msgs = (messagesResult.data ?? []).slice().reverse()
+  // Amber-over-text status for the header chip ("Amber is answering" / "Needs a human").
+  const amberStatus = (await amberStatusByConversation(createAdminClient(), [id]).catch(() => new Map())).get(id) ?? null
+
   return NextResponse.json({
-    conversation: convResult.data,
+    conversation: { ...convResult.data, amber_status: amberStatus },
     // Reverse newest-N back to chronological order for the chat view (#33).
     messages: msgs,
     // True when there may be more messages before the earliest one loaded.

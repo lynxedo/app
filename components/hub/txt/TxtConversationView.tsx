@@ -65,6 +65,8 @@ type Conversation = {
   contact: Contact | null
   assignee: { id: string; display_name: string } | null
   phone_number_id?: string | null
+  /** Amber-over-text: 'active' = she's answering this thread; 'handed_off' = she stopped, a person is needed. */
+  amber_status?: 'active' | 'human' | 'handed_off' | 'opted_out' | 'completed' | null
   // Google Local Services relay — see lib/lsa-relay.ts.
   lsa_relay?: boolean | null
   lsa_location?: string | null
@@ -1596,6 +1598,17 @@ export default function TxtConversationView({
             )
           })()}
 
+          {/* Amber-over-text — she answers unclaimed threads; Claim (or reply) takes over. */}
+          {isUnassigned && conversation.amber_status === 'active' && (
+            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 text-[11px] whitespace-nowrap" title="Amber is answering this thread. Claim it or reply to take over.">
+              Amber is answering
+            </span>
+          )}
+          {isUnassigned && conversation.amber_status === 'handed_off' && (
+            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[11px] whitespace-nowrap" title="Amber stopped and asked for a person. Claim it to take over.">
+              Needs a human
+            </span>
+          )}
           {/* MEMBERS — overlapping circles instead of one first-name-plus-×
               chip each (~66px for three, vs ~132px for two as text). Tapping
               the cluster opens the manage popover: a 10px × inside a 24px
