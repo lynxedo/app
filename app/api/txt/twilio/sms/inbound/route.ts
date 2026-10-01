@@ -14,7 +14,7 @@ import { enrichTxtContactName } from '@/lib/dialer-lookup'
 import { contactDisplayName, isPlaceholderName } from '@/lib/contact-name'
 import { parseLsaRelay } from '@/lib/lsa-relay'
 import { pauseEnrollmentsForInbound } from '@/lib/drip'
-import { maybeEnqueueAmberTurn, resetAmberThreadOnReopen, routeInboundToTodaysTeammate } from '@/lib/amber-text'
+import { inboundNeedsNoReply, maybeEnqueueAmberTurn, resetAmberThreadOnReopen, routeInboundToTodaysTeammate } from '@/lib/amber-text'
 import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
 import { isNumberBlocked } from '@/lib/blocked-numbers'
 
@@ -509,10 +509,14 @@ async function processInboundSideEffects(args: {
   if (compliance !== 'stop') {
     try {
       if (reopened) await resetAmberThreadOnReopen(supabase, conversationId)
-      // A customer texting back the teammate who was texting them earlier today
-      // goes to that teammate (assigned + DM'd), not to Amber or the Queue.
-      const routedTo = await routeInboundToTodaysTeammate(supabase, { companyId, conversationId, contactId, preview: body || null })
-      if (!routedTo) await maybeEnqueueAmberTurn(supabase, {
+      // A bare "Thanks" / 👍 is left alone entirely — it sits in the Queue for a
+      // person to glance at, as it always has. Otherwise: a customer texting back
+      // the teammate who was texting them earlier today goes to that teammate
+      // (assigned + DM'd); anyone else is offered to Amber.
+      const noReply = await inboundNeedsNoReply(supabase, conversationId, body || null)
+      const routedTo = noReply ? null : await routeInboundToTodaysTeammate(supabase, { companyId, conversationId, contactId, preview: body || null })
+      if (noReply) console.log('[txt:inbound] acknowledgment — left in the Queue for a person', { conversationId })
+      if (!noReply && !routedTo) await maybeEnqueueAmberTurn(supabase, {
         companyId,
         conversationId,
         contactId,
