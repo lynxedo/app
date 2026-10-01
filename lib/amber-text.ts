@@ -58,7 +58,10 @@ const AMBER_MAX_TURNS = 8
 
 const MAX_HISTORY_MESSAGES = 20
 const MAX_TOOL_ITERATIONS = 6
-const MAX_TOKENS = 320 // SMS-length replies
+// SMS-length replies — but a TOOL CALL (its JSON input, a hand-off summary) counts
+// against this too. 320 truncated a tool_use into an empty reply on the first live
+// morning (stop_reason max_tokens, zero text). Generous here, short by prompt.
+const MAX_TOKENS = 900
 
 const UUID_RE = /^[0-9a-f-]{36}$/i
 
@@ -253,8 +256,20 @@ export async function maybeEnqueueAmberTurn(
  */
 export async function inboundNeedsNoReply(admin: Admin, conversationId: string, body: string | null): Promise<boolean> {
   if (!isBareAcknowledgment(body)) return false
-  const { data } = await admin.from('txt_messages').select('id').eq('conversation_id', conversationId).eq('direction', 'outbound').limit(1)
-  return Boolean(data && data.length)
+  // Everything they've sent since our last message. If any of it is substantive
+  // ("I need a sprinkler repair" … then "No"), the run still needs an answer — the
+  // "No" doesn't cancel the question in front of it.
+  const { data } = await admin
+    .from('txt_messages')
+    .select('direction, body, media_urls')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(12)
+  const rows = ((data as MessageRow[] | null) ?? [])
+  const lastOutboundIdx = rows.findIndex((m) => m.direction === 'outbound')
+  if (lastOutboundIdx === -1) return false // nothing of ours to acknowledge yet
+  const unanswered = rows.slice(0, lastOutboundIdx) // newest first, all inbound
+  return unanswered.every((m) => isBareAcknowledgment(m.body) && !(Array.isArray(m.media_urls) && m.media_urls.length))
 }
 
 /**
@@ -458,9 +473,15 @@ export async function runAmberTextTurn(admin: Admin, opts: { conversationId: str
     const last = messages[messages.length - 1]
     if (!last || last.direction !== 'inbound') return skip(conversationId, 'last_message_not_inbound')
     const lastInbound = (last.body || '').trim() || null
-    const priorOutbound = messages.slice(0, -1).some((m) => m.direction === 'outbound')
-    if (priorOutbound && isBareAcknowledgment(lastInbound) && !(Array.isArray(last.media_urls) && last.media_urls.length)) {
-      // A closing ("Thanks!", "Ok", 👍) after something we sent needs no answer.
+    // The run of their texts since our last message. Skip only when ALL of it is
+    // closings ("Thanks!", "Ok", 👍) — a "No" after "I need a sprinkler repair"
+    // doesn't cancel the question in front of it (Ben's first live test, Oct 1).
+    const lastOutboundFromEnd = [...messages].reverse().findIndex((m) => m.direction === 'outbound')
+    const unansweredRun = lastOutboundFromEnd === -1 ? [] : messages.slice(messages.length - lastOutboundFromEnd)
+    if (
+      unansweredRun.length > 0 &&
+      unansweredRun.every((m) => isBareAcknowledgment(m.body) && !(Array.isArray(m.media_urls) && m.media_urls.length))
+    ) {
       return skip(conversationId, 'bare_acknowledgment')
     }
 
@@ -734,6 +755,7 @@ async function generateAmberReply(opts: {
         round: i,
         stop: response.stop_reason,
         chars: finalText.length,
+        blocks: response.content.map((b) => (b.type === 'tool_use' ? `tool_use:${b.name}` : b.type)),
         handedOff: Boolean(opts.toolCtx.handedOff),
       })
       break
