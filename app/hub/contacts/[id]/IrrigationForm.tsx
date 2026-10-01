@@ -10,6 +10,9 @@ import { fieldMark } from '@/lib/irrigation-fields'
 import ZoneDictation from './ZoneDictation'
 import PhotoFill from './PhotoFill'
 
+/** Work Orders Phase 1 — the stop this inspection was done from ("From work order · Oct 1 · Josh"). */
+export type WorkOrderRef = { stopId: string; date: string; tech: string | null; status: string }
+
 export type FullInspection = {
   id: string
   status: string
@@ -17,6 +20,12 @@ export type FullInspection = {
   sketchUrl: string | null
   photoKeys: string[]
   photoUrls: string[]
+  workOrder?: WorkOrderRef | null
+}
+
+function fmtWorkOrderDate(d: string): string {
+  const dt = new Date(d.length === 10 ? d + 'T00:00:00' : d)
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 const SOURCES = ['Municipal / City', 'Well', 'Reclaimed (purple pipe)', 'Pond / Lake', 'Booster pump']
@@ -378,7 +387,12 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
         <button type="button" onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none" aria-label="Close">✕</button>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-semibold leading-tight">Irrigation inspection</div>
-          <div className={`text-[11px] ${saveState === 'error' ? 'text-red-400' : 'text-white/40'}`}>{saveLabel}</div>
+          <div className={`text-[11px] ${saveState === 'error' ? 'text-red-400' : 'text-white/40'}`}>
+            {saveLabel}
+            {inspection.workOrder && (
+              <span className="text-white/40"> · From work order · {fmtWorkOrderDate(inspection.workOrder.date)}{inspection.workOrder.tech ? ` · ${inspection.workOrder.tech}` : ''}</span>
+            )}
+          </div>
         </div>
         <button type="button" onClick={finalize} disabled={finalizing}
           className="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium disabled:opacity-50">

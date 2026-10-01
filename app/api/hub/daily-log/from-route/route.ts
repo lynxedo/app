@@ -187,11 +187,60 @@ export async function POST(request: Request) {
       .insert({ entry_id: entryId, user_id: user.id })
   }
 
+  // Work Orders Phase 1 — link each stop to its Jobber job + client and to the
+  // customer file, so the tech's stop opens /hub/contacts/[id] in one tap and
+  // the customer file can list the work orders done there. The Route Builder's
+  // payload only carries the visit id, so resolve the rest from the Jobber
+  // visits mirror (external_id = Jobber visit gid) and the Contacts directory
+  // (txt_contacts.jobber_client_id). Best-effort: a stop with no match keeps
+  // nulls and the UI shows "No customer file". Oldest live contact wins when
+  // the directory still holds a duplicate for the same Jobber client.
+  const visitIds = body.stops
+    .map(s => s.jobber_visit_id)
+    .filter((x): x is string => typeof x === 'string' && x.length > 0)
+  const visitLinks = new Map<string, { job: string | null; client: string | null }>()
+  if (visitIds.length > 0) {
+    const { data: vrows } = await admin
+      .from('visits')
+      .select('external_id, job_external_id, client_external_id')
+      .eq('company_id', profile.company_id)
+      .in('external_id', visitIds)
+    for (const v of vrows ?? []) {
+      visitLinks.set(v.external_id as string, {
+        job: (v.job_external_id as string | null) ?? null,
+        client: (v.client_external_id as string | null) ?? null,
+      })
+    }
+  }
+  const clientIds = [...new Set(
+    [...visitLinks.values()].map(v => v.client).filter((x): x is string => !!x),
+  )]
+  const contactByClient = new Map<string, string>()
+  if (clientIds.length > 0) {
+    const { data: crows } = await admin
+      .from('txt_contacts')
+      .select('id, jobber_client_id, created_at')
+      .eq('company_id', profile.company_id)
+      .in('jobber_client_id', clientIds)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+    for (const c of crows ?? []) {
+      const key = c.jobber_client_id as string
+      if (!contactByClient.has(key)) contactByClient.set(key, c.id as string)
+    }
+  }
+
   // Insert stops in order
-  const stopRows = body.stops.map((s, i) => ({
+  const stopRows = body.stops.map((s, i) => {
+    const link = s.jobber_visit_id ? visitLinks.get(s.jobber_visit_id) : undefined
+    const jobberClientId = link?.client ?? null
+    return {
     entry_id: entryId,
     ord: i + 1,
     jobber_visit_id: s.jobber_visit_id ?? null,
+    jobber_job_id: link?.job ?? null,
+    jobber_client_id: jobberClientId,
+    contact_id: jobberClientId ? (contactByClient.get(jobberClientId) ?? null) : null,
     client_name: s.client_name,
     client_phone: s.client_phone ?? null,
     address: s.address,
@@ -203,7 +252,8 @@ export async function POST(request: Request) {
     scheduled_start_at: s.scheduled_start_at ?? null,
     scheduled_end_at: s.scheduled_end_at ?? null,
     duration_minutes: s.duration_minutes ?? null,
-  }))
+    }
+  })
 
   const { error: stopsErr } = await admin
     .from('daily_log_stops')

@@ -62,7 +62,7 @@ type ToolDef = {
 const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:routing':       { id: 'tool:routing',       label: 'Routing',         icon: '⚡',  href: '/hub/routing',      prefixMatch: true },
   'tool:daily-log':     { id: 'tool:daily-log',     label: 'Daily Log',       icon: '📋', href: '/hub/daily-log',    prefixMatch: true },
-  'tool:daily-log-v2':  { id: 'tool:daily-log-v2',  label: 'Daily Log v2',    icon: '🗒️', href: '/hub/daily-log-v2', prefixMatch: true },
+  'tool:daily-log-v2':  { id: 'tool:daily-log-v2',  label: 'Work Orders',     icon: '🗒️', href: '/hub/daily-log-v2', prefixMatch: true },
   'tool:time-records':  { id: 'tool:time-records',  label: 'Time Records',    icon: '🕐', href: '/admin/timesheet',  prefixMatch: true },
   'tool:tracker':       { id: 'tool:tracker',       label: 'Tracker',         icon: '🎯', href: '/hub/tracker',      prefixMatch: true },
   'tool:lawn':          { id: 'tool:lawn',          label: 'Lawn Sizer',      icon: '🌿', href: '/hub/lawn',         prefixMatch: false },
@@ -1113,7 +1113,7 @@ export default function HubSidebar({
                 }`}
               >
                 <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log-v2" /></span>
-                <span className="truncate flex-1">Daily Log v2</span>
+                <span className="truncate flex-1">Work Orders</span>
               </Link>
             )}
           </div>

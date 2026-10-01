@@ -1,6 +1,7 @@
 'use client'
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { Spinner, EmptyState } from '@/components/ui'
@@ -35,6 +36,11 @@ type WeatherSnapshot = {
   source?: 'nws'
 }
 
+// Work Orders Phase 1 — the irrigation inspection done on this stop (matched on
+// the Jobber visit id by the API). `share_url` is set only for a saved report
+// whose customer link is still live.
+type StopInspection = { id: string; status: 'draft' | 'final'; share_url: string | null }
+
 type Stop = {
   id: string
   ord: number
@@ -63,6 +69,12 @@ type Stop = {
   pesticide_tech_notes: string | null
   office_reviewed_at: string | null
   office_reviewed_by: string | null
+  // Work Orders Phase 1 — links to the customer file + Jobber, and the
+  // inspection for this visit. Null on stops the directory couldn't match.
+  contact_id: string | null
+  jobber_client_id: string | null
+  jobber_job_id: string | null
+  inspection: StopInspection | null
   // Transient client-side state — not stored on server
   _jobber_warning?: string | null
   _omw_error?: string | null
@@ -208,9 +220,12 @@ function UserAvatar({ user, size = 8 }: { user: HubUser | null; size?: number })
 export default function DailyLogV2View({
   currentUserId,
   isAdmin,
+  canAccessIrrigation = false,
 }: {
   currentUserId: string
   isAdmin: boolean
+  /** May start / continue an irrigation inspection from a stop (can_access_irrigation or admin). */
+  canAccessIrrigation?: boolean
 }) {
   const [date, setDate] = useState<string>(todayStr())
   // DL4 — techs land on their own day (matches Daily Log v1's "My Day" default);
@@ -232,6 +247,18 @@ export default function DailyLogV2View({
   // Letting the phone sleep on it means unlocking to read the next stop, so hold
   // it on for as long as this screen is up. No-op off a phone.
   useEffect(() => keepAwake(), [])
+
+  // Deep links — /hub/daily-log-v2?date=YYYY-MM-DD&stop=<id> — from an
+  // inspection's "From work order" line or the customer file's Work orders
+  // card: land on that day with that stop expanded. Read once on mount so the
+  // date picker stays in charge afterwards.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const d = q.get('date')
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setDate(d)
+    const stopId = q.get('stop')
+    if (stopId) setExpandedStopId(stopId)
+  }, [])
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')
@@ -472,11 +499,11 @@ export default function DailyLogV2View({
       <header className="flex-none px-3 md:px-6 pt-4 pb-3 border-b border-gray-800 max-md:pl-14">
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center justify-between mb-1">
-            <h1 className="text-xl md:text-2xl font-semibold text-white">Daily Log v2</h1>
-            <span className="text-[10px] md:text-xs bg-violet-500/20 text-violet-200 px-2 py-0.5 rounded">Preview</span>
+            <h1 className="text-xl md:text-2xl font-semibold text-white">Work Orders</h1>
+            <span className="text-[10px] md:text-xs bg-white/10 text-gray-300 px-2 py-0.5 rounded" title="The office name for this screen">Daily Log v2</span>
           </div>
           <p className="text-xs md:text-sm text-gray-400 hidden md:block">
-            Tech-facing view of each day&apos;s stops. Populated by the Route Optimizer&apos;s <strong>Send to Daily Log</strong> button.
+            Your stops for the day, in route order — each one is a work order. The office sends them from the Route Optimizer&apos;s <strong>Send to Daily Log</strong> button.
           </p>
           <div className="flex flex-wrap items-center gap-2 mt-3">
             <div className="flex items-center gap-1.5">
@@ -551,6 +578,7 @@ export default function DailyLogV2View({
                 entry={entry}
                 depot={depot}
                 isAdmin={isAdmin}
+                canAccessIrrigation={canAccessIrrigation}
                 currentUserId={currentUserId}
                 mapHeight={isMobile ? 240 : 360}
                 expandedStopId={expandedStopId}
@@ -693,6 +721,7 @@ function EntryCard({
   entry,
   depot,
   isAdmin,
+  canAccessIrrigation,
   currentUserId,
   mapHeight,
   expandedStopId,
@@ -712,6 +741,7 @@ function EntryCard({
   entry: Entry
   depot: { lat: number; lng: number } | null
   isAdmin: boolean
+  canAccessIrrigation: boolean
   currentUserId: string
   mapHeight: number
   expandedStopId: string | null
@@ -922,6 +952,7 @@ function EntryCard({
               pending={pendingActionStopId === s.id}
               currentUserId={currentUserId}
               isAdmin={isAdmin}
+              canAccessIrrigation={canAccessIrrigation}
               skipReasons={skipReasons}
               onToggleExpand={onToggleExpand}
               onArrive={onArrive}
@@ -999,6 +1030,121 @@ function EntryCard({
   )
 }
 
+// ── Work order links ──────────────────────────────────────────────────────────
+
+/**
+ * Ben, Oct 1 2026: an irrigation stop is an "IR job" — in the Jobber catalog every
+ * irrigation item is prefixed "IR - " (service call, service plan, spray head,
+ * valve repair, backflow …), so a stop is irrigation when any line item carries
+ * that prefix. The Inspection button appears only on these.
+ */
+function isIrrigationStop(stop: Stop): boolean {
+  return stop.line_items.some(li => /^\s*IR\s*-/i.test(li.name ?? ''))
+}
+
+/**
+ * The two work-order links at the top of an expanded stop: the customer file
+ * (every stop) and the irrigation inspection (irrigation stops). The inspection
+ * link opens the customer file's Irrigation card with the form already tied to
+ * this stop + Jobber visit (`?irrigation=new&stop=&visit=`), or the saved report
+ * (`?irrigation=open&insp=`). A saved report can be texted to the customer from
+ * here through the same route the customer file uses.
+ */
+function WorkOrderLinks({ stop, isIrrigation, canAccessIrrigation }: {
+  stop: Stop
+  isIrrigation: boolean
+  canAccessIrrigation: boolean
+}) {
+  const [texting, setTexting] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+  const insp = stop.inspection
+  const customerHref = stop.contact_id ? `/hub/contacts/${stop.contact_id}` : null
+
+  let inspHref: string | null = null
+  let inspLabel = '💧 Start inspection'
+  if (stop.contact_id) {
+    if (insp?.status === 'final') {
+      inspHref = `/hub/contacts/${stop.contact_id}?irrigation=open&insp=${encodeURIComponent(insp.id)}`
+      inspLabel = '💧 View inspection'
+    } else {
+      inspHref = `/hub/contacts/${stop.contact_id}?irrigation=new&stop=${encodeURIComponent(stop.id)}`
+        + (stop.jobber_visit_id ? `&visit=${encodeURIComponent(stop.jobber_visit_id)}` : '')
+      inspLabel = insp?.status === 'draft' ? '💧 Continue inspection' : '💧 Start inspection'
+    }
+  }
+  // Starting / continuing needs the grant; viewing a saved report rides on Hub access.
+  const showInspection = isIrrigation && !!inspHref && (canAccessIrrigation || insp?.status === 'final')
+
+  async function textLink() {
+    if (texting || !stop.contact_id || !insp || insp.status !== 'final') return
+    setTexting(true); setToast(null)
+    try {
+      const res = await fetch(`/api/hub/contacts/${stop.contact_id}/irrigation/${insp.id}/text`, { method: 'POST' })
+      const j = await res.json().catch(() => ({}))
+      setToast(res.ok ? '✓ Report link texted to the customer' : (j.error || 'Could not send'))
+    } catch { setToast('Could not send') } finally { setTexting(false) }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className={`grid gap-2 ${showInspection ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        {customerHref ? (
+          <Link
+            href={customerHref}
+            className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-[#fff] rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5"
+          >
+            👤 Customer file
+          </Link>
+        ) : (
+          <div
+            className="px-3 py-2.5 bg-gray-800 text-gray-500 rounded font-medium text-sm text-center"
+            title="The Contacts directory has no Jobber link for this customer yet"
+          >
+            👤 No customer file
+          </div>
+        )}
+        {showInspection && inspHref && (
+          <Link
+            href={inspHref}
+            className={`px-3 py-2.5 rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5 ${
+              insp?.status === 'final'
+                ? 'bg-cyan-600/25 text-cyan-100 hover:bg-cyan-600/35'
+                : insp?.status === 'draft'
+                  ? 'bg-cyan-600 hover:bg-cyan-500 text-[#fff]'
+                  : 'bg-cyan-700 hover:bg-cyan-600 text-[#fff]'
+            }`}
+          >
+            {inspLabel}
+          </Link>
+        )}
+      </div>
+      {isIrrigation && !stop.contact_id && (
+        <div className="text-[11px] text-amber-300/80">
+          No customer file is linked to this stop, so the inspection can&apos;t be started from here — open the customer in Contacts and start it there.
+        </div>
+      )}
+      {isIrrigation && insp?.status === 'final' && canAccessIrrigation && stop.contact_id && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={textLink}
+            disabled={texting}
+            className="text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 text-gray-200 disabled:opacity-50 transition-colors"
+          >
+            {texting ? 'Sending…' : '💬 Text the customer the report link'}
+          </button>
+          {insp.share_url && (
+            <a href={insp.share_url} target="_blank" rel="noopener noreferrer" className="text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 text-gray-400 transition-colors">
+              View customer link ↗
+            </a>
+          )}
+          {toast && <span className="text-xs text-emerald-300">{toast}</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── StopRow ───────────────────────────────────────────────────────────────────
 
 function StopRow({
@@ -1007,6 +1153,7 @@ function StopRow({
   pending,
   currentUserId,
   isAdmin,
+  canAccessIrrigation,
   skipReasons,
   onToggleExpand,
   onArrive,
@@ -1021,6 +1168,7 @@ function StopRow({
   pending: boolean
   currentUserId: string
   isAdmin: boolean
+  canAccessIrrigation: boolean
   skipReasons: SkipReason[]
   onToggleExpand: (stopId: string) => void
   onArrive: (stopId: string, undo: boolean) => void | Promise<void>
@@ -1103,9 +1251,12 @@ function StopRow({
   return (
     <div>
       {/* Compact row */}
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => onToggleExpand(stop.id)}
-        className={`w-full text-left px-4 md:px-5 py-3 flex items-start gap-3 hover:bg-gray-800/40 transition-colors ${
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleExpand(stop.id) } }}
+        className={`w-full text-left px-4 md:px-5 py-3 flex items-start gap-3 hover:bg-gray-800/40 transition-colors cursor-pointer select-none ${
           isComplete || isSkipped ? 'opacity-60' : ''
         } ${expanded ? 'bg-gray-800/30' : ''}`}
       >
@@ -1127,6 +1278,16 @@ function StopRow({
             <div className={`font-medium ${isComplete || isSkipped ? 'text-gray-400 line-through' : 'text-white'}`}>
               {stop.client_name}
             </div>
+            {stop.contact_id && (
+              <Link
+                href={`/hub/contacts/${stop.contact_id}`}
+                onClick={e => e.stopPropagation()}
+                className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline"
+                title="Open the customer file"
+              >
+                Customer file ›
+              </Link>
+            )}
             {stop.scheduled_start_at && (
               <div className="text-xs text-gray-400">{formatTime(stop.scheduled_start_at)}</div>
             )}
@@ -1160,7 +1321,7 @@ function StopRow({
         <div className="flex-none self-center text-gray-500 text-lg">
           {expanded ? '▾' : '▸'}
         </div>
-      </button>
+      </div>
 
       {/* Detail panel */}
       {expanded && (
@@ -1173,6 +1334,9 @@ function StopRow({
               {stop.skip_reason_label && <span className="text-gray-300 ml-1">— {stop.skip_reason_label}</span>}
             </div>
           )}
+
+          {/* Work order links — customer file + the irrigation inspection for this visit */}
+          <WorkOrderLinks stop={stop} isIrrigation={isIrrigationStop(stop)} canAccessIrrigation={canAccessIrrigation} />
 
           {/* Contact */}
           {stop.client_phone && (

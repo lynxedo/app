@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import DailyLogV2View from '@/components/hub/DailyLogV2View'
 
-export const metadata = { title: 'Daily Log v2 (preview)' }
+export const metadata = { title: 'Work Orders' }
 
 export default async function DailyLogV2Page() {
   const supabase = await createClient()
@@ -11,7 +11,7 @@ export default async function DailyLogV2Page() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_daily_log, can_access_daily_log_v2')
+    .select('role, can_admin_daily_log, can_access_daily_log_v2, can_access_irrigation')
     .eq('id', user.id)
     .single()
 
@@ -21,10 +21,17 @@ export default async function DailyLogV2Page() {
 
   if (!isAdmin && !profile?.can_access_daily_log_v2) redirect('/hub')
 
+  // Starting / continuing an irrigation inspection from a stop needs the same
+  // grant the customer file's Irrigation card uses (can_access_irrigation, or
+  // the admin role). A Daily Log admin (can_admin_daily_log) does NOT get it
+  // for free — same rule as lib/irrigation-server.ts resolveIrrigationAccess.
+  const canAccessIrrigation = profile?.role === 'admin' || profile?.can_access_irrigation === true
+
   return (
     <DailyLogV2View
       currentUserId={user.id}
       isAdmin={isAdmin}
+      canAccessIrrigation={canAccessIrrigation}
     />
   )
 }

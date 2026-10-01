@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import type { IrrigationData } from '@/lib/irrigation'
-import IrrigationForm, { type FullInspection as FormInspection } from './IrrigationForm'
+import IrrigationForm, { type FullInspection as FormInspection, type WorkOrderRef } from './IrrigationForm'
 
 type FullInspection = FormInspection & {
   inspectedOn: string | null
@@ -10,8 +11,10 @@ type FullInspection = FormInspection & {
   by: string | null
   shareUrl: string | null
   shareExpiresAt: string | null
+  stopId: string | null
+  jobberVisitId: string | null
 }
-type HistoryItem = { id: string; finalizedAt: string | null; inspectedOn: string | null; by: string | null; zoneCount: number }
+type HistoryItem = { id: string; finalizedAt: string | null; inspectedOn: string | null; by: string | null; zoneCount: number; workOrder?: WorkOrderRef | null }
 type LoadState = { canEdit: boolean; draft: FullInspection | null; latest: FullInspection | null; history: HistoryItem[] }
 
 function fmtDate(d: string | null): string {
@@ -21,9 +24,9 @@ function fmtDate(d: string | null): string {
   return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function Card({ title, action, children }: { title: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+function Card({ title, action, children, id }: { title: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; id?: string }) {
   return (
-    <section className="bg-[var(--t-panel)] border border-white/10 rounded-lg p-4">
+    <section id={id} className="bg-[var(--t-panel)] border border-white/10 rounded-lg p-4">
       <div className="flex items-center justify-between mb-3 gap-2">
         <h2 className="text-sm font-medium text-white/70">{title}</h2>
         <div className="flex items-center gap-2">{action}</div>
@@ -52,6 +55,17 @@ function ReadView({ insp }: { insp: FullInspection }) {
       <div className="text-[11px] text-white/40">
         Inspected {fmtDate(insp.inspectedOn || insp.finalizedAt) || '—'}{insp.by ? ` · ${insp.by}` : ''}
       </div>
+      {insp.workOrder && (
+        <div className="text-[11px] text-white/40 -mt-2">
+          From work order · {fmtDate(insp.workOrder.date)}{insp.workOrder.tech ? ` · ${insp.workOrder.tech}` : ''} ·{' '}
+          <Link
+            href={`/hub/daily-log-v2?date=${encodeURIComponent(insp.workOrder.date)}&stop=${encodeURIComponent(insp.workOrder.stopId)}`}
+            className="text-sky-300 hover:underline"
+          >
+            Open the day →
+          </Link>
+        </div>
+      )}
 
       <div>
         <Row label="Water source" value={(d.source ?? []).join(', ')} />
@@ -130,34 +144,71 @@ export default function IrrigationSection({ contactId }: { contactId: string }) 
 
   useEffect(() => { void load() }, [load])
 
-  // Deep link from Jobber: /hub/contacts/<id>?irrigation=new opens the inspection
-  // form straight away, so a tech tapping the link on a job lands in the form
-  // instead of on the customer page hunting for this card.
+  // Deep links open the inspection straight away, so a tech tapping a link
+  // lands in the form (or the report) instead of hunting for this card:
+  //   ?irrigation=new                      — from Jobber (the original link)
+  //   ?irrigation=new&stop=<id>&visit=<id> — from a stop on the Work Order list:
+  //                                          the draft is tied to that stop + visit
+  //   ?irrigation=open&insp=<id>           — view a saved report (from a stop)
   //
   // Reads window.location rather than useSearchParams() so the component keeps
-  // rendering without a Suspense boundary, and strips the parameter once used —
+  // rendering without a Suspense boundary, and strips the parameters once used —
   // otherwise a refresh or a Back would start a second inspection.
   const autoStarted = useRef(false)
   useEffect(() => {
-    if (autoStarted.current || formInsp) return
-    if (!state?.canEdit) return // no grant: leave them on the card, don't half-open a form
+    if (autoStarted.current || formInsp || !state) return
     const q = new URLSearchParams(window.location.search)
-    if (q.get('irrigation') !== 'new') return
+    const mode = q.get('irrigation')
+    if (mode !== 'new' && mode !== 'open') return
+    // Viewing rides on Hub access like the card itself; starting needs the grant —
+    // without it leave them on the card, don't half-open a form.
+    if (mode === 'new' && !state.canEdit) return
     autoStarted.current = true
-    q.delete('irrigation')
+    const stopId = q.get('stop')
+    const inspId = q.get('insp')
+    for (const k of ['irrigation', 'stop', 'visit', 'insp']) q.delete(k)
     const rest = q.toString()
     window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : ''))
-    void startOrResume()
+    if (mode === 'new') void startOrResume(stopId ? { stopId } : undefined)
+    else if (inspId) void openInspection(inspId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, formInsp])
 
-  async function startOrResume() {
+  // The Work orders card on this same page asks us to open a report in place.
+  useEffect(() => {
+    function onOpen(e: Event) {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id
+      if (id) void openInspection(id)
+    }
+    window.addEventListener('lx:open-inspection', onOpen)
+    return () => window.removeEventListener('lx:open-inspection', onOpen)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactId, state?.canEdit])
+
+  async function startOrResume(ctx?: { stopId: string }) {
     if (busy) return
-    setBusy(true)
+    setBusy(true); setToast('')
     try {
-      const res = await fetch(`/api/hub/contacts/${contactId}/irrigation`, { method: 'POST' })
+      const res = await fetch(`/api/hub/contacts/${contactId}/irrigation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ctx ?? {}),
+      })
       const j = await res.json()
       if (res.ok && j.inspection) setFormInsp(j.inspection)
+      else if (!res.ok) setToast(j.error || 'Could not start the inspection')
     } finally { setBusy(false) }
+  }
+
+  /** Open one inspection by id: a draft goes to the form (with the grant), a saved one to the read view. */
+  async function openInspection(id: string) {
+    setToast('')
+    const res = await fetch(`/api/hub/contacts/${contactId}/irrigation?inspId=${encodeURIComponent(id)}`)
+    if (!res.ok) return
+    const j = await res.json()
+    if (!j.inspection) return
+    if (j.inspection.status === 'draft' && state?.canEdit) setFormInsp(j.inspection)
+    else setViewing(j.inspection)
   }
 
   async function openHistory(id: string) {
@@ -195,9 +246,10 @@ export default function IrrigationSection({ contactId }: { contactId: string }) 
 
   return (
     <Card
+      id="irrigation-card"
       title="Irrigation system"
       action={canEdit && (
-        <button type="button" onClick={startOrResume} disabled={busy}
+        <button type="button" onClick={() => startOrResume()} disabled={busy}
           className={`${btn} bg-sky-600 hover:bg-sky-500 text-white disabled:opacity-50`}>
           {busy ? '…' : draft ? 'Resume draft' : latest ? '+ New inspection' : '+ Start inspection'}
         </button>
@@ -242,7 +294,7 @@ export default function IrrigationSection({ contactId }: { contactId: string }) 
               <button key={h.id} type="button" onClick={() => openHistory(h.id)}
                 className={`text-left text-sm px-2 py-1.5 rounded hover:bg-white/5 flex items-center justify-between gap-2 ${viewing?.id === h.id ? 'bg-white/5' : ''}`}>
                 <span className="text-white/80">{fmtDate(h.inspectedOn || h.finalizedAt) || 'Inspection'}</span>
-                <span className="text-[11px] text-white/40">{[h.by, `${h.zoneCount} zones`].filter(Boolean).join(' · ')}</span>
+                <span className="text-[11px] text-white/40">{[h.by, `${h.zoneCount} zones`, h.workOrder ? '📋 work order' : null].filter(Boolean).join(' · ')}</span>
               </button>
             ))}
           </div>
