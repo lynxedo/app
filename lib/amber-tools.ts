@@ -97,7 +97,8 @@ const BOOK_APPOINTMENT_TOOL: Anthropic.Tool = {
     properties: {
       service: { type: 'string', description: 'The service to book (same wording as find_availability).' },
       date: { type: 'string', description: 'The date as YYYY-MM-DD, exactly as given by find_availability.' },
-      time_preference: { type: 'string', enum: ['none', 'am', 'pm', 'window'], description: '"none" = flexible (default); "am"/"pm" = morning/afternoon; "window" = a specific window (also pass start and end).' },
+      time_preference: { type: 'string', enum: ['none', 'am', 'pm', 'window', 'custom'], description: '"none" = flexible (default); "am"/"pm" = morning/afternoon; "custom" = a constraint they stated (also pass time_note); "window" = one of the office\'s firm windows (also pass start and end).' },
+      time_note: { type: 'string', description: 'With time_preference "custom": the constraint in their words, short — "after 1pm", "before 10am", "not before noon".' },
       details: { type: 'string', description: "What they told you about the problem or the job, in a sentence or two, for the technician's note (e.g. 'Zone 3 not coming on; two heads leaking by the driveway; started last week')." },
       start: { type: 'string', description: 'Arrival-window start, HH:MM 24-hour — ONLY with time_preference "window".' },
       end: { type: 'string', description: 'Arrival-window end, HH:MM 24-hour — ONLY with time_preference "window".' },
@@ -190,6 +191,7 @@ export async function runAmberTool(
         service: str(args.service) ?? '',
         date: str(args.date) ?? '',
         time_preference: str(args.time_preference),
+        time_note: str(args.time_note),
         start: str(args.start),
         end: str(args.end),
         details: str(args.details),
