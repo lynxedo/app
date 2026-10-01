@@ -175,20 +175,12 @@ async function evaluateAmberEngagement(
     if ((data as { do_not_text?: boolean } | null)?.do_not_text) return { engage: false, dial, reason: 'do_not_text' }
   }
 
-  // Never answer the company's own numbers (a test from the other line, a relay),
-  // and never a teammate texting the main line from their own cell.
+  // Never answer the company's own numbers (a test from the other line, a relay).
+  // (No teammate-cell guard — Ben: "they never text the office number, they DM or
+  // text me directly".)
   if (opts.phone) {
     const { data: own } = await admin.from('txt_phone_numbers').select('id').eq('company_id', opts.companyId).eq('twilio_number', opts.phone).limit(1)
     if (own && own.length) return { engage: false, dial, reason: 'internal_number' }
-    // Admins are exempt — they're the ones who test her from their own phone.
-    const last10 = opts.phone.replace(/\D/g, '').slice(-10)
-    if (last10.length === 10) {
-      const { data: staff } = await admin.from('user_profiles').select('id, phone, role').eq('company_id', opts.companyId).not('phone', 'is', null).is('deactivated_at', null)
-      const hit = ((staff as { id: string; phone: string | null; role: string | null }[] | null) ?? []).some(
-        (u) => u.role !== 'admin' && (u.phone || '').replace(/\D/g, '').slice(-10) === last10,
-      )
-      if (hit) return { engage: false, dial, reason: 'staff_number' }
-    }
   }
 
   // Her own thread record: none yet or 'active' = hers; a human seized it, she
