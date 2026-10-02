@@ -1613,7 +1613,16 @@ function StopNotesAndAttachments({
   // ⚠ Read in an effect, never during render: isNativeApp() looks at window, so
   // deciding this on the server would hydrate the wrong control.
   const [nativeAttach, setNativeAttach] = useState(false)
-  useEffect(() => { setNativeAttach(isNativeApp()) }, [])
+  // ⚠ Shown on any TOUCH device, not just "is this the native app". The native
+  // check reads a localStorage flag the shell writes on page load, so it is one
+  // missing write away from the menu silently never appearing — and an invisible
+  // control is indistinguishable from the bug it was meant to fix. A coarse
+  // pointer means a phone or tablet, which is exactly where a camera is wanted,
+  // and it covers the mobile browser too. Desktop keeps the plain file dialog.
+  useEffect(() => {
+    setNativeAttach(isNativeApp() ||
+      (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true))
+  }, [])
   useOutsideClose(attachMenuRef, attachOpen, () => setAttachOpen(false))
   const bottomRef = useRef<HTMLDivElement>(null)
 
