@@ -62,6 +62,11 @@ export async function stageOutwardAction(
   // happened on 2026-08-14, before the assistant had any memory) left four live
   // rows — and confirming a stale one would have booked a second visit. Only the
   // newest preview should ever be confirmable.
+  //
+  // ⚠ Only rows from EARLIER turns. This used to supersede siblings staged in the
+  // same reply too, so a plan of six reschedules killed five of itself the moment
+  // it was staged and none could ever be confirmed (Ben's BP1 move, Oct 1 2026).
+  // Everything staged in one reply is now one plan, approved together.
   void admin
     .from('hub_assistant_pending_actions')
     .update({ status: 'superseded' })
@@ -70,13 +75,16 @@ export async function stageOutwardAction(
     .eq('action', action)
     .eq('status', 'pending')
     .neq('short_id', shortId)
+    .or(`staged_turn_id.is.null,staged_turn_id.neq.${turnId}`)
     .then(undefined, () => {})
 
   return (
     `READY FOR APPROVAL — nothing has been sent or changed yet.\n${preview}\n\n` +
-    `Show this to the user exactly as written, INCLUDING the line below, and ask them to confirm.\n` +
+    `Show the user what this will do (the recipient / record and the exact content), and ask for ONE approval.\n` +
     `Confirmation id: ${shortId}\n` +
-    `If they agree, call confirm_action with id="${shortId}" — do NOT stage this again. ` +
+    `Everything you stage in this same reply is ONE plan: stage every step now, then present the whole plan ` +
+    `and ask once. When they approve, call confirm_action once (id="${shortId}", or any id from this reply, or no id) — ` +
+    `that carries out EVERY step staged in this reply. Do NOT stage these again. ` +
     `If they change anything, start over with a new preview. ` +
     `This expires in 15 minutes. Never claim it was sent or done until confirm_action succeeds.`
   )
@@ -127,10 +135,14 @@ export async function newestPendingShortId(
         '(they last 15 minutes), or it was never staged — nothing was sent. Build the request again.',
     }
   }
-  // More than one DISTINCT action pending is genuinely ambiguous — confirming the
-  // wrong one would carry out something the person didn't just agree to.
+  // Rows staged in the same earlier reply are one plan, so mixed actions there are
+  // fine — confirming any of them carries out the whole plan. Only distinct
+  // actions from DIFFERENT replies are genuinely ambiguous: confirming the wrong
+  // one would carry out something the person didn't just agree to.
+  const newestTurn = rows[0].staged_turn_id
+  const samePlan = rows.every((r) => r.staged_turn_id && r.staged_turn_id === newestTurn)
   const distinct = [...new Set(rows.map((r) => r.action))]
-  if (distinct.length > 1) {
+  if (!samePlan && distinct.length > 1) {
     return {
       ok: false,
       message:
@@ -142,7 +154,7 @@ export async function newestPendingShortId(
 }
 
 export type ConsumedAction =
-  | { ok: true; action: string; args: Record<string, unknown> }
+  | { ok: true; action: string; args: Record<string, unknown>; stagedTurnId: string | null }
   | { ok: false; message: string }
 
 /**
@@ -228,5 +240,48 @@ export async function consumePendingAction(
     return { ok: false, message: 'That action was just carried out by another request. It has NOT been repeated.' }
   }
 
-  return { ok: true, action: r.action, args: r.args ?? {} }
+  return { ok: true, action: r.action, args: r.args ?? {}, stagedTurnId: r.staged_turn_id }
+}
+
+/**
+ * The rest of a plan: every other still-pending, unexpired row this actor staged
+ * in the same earlier reply as the one just confirmed. Each is claimed with the
+ * same compare-and-set as consumePendingAction, so nothing runs twice. The same
+ * human-in-the-loop rule holds — the person approved this plan in a later turn
+ * than the one that staged it (consumePendingAction already enforced that on the
+ * first row, and siblings share its staged turn).
+ */
+export async function claimPlanSiblings(
+  admin: Admin,
+  actor: HubActor,
+  stagedTurnId: string | null,
+  currentTurnId: string,
+): Promise<Array<{ action: string; args: Record<string, unknown>; shortId: string }>> {
+  if (!stagedTurnId || stagedTurnId === currentTurnId) return []
+  const { data } = await admin
+    .from('hub_assistant_pending_actions')
+    .select('id, short_id, action, args, expires_at')
+    .eq('company_id', actor.companyId)
+    .eq('user_id', actor.userId)
+    .eq('staged_turn_id', stagedTurnId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(50)
+
+  const out: Array<{ action: string; args: Record<string, unknown>; shortId: string }> = []
+  for (const row of (data || []) as Array<{ id: string; short_id: string; action: string; args: Record<string, unknown> | null; expires_at: string }>) {
+    if (Date.parse(row.expires_at) < Date.now()) {
+      await admin.from('hub_assistant_pending_actions').update({ status: 'expired' }).eq('id', row.id)
+      continue
+    }
+    const { data: claimed } = await admin
+      .from('hub_assistant_pending_actions')
+      .update({ status: 'consumed', consumed_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('status', 'pending')
+      .select('id')
+      .maybeSingle()
+    if (claimed) out.push({ action: row.action, args: row.args ?? {}, shortId: row.short_id })
+  }
+  return out
 }
