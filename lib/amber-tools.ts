@@ -3,7 +3,7 @@
 // Every lookup and booking tool calls the SAME website endpoint the phone
 // receptionist uses (/api/voice/lookup, /availability, /book — loopback with the
 // voice-service bearer), so text and phone can never drift: today's-visit lookup,
-// the name-and-address fallback, open days ranked by neighborhood, PTF titles and
+// the name-and-address fallback, open days ranked by neighborhood, time-frame titles and
 // Anytime visits are one implementation. (The July 2026 version duplicated the
 // Jobber queries here; that copy had already fallen behind by September.)
 //

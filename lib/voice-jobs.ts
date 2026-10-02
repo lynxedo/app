@@ -188,7 +188,8 @@ export function buildJobTitle(
     ? String(Math.round(vars.price * 100) / 100).replace(/\.0+$/, '')
     : ''
   // The promised time frame, for the office only. Per the company's own convention
-  // it is title text ("PTF AM", "PTF 12-2pm") and NEVER a timed visit — see
+  // it is title text on the END of the title ("AM", "PM", "2-4pm", "after 1pm" —
+  // no prefix since Oct 2 2026) and NEVER a timed visit — see
   // createJobberVisit. A template may place it with [PTF]; otherwise it goes last,
   // "in the last part" of the title, and only when one was actually promised.
   const ptf = (vars.ptf || '').trim()

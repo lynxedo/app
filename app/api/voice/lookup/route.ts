@@ -135,9 +135,17 @@ function isAnytime(iso: string): boolean {
   return timeLabel(iso) === '12:00 AM'
 }
 
-// "PTF AM" / "PTF 12-2pm" on the title = a time frame the office promised.
+// A time frame the office promised lives on the END of the job title — since
+// Oct 2 2026 with no prefix ("… WoodForest 2-4pm", "… AM", "… after 1pm"); titles
+// written before that carry "PTF ". The visit itself is always Anytime, so the
+// title is the only place the promise is recorded.
 function promisedTimeFrame(title: string | null): string | null {
-  const m = (title || '').match(/\bPTF\s+(.+)$/i)
+  const t = (title || '').trim()
+  const legacy = t.match(/\bPTF\s+(.+)$/i)
+  if (legacy) return legacy[1].trim()
+  const m = t.match(
+    /(?:^|\s)((?:(?:after|before|by|around|not before)\s+)?(?:\d{1,2}(?::\d{2})?(?:\s?-\s?\d{1,2}(?::\d{2})?)?\s?(?:am|pm)|noon)|AM|PM)$/i,
+  )
   return m ? m[1].trim() : null
 }
 
@@ -280,7 +288,7 @@ export async function POST(request: Request) {
   const ptf = promisedTimeFrame(next.v.title)
   const when = isAnytime(startIso)
     ? ptf
-      ? ` It's an anytime visit with a "${ptf}" preference noted for the crew.`
+      ? ` It's an anytime visit, and the crew has "${ptf}" noted as the arrival preference.`
       : ' No exact time is set — it\'s an anytime visit (the arrival window is texted the day before).'
     : ` The arrival window is ${timeLabel(startIso)}${next.v.endAt ? ` to ${timeLabel(next.v.endAt)}` : ''}.`
 

@@ -119,12 +119,13 @@ export async function POST(request: Request) {
   // the default and the preferred outcome ("no time frame means the customer is
   // flexible"); "am"/"pm" only when they push back; a specific window only when they
   // truly need one. Whatever was promised goes on the JOB TITLE for the office
-  // ("PTF AM", "PTF 12-2pm" — the company's own convention) and the visit stays
+  // ("AM", "PM", "2-4pm", "after 1pm" on the END of the title, no prefix — Ben,
+  // Oct 2 2026: "IR SVC $125 WoodForest 2-4pm") and the visit stays
   // Anytime, so the office can still order the day's stops for driving. A caller
   // that supplied a window without saying so is treated as a window request.
   const prefRaw = typeof body.time_preference === 'string' ? body.time_preference.trim().toLowerCase() : ''
   // A constraint in the customer's own words ("after 1pm", "before 10am") — the
-  // company's convention writes exactly that on the title: PTF after 1pm. Kept
+  // title carries exactly that on its end: "after 1pm". Kept
   // short and plain; anything else is dropped rather than put on a job title.
   const timeNote = typeof body.time_note === 'string'
     ? body.time_note.trim().toLowerCase().replace(/[^a-z0-9: .\-]/g, '').replace(/\s+/g, ' ').replace(/\.$/, '').slice(0, 24)
@@ -141,15 +142,18 @@ export async function POST(request: Request) {
     startHHMM = ''
     endHHMM = ''
   }
+  // The title text itself. Plain 12-hour Central ("2-4pm"), never 24-hour — the
+  // office reads the route off these titles and the day's order has to be
+  // readable at a glance.
   const ptf =
     timePreference === 'am'
-      ? 'PTF AM'
+      ? 'AM'
       : timePreference === 'pm'
-        ? 'PTF PM'
+        ? 'PM'
         : timePreference === 'custom'
-          ? `PTF ${timeNote}`
+          ? timeNote
           : timePreference === 'window' && startHHMM
-            ? `PTF ${hourRange(startHHMM, endHHMM)}`
+            ? hourRange(startHHMM, endHHMM)
             : null
   const preferenceLine =
     timePreference === 'am'
@@ -159,7 +163,7 @@ export async function POST(request: Request) {
         : timePreference === 'custom'
           ? `Caller asked for: ${timeNote}.`
           : timePreference === 'window' && startHHMM
-            ? `Caller asked for a ${startHHMM}${endHHMM ? `\u2013${endHHMM}` : ''} arrival window.`
+            ? `Caller asked for a ${hourRange(startHHMM, endHHMM)} arrival window.`
             : 'Caller is flexible on timing (no time promised).'
 
   const companyId = HEROES_COMPANY_ID
