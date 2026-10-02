@@ -513,8 +513,12 @@ export default function DailyLogV2View({
         r.moved ? `${r.moved} moved` : null,
         r.deleted ? `${r.deleted} removed` : null,
         r.flagged ? `${r.flagged} flagged` : null,
+        r.ghostsRemoved ? `${r.ghostsRemoved} stale visit${r.ghostsRemoved === 1 ? '' : 's'} cleared (Jobber no longer has them)` : null,
+        r.refreshed ? `${r.refreshed} re-pulled from Jobber` : null,
+        r.daysFolded ? `${r.daysFolded} empty day${r.daysFolded === 1 ? '' : 's'} folded` : null,
         r.unmappedTechs?.length ? `not linked to a Hub person: ${r.unmappedTechs.join(', ')}` : null,
         r.noCreator ? 'Jobber is not connected — new days could not be created' : null,
+        r.liveChecked === false ? `⚠ could not check Jobber live (${r.liveError || 'unknown'}) — used the mirror as-is` : null,
       ].filter(Boolean)
       setSyncNote(`Synced · ${bits.join(' · ')}`)
       await load(date)

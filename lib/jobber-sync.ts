@@ -2599,6 +2599,27 @@ async function syncVisitsForJob(userId: string, companyId: string, jobExternalId
  *     edit or completion on an older record is never missed by a time window.
  */
 /**
+ * Work Orders Phase 1.5 — re-pull specific visits by Jobber id (the feed's live
+ * day check found them missing or stale in the mirror). Chunked; per-chunk
+ * failures are logged, not thrown.
+ */
+export async function refreshVisitsByExternalIds(companyId: string, visitExternalIds: string[]): Promise<number> {
+  const ids = [...new Set(visitExternalIds.filter(Boolean))]
+  if (ids.length === 0) return 0
+  const userId = await getJobberUserId(companyId)
+  let total = 0
+  for (let i = 0; i < ids.length; i += 25) {
+    const slice = ids.slice(i, i + 25)
+    try {
+      total += await syncVisits(userId, companyId, undefined, slice)
+    } catch (e) {
+      console.error('[jobber-sync] refreshVisitsByExternalIds chunk failed:', e instanceof Error ? e.message : String(e))
+    }
+  }
+  return total
+}
+
+/**
  * Work Orders Phase 1.5 — re-pull specific jobs by Jobber id (e.g. to backfill
  * the newly mirrored `instructions` for the jobs on the next days' work orders).
  * Chunked so Jobber's id filter stays small; failures per chunk are logged, not
