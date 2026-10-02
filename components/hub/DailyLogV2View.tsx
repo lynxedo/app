@@ -86,12 +86,18 @@ type Stop = {
 
 type SkipReason = { id: string; label: string; sort_order: number }
 
+type StopReaction = { user_id: string; emoji: string }
+
 type StopMessage = {
   id: string
   content: string
   created_at: string
   user: { id: string; display_name: string; avatar_url?: string | null } | null
+  reactions?: StopReaction[] | null
 }
+
+/** Ben, Oct 2 2026: a reaction picker on a work order's notes. Same quick set as Daily Log v1. */
+const STOP_REACTION_CHOICES = ['👍', '✅', '👀', '❤️', '😂', '🙏', '🔥', '❗']
 
 type StopAttachment = {
   id: string
@@ -402,19 +408,6 @@ export default function DailyLogV2View({
     }
   }, [patchStop])
 
-  const handleReview = useCallback(async (stopId: string, undo: boolean) => {
-    try {
-      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/review`, {
-        method: undo ? 'DELETE' : 'POST',
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) return
-      patchStop(stopId, {
-        office_reviewed_at: data.stop?.office_reviewed_at ?? null,
-        office_reviewed_by: data.stop?.office_reviewed_by ?? null,
-      })
-    } catch {/* best effort */}
-  }, [patchStop])
 
   const handleOnMyWay = useCallback(async (stopId: string, etaMinutes: number) => {
     setPendingActionStopId(stopId)
@@ -537,60 +530,64 @@ export default function DailyLogV2View({
 
   return (
     <div className="flex flex-col h-full">
-      <header className="flex-none px-3 md:px-6 pt-4 pb-3 border-b border-gray-800 max-md:pl-14">
+      <header className="flex-none px-3 md:px-6 pt-2 pb-2 md:pt-4 md:pb-3 border-b border-gray-800 max-md:pl-14">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center justify-between mb-1">
-            <h1 className="text-xl md:text-2xl font-semibold text-white">Work Orders</h1>
-            <span className="text-[10px] md:text-xs bg-white/10 text-gray-300 px-2 py-0.5 rounded" title="The office name for this screen">Daily Log v2</span>
+          {/* Title row — the All / My Day switch lives here so the controls row below stays one line on a phone */}
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-lg md:text-2xl font-semibold text-white truncate">Work Orders</h1>
+              <span className="hidden md:inline text-xs bg-white/10 text-gray-300 px-2 py-0.5 rounded" title="The office name for this screen">Daily Log v2</span>
+            </div>
+            <div className="flex-none flex items-center gap-0.5 bg-gray-800 border border-gray-700 rounded p-0.5">
+              <button
+                onClick={() => setFilter('all')}
+                className={`px-2.5 py-1 rounded text-xs md:text-sm ${filter === 'all' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
+              >All</button>
+              <button
+                onClick={() => setFilter('mine')}
+                className={`px-2.5 py-1 rounded text-xs md:text-sm ${filter === 'mine' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
+              >My Day</button>
+            </div>
           </div>
           <p className="text-xs md:text-sm text-gray-400 hidden md:block">
             Your stops for the day, in route order — each one is a work order. The day fills itself from the Jobber schedule; the office changes it in Jobber or with the Route Optimizer.
           </p>
-          <div className="flex flex-wrap items-center gap-2 mt-3">
-            <div className="flex items-center gap-1.5">
+          {/* Controls row — small buttons, one line on a phone */}
+          <div className="flex flex-wrap items-center gap-1.5 mt-1.5 md:mt-3">
+            <button
+              onClick={() => setDate(offsetDate(date, -1))}
+              aria-label="Previous day"
+              className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white min-w-[36px]"
+            >←</button>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white w-[8.5rem] md:w-auto"
+            />
+            <button
+              onClick={() => setDate(offsetDate(date, 1))}
+              aria-label="Next day"
+              className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white min-w-[36px]"
+            >→</button>
+            {date !== todayStr() && (
               <button
-                onClick={() => setDate(offsetDate(date, -1))}
-                className="px-3 py-2 md:py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white min-w-[40px]"
-              >←</button>
-              <input
-                type="date"
-                value={date}
-                onChange={e => setDate(e.target.value)}
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-2 md:py-1.5 text-base md:text-sm text-white"
-              />
-              <button
-                onClick={() => setDate(offsetDate(date, 1))}
-                className="px-3 py-2 md:py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white min-w-[40px]"
-              >→</button>
-              {date !== todayStr() && (
-                <button
-                  onClick={() => setDate(todayStr())}
-                  className="px-3 py-2 md:py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
-                >Today</button>
-              )}
-            </div>
+                onClick={() => setDate(todayStr())}
+                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
+              >Today</button>
+            )}
             {isAdmin && (
               <button
                 onClick={syncFromJobber}
                 disabled={syncing || loading}
                 title="Rebuild this day's Work Orders from the Jobber schedule now (it also happens on its own every few minutes)"
-                className="px-3 py-2 md:py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-sky-200 disabled:opacity-50"
+                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-sky-200 disabled:opacity-50"
               >
-                {syncing ? 'Syncing…' : '↻ Sync from Jobber'}
+                {syncing ? 'Syncing…' : <><span className="md:hidden">↻ Sync</span><span className="hidden md:inline">↻ Sync from Jobber</span></>}
               </button>
             )}
-            <div className="ml-auto flex items-center gap-1 bg-gray-800 border border-gray-700 rounded p-0.5">
-              <button
-                onClick={() => setFilter('all')}
-                className={`px-3 py-1.5 md:py-1 rounded text-sm ${filter === 'all' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
-              >All</button>
-              <button
-                onClick={() => setFilter('mine')}
-                className={`px-3 py-1.5 md:py-1 rounded text-sm ${filter === 'mine' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
-              >My Day</button>
-            </div>
+            <span className="ml-auto text-[11px] md:text-xs text-gray-400">{formatDateHeading(date)}</span>
           </div>
-          <div className="text-xs text-gray-400 mt-2">{formatDateHeading(date)}</div>
           {syncNote && <div className="text-xs text-sky-300 mt-1">{syncNote}</div>}
         </div>
       </header>
@@ -644,7 +641,6 @@ export default function DailyLogV2View({
                 onSkip={handleSkip}
                 onOnMyWay={handleOnMyWay}
                 onPestNotesSave={handlePestNotesSave}
-                onReview={handleReview}
                 onMarkRouteComplete={handleMarkRouteComplete}
                 onDismissRouteComplete={() => setRouteCompleteEntryId(null)}
               />
@@ -787,7 +783,6 @@ function EntryCard({
   onSkip,
   onOnMyWay,
   onPestNotesSave,
-  onReview,
   onMarkRouteComplete,
   onDismissRouteComplete,
 }: {
@@ -807,7 +802,6 @@ function EntryCard({
   onSkip: (stopId: string, undo: boolean, reasonId?: string, reasonLabel?: string) => void | Promise<void>
   onOnMyWay: (stopId: string, etaMinutes: number) => Promise<{ ok: true } | { ok: false }>
   onPestNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
-  onReview: (stopId: string, undo: boolean) => void | Promise<void>
   onMarkRouteComplete: (entryId: string) => void | Promise<void>
   onDismissRouteComplete: () => void
 }) {
@@ -1021,7 +1015,6 @@ function EntryCard({
               onSkip={onSkip}
               onOnMyWay={onOnMyWay}
               onPestNotesSave={onPestNotesSave}
-              onReview={onReview}
             />
           ))
         )}
@@ -1104,6 +1097,26 @@ function isIrrigationStop(stop: Stop): boolean {
 }
 
 /**
+ * Where the stop's inspection link goes and what it says: Start (none yet),
+ * Continue (a draft), View (a saved report). Null when the stop has no customer
+ * file — an inspection needs one. The grant is enforced on the customer page
+ * (its Irrigation card only opens the form for people who may edit), so the link
+ * itself is shown to everyone on an irrigation stop.
+ */
+function inspectionLink(stop: Stop): { href: string; label: string; state: 'start' | 'draft' | 'final' } | null {
+  if (!stop.contact_id) return null
+  const insp = stop.inspection
+  if (insp?.status === 'final') {
+    return { href: `/hub/contacts/${stop.contact_id}?irrigation=open&insp=${encodeURIComponent(insp.id)}`, label: 'View inspection', state: 'final' }
+  }
+  const href = `/hub/contacts/${stop.contact_id}?irrigation=new&stop=${encodeURIComponent(stop.id)}`
+    + (stop.jobber_visit_id ? `&visit=${encodeURIComponent(stop.jobber_visit_id)}` : '')
+  return insp?.status === 'draft'
+    ? { href, label: 'Continue inspection', state: 'draft' }
+    : { href, label: 'Start inspection', state: 'start' }
+}
+
+/**
  * The two work-order links at the top of an expanded stop: the customer file
  * (every stop) and the irrigation inspection (irrigation stops). The inspection
  * link opens the customer file's Irrigation card with the form already tied to
@@ -1121,20 +1134,12 @@ function WorkOrderLinks({ stop, isIrrigation, canAccessIrrigation }: {
   const insp = stop.inspection
   const customerHref = stop.contact_id ? `/hub/contacts/${stop.contact_id}` : null
 
-  let inspHref: string | null = null
-  let inspLabel = '💧 Start inspection'
-  if (stop.contact_id) {
-    if (insp?.status === 'final') {
-      inspHref = `/hub/contacts/${stop.contact_id}?irrigation=open&insp=${encodeURIComponent(insp.id)}`
-      inspLabel = '💧 View inspection'
-    } else {
-      inspHref = `/hub/contacts/${stop.contact_id}?irrigation=new&stop=${encodeURIComponent(stop.id)}`
-        + (stop.jobber_visit_id ? `&visit=${encodeURIComponent(stop.jobber_visit_id)}` : '')
-      inspLabel = insp?.status === 'draft' ? '💧 Continue inspection' : '💧 Start inspection'
-    }
-  }
-  // Starting / continuing needs the grant; viewing a saved report rides on Hub access.
-  const showInspection = isIrrigation && !!inspHref && (canAccessIrrigation || insp?.status === 'final')
+  const link = inspectionLink(stop)
+  const inspHref = link?.href ?? null
+  const inspLabel = link ? `💧 ${link.label}` : '💧 Start inspection'
+  // Shown on every irrigation stop that has a customer file; the customer page
+  // enforces who may actually edit (Ben, Oct 2 2026: the link was hiding).
+  const showInspection = isIrrigation && !!inspHref
 
   async function textLink() {
     if (texting || !stop.contact_id || !insp || insp.status !== 'final') return
@@ -1152,7 +1157,7 @@ function WorkOrderLinks({ stop, isIrrigation, canAccessIrrigation }: {
         {customerHref ? (
           <Link
             href={customerHref}
-            className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-[#fff] rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5"
+            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-[#fff] rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5"
           >
             👤 Customer file
           </Link>
@@ -1167,7 +1172,7 @@ function WorkOrderLinks({ stop, isIrrigation, canAccessIrrigation }: {
         {showInspection && inspHref && (
           <Link
             href={inspHref}
-            className={`px-3 py-2.5 rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5 ${
+            className={`px-3 py-2 rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5 ${
               insp?.status === 'final'
                 ? 'bg-cyan-600/25 text-cyan-100 hover:bg-cyan-600/35'
                 : insp?.status === 'draft'
@@ -1222,7 +1227,6 @@ function StopRow({
   onSkip,
   onOnMyWay,
   onPestNotesSave,
-  onReview,
 }: {
   stop: Stop
   expanded: boolean
@@ -1237,7 +1241,6 @@ function StopRow({
   onSkip: (stopId: string, undo: boolean, reasonId?: string, reasonLabel?: string) => void | Promise<void>
   onOnMyWay: (stopId: string, etaMinutes: number) => Promise<{ ok: true } | { ok: false }>
   onPestNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
-  onReview: (stopId: string, undo: boolean) => void | Promise<void>
 }) {
   const lineItemNames = stop.line_items.map(li => li.name).filter(Boolean)
   const lineItemsSummary = lineItemNames.length === 0
@@ -1349,6 +1352,19 @@ function StopRow({
                 Customer file ›
               </Link>
             )}
+            {isIrrigationStop(stop) && (() => {
+              const link = inspectionLink(stop)
+              return link ? (
+                <Link
+                  href={link.href}
+                  onClick={e => e.stopPropagation()}
+                  className={`text-[11px] hover:underline ${link.state === 'final' ? 'text-cyan-300' : 'text-cyan-400'}`}
+                  title="Irrigation inspection for this visit"
+                >
+                  💧 {link.label} ›
+                </Link>
+              ) : null
+            })()}
             {stop.scheduled_start_at && (
               <div className="text-xs text-gray-400">{formatTime(stop.scheduled_start_at)}</div>
             )}
@@ -1363,11 +1379,6 @@ function StopRow({
             {isSkipped && (
               <div className="text-[10px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">
                 {stop.skip_reason_label ?? 'Skipped'}
-              </div>
-            )}
-            {stop.office_reviewed_at && (
-              <div className="text-[10px] bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded">
-                ✓ Reviewed
               </div>
             )}
             {stop.removed_from_jobber_at && (
@@ -1433,7 +1444,7 @@ function StopRow({
                   href={navHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-3 py-2.5 bg-sky-600 hover:bg-sky-500 text-[#fff] rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5"
+                  className="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-[#fff] rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5"
                 >
                   🗺️ Navigate
                 </a>
@@ -1446,7 +1457,7 @@ function StopRow({
                 <button
                   onClick={() => setOmwPickerOpen(v => !v)}
                   disabled={pending}
-                  className={`px-3 py-2.5 rounded font-medium text-sm transition-colors flex items-center justify-center gap-1.5 ${
+                  className={`px-3 py-2 rounded font-medium text-sm transition-colors flex items-center justify-center gap-1.5 ${
                     stop.on_my_way_sent_at
                       ? 'bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
                       : 'bg-amber-600 hover:bg-amber-500 text-[#fff] disabled:opacity-50'
@@ -1559,27 +1570,6 @@ function StopRow({
 
           {/* Unified notes + attachments thread */}
           <StopNotesAndAttachments stopId={stop.id} currentUserId={currentUserId} />
-
-          {/* Office reviewed marker — admin only */}
-          {isAdmin && (
-            <div className="flex items-center justify-between bg-violet-500/5 border border-violet-500/20 rounded px-3 py-2">
-              <div className="text-xs text-gray-300">
-                {stop.office_reviewed_at
-                  ? <span className="text-violet-300 font-medium">✓ Reviewed &amp; accounts updated</span>
-                  : <span className="text-gray-500">Mark as reviewed / accounts updated</span>}
-              </div>
-              <button
-                onClick={() => onReview(stop.id, !!stop.office_reviewed_at)}
-                className={`text-xs px-2.5 py-1.5 rounded font-medium transition-colors ${
-                  stop.office_reviewed_at
-                    ? 'bg-violet-700/40 text-violet-300 hover:bg-violet-700/60'
-                    : 'bg-violet-600 text-[#fff] hover:bg-violet-500'
-                }`}
-              >
-                {stop.office_reviewed_at ? 'Undo' : 'Mark reviewed'}
-              </button>
-            </div>
-          )}
 
           {/* Time on property */}
           {!isSkipped && (
@@ -1701,14 +1691,14 @@ function StopRow({
                 <button
                   onClick={() => onArrive(stop.id, false)}
                   disabled={pending}
-                  className="w-full px-3 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-[#fff] rounded font-semibold text-base transition-colors"
+                  className="w-full px-3 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-[#fff] rounded font-semibold text-sm transition-colors"
                 >
                   {pending ? 'Starting…' : '▶ Arrived at property'}
                 </button>
                 <button
                   onClick={() => onComplete(stop.id, false)}
                   disabled={pending}
-                  className="w-full px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#fff] rounded font-medium text-sm transition-colors"
+                  className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#fff] rounded font-medium text-sm transition-colors"
                 >
                   {pending ? 'Marking complete…' : '✓ Mark Complete (skip timer)'}
                 </button>
@@ -1824,7 +1814,7 @@ function StopRow({
 // ── StopNotesAndAttachments ───────────────────────────────────────────────────
 
 type ThreadItem =
-  | { kind: 'message'; id: string; content: string; created_at: string; user: StopMessage['user'] }
+  | { kind: 'message'; id: string; content: string; created_at: string; user: StopMessage['user']; reactions: StopReaction[] }
   | { kind: 'file'; id: string; file_name: string; file_type: string | null; file_size: number | null; file_url: string; created_at: string; uploaded_by: string | null }
 
 type PendingFile = { file: File; previewUrl: string | null }
@@ -1864,6 +1854,30 @@ function StopNotesAndAttachments({
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
+
+  // Emoji reactions on a note — one picker open at a time; optimistic, then the
+  // server's list replaces ours.
+  const [reactionPickerId, setReactionPickerId] = useState<string | null>(null)
+  const reactionPickerRef = useRef<HTMLDivElement>(null)
+  useOutsideClose(reactionPickerRef, reactionPickerId !== null, () => setReactionPickerId(null))
+  async function toggleReaction(messageId: string, emoji: string) {
+    setReactionPickerId(null)
+    setMessages(prev => prev.map(m => {
+      if (m.id !== messageId) return m
+      const rx = m.reactions ?? []
+      const mine = rx.some(r => r.user_id === currentUserId && r.emoji === emoji)
+      return { ...m, reactions: mine ? rx.filter(r => !(r.user_id === currentUserId && r.emoji === emoji)) : [...rx, { user_id: currentUserId, emoji }] }
+    }))
+    try {
+      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/messages/${messageId}/reactions`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emoji }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (res.ok && Array.isArray(j.reactions)) {
+        setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, reactions: j.reactions as StopReaction[] } : m)))
+      }
+    } catch { /* the optimistic state stands until the next load */ }
+  }
 
   // Image + PDF attachments open in the in-app viewer (MediaLightbox) so they work
   // on every platform including the iOS/Android apps. The old window.open('','_blank')
@@ -1970,7 +1984,7 @@ function StopNotesAndAttachments({
 
   const threadItems = useMemo<ThreadItem[]>(() => {
     const items: ThreadItem[] = [
-      ...messages.map(m => ({ kind: 'message' as const, id: m.id, content: m.content, created_at: m.created_at, user: m.user })),
+      ...messages.map(m => ({ kind: 'message' as const, id: m.id, content: m.content, created_at: m.created_at, user: m.user, reactions: m.reactions ?? [] })),
       ...attachments.map(a => ({ kind: 'file' as const, id: a.id, file_name: a.file_name, file_type: a.file_type, file_size: a.file_size, file_url: a.file_url, created_at: a.created_at, uploaded_by: a.uploaded_by })),
     ]
     return items.sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -1999,11 +2013,64 @@ function StopNotesAndAttachments({
                   <div className="flex-none w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px] text-gray-300 font-semibold">
                     {initials}
                   </div>
-                  <div className={`max-w-[78%] rounded px-2.5 py-1.5 text-xs ${isMine ? 'bg-sky-600/25 text-sky-100' : 'bg-gray-800 text-gray-200'}`}>
-                    <div className="font-medium text-[10px] opacity-60 mb-0.5">
-                      {item.user?.display_name ?? 'Unknown'} · {formatTime(item.created_at)}
+                  <div className="max-w-[82%] min-w-0">
+                    <div className={`rounded px-2.5 py-1.5 text-xs ${isMine ? 'bg-sky-600/25 text-sky-100' : 'bg-gray-800 text-gray-200'}`}>
+                      <div className="font-medium text-[10px] opacity-60 mb-0.5">
+                        {item.user?.display_name ?? 'Unknown'} · {formatTime(item.created_at)}
+                      </div>
+                      <div className="whitespace-pre-wrap">{item.content}</div>
                     </div>
-                    <div className="whitespace-pre-wrap">{item.content}</div>
+                    {/* Reactions: grouped pills (tap to toggle yours) + a small picker */}
+                    <div className={`flex flex-wrap items-center gap-1 mt-1 ${isMine ? 'justify-end' : ''}`}>
+                      {(() => {
+                        const groups: Record<string, string[]> = {}
+                        for (const r of item.reactions) (groups[r.emoji] ??= []).push(r.user_id)
+                        return Object.entries(groups).map(([emoji, ids]) => {
+                          const mine = ids.includes(currentUserId)
+                          return (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => toggleReaction(item.id, emoji)}
+                              className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] transition-colors ${
+                                mine ? 'bg-sky-500/20 border-sky-400/50 text-sky-200' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                              }`}
+                              title={mine ? 'Remove your reaction' : 'React too'}
+                            >
+                              <span>{emoji}</span><span className="font-medium">{ids.length}</span>
+                            </button>
+                          )
+                        })
+                      })()}
+                      <div className="relative" ref={reactionPickerId === item.id ? reactionPickerRef : undefined}>
+                        <button
+                          type="button"
+                          onClick={() => setReactionPickerId(prev => (prev === item.id ? null : item.id))}
+                          className="w-6 h-6 flex items-center justify-center rounded-full text-gray-500 hover:text-white hover:bg-gray-700 text-xs"
+                          title="Add a reaction"
+                          aria-label="Add a reaction"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
+                        {reactionPickerId === item.id && (
+                          <div className={`absolute bottom-full ${isMine ? 'right-0' : 'left-0'} mb-1 z-30 flex items-center gap-0.5 bg-gray-900 border border-gray-700 rounded-full shadow-2xl px-1.5 py-1`}>
+                            {STOP_REACTION_CHOICES.map(emoji => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => toggleReaction(item.id, emoji)}
+                                className="w-7 h-7 flex items-center justify-center text-base rounded-full hover:bg-gray-800"
+                                title={`React with ${emoji}`}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )
