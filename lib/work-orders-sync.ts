@@ -245,10 +245,13 @@ export async function upsertStopsForEntry(admin: Admin, p: {
       if (error) throw new Error(`stop update ${target.id}: ${error.message}`)
       finals.push({ id: target.id, ord: target.ord, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
     } else {
+      // (entry_id, ord) is UNIQUE — park new rows in a high, distinct range and let
+      // the re-numbering below settle them.
+      const tempOrd = 10000 + i
       const row: Record<string, unknown> = {
         ...facts,
         entry_id: p.entryId,
-        ord: 9999,
+        ord: tempOrd,
         jobber_visit_id: vid,
         lat: s.lat ?? null,
         lng: s.lng ?? null,
@@ -265,7 +268,7 @@ export async function upsertStopsForEntry(admin: Admin, p: {
       if (error || !created) throw new Error(`stop insert: ${error?.message ?? 'no row'}`)
       res.inserted += 1
       res.changed = true
-      finals.push({ id: created.id as string, ord: 9999, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
+      finals.push({ id: created.id as string, ord: tempOrd, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
     }
   }
 
@@ -303,12 +306,16 @@ export async function upsertStopsForEntry(admin: Admin, p: {
     if (a.incomingIndex !== b.incomingIndex) return a.incomingIndex - b.incomingIndex
     return a.ord - b.ord
   })
-  for (let i = 0; i < finals.length; i++) {
-    const want = i + 1
-    if (finals[i].ord !== want) {
-      const { error } = await admin.from('daily_log_stops').update({ ord: want }).eq('id', finals[i].id)
-      if (error) throw new Error(`stop ord ${finals[i].id}: ${error.message}`)
-    }
+  // Two phases: (entry_id, ord) is UNIQUE, so stop A cannot take ord 2 while
+  // stop B still holds it. Park every stop that moves in a high range first.
+  const moving = finals.map((f, i) => ({ f, want: i + 1 })).filter(x => x.f.ord !== x.want)
+  for (let i = 0; i < moving.length; i++) {
+    const { error } = await admin.from('daily_log_stops').update({ ord: 20000 + i }).eq('id', moving[i].f.id)
+    if (error) throw new Error(`stop ord park ${moving[i].f.id}: ${error.message}`)
+  }
+  for (const { f, want } of moving) {
+    const { error } = await admin.from('daily_log_stops').update({ ord: want }).eq('id', f.id)
+    if (error) throw new Error(`stop ord ${f.id}: ${error.message}`)
   }
 
   return res
