@@ -76,22 +76,33 @@ export default function MediaLightbox({
       className="fixed inset-0 z-[100] bg-black/95 flex flex-col"
       onClick={onClose}
     >
+      {/* Top bar.
+          ⚠⚠ LITERAL COLOURS, NOT text-white. The Hub's themes REMAP
+          --color-white — to #1e293b, #27133d, even #000000 — so Tailwind's
+          text-white renders DARK, and on this always-black overlay the
+          filename, Download and Close became invisible. Ben could only find
+          Download by tapping blindly at a black strip.
+          The ‹ › arrows below already used text-[#fff]: someone hit this
+          before and fixed two of the controls but not these.
+          This overlay is black whatever theme is on, so nothing in it should
+          take a themed colour. Same family as the Windows <select> options
+          that came out white-on-white. */}
       {/* Top bar */}
       <div
-        className="flex items-center px-3 py-2 text-white border-b border-white/10"
+        className="flex items-center px-3 py-2 text-[#fff] border-b border-[#ffffff1a]"
         onClick={e => e.stopPropagation()}
         style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
       >
         <div className="min-w-0 flex-1 mr-2">
           <div className="truncate text-sm font-medium">{current.filename}</div>
           {items.length > 1 && (
-            <div className="text-xs text-gray-400">{idx + 1} of {items.length}</div>
+            <div className="text-xs text-[#9ca3af]">{idx + 1} of {items.length}</div>
           )}
         </div>
         <a
           href={current.downloadSrc ?? current.src}
           download={current.filename}
-          className="p-2 hover:bg-white/10 active:bg-white/20 rounded text-white"
+          className="p-2 hover:bg-[#ffffff1a] active:bg-[#ffffff33] rounded text-[#fff]"
           title="Download"
           aria-label="Download"
         >
@@ -103,7 +114,7 @@ export default function MediaLightbox({
         </a>
         <button
           onClick={onClose}
-          className="ml-1 p-2 hover:bg-white/10 active:bg-white/20 rounded text-white"
+          className="ml-1 p-2 hover:bg-[#ffffff1a] active:bg-[#ffffff33] rounded text-[#fff]"
           title="Close (Esc)"
           aria-label="Close"
         >
@@ -131,7 +142,7 @@ export default function MediaLightbox({
           // HTML (e.g. a generated route sheet) renders fine in an iframe everywhere.
           <iframe
             src={current.src}
-            className="w-full flex-1 bg-white"
+            className="w-full flex-1 bg-[#fff]"
             title={current.filename}
             onClick={e => e.stopPropagation()}
           />
