@@ -14,7 +14,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import type { ActionContext, ActionGroup, HubAction, HubActor } from './types'
 import { actorPassesGate, str } from './types'
 import type { AssistantSettings } from './settings'
-import { consumePendingAction, newestPendingShortId, stageOutwardAction } from './pending'
+import { claimPlanSiblings, consumePendingAction, newestPendingShortId, stageOutwardAction } from './pending'
 
 import { addContactNoteAction, customerOverviewAction, findContactAction, updateContactAction } from './actions-contacts'
 import { queryDataAction } from './actions-data'
@@ -335,14 +335,39 @@ async function runConfirm(
   const claimed = await consumePendingAction(ctx.admin, ctx.actor, id, ctx.turnId)
   if (!claimed.ok) return claimed.message
 
-  const action = BY_NAME.get(claimed.action)
-  if (!action) return `That confirmation refers to an action ("${claimed.action}") that no longer exists.`
+  // One approval carries out the whole plan: everything staged in the same reply
+  // as the confirmed row. Before Oct 2 2026 each step needed its own yes, and
+  // people (reasonably) assumed one "Confirm" covered all of it.
+  const siblings = await claimPlanSiblings(ctx.admin, ctx.actor, claimed.stagedTurnId, ctx.turnId)
+  const steps = [{ action: claimed.action, args: claimed.args }, ...siblings]
 
-  // Permissions are re-checked HERE too: the staged row is not a capability
-  // token. If the user lost the permission between preview and confirm, the
-  // send must not go through on the strength of the older check.
-  const denied = denyReason(ctx.actor, settings, action)
-  if (denied) return denied
-
-  return await action.run(ctx, claimed.args)
+  const results: string[] = []
+  for (const [i, step] of steps.entries()) {
+    const action = BY_NAME.get(step.action)
+    let out: string
+    if (!action) {
+      out = `Skipped — the action "${step.action}" no longer exists.`
+    } else {
+      // Permissions are re-checked HERE too: the staged row is not a capability
+      // token. If the user lost the permission between preview and confirm, the
+      // send must not go through on the strength of the older check.
+      const denied = denyReason(ctx.actor, settings, action)
+      if (denied) {
+        out = denied
+      } else {
+        try {
+          out = await action.run(ctx, step.args)
+        } catch (err) {
+          console.warn('[hub-actions] plan step failed', step.action, err)
+          out = `That step didn't complete because of an internal error, so assume it did not happen.`
+        }
+      }
+    }
+    results.push(steps.length > 1 ? `Step ${i + 1} of ${steps.length} (${step.action}):\n${out}` : out)
+  }
+  if (steps.length === 1) return results[0]
+  return (
+    `Carried out the approved plan — ${steps.length} steps. Report each step's real outcome to the user; ` +
+    `if any step says it failed, say so plainly.\n\n` + results.join('\n\n')
+  )
 }

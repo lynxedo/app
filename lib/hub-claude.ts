@@ -193,6 +193,34 @@ type SystemBlock =
   | string
   | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral'; ttl?: '5m' | '1h' } }>
 
+// ---------------------------------------------------------------------------
+// System-prompt helpers
+// ---------------------------------------------------------------------------
+
+/** "Friday, October 2, 2026, 1:15 PM" in Central time. */
+function formatCentralNow(): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date())
+}
+
+/**
+ * Append per-turn text to a system prompt that may be a plain string OR an array
+ * of content blocks. Never template-string the array (that yields
+ * "[object Object]"); add the text as an uncached trailing block instead.
+ */
+function appendToSystem(system: SystemBlock, extra: string): SystemBlock {
+  if (!extra) return system
+  if (typeof system === 'string') return `${system}${extra}`
+  return [...system, { type: 'text', text: extra.replace(/^\n+/, '') }]
+}
+
 /**
  * Build the system prompt for a Guardian call. Delegates to the shared
  * buildGuardianSystem() so a direct @Guardian question shares the exact same
@@ -307,7 +335,19 @@ export async function askClaude({
 
   // The light note rides on the system prompt beside the existing transcript;
   // full replay goes into `messages` as real prior turns.
-  const systemWithMemory = memory.note ? `${system}${memory.note}` : system
+  // ⚠ `system` is usually a cache-controlled ARRAY of blocks, not a string. This
+  // line used to be `${system}${memory.note}`, which stringified the array to
+  // "[object Object]" — so on every follow-up turn with a light-memory note the
+  // assistant lost its whole prompt (identity, knowledge docs, job-setup rules,
+  // the conversation so far) and saw only the note. Fixed Oct 2 2026. Extra text
+  // is now appended as its own trailing block so the cached prefix stays intact.
+  //
+  // The current date/time rides the same way. The assistant was never told what
+  // day it is, so "move these to tomorrow" became Oct 18 on Oct 1.
+  const nowLine =
+    `\n\nCURRENT DATE AND TIME: ${formatCentralNow()} (Central Time, America/Chicago). ` +
+    `Resolve "today", "tomorrow", "next Tuesday" and every other relative date from this, never from memory.`
+  const systemWithMemory = appendToSystem(system, `${nowLine}${memory.note || ''}`)
 
   // `replay` always holds whole turns (user … assistant), so appending the new
   // user message keeps the roles alternating and every tool_use paired with its
@@ -357,7 +397,7 @@ export async function askClaude({
 
       const response = await anthropic.messages.create({
         model,
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: systemWithMemory,
         messages,
         ...(iterationTools.length > 0 ? { tools: iterationTools as Anthropic.Tool[] } : {}),
@@ -495,7 +535,7 @@ export async function askClaude({
     try {
       const wrapUp = await anthropic.messages.create({
         model,
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: systemWithMemory,
         messages,
         // No tools on purpose — this call must terminate.
