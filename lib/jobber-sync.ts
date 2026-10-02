@@ -2571,20 +2571,95 @@ async function syncVisitsForJob(userId: string, companyId: string, jobExternalId
   const admin = createAdminClient()
   const { data: job } = await admin
     .from('jobs')
-    .select('is_recurring')
+    .select('is_recurring, job_status')
     .eq('external_id', jobExternalId)
     .eq('source', 'jobber')
     .maybeSingle()
-  if (job?.is_recurring) return
+  const jobClosed = /^(archived|cancelled|canceled|closed)$/i.test((job?.job_status as string | null) ?? '')
 
-  const { data: visits } = await admin
+  // Which mirror visits to re-check. A one-off job: all of them (as before). A
+  // live recurring job can carry hundreds, so only the OPEN ones in the near
+  // horizon — the completed past is immutable, and the far future is re-checked
+  // as it nears. A CLOSED recurring job loses every open visit at once (Heroes'
+  // archived pet-waste jobs held 100–300 ghosts each, out to 2029), so for those
+  // every open visit is checked regardless of date.
+  let q = admin
     .from('visits')
     .select('external_id')
     .eq('job_external_id', jobExternalId)
     .eq('source', 'jobber')
     .is('deleted_at', null)
+  if (job?.is_recurring) {
+    q = q.is('completed_at', null)
+    if (!jobClosed) {
+      const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const to = new Date(Date.now() + VISIT_PROBE_HORIZON_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      q = q.gte('scheduled_date', from).lte('scheduled_date', to)
+    }
+  }
+  const { data: visits } = await q
   const ids = (visits ?? []).map(v => v.external_id as string).filter(Boolean)
-  if (ids.length) await syncVisits(userId, companyId, undefined, ids)
+  if (ids.length === 0) return
+
+  // Ask Jobber which of these ids still exist (explicit `filter.ids` — an id we
+  // asked for and did not get back is definitively gone; same probe the manual
+  // reconcile uses), refresh the live ones, and tombstone the rest.
+  //
+  // ⚠ This closes the ghost-route gap found Oct 2 2026: archiving / closing a
+  // recurring job removes its remaining visits in Jobber but fires NO
+  // VISIT_DESTROY — only this JOB_UPDATE — and this function used to return early
+  // for recurring jobs, so eight pet-waste visits on archived jobs sat in the
+  // mirror as UPCOMING for a month and became a route on Bonnie's Work Orders.
+  // The manual reconcile withholds exactly this case too (an all-ghost job has
+  // no live sibling to corroborate), so the event IS the corroboration here.
+  const alive = new Set<string>()
+  let probeFailed = false
+  for (let i = 0; i < ids.length; i += VISIT_PROBE_BATCH) {
+    const slice = ids.slice(i, i + VISIT_PROBE_BATCH)
+    try {
+      const resp = await withRateLimit(() =>
+        jobberGraphQLAdmin<{ data?: { visits?: { nodes: { id: string }[] } }; errors?: { message: string }[] }>(
+          userId, VISIT_IDS_PROBE_QUERY, { filter: { ids: slice } },
+        )
+      )
+      if (resp.errors?.length || !resp.data?.visits) { probeFailed = true; continue }
+      for (const n of resp.data.visits.nodes) alive.add(n.id)
+    } catch {
+      probeFailed = true
+    }
+  }
+
+  if (alive.size > 0) await syncVisits(userId, companyId, undefined, [...alive])
+
+  // Guard 1: a probe that threw or errored never reads as "deleted".
+  if (probeFailed) {
+    console.warn(`[jobber-webhook] job ${jobExternalId}: visit probe failed for a batch — no tombstones this time`)
+    return
+  }
+  const gone = ids.filter(id => !alive.has(id))
+  if (gone.length === 0) return
+  // Guard 2: Jobber returning NONE of the ids is an API failure, not N deletions —
+  // unless Jobber itself just said the job is archived/closed, in which case every
+  // open visit being gone is precisely what archiving does.
+  if (alive.size === 0 && !jobClosed) {
+    console.warn(`[jobber-webhook] job ${jobExternalId}: probe returned none of ${ids.length} visit id(s) and the job is not closed — withheld`)
+    return
+  }
+  const nowIso = new Date().toISOString()
+  let killed = 0
+  for (let i = 0; i < gone.length; i += 100) {
+    const { data, error } = await admin
+      .from('visits')
+      .update({ deleted_at: nowIso, updated_at: nowIso })
+      .eq('company_id', companyId)
+      .eq('source', 'jobber')
+      .is('deleted_at', null)
+      .in('external_id', gone.slice(i, i + 100))
+      .select('id')
+    if (error) { console.error(`[jobber-webhook] job ${jobExternalId}: visit tombstone failed: ${error.message}`); return }
+    killed += data?.length ?? 0
+  }
+  console.log(`[jobber-webhook] job ${jobExternalId}${jobClosed ? ' (closed)' : ''}: tombstoned ${killed} visit(s) Jobber no longer has`)
 }
 
 /**
