@@ -6,6 +6,7 @@ import { getR2Client } from '@/lib/r2'
 import { loadCapacityData } from '@/lib/route-capacity-server'
 import { computeRouteLoadout, toStoredLoadout, type RouteStopInput } from '@/lib/route-capacity'
 import { renderRouteSheetPdf } from '@/lib/route-sheet-pdf'
+import { upsertStopsForEntry, type StopInput } from '@/lib/work-orders-sync'
 
 interface LineItemPayload {
   name: string
@@ -150,15 +151,11 @@ export async function POST(request: Request) {
   if (existingEntry) {
     entryId = existingEntry.id
     action = 'updated'
-    // Replace stops only — preserve office_notes, updates, completed/closed state.
-    const { error: delErr } = await admin
-      .from('daily_log_stops')
-      .delete()
-      .eq('entry_id', entryId)
-    if (delErr) {
-      return NextResponse.json({ error: `Failed to clear prior stops: ${delErr.message}` }, { status: 500 })
-    }
-    // Refresh the loadout snapshot for the new stop set.
+    // Work Orders Phase 1.5: stops are MERGED below (matched on the Jobber visit
+    // id, tech state kept), not deleted and re-inserted — the day may already be
+    // fed from the Jobber schedule and a tech may already be working it.
+    // Refresh the loadout snapshot for the new stop set (the optimizer's version
+    // carries tank overrides + the drive estimate the feed cannot recompute).
     await admin
       .from('daily_log_entries')
       .update({ route_loadout: routeLoadout })
@@ -230,36 +227,42 @@ export async function POST(request: Request) {
     }
   }
 
-  // Insert stops in order
-  const stopRows = body.stops.map((s, i) => {
+  // Merge the optimized stops onto the entry, in route order. A stop already
+  // there (fed from Jobber, or from an earlier send) keeps its id and anything
+  // the tech did; the optimizer's richer facts (coords, instructions, ETA times)
+  // are written over the mirror's. Visits no longer in this route are NOT
+  // pruned here — Jobber decides what is on a tech's day (the feed prunes when a
+  // visit actually leaves the day in Jobber). Tasks and assessments only ever
+  // arrive through this route.
+  const stopInputs: StopInput[] = body.stops.map(s => {
     const link = s.jobber_visit_id ? visitLinks.get(s.jobber_visit_id) : undefined
     const jobberClientId = link?.client ?? null
     return {
-    entry_id: entryId,
-    ord: i + 1,
-    jobber_visit_id: s.jobber_visit_id ?? null,
-    jobber_job_id: link?.job ?? null,
-    jobber_client_id: jobberClientId,
-    contact_id: jobberClientId ? (contactByClient.get(jobberClientId) ?? null) : null,
-    client_name: s.client_name,
-    client_phone: s.client_phone ?? null,
-    address: s.address,
-    lat: s.lat ?? null,
-    lng: s.lng ?? null,
-    job_title: s.job_title ?? null,
-    line_items: Array.isArray(s.line_items) ? s.line_items : [],
-    instructions: s.instructions ?? null,
-    scheduled_start_at: s.scheduled_start_at ?? null,
-    scheduled_end_at: s.scheduled_end_at ?? null,
-    duration_minutes: s.duration_minutes ?? null,
+      jobber_visit_id: s.jobber_visit_id ?? null,
+      jobber_job_id: link?.job ?? null,
+      jobber_client_id: jobberClientId,
+      contact_id: jobberClientId ? (contactByClient.get(jobberClientId) ?? null) : null,
+      client_name: s.client_name,
+      client_phone: s.client_phone ?? null,
+      address: s.address,
+      lat: s.lat ?? null,
+      lng: s.lng ?? null,
+      job_title: s.job_title ?? null,
+      line_items: Array.isArray(s.line_items) ? s.line_items : [],
+      instructions: s.instructions ?? null,
+      scheduled_start_at: s.scheduled_start_at ?? null,
+      scheduled_end_at: s.scheduled_end_at ?? null,
+      duration_minutes: s.duration_minutes ?? null,
     }
   })
 
-  const { error: stopsErr } = await admin
-    .from('daily_log_stops')
-    .insert(stopRows)
-  if (stopsErr) {
-    return NextResponse.json({ error: `Failed to insert stops: ${stopsErr.message}` }, { status: 500 })
+  let stopRows: { inserted: number; updated: number; moved: number }
+  try {
+    stopRows = await upsertStopsForEntry(admin, {
+      companyId: profile.company_id, entryId, stops: stopInputs, source: 'route', pruneMissingVisits: false,
+    })
+  } catch (e) {
+    return NextResponse.json({ error: `Failed to save stops: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 })
   }
 
   // Attach the printable route sheet. We render the self-contained route-sheet
@@ -319,7 +322,8 @@ export async function POST(request: Request) {
   return NextResponse.json({
     entry_id: entryId,
     tech_user_id: techUserId,
-    stop_count: stopRows.length,
+    stop_count: stopInputs.length,
+    merged: stopRows,
     action,
   })
 }
