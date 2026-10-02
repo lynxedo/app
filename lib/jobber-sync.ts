@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { syncWorkOrdersForVisit, syncWorkOrdersForJob } from '@/lib/work-orders-sync'
 import { writeCustomerLinkForClient } from '@/lib/jobber-customer-link'
 import { writeReportLinksForJob } from '@/lib/jobber-report-links'
 import { jobberGraphQLAdmin, resolveJobberUserId } from '@/lib/jobber'
@@ -889,6 +890,7 @@ const JOBS_QUERY = `
         jobberWebUri
         createdAt
         updatedAt
+        instructions
         client { id }
         property { id }
         salesperson { id }
@@ -988,6 +990,7 @@ async function syncJobs(
         end_at: job.endAt ?? null,
         completed_at: job.completedAt ?? null,
         salesperson_external_id: job.salesperson?.id ?? null,
+        instructions: job.instructions ?? null,
         dept_prefix: deptPrefix,
         ...denormalized,
         custom_fields: Object.keys(raw).length > 0 ? raw : null,
@@ -2595,6 +2598,46 @@ async function syncVisitsForJob(userId: string, companyId: string, jobExternalId
  *   - Jobs & Visits have `ids` but no `updatedAt` → exact fetch by id, so an
  *     edit or completion on an older record is never missed by a time window.
  */
+/**
+ * Work Orders Phase 1.5 — re-pull specific jobs by Jobber id (e.g. to backfill
+ * the newly mirrored `instructions` for the jobs on the next days' work orders).
+ * Chunked so Jobber's id filter stays small; failures per chunk are logged, not
+ * thrown, so one bad chunk never stops the rest.
+ */
+export async function refreshJobsByExternalIds(companyId: string, jobExternalIds: string[]): Promise<number> {
+  const ids = [...new Set(jobExternalIds.filter(Boolean))]
+  if (ids.length === 0) return 0
+  const userId = await getJobberUserId(companyId)
+  let total = 0
+  for (let i = 0; i < ids.length; i += 25) {
+    const slice = ids.slice(i, i + 25)
+    try {
+      total += await syncJobs(userId, companyId, undefined, slice)
+    } catch (e) {
+      console.error('[jobber-sync] refreshJobsByExternalIds chunk failed:', e instanceof Error ? e.message : String(e))
+    }
+  }
+  return total
+}
+
+// Work Orders Phase 1.5 — the Work Order list follows the Jobber schedule, so a
+// visit event re-syncs the day(s) it touches. Best-effort: a feed failure must
+// never fail (and so retry) the mirror event that caused it.
+async function feedWorkOrdersForVisit(companyId: string, visitId: string, topic: string): Promise<void> {
+  try {
+    await syncWorkOrdersForVisit(companyId, visitId)
+  } catch (e) {
+    console.error(`[jobber-webhook] work-orders feed after ${topic} ${visitId} failed:`, e instanceof Error ? e.message : String(e))
+  }
+}
+async function feedWorkOrdersForJob(companyId: string, jobId: string, topic: string): Promise<void> {
+  try {
+    await syncWorkOrdersForJob(companyId, jobId)
+  } catch (e) {
+    console.error(`[jobber-webhook] work-orders feed after ${topic} ${jobId} failed:`, e instanceof Error ? e.message : String(e))
+  }
+}
+
 export async function processJobberWebhookEvent(
   event: { topic: string; itemId: string; companyId: string; occurredAt?: string | null }
 ): Promise<void> {
@@ -2659,6 +2702,9 @@ export async function processJobberWebhookEvent(
         }
       }
     }
+    // A destroyed visit leaves its tech's Work Order list (or is flagged if the
+    // tech already worked it).
+    if (topic === 'VISIT_DESTROY') await feedWorkOrdersForVisit(companyId, itemId, topic)
     return
   }
 
@@ -2717,6 +2763,8 @@ export async function processJobberWebhookEvent(
         } catch (e) {
           console.error('[jobber-webhook] report links failed for', itemId, e)
         }
+        // Title / instructions / line items changed → refresh the stops this job's visits make.
+        await feedWorkOrdersForJob(companyId, itemId, topic)
         break
       case 'VISIT_CREATE':
       case 'VISIT_UPDATE':
@@ -2725,6 +2773,8 @@ export async function processJobberWebhookEvent(
         // upcoming / today / late and changes its totals — all derived, none of
         // which emits a JOB_* event.
         await refreshJobBehind(userId, companyId, 'visits', itemId)
+        // …and moves the stop on the tech's Work Order list (new day / new tech / new time).
+        await feedWorkOrdersForVisit(companyId, itemId, topic)
         break
       case 'VISIT_COMPLETE': {
         await syncVisits(userId, companyId, undefined, [itemId])
@@ -2743,6 +2793,8 @@ export async function processJobberWebhookEvent(
         } catch (e) {
           console.error('[jobber-webhook] pesticide record failed for', itemId, e)
         }
+        // A completion in the Jobber app marks the still-pending Hub stop complete.
+        await feedWorkOrdersForVisit(companyId, itemId, topic)
         break
       }
       default:
@@ -2857,6 +2909,8 @@ interface JobNode {
   billingType?: string; total?: number; invoicedTotal?: number; uninvoicedTotal?: number
   startAt?: string; endAt?: string; completedAt?: string; jobberWebUri?: string
   createdAt?: string; updatedAt?: string
+  /** Visit instructions (gate code, dog, …) — Jobber keeps them on the job. Work Orders Phase 1.5. */
+  instructions?: string | null
   client?: { id: string }; property?: { id: string }; salesperson?: { id: string }
   customFields?: RawCustomField[]
   lineItems?: { nodes: LineItemNode[] }

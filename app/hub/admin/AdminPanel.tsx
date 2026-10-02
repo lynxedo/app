@@ -79,6 +79,9 @@ type User = {
   profile: UserProfile | null
 }
 
+/** Work Orders Phase 1.5 — a Jobber user, for the "Jobber user" picker. */
+type JobberUserLite = { id: string; name: string; isActive: boolean }
+
 type RosterEmployee = {
   id: string
   first_name: string
@@ -322,6 +325,21 @@ export default function AdminPanel({
 }) {
   const [users, setUsers] = useState(initialUsers)
   const [employees, setEmployees] = useState(initialEmployees)
+  // Work Orders Phase 1.5 — which Jobber user each person is (feeds their Work Order list).
+  const [jobberLinks, setJobberLinks] = useState<Record<string, string | null>>({})
+  const [jobberUsers, setJobberUsers] = useState<JobberUserLite[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/admin/users/jobber-links')
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        if (cancelled || !j) return
+        setJobberLinks(j.links ?? {})
+        setJobberUsers(Array.isArray(j.jobberUsers) ? j.jobberUsers : [])
+      })
+      .catch(() => {/* picker simply stays empty */})
+    return () => { cancelled = true }
+  }, [])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [showAddUser, setShowAddUser] = useState(false)
@@ -414,11 +432,13 @@ export default function AdminPanel({
     }
   }
 
-  async function handleSaveName(userId: string, fullName: string, displayName: string) {
+  async function handleSaveName(userId: string, fullName: string, displayName: string, jobberUserId?: string | null) {
+    const payload: Record<string, unknown> = { full_name: fullName || null, display_name: displayName || null }
+    if (jobberUserId !== undefined) payload.jobber_user_id = jobberUserId || null
     const res = await fetch(`/api/admin/users/${userId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: fullName || null, display_name: displayName || null }),
+      body: JSON.stringify(payload),
     })
     if (res.ok) {
       setUsers(prev => prev.map(u =>
@@ -426,6 +446,7 @@ export default function AdminPanel({
           ? { ...u, full_name: fullName || null, display_name: displayName || null }
           : u
       ))
+      if (jobberUserId !== undefined) setJobberLinks(prev => ({ ...prev, [userId]: jobberUserId || null }))
     } else {
       const data = await res.json()
       toast.error(data.error || 'Failed to save names')
@@ -664,6 +685,8 @@ export default function AdminPanel({
             onSaveName={handleSaveName}
             onStatus={handleStatus}
             onRosterToggle={handleRosterToggle}
+            jobberLink={jobberLinks[selectedUser.id] ?? null}
+            jobberUsers={jobberUsers}
           />
         ) : (
           <p className="px-6 pb-6 text-sm text-gray-500">Choose a person to manage their access.</p>
@@ -795,6 +818,8 @@ function UserPanel({
   onSaveName,
   onStatus,
   onRosterToggle,
+  jobberLink,
+  jobberUsers,
 }: {
   user: User
   rosterEmployee: RosterEmployee | null
@@ -803,14 +828,18 @@ function UserPanel({
   onChange: (userId: string, field: string, value: boolean | string) => void
   onDelete: (user: User) => void
   onSendInvite: (userId: string) => Promise<void>
-  onSaveName: (userId: string, fullName: string, displayName: string) => Promise<void>
+  onSaveName: (userId: string, fullName: string, displayName: string, jobberUserId?: string | null) => Promise<void>
   onStatus: (user: User, action: 'lock' | 'unlock' | 'deactivate' | 'reactivate') => Promise<void>
   onRosterToggle: (user: User, enabled: boolean) => Promise<void>
+  /** Work Orders Phase 1.5 — this person's Jobber user id (null = match by first name). */
+  jobberLink: string | null
+  jobberUsers: JobberUserLite[]
 }) {
   const [sendingInvite, setSendingInvite] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editFull, setEditFull] = useState(user.full_name ?? '')
   const [editDisplay, setEditDisplay] = useState(user.display_name ?? '')
+  const [editJobber, setEditJobber] = useState(jobberLink ?? '')
   const [saving, setSaving] = useState(false)
   const [statusBusy, setStatusBusy] = useState(false)
   const [rosterBusy, setRosterBusy] = useState(false)
@@ -836,10 +865,11 @@ function UserPanel({
 
   const handleSave = async () => {
     setSaving(true)
-    await onSaveName(user.id, editFull, editDisplay)
+    await onSaveName(user.id, editFull, editDisplay, editJobber || null)
     setSaving(false)
     setEditing(false)
   }
+  const linkedJobberName = jobberLink ? (jobberUsers.find(j => j.id === jobberLink)?.name ?? 'linked') : null
 
   const runStatus = async (action: 'lock' | 'unlock' | 'deactivate' | 'reactivate') => {
     setStatusBusy(true)
@@ -875,7 +905,10 @@ function UserPanel({
                 <span className={`text-xs border px-2 py-0.5 rounded-full ${badge.cls}`}>{badge.label}</span>
               )}
             </div>
-            <div className="text-xs text-gray-500 mt-0.5">{user.email} · Last sign in: {lastSeen}</div>
+            <div className="text-xs text-gray-500 mt-0.5">
+              {user.email} · Last sign in: {lastSeen}
+              {linkedJobberName && <span title="Work Orders are fed from this Jobber user's visits"> · 🔗 Jobber: {linkedJobberName}</span>}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -890,7 +923,7 @@ function UserPanel({
             <option value="admin">Admin</option>
           </select>
           <button
-            onClick={() => { setEditFull(user.full_name ?? ''); setEditDisplay(user.display_name ?? ''); setEditing(true) }}
+            onClick={() => { setEditFull(user.full_name ?? ''); setEditDisplay(user.display_name ?? ''); setEditJobber(jobberLink ?? ''); setEditing(true) }}
             className="px-2 py-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg transition-colors"
           >
             Edit
@@ -910,6 +943,16 @@ function UserPanel({
               <label className="block text-xs text-gray-500 mb-1">Display name (Hub)</label>
               <input value={editDisplay} onChange={e => setEditDisplay(e.target.value)} className={inputCls} />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Jobber user <span className="text-gray-600">— feeds their Work Order list</span></label>
+            <select value={editJobber} onChange={e => setEditJobber(e.target.value)} className={inputCls}>
+              <option value="">Not linked — match by first name ({(user.display_name || user.full_name || '').trim().split(/\s+/)[0] || '…'})</option>
+              {jobberUsers.filter(j => j.isActive || j.id === jobberLink).map(j => (
+                <option key={j.id} value={j.id}>{j.name}{j.isActive ? '' : ' (inactive)'}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-600 mt-1">Visits assigned to this Jobber user in the schedule become this person&apos;s work orders. Link a crew account (e.g. HLC IR) to the person who runs it.</p>
           </div>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setEditing(false)} className="px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors">Cancel</button>

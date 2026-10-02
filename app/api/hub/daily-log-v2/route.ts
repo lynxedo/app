@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     .from('daily_log_entries')
     .select(`
       id, log_date, office_notes, route_sheet_url, route_sheet_name, created_at, created_by,
-      route_loadout,
+      route_loadout, synced_from_jobber_at,
       secondary_tech_user_ids, completed_at, completed_by, closed_at, closed_by,
       tech:hub_users!tech_user_id(id, display_name, avatar_url),
       stops:daily_log_stops(
@@ -47,7 +47,8 @@ export async function GET(request: Request) {
         on_my_way_sent_at, on_my_way_eta_minutes, weather, pesticide_record_id,
         skip_reason_id, skip_reason_label, pesticide_tech_notes,
         office_reviewed_at, office_reviewed_by,
-        contact_id, jobber_client_id, jobber_job_id
+        contact_id, jobber_client_id, jobber_job_id,
+        source, jobber_synced_at, removed_from_jobber_at
       )
     `)
     .eq('company_id', profile.company_id)

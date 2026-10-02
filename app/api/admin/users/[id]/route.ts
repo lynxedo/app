@@ -56,8 +56,8 @@ export async function PATCH(
 
   const admin = createAdminClient()
 
-  // display_name lives on hub_users — pull it out and write separately
-  const { display_name, full_name, ...profileFields } = body
+  // display_name and jobber_user_id live on hub_users — pull them out and write separately
+  const { display_name, full_name, jobber_user_id, ...profileFields } = body
 
   const notEditable = Object.keys(profileFields).filter(
     k => !EDITABLE_PATTERN.test(k) && !EDITABLE_EXACT.has(k)
@@ -73,6 +73,26 @@ export async function PATCH(
       .update({ display_name: display_name || null })
       .eq('id', id)
       .eq('company_id', check.company_id)
+  }
+
+  // Work Orders Phase 1.5 — which Jobber user this person is. One Jobber user
+  // per Hub person (partial unique index); a clash is reported, not swallowed.
+  if (jobber_user_id !== undefined) {
+    if (jobber_user_id !== null && typeof jobber_user_id !== 'string') {
+      return NextResponse.json({ error: 'jobber_user_id must be a string or null' }, { status: 400 })
+    }
+    const { error: linkErr } = await admin
+      .from('hub_users')
+      .update({ jobber_user_id: jobber_user_id || null })
+      .eq('id', id)
+      .eq('company_id', check.company_id)
+    if (linkErr) {
+      const clash = /hub_users_jobber_user_idx|duplicate key/i.test(linkErr.message)
+      return NextResponse.json(
+        { error: clash ? 'That Jobber user is already linked to another person.' : linkErr.message },
+        { status: clash ? 409 : 500 },
+      )
+    }
   }
 
   // full_name and everything else (role, permissions) lives on user_profiles

@@ -75,6 +75,10 @@ type Stop = {
   jobber_client_id: string | null
   jobber_job_id: string | null
   inspection: StopInspection | null
+  // Work Orders Phase 1.5 — where the stop came from and whether Jobber still has it
+  source: 'route' | 'jobber' | null
+  jobber_synced_at: string | null
+  removed_from_jobber_at: string | null
   // Transient client-side state — not stored on server
   _jobber_warning?: string | null
   _omw_error?: string | null
@@ -121,6 +125,8 @@ type Entry = {
   stops: Stop[]
   secondary_techs: HubUser[]
   route_loadout: StoredRouteLoadout | null
+  /** Set once the Jobber feed manages this day (Work Orders Phase 1.5). */
+  synced_from_jobber_at: string | null
 }
 
 type ApiResponse = {
@@ -242,6 +248,10 @@ export default function DailyLogV2View({
   const [routeCompleteEntryId, setRouteCompleteEntryId] = useState<string | null>(null)
   /** When the copy on screen was saved, or null when it came from the server just now. */
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  // Admin: pull this day from the Jobber schedule right now instead of waiting
+  // for the sweep (Work Orders Phase 1.5).
+  const [syncing, setSyncing] = useState(false)
+  const [syncNote, setSyncNote] = useState<string | null>(null)
 
   // The route sheet is the screen a crew keeps open in the truck all morning.
   // Letting the phone sleep on it means unlocking to read the next stop, so hold
@@ -486,6 +496,33 @@ export default function DailyLogV2View({
     load(date)
   }, [date, load])
 
+  async function syncFromJobber() {
+    if (syncing) return
+    setSyncing(true); setSyncNote(null)
+    try {
+      const res = await fetch('/api/hub/work-orders/sync', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) { setSyncNote(j.error || `Sync failed (${res.status})`); return }
+      const r = (j.results ?? [])[0] ?? {}
+      const bits = [
+        `${r.visits ?? 0} visit${r.visits === 1 ? '' : 's'} in Jobber`,
+        `${r.techs ?? 0} tech${r.techs === 1 ? '' : 's'}`,
+        r.inserted ? `${r.inserted} added` : null,
+        r.moved ? `${r.moved} moved` : null,
+        r.deleted ? `${r.deleted} removed` : null,
+        r.flagged ? `${r.flagged} flagged` : null,
+        r.unmappedTechs?.length ? `not linked to a Hub person: ${r.unmappedTechs.join(', ')}` : null,
+        r.noCreator ? 'Jobber is not connected — new days could not be created' : null,
+      ].filter(Boolean)
+      setSyncNote(`Synced · ${bits.join(' · ')}`)
+      await load(date)
+    } catch (e) {
+      setSyncNote(e instanceof Error ? e.message : 'Sync failed')
+    } finally { setSyncing(false) }
+  }
+
   const visibleEntries = useMemo(() => {
     if (filter === 'all') return entries
     return entries.filter(e =>
@@ -503,7 +540,7 @@ export default function DailyLogV2View({
             <span className="text-[10px] md:text-xs bg-white/10 text-gray-300 px-2 py-0.5 rounded" title="The office name for this screen">Daily Log v2</span>
           </div>
           <p className="text-xs md:text-sm text-gray-400 hidden md:block">
-            Your stops for the day, in route order — each one is a work order. The office sends them from the Route Optimizer&apos;s <strong>Send to Daily Log</strong> button.
+            Your stops for the day, in route order — each one is a work order. The day fills itself from the Jobber schedule; the office changes it in Jobber or with the Route Optimizer.
           </p>
           <div className="flex flex-wrap items-center gap-2 mt-3">
             <div className="flex items-center gap-1.5">
@@ -528,6 +565,16 @@ export default function DailyLogV2View({
                 >Today</button>
               )}
             </div>
+            {isAdmin && (
+              <button
+                onClick={syncFromJobber}
+                disabled={syncing || loading}
+                title="Rebuild this day's Work Orders from the Jobber schedule now (it also happens on its own every few minutes)"
+                className="px-3 py-2 md:py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-sky-200 disabled:opacity-50"
+              >
+                {syncing ? 'Syncing…' : '↻ Sync from Jobber'}
+              </button>
+            )}
             <div className="ml-auto flex items-center gap-1 bg-gray-800 border border-gray-700 rounded p-0.5">
               <button
                 onClick={() => setFilter('all')}
@@ -540,6 +587,7 @@ export default function DailyLogV2View({
             </div>
           </div>
           <div className="text-xs text-gray-400 mt-2">{formatDateHeading(date)}</div>
+          {syncNote && <div className="text-xs text-sky-300 mt-1">{syncNote}</div>}
         </div>
       </header>
 
@@ -564,10 +612,11 @@ export default function DailyLogV2View({
           )}
           {!loading && !error && visibleEntries.length === 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 md:p-8 text-center">
-              <p className="text-gray-400 mb-2">No entries for {formatDateHeading(date)}.</p>
+              <p className="text-gray-400 mb-2">No work orders for {formatDateHeading(date)}.</p>
               <p className="text-sm text-gray-500">
-                Run the <a href="/hub/routing" className="text-sky-400 hover:underline">Route Optimizer</a> and click{' '}
-                <strong>Send to Daily Log</strong> to populate stops here.
+                A tech&apos;s day appears here on its own from the Jobber schedule once visits are assigned to them for this date.
+                {isAdmin ? ' Tap ↻ Sync from Jobber above to pull it now, or send a route from the ' : ' The office can also send a route from the '}
+                <a href="/hub/routing" className="text-sky-400 hover:underline">Route Optimizer</a>.
               </p>
             </div>
           )}
@@ -862,6 +911,14 @@ function EntryCard({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-none">
+          {entry.synced_from_jobber_at && (
+            <span
+              className="hidden md:inline text-[10px] text-sky-300/80 bg-sky-500/10 px-2 py-1 rounded"
+              title={`Follows the Jobber schedule · last synced ${formatTime(entry.synced_from_jobber_at)}`}
+            >
+              Jobber-fed
+            </span>
+          )}
           {totalStops > 0 && (
             <span className="text-xs text-gray-300 bg-gray-800 px-2 py-1 rounded">
               {completedStops}/{totalStops} done
@@ -1309,6 +1366,11 @@ function StopRow({
                 ✓ Reviewed
               </div>
             )}
+            {stop.removed_from_jobber_at && (
+              <div className="text-[10px] bg-red-500/15 text-red-300 px-1.5 py-0.5 rounded" title="This visit is no longer on your day in Jobber (moved, reassigned or deleted). Kept because you had already started on it.">
+                ⚠ Removed from Jobber
+              </div>
+            )}
           </div>
           <div className="text-sm text-gray-400 truncate">{stop.address}</div>
           {stop.job_title && !expanded && (
@@ -1332,6 +1394,13 @@ function StopRow({
             <div className="bg-gray-800/60 border border-gray-700 rounded px-3 py-2.5 text-sm text-gray-400">
               ⊘ This stop was skipped
               {stop.skip_reason_label && <span className="text-gray-300 ml-1">— {stop.skip_reason_label}</span>}
+            </div>
+          )}
+
+          {/* Removed from Jobber — kept only because the tech had already worked it */}
+          {stop.removed_from_jobber_at && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2.5 text-sm text-red-200">
+              ⚠ <strong>This visit is no longer on your day in Jobber</strong> (moved, reassigned or deleted) since {formatTime(stop.removed_from_jobber_at)}. It stays here because you had already started on it — check with the office before doing more.
             </div>
           )}
 
