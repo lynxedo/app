@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { createClient } from '@/lib/supabase/client'
 import { Spinner, EmptyState } from '@/components/ui'
+import { isNativeApp } from '@/lib/hub-idle'
+import { useOutsideClose } from '@/hooks/use-outside-close'
 
 type HubUser = { id: string; display_name: string; avatar_url?: string | null; is_bot?: boolean }
 
@@ -184,6 +186,28 @@ function EntryCard({
   const [addingSecondary, setAddingSecondary] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const attachInputRef = useRef<HTMLInputElement>(null)
+  // ⚠⚠ THE SAME PAPERCLIP EXISTS TWICE. The camera menu went into
+  // DailyLogV2View and this one — the plain "Daily Log", still in everyone's
+  // sidebar — kept the old bare picker. Ben tapped this one and got a file
+  // picker, exactly as before. One action, two screens; a fix on one of them
+  // is not a fix. (Same shape as the clock punch that lived in two places.)
+  const attachPhotoRef = useRef<HTMLInputElement>(null)
+  const attachVideoRef = useRef<HTMLInputElement>(null)
+  const attachMenuRef = useRef<HTMLDivElement>(null)
+  const [attachOpen, setAttachOpen] = useState(false)
+  // ⚠ Read in an effect, never during render: isNativeApp() looks at window.
+  const [nativeAttach, setNativeAttach] = useState(false)
+  // ⚠ Shown on any TOUCH device, not just "is this the native app". The native
+  // check reads a localStorage flag the shell writes on page load, so it is one
+  // missing write away from the menu silently never appearing — and an invisible
+  // control is indistinguishable from the bug it was meant to fix. A coarse
+  // pointer means a phone or tablet, which is exactly where a camera is wanted,
+  // and it covers the mobile browser too. Desktop keeps the plain file dialog.
+  useEffect(() => {
+    setNativeAttach(isNativeApp() ||
+      (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true))
+  }, [])
+  useOutsideClose(attachMenuRef, attachOpen, () => setAttachOpen(false))
   const updatesBottomRef = useRef<HTMLDivElement>(null)
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
 
@@ -962,17 +986,62 @@ function EntryCard({
 
             <div className="flex gap-2 items-end">
               {/* Attach button */}
-              <button
-                type="button"
-                onClick={() => attachInputRef.current?.click()}
-                disabled={sendingUpdate}
-                className="p-2 rounded-xl text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-40 flex-none"
-                title="Attach files"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                </svg>
-              </button>
+              <div className="relative flex-none" ref={attachMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => (nativeAttach ? setAttachOpen(o => !o) : attachInputRef.current?.click())}
+                  disabled={sendingUpdate}
+                  className="p-2 rounded-xl text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-40"
+                  title="Attach files"
+                  aria-haspopup={nativeAttach ? 'menu' : undefined}
+                  aria-expanded={nativeAttach ? attachOpen : undefined}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                </button>
+                {nativeAttach && attachOpen && (
+                  <div
+                    role="menu"
+                    className="absolute bottom-full left-0 mb-1 z-20 w-44 bg-gray-800 border border-gray-700 rounded shadow-lg overflow-hidden"
+                  >
+                    {([
+                      ['📷', 'Take photo', attachPhotoRef],
+                      ['🎥', 'Record video', attachVideoRef],
+                      ['📁', 'Choose a file', attachInputRef],
+                    ] as const).map(([icon, label, ref]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setAttachOpen(false); ref.current?.click() }}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-700"
+                      >
+                        <span aria-hidden>{icon}</span>{label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {/* capture="environment" = the rear camera, opened directly. Needs
+                  the manifest's <queries> block, or Android 11+ hides the camera
+                  app and the picker silently falls back to the gallery. */}
+              <input
+                ref={attachPhotoRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={e => { handleAttachFiles(e.target.files); e.target.value = '' }}
+              />
+              <input
+                ref={attachVideoRef}
+                type="file"
+                accept="video/*"
+                capture="environment"
+                className="hidden"
+                onChange={e => { handleAttachFiles(e.target.files); e.target.value = '' }}
+              />
               <input
                 ref={attachInputRef}
                 type="file"
