@@ -53,6 +53,8 @@ export async function GET(request: Request) {
     `)
     .eq('company_id', profile.company_id)
     .eq('log_date', date)
+    // Soft-deleted days (office delete, or a fed day Jobber emptied) stay hidden.
+    .is('deleted_at', null)
     .order('created_at', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

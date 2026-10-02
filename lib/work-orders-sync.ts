@@ -2,7 +2,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { geocodeAddresses } from '@/lib/geocode'
 import { loadCapacityData } from '@/lib/route-capacity-server'
 import { computeRouteLoadout, toStoredLoadout, type RouteStopInput, type StoredRouteLoadout } from '@/lib/route-capacity'
-import { resolveJobberUserId } from '@/lib/jobber'
+import { resolveJobberUserId, jobberGraphQLPatient } from '@/lib/jobber'
+import { refreshVisitsByExternalIds } from '@/lib/jobber-sync'
 
 // ── Work Orders fed from Jobber (PRD §6 Phase 1.5, Oct 2 2026) ────────────────
 //
@@ -34,6 +35,14 @@ import { resolveJobberUserId } from '@/lib/jobber'
 //  • Tech mapping: hub_users.jobber_user_id (Admin → People) first, else the
 //    first-name match the optimizer's Send to Daily Log has always used. A visit
 //    whose tech maps to nobody is reported, not guessed.
+//  • The mirror is CHECKED AGAINST JOBBER before a day is built: one visits query
+//    for the local day. Visits the mirror still has but Jobber no longer does are
+//    tombstoned (Jobber fires no event for the visits that vanish when a
+//    recurring job is archived — Oct 2 2026: eight pet-waste visits on archived
+//    jobs put a route on Bonnie's day that Jobber did not have), and visits
+//    Jobber has that the mirror lacks or shows with other times / people are
+//    re-pulled. Then the day is built from the corrected mirror. If Jobber can't
+//    be reached the mirror is used as-is and the result says so.
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -82,6 +91,16 @@ export type SyncDayResult = {
   unassigned: number
   /** No connected Jobber account → a new day could not be created (existing ones still updated). */
   noCreator: boolean
+  /** Jobber was asked for the day and the mirror corrected before building. */
+  liveChecked: boolean
+  /** Mirror visits for the day that Jobber no longer has → tombstoned. */
+  ghostsRemoved: number
+  /** Live visits missing or stale in the mirror → re-pulled. */
+  refreshed: number
+  /** Why the live check was skipped or failed (null when it ran). */
+  liveError: string | null
+  /** Fed days that ended with no stops and nothing else on them → folded away. */
+  daysFolded: number
 }
 
 // ── Dates ────────────────────────────────────────────────────────────────────
@@ -508,23 +527,150 @@ async function recomputeLoadout(admin: Admin, companyId: string, entryId: string
   await admin.from('daily_log_entries').update({ route_loadout: stored }).eq('id', entryId)
 }
 
+// ── Live check against Jobber ────────────────────────────────────────────────
+
+type LiveVisit = {
+  id: string
+  startAt: string | null
+  endAt: string | null
+  completedAt: string | null
+  assignedUserIds: string[]
+}
+
+const LIVE_DAY_QUERY = `
+  query WorkOrdersDay($cursor: String, $filter: VisitFilterAttributes) {
+    visits(first: 50, after: $cursor, filter: $filter) {
+      nodes {
+        id
+        startAt
+        endAt
+        completedAt
+        assignedUsers(first: 10) { nodes { id } }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`
+
+/** UTC bounds of the company-local calendar day. Offset probed at local noon (the DST-change hour is the one edge). */
+function localDayBoundsUtc(date: string): { after: string; before: string } {
+  const probe = new Date(`${date}T12:00:00Z`)
+  const localHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: COMPANY_TZ, hour: '2-digit', hourCycle: 'h23' }).format(probe))
+  const offsetHours = 12 - localHour // 12 − 7 = 5 → UTC−5 (CDT)
+  const [y, m, d] = date.split('-').map(Number)
+  const startMs = Date.UTC(y, m - 1, d, 0, 0, 0) + offsetHours * 3_600_000
+  return { after: new Date(startMs - 1).toISOString(), before: new Date(startMs + 24 * 3_600_000 - 1).toISOString() }
+}
+
+async function fetchLiveDay(userId: string, date: string): Promise<{ ok: true; visits: LiveVisit[] } | { ok: false; error: string }> {
+  const { after, before } = localDayBoundsUtc(date)
+  const out: LiveVisit[] = []
+  let cursor: string | null = null
+  try {
+    for (let page = 0; page < 10; page++) {
+      const resp: {
+        data?: { visits?: { nodes: { id: string; startAt?: string | null; endAt?: string | null; completedAt?: string | null; assignedUsers?: { nodes: { id: string }[] } }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }
+        errors?: { message: string }[]
+      } = await jobberGraphQLPatient(userId, LIVE_DAY_QUERY, { cursor, filter: { startAt: { after, before } } })
+      if (resp.errors?.length) return { ok: false, error: resp.errors[0].message }
+      const conn = resp.data?.visits
+      if (!conn) return { ok: false, error: 'no visits connection in the response' }
+      for (const n of conn.nodes) {
+        out.push({
+          id: n.id, startAt: n.startAt ?? null, endAt: n.endAt ?? null, completedAt: n.completedAt ?? null,
+          assignedUserIds: (n.assignedUsers?.nodes ?? []).map(u => u.id),
+        })
+      }
+      if (!conn.pageInfo.hasNextPage) return { ok: true, visits: out }
+      cursor = conn.pageInfo.endCursor
+    }
+    return { ok: false, error: 'more than 10 pages for one day' }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+function sameInstant(a: string | null, b: string | null): boolean {
+  if (!a && !b) return true
+  if (!a || !b) return false
+  const ta = Date.parse(a), tb = Date.parse(b)
+  return Number.isFinite(ta) && Number.isFinite(tb) && ta === tb
+}
+
+function sameSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  const set = new Set(a)
+  return b.every(x => set.has(x))
+}
+
+async function readMirrorVisits(admin: Admin, companyId: string, date: string): Promise<VisitRow[]> {
+  const { data, error } = await admin
+    .from('visits')
+    .select('external_id, title, start_at, end_at, completed_at, visit_status, tech_external_user_ids, client_external_id, job_external_id')
+    .eq('company_id', companyId).eq('scheduled_date', date).is('deleted_at', null)
+  if (error) throw new Error(`visits read: ${error.message}`)
+  return (data ?? []) as VisitRow[]
+}
+
 // ── The day sync ─────────────────────────────────────────────────────────────
+
+function emptyResult(date: string): SyncDayResult {
+  return {
+    date, visits: 0, techs: 0, entriesCreated: 0, inserted: 0, updated: 0, moved: 0, deleted: 0, flagged: 0,
+    unmappedTechs: [], unassigned: 0, noCreator: false, liveChecked: false, ghostsRemoved: 0, refreshed: 0, liveError: null, daysFolded: 0,
+  }
+}
 
 export async function syncWorkOrdersForDay(companyId: string, date: string): Promise<SyncDayResult> {
   if (!DATE_RE.test(date)) throw new Error(`bad date ${date}`)
   const admin = createAdminClient()
   const now = new Date().toISOString()
-  const result: SyncDayResult = {
-    date, visits: 0, techs: 0, entriesCreated: 0, inserted: 0, updated: 0, moved: 0, deleted: 0, flagged: 0,
-    unmappedTechs: [], unassigned: 0, noCreator: false,
-  }
+  const result = emptyResult(date)
 
-  const { data: visitsRaw, error: vErr } = await admin
-    .from('visits')
-    .select('external_id, title, start_at, end_at, completed_at, visit_status, tech_external_user_ids, client_external_id, job_external_id')
-    .eq('company_id', companyId).eq('scheduled_date', date).is('deleted_at', null)
-  if (vErr) throw new Error(`visits read: ${vErr.message}`)
-  const visits = (visitsRaw ?? []) as VisitRow[]
+  let visits = await readMirrorVisits(admin, companyId, date)
+  const creator = await resolveJobberUserId(companyId, undefined, { alertIfBroken: false })
+
+  // Live check — see the header. Jobber is asked once for the local day; the
+  // mirror is corrected; the day is then built from the corrected mirror.
+  if (!creator) {
+    result.liveError = 'no Jobber connection'
+  } else {
+    const live = await fetchLiveDay(creator, date)
+    if (!live.ok) {
+      result.liveError = live.error
+      console.warn(`[work-orders] live check ${date} failed, using the mirror as-is: ${live.error}`)
+    } else {
+      result.liveChecked = true
+      const liveById = new Map(live.visits.map(v => [v.id, v]))
+      const ghosts = visits.filter(v => !liveById.has(v.external_id)).map(v => v.external_id)
+      if (ghosts.length > 0) {
+        const { error } = await admin
+          .from('visits')
+          .update({ deleted_at: now, updated_at: now })
+          .eq('company_id', companyId).eq('scheduled_date', date).is('deleted_at', null)
+          .in('external_id', ghosts)
+        if (error) console.warn(`[work-orders] ghost tombstone ${date} failed: ${error.message}`)
+        else result.ghostsRemoved = ghosts.length
+      }
+      const mirrorById = new Map(visits.map(v => [v.external_id, v]))
+      const stale: string[] = []
+      for (const lv of live.visits) {
+        const m = mirrorById.get(lv.id)
+        if (
+          !m
+          || !sameInstant(m.start_at, lv.startAt)
+          || !sameInstant(m.end_at, lv.endAt)
+          || !sameSet(m.tech_external_user_ids ?? [], lv.assignedUserIds)
+          || !!m.completed_at !== !!lv.completedAt
+        ) stale.push(lv.id)
+      }
+      if (stale.length > 0) {
+        try { result.refreshed = await refreshVisitsByExternalIds(companyId, stale) }
+        catch (e) { console.warn(`[work-orders] visit refresh ${date} failed: ${e instanceof Error ? e.message : String(e)}`) }
+      }
+      if (ghosts.length > 0 || stale.length > 0) visits = await readMirrorVisits(admin, companyId, date)
+    }
+  }
   result.visits = visits.length
 
   const techMap = await loadTechMap(admin, companyId)
@@ -553,17 +699,23 @@ export async function syncWorkOrdersForDay(companyId: string, date: string): Pro
   result.techs = byTech.size
 
   const details = await loadVisitDetails(admin, companyId, visits)
-  const creator = await resolveJobberUserId(companyId, undefined, { alertIfBroken: false })
 
   // Every entry already on this day (office-made or fed) takes part, so a visit
-  // that left a tech's day in Jobber is pruned from the old entry too.
+  // that left a tech's day in Jobber is pruned from the old entry too. Soft-
+  // deleted entries are read as well: UNIQUE (company, date, tech) counts them,
+  // so a day that comes back is REVIVED rather than re-inserted.
+  type EntryRow = {
+    id: string; tech_user_id: string; route_loadout: StoredRouteLoadout | null; secondary_tech_user_ids: string[] | null
+    synced_from_jobber_at: string | null; deleted_at: string | null
+    office_notes: string | null; route_sheet_url: string | null; completed_at: string | null; closed_at: string | null
+  }
+  const ENTRY_COLS = 'id, tech_user_id, route_loadout, secondary_tech_user_ids, synced_from_jobber_at, deleted_at, office_notes, route_sheet_url, completed_at, closed_at'
   const { data: entriesRaw } = await admin
-    .from('daily_log_entries')
-    .select('id, tech_user_id, route_loadout, secondary_tech_user_ids, synced_from_jobber_at')
-    .eq('company_id', companyId).eq('log_date', date).is('deleted_at', null)
-  type EntryRow = { id: string; tech_user_id: string; route_loadout: StoredRouteLoadout | null; secondary_tech_user_ids: string[] | null; synced_from_jobber_at: string | null }
+    .from('daily_log_entries').select(ENTRY_COLS)
+    .eq('company_id', companyId).eq('log_date', date)
   const entries = new Map<string, EntryRow>()
-  for (const e of (entriesRaw ?? []) as EntryRow[]) entries.set(e.tech_user_id, e)
+  const tombstoned = new Map<string, EntryRow>()
+  for (const e of (entriesRaw ?? []) as EntryRow[]) (e.deleted_at ? tombstoned : entries).set(e.tech_user_id, e)
 
   const techIds = new Set<string>([...byTech.keys(), ...entries.keys()])
   for (const techId of techIds) {
@@ -575,14 +727,23 @@ export async function syncWorkOrdersForDay(companyId: string, date: string): Pro
     let entry = entries.get(techId) ?? null
     if (!entry) {
       if (tvs.length === 0) continue
-      if (!creator) { result.noCreator = true; continue }
-      const { data: created, error } = await admin
-        .from('daily_log_entries')
-        .insert({ company_id: companyId, log_date: date, tech_user_id: techId, created_by: creator, synced_from_jobber_at: now })
-        .select('id, tech_user_id, route_loadout, secondary_tech_user_ids, synced_from_jobber_at')
-        .single()
-      if (error || !created) throw new Error(`entry create for ${techId}: ${error?.message ?? 'no row'}`)
-      entry = created as EntryRow
+      const dead = tombstoned.get(techId)
+      if (dead) {
+        const { data: revived, error } = await admin
+          .from('daily_log_entries')
+          .update({ deleted_at: null, synced_from_jobber_at: now })
+          .eq('id', dead.id).select(ENTRY_COLS).single()
+        if (error || !revived) throw new Error(`entry revive for ${techId}: ${error?.message ?? 'no row'}`)
+        entry = revived as EntryRow
+      } else {
+        if (!creator) { result.noCreator = true; continue }
+        const { data: created, error } = await admin
+          .from('daily_log_entries')
+          .insert({ company_id: companyId, log_date: date, tech_user_id: techId, created_by: creator, synced_from_jobber_at: now })
+          .select(ENTRY_COLS).single()
+        if (error || !created) throw new Error(`entry create for ${techId}: ${error?.message ?? 'no row'}`)
+        entry = created as EntryRow
+      }
       result.entriesCreated += 1
     }
 
@@ -603,6 +764,17 @@ export async function syncWorkOrdersForDay(companyId: string, date: string): Pro
     })
     result.inserted += up.inserted; result.updated += up.updated; result.moved += up.moved
     result.deleted += up.deleted; result.flagged += up.flagged
+
+    // A fed day that ends with no stops and nothing else on it is folded away
+    // (soft), so the list never shows a bare name card for a day Jobber emptied.
+    if (tvs.length === 0 && !entry.office_notes && !entry.route_sheet_url && !entry.completed_at && !entry.closed_at) {
+      const { count } = await admin.from('daily_log_stops').select('id', { count: 'exact', head: true }).eq('entry_id', entry.id)
+      if ((count ?? 0) === 0) {
+        await admin.from('daily_log_entries').update({ deleted_at: now, synced_from_jobber_at: now }).eq('id', entry.id)
+        result.daysFolded += 1
+        continue
+      }
+    }
 
     const entryPatch: Record<string, unknown> = { synced_from_jobber_at: now }
     const extra = secondaries.get(techId)
@@ -631,7 +803,7 @@ export async function syncWorkOrdersForRange(companyId: string, fromDate: string
       out.push(await syncWorkOrdersForDay(companyId, date))
     } catch (e) {
       console.error(`[work-orders] sync ${date} failed:`, e instanceof Error ? e.message : String(e))
-      out.push({ date, visits: 0, techs: 0, entriesCreated: 0, inserted: 0, updated: 0, moved: 0, deleted: 0, flagged: 0, unmappedTechs: [], unassigned: 0, noCreator: false })
+      out.push({ ...emptyResult(date), liveError: `day failed: ${e instanceof Error ? e.message : String(e)}` })
     }
   }
   return out
