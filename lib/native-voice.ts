@@ -85,20 +85,135 @@ function capacitor(): CapacitorGlobal | undefined {
   return (window as unknown as { Capacitor?: CapacitorGlobal }).Capacitor
 }
 
-/** True only when running inside the native app AND the TwilioVoice plugin is present. */
+// ── Android ──────────────────────────────────────────────────────────────────
+//
+// ⚠⚠ ANDROID NEVER ONCE USED THE NATIVE PHONE. Everything below this line exists
+// because the check above — `window.Capacitor` — is permanently false on our
+// pages on Android. The shell loads a local bootstrap page and then navigates to
+// lynxedo.com; Android injects the Capacitor bridge only into its own local
+// origin, while iOS injects it as a user script that survives onto remote pages.
+//
+// So from June 2026 the iPhone got the real native phone and every Android phone
+// silently fell back to WebRTC inside the webview — no telephony audio session,
+// no proper Bluetooth hold, and throttled like any background web page. It
+// surfaced as calls turning choppy about thirty seconds in, reported as having
+// been that way for as long as the app had been used. Nothing looked broken
+// anywhere: the native code was present, compiled and shipped, and the website
+// quietly decided not to call it.
+//
+// ⚠ The native call path itself is NOT duplicated here. MainActivity exposes the
+// same TwilioVoiceManager through a JavascriptInterface, the way every other
+// Android feature in this app is exposed. This adapter only changes the SHAPE —
+// a synchronous interface wrapped to look like the Capacitor plugin — so the
+// dialer hook, which is already written for Android, needs no change at all.
+
+type AndroidVoiceBridge = {
+  getVersion(): string
+  register(accessToken: string): void
+  unregister(): void
+  /** '' on success, otherwise a short line to show the person. */
+  connect(accessToken: string, paramsJson: string): string
+  disconnect(): void
+  acceptCall(): void
+  rejectCall(): void
+  setMuted(muted: boolean): void
+  setOnHold(onHold: boolean): void
+  setAudioRoute(route: string): void
+  getAudioRoutes(): string
+  getActiveCall(): string
+}
+
+function androidBridge(): AndroidVoiceBridge | undefined {
+  if (typeof window === 'undefined') return undefined
+  return (window as unknown as { LynxedoVoice?: AndroidVoiceBridge }).LynxedoVoice
+}
+
+type VoiceEvent = { event: string; data: Record<string, unknown> }
+type Listener = (data: Record<string, unknown>) => void
+
+const androidListeners = new Map<string, Set<Listener>>()
+let androidSinkInstalled = false
+
+/** The native side calls this by name. Installed once, on first listener. */
+function installAndroidSink() {
+  if (androidSinkInstalled || typeof window === 'undefined') return
+  androidSinkInstalled = true
+  ;(window as unknown as { __lynxedoVoiceEvent?: (e: VoiceEvent) => void }).__lynxedoVoiceEvent =
+    (e: VoiceEvent) => {
+      const set = androidListeners.get(e?.event)
+      if (!set) return
+      // ⚠ Copy before iterating: a listener that removes itself mid-dispatch
+      // would otherwise mutate the set we are walking.
+      for (const fn of [...set]) {
+        try { fn(e.data ?? {}) } catch (err) { console.error('[native-voice] listener threw:', err) }
+      }
+    }
+}
+
+function parse<T>(json: string, fallback: T): T {
+  try { return JSON.parse(json) as T } catch { return fallback }
+}
+
+/** Wrap the synchronous Android interface in the plugin's promise shape. */
+function androidAdapter(b: AndroidVoiceBridge): NativeVoicePlugin {
+  return {
+    getVersion: async () =>
+      parse(b.getVersion(), { version: '0', platform: 'android', capabilities: [] as string[] }),
+    register: async ({ accessToken }) => { b.register(accessToken); return { registered: true } },
+    unregister: async () => { b.unregister() },
+    connect: async ({ accessToken, params }) => {
+      // ⚠ A refusal comes back as a MESSAGE, not a throw — most often the
+      // microphone, which would otherwise connect a silent call that sounds
+      // exactly like a bad line. Reject so the dialer shows it.
+      const err = b.connect(accessToken, JSON.stringify(params ?? {}))
+      if (err) throw new Error(err)
+      return { connected: true }
+    },
+    disconnect: async () => { b.disconnect() },
+    acceptCall: async () => { b.acceptCall() },
+    rejectCall: async () => { b.rejectCall() },
+    setMuted: async ({ muted }) => { b.setMuted(muted); return { muted } },
+    setOnHold: async ({ onHold }) => { b.setOnHold(onHold); return { onHold } },
+    setAudioRoute: async ({ route }) => { b.setAudioRoute(route); return { route } },
+    getAudioRoutes: async () =>
+      parse<NativeAudioRouteState>(b.getAudioRoutes(),
+        { current: 'earpiece', routes: ['earpiece'], bluetoothAvailable: false }),
+    getActiveCall: async () => parse(b.getActiveCall(), { active: false }),
+    addListener: async (eventName, listenerFunc) => {
+      installAndroidSink()
+      const set = androidListeners.get(eventName) ?? new Set<Listener>()
+      set.add(listenerFunc as Listener)
+      androidListeners.set(eventName, set)
+      return { remove: () => { set.delete(listenerFunc as Listener) } }
+    },
+  }
+}
+
+// ── What the dialer asks ─────────────────────────────────────────────────────
+
+/** True when a native Twilio Voice path is reachable — the Capacitor plugin on
+ *  iOS, or the JavascriptInterface on Android. */
 export function nativeVoiceAvailable(): boolean {
   const c = capacitor()
-  return !!(c?.isNativePlatform?.() && c.Plugins?.TwilioVoice)
+  if (c?.isNativePlatform?.() && c.Plugins?.TwilioVoice) return true
+  return !!androidBridge()
 }
 
 /** The native plugin, or null if not running natively. */
 export function getNativeVoice(): NativeVoicePlugin | null {
-  return nativeVoiceAvailable() ? capacitor()!.Plugins!.TwilioVoice! : null
+  const c = capacitor()
+  if (c?.isNativePlatform?.() && c.Plugins?.TwilioVoice) return c.Plugins.TwilioVoice
+  const b = androidBridge()
+  return b ? androidAdapter(b) : null
 }
 
 /** 'ios' | 'android' when running natively, else null. Used to request a token
- *  carrying the right push-credential SID for incoming VoIP push. */
+ *  carrying the right push-credential SID for incoming VoIP push.
+ *  ⚠ Android answers from the interface, never from Capacitor — asking Capacitor
+ *  there returns null, which would mint a token with no Android push credential
+ *  and leave incoming calls silently unregistered. */
 export function nativePlatform(): string | null {
+  if (androidBridge()) return 'android'
   const c = capacitor()
   if (!c?.isNativePlatform?.()) return null
   return c.getPlatform?.() ?? null
