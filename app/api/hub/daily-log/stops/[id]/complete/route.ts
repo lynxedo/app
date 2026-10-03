@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
+import { loadStopLineItems, asStopLineItems, completeStopInJobber } from '@/lib/work-order-line-items'
 import { evaluateEventAutomations } from '@/lib/automations'
 import type { WeatherSnapshot } from '@/lib/nws-weather'
 import { matchChemicalsForLineItems } from '@/lib/pesticide'
@@ -11,20 +12,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface VisitMutationResponse {
   data?: {
-    visitComplete?: { visit: { id: string; isComplete: boolean } | null; userErrors: Array<{ message: string }> }
     visitUncomplete?: { visit: { id: string; isComplete: boolean } | null; userErrors: Array<{ message: string }> }
   }
   errors?: Array<{ message: string }>
 }
-
-const VISIT_COMPLETE_MUTATION = `
-  mutation VisitComplete($visitId: EncodedId!) {
-    visitComplete(visitId: $visitId) {
-      visit { id isComplete }
-      userErrors { message path }
-    }
-  }
-`
 
 const VISIT_UNCOMPLETE_MUTATION = `
   mutation VisitUncomplete($visitId: EncodedId!) {
@@ -46,6 +37,10 @@ type StopRow = {
   id: string
   entry_id: string
   jobber_visit_id: string | null
+  jobber_job_id: string | null
+  jobber_complete_pending: boolean
+  jobber_completed_at: string | null
+  jobber_autopay: boolean | null
   client_name: string
   client_phone: string | null
   address: string
@@ -88,7 +83,7 @@ async function resolveStopOrError(stopId: string, userId: string) {
   const admin = createAdminClient()
   const { data: stop } = await admin
     .from('daily_log_stops')
-    .select('id, entry_id, jobber_visit_id, client_name, client_phone, address, lat, lng, line_items, status, arrived_at, pesticide_record_id, pesticide_tech_notes, weather, daily_log_entries!inner(company_id, log_date, tech_user_id)')
+    .select('id, entry_id, jobber_visit_id, jobber_job_id, jobber_complete_pending, jobber_completed_at, jobber_autopay, client_name, client_phone, address, lat, lng, line_items, status, arrived_at, pesticide_record_id, pesticide_tech_notes, weather, daily_log_entries!inner(company_id, log_date, tech_user_id)')
     .eq('id', stopId)
     .single<StopRow>()
 
@@ -268,9 +263,14 @@ export async function POST(
     technicianName = techRow?.display_name ?? null
   }
 
+  // Work Orders Phase 2: the pesticide match + record read the work order's
+  // line items (what the tech actually did), falling back to the route snapshot.
+  const workOrderItems = asStopLineItems(await loadStopLineItems(admin, entry.company_id, stop))
+  const stopForRecord: StopRow = workOrderItems.length > 0 ? { ...stop, line_items: workOrderItems } : stop
+
   const pesticideRecordId = await upsertPesticideRecord({
     admin,
-    stop,
+    stop: stopForRecord,
     entry,
     weather,
     applicationTimestamp,
@@ -297,34 +297,19 @@ export async function POST(
     isLastStop = (count ?? 0) === 0
   }
 
-  // Best-effort Jobber push. DL5 — techs don't connect their own Jobber account,
-  // so the visit must be completed through the company's connected account
-  // (admin token), not the signed-in tech's (which is null → silent no-op).
+  // Jobber: line items to the VISIT first, then visitComplete — never the other
+  // way round, because an autopay customer is invoiced + charged within a minute
+  // of visitComplete from the visit's items. If any item fails the visit stays
+  // open in Jobber and the retry cron finishes it (lib/work-order-line-items).
+  // DL5 still holds: it runs on the company's connected account, not the tech's.
   let jobberWarning: string | null = null
   let jobberSuccess = false
+  let jobberAutopay: boolean | null = null
   if (stop.jobber_visit_id) {
-    try {
-      const jobberUserId = await companyJobberUserId(entry.company_id, userId)
-      if (!jobberUserId) throw new Error('No connected Jobber account for this company')
-      const result = await jobberGraphQLAdmin<VisitMutationResponse>(
-        jobberUserId,
-        VISIT_COMPLETE_MUTATION,
-        { visitId: stop.jobber_visit_id },
-      )
-      const userErrors = result.data?.visitComplete?.userErrors ?? []
-      const apiErrors = result.errors ?? []
-      if (userErrors.length > 0) {
-        jobberWarning = `Jobber: ${userErrors.map(e => e.message).join('; ')}`
-      } else if (apiErrors.length > 0) {
-        jobberWarning = `Jobber: ${apiErrors.map(e => e.message).join('; ')}`
-      } else {
-        jobberSuccess = true
-      }
-    } catch (e) {
-      jobberWarning = e instanceof Error
-        ? `Jobber push failed — ${e.message}`
-        : 'Jobber push failed (unknown error)'
-    }
+    const r = await completeStopInJobber(admin, entry.company_id, stop.id, userId)
+    jobberSuccess = r.jobberPushed
+    jobberWarning = r.warning
+    jobberAutopay = r.autopay
   }
 
   // Session 10 — when the route's spraying is done (last stop complete), decrement
@@ -372,6 +357,7 @@ export async function POST(
     },
     jobber_pushed: jobberSuccess,
     jobber_warning: jobberWarning,
+    jobber_autopay: jobberAutopay,
     is_last_stop: isLastStop,
   })
 }
@@ -395,6 +381,12 @@ export async function DELETE(
   }
   const { admin, stop, userId, companyId } = resolved
 
+  // Work Orders Phase 2: a visit still waiting on its line items was never
+  // completed in Jobber — nothing to uncomplete there, just stop the retries.
+  const neverCompletedInJobber = stop.jobber_complete_pending && !stop.jobber_completed_at
+  // Autopay is charged at completion; reopening can't undo that charge.
+  const autopayCharged = stop.jobber_autopay === true && !!stop.jobber_completed_at
+
   // Reopen logic: if arrival was recorded, drop back to in_progress
   // (timer keeps running with the original arrived_at). Otherwise pending.
   const revertedStatus = stop.arrived_at ? 'in_progress' : 'pending'
@@ -405,6 +397,9 @@ export async function DELETE(
       status: revertedStatus,
       completed_at: null,
       completed_by: null,
+      jobber_complete_pending: false,
+      jobber_completed_at: null,
+      jobber_complete_error: null,
     })
     .eq('id', stop.id)
     .select('id, ord, status, arrived_at, completed_at, completed_by')
@@ -419,9 +414,11 @@ export async function DELETE(
 
   // DL5 — same as complete: reopen through the company's connected Jobber
   // account (admin token), not the tech's missing personal token.
-  let jobberWarning: string | null = null
+  let jobberWarning: string | null = autopayCharged
+    ? "This customer is on autopay — their card was charged when the visit was completed. Changing line items now won't change that charge; tell the office."
+    : null
   let jobberSuccess = false
-  if (stop.jobber_visit_id) {
+  if (stop.jobber_visit_id && !neverCompletedInJobber) {
     try {
       const jobberUserId = await companyJobberUserId(companyId, userId)
       if (!jobberUserId) throw new Error('No connected Jobber account for this company')

@@ -362,6 +362,29 @@ async function reconcileDeletedLineItems(
   }
 }
 
+/**
+ * Jobber ids of the visit-only line items Work Orders created or forked
+ * (work_order_line_items.visit_only). See the job line-item upsert in syncJobs.
+ * Fails open (empty set): a read error must not abort the jobs sync.
+ */
+async function visitOnlyLineItemIds(
+  admin: ReturnType<typeof createAdminClient>,
+  ids: string[],
+): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await admin
+      .from('work_order_line_items').select('jobber_line_item_id')
+      .eq('visit_only', true).in('jobber_line_item_id', ids.slice(i, i + 100))
+    if (error) {
+      console.error('[jobber-sync] visit-only line item lookup failed:', error.message)
+      continue
+    }
+    for (const r of data ?? []) if (r.jobber_line_item_id) out.add(r.jobber_line_item_id as string)
+  }
+  return out
+}
+
 function parseDeptPrefix(lineItemName: string | null | undefined): string | null {
   if (!lineItemName) return null
   const prefixes = ['WF', 'IR', 'PW', 'MO', 'LD']
@@ -1012,11 +1035,20 @@ async function syncJobs(
       for (const r of data ?? []) jobIdByExternal.set(r.external_id, r.id)
     }
 
+    // Work Orders Phase 2: a line item a tech added to (or changed on) ONE visit
+    // is a visit-only item in Jobber, but Jobber lists it on the job too. Leave
+    // those out of the job's mirrored items — otherwise a one-visit change shows
+    // up in every job-level report (recurring book, cadence, email segments).
+    // Not upserting them lets the reconcile below tombstone any already mirrored.
+    const visitOnly = await visitOnlyLineItemIds(
+      admin, nodes.flatMap(job => (job.lineItems?.nodes ?? []).map(li => li.id)),
+    )
+
     // Upsert every line item for the page in one call.
     const lineItemRows = nodes.flatMap(job => {
       const jobId = jobIdByExternal.get(job.id)
       if (!jobId) return []
-      return (job.lineItems?.nodes ?? []).map(li => ({
+      return (job.lineItems?.nodes ?? []).filter(li => !visitOnly.has(li.id)).map(li => ({
         company_id: companyId,
         source: 'jobber',
         external_id: li.id,
