@@ -1705,8 +1705,13 @@ const VISIT_IDS_PROBE_QUERY = `
 /** Must not exceed the `first:` in the probe query, or the reply is truncated and
  *  the missing tail looks deleted. */
 const VISIT_PROBE_BATCH = 40
-/** Refuse to run if the uncompleted book is implausibly large. */
-const VISIT_PROBE_CEILING = 6000
+/** Refuse to run if the uncompleted book is implausibly large. (Heroes held 7,285
+ *  uncompleted visits out to 2030 on 2026-10-02 — 6000 was already too low for an
+ *  all-dates sweep.) */
+const VISIT_PROBE_CEILING = 25000
+/** Rows per read page — PostgREST caps a response at 1000 rows no matter what
+ *  `.limit()` asks for, so the candidate list must be paged. */
+const VISIT_READ_PAGE = 1000
 /** How far ahead to check. Matches what the reports actually read — Home's booked
  *  horizon is six months — and ghosts come from reschedules and deletions, which
  *  happen near-term, not three years out. */
@@ -1751,36 +1756,74 @@ const VISIT_TOMBSTONE_MAX_PER_RUN = 400
  * could never clear the thing it exists to clear. Heroes sat at 15.4% with 243
  * duplicated (job, date) slots and it refused on every run.
  */
+export type VisitReconcileResult = {
+  /** Uncompleted mirror visits in the window. */
+  candidates: number
+  /** Ids Jobber was actually asked about (failed / empty batches excluded). */
+  checked: number
+  /** Asked for and not returned by Jobber. */
+  missing: number
+  /** Missing but not corroborated by Guard 3 — left alone. */
+  withheld: number
+  tombstoned: number
+  /** Corroborated but over the per-run cap — the next run takes them. */
+  remaining: number
+  /** Dry run only: what a real run would tombstone now (≤ the per-run cap). */
+  wouldTombstone?: number
+  skipped?: string
+}
+
+/**
+ * ⚠⚠ Oct 2 2026 — two reasons this missed ghosts for weeks (Ben found 10 on one
+ * rescheduled lawn job): it was never SCHEDULED (manual repair route only), and its
+ * one read used `.limit(6001)`, which PostgREST silently caps at 1000 rows — so even
+ * a manual run checked ~1,000 of Heroes' 7,285 uncompleted visits, in no particular
+ * order. The read is now paged, the window can be every future date
+ * (`horizonDays: null`), and `/api/jobber/visits/sweep` runs it nightly.
+ */
 async function reconcileDeletedVisits(
   userId: string,
   companyId: string,
-): Promise<number> {
+  opts: { horizonDays?: number | null; maxTombstones?: number; dryRun?: boolean } = {},
+): Promise<VisitReconcileResult> {
   const admin = createAdminClient()
-  const cutoff = new Date(Date.now() + VISIT_PROBE_HORIZON_DAYS * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10)
+  const horizonDays = opts.horizonDays === undefined ? VISIT_PROBE_HORIZON_DAYS : opts.horizonDays
+  const maxTombstones = opts.maxTombstones ?? VISIT_TOMBSTONE_MAX_PER_RUN
+  const cutoff = horizonDays == null
+    ? null
+    : new Date(Date.now() + horizonDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const result: VisitReconcileResult = { candidates: 0, checked: 0, missing: 0, withheld: 0, tombstoned: 0, remaining: 0 }
 
   // Only an UNCOMPLETED visit can be a ghost: a completion timestamp is written
   // from a real Jobber event, so a completed row is evidence the visit existed.
-  const { data: rows, error: readErr } = await admin
-    .from('visits')
-    .select('external_id')
-    .eq('company_id', companyId)
-    .eq('source', 'jobber')
-    .is('deleted_at', null)
-    .is('completed_at', null)
-    .lt('scheduled_date', cutoff)
-    .limit(VISIT_PROBE_CEILING + 1)
-  if (readErr) throw new Error(`visit reconcile read: ${readErr.message}`)
-
-  const ids = (rows ?? []).map(r => r.external_id).filter(Boolean) as string[]
-  if (!ids.length) return 0
+  // Paged by id — see VISIT_READ_PAGE.
+  const ids: string[] = []
+  for (let from = 0; ; from += VISIT_READ_PAGE) {
+    let q = admin
+      .from('visits')
+      .select('external_id')
+      .eq('company_id', companyId)
+      .eq('source', 'jobber')
+      .is('deleted_at', null)
+      .is('completed_at', null)
+    if (cutoff) q = q.lt('scheduled_date', cutoff)
+    const { data: rows, error: readErr } = await q
+      .order('id', { ascending: true })
+      .range(from, from + VISIT_READ_PAGE - 1)
+    if (readErr) throw new Error(`visit reconcile read: ${readErr.message}`)
+    for (const r of rows ?? []) if (r.external_id) ids.push(r.external_id as string)
+    if (!rows || rows.length < VISIT_READ_PAGE) break
+    if (ids.length > VISIT_PROBE_CEILING) break
+  }
+  result.candidates = ids.length
+  if (!ids.length) return result
 
   if (ids.length > VISIT_PROBE_CEILING) {
     console.warn(
       `[jobber-sync] visit reconcile skipped: ${ids.length} uncompleted visits exceeds ceiling ${VISIT_PROBE_CEILING}`
     )
-    return 0
+    result.skipped = `over ceiling (${VISIT_PROBE_CEILING})`
+    return result
   }
 
   const missing: string[] = []
@@ -1813,9 +1856,11 @@ async function reconcileDeletedVisits(
     for (const id of batch) if (!alive.has(id)) missing.push(id)
   }
 
+  result.checked = checked
+  result.missing = missing.length
   if (!missing.length) {
     console.log(`[jobber-sync] visit reconcile: ${checked} checked, none deleted upstream`)
-    return 0
+    return result
   }
 
   const nowIso = new Date().toISOString()
@@ -1869,7 +1914,10 @@ async function reconcileDeletedVisits(
   // every row is a phantom, the newest phantom would "confirm" the older ones.
   const suspect = new Set(missing)
   const newestByJob = new Map<string, string>()
+  // ⚠ Paged: 100 recurring jobs can hold far more than PostgREST's 1000-row page,
+  // and a truncated sibling list silently withholds real ghosts.
   for (let i = 0; i < jobsTouched.length; i += 100) {
+   for (let from = 0; ; from += VISIT_READ_PAGE) {
     const { data: siblings, error: sibErr } = await admin
       .from('visits')
       .select('external_id, job_external_id, last_synced_at')
@@ -1877,6 +1925,8 @@ async function reconcileDeletedVisits(
       .eq('source', 'jobber')
       .is('deleted_at', null)
       .in('job_external_id', jobsTouched.slice(i, i + 100))
+      .order('id', { ascending: true })
+      .range(from, from + VISIT_READ_PAGE - 1)
     if (sibErr) throw new Error(`visit reconcile sibling read: ${sibErr.message}`)
     for (const sib of siblings ?? []) {
       const job = sib.job_external_id as string
@@ -1886,6 +1936,8 @@ async function reconcileDeletedVisits(
       const seen = newestByJob.get(job)
       if (!seen || ts > seen) newestByJob.set(job, ts)
     }
+    if (!siblings || siblings.length < VISIT_READ_PAGE) break
+   }
   }
 
   const confirmed = candidates.filter(r => {
@@ -1895,6 +1947,7 @@ async function reconcileDeletedVisits(
     return (r.last_synced_at as string) < newest
   })
   const withheld = candidates.length - confirmed.length
+  result.withheld = withheld
   if (withheld) {
     console.warn(
       `[jobber-sync] visit reconcile: withheld ${withheld} of ${candidates.length} ` +
@@ -1904,18 +1957,24 @@ async function reconcileDeletedVisits(
   }
   if (!confirmed.length) {
     console.log(`[jobber-sync] visit reconcile: ${checked} checked, none corroborated as deleted`)
-    return 0
+    return result
   }
 
   // Bound one run. A real backlog drains across runs; a runaway stays contained.
-  const doomed = confirmed.slice(0, VISIT_TOMBSTONE_MAX_PER_RUN)
+  const doomed = confirmed.slice(0, maxTombstones)
+  result.remaining = confirmed.length - doomed.length
   if (confirmed.length > doomed.length) {
     console.warn(
       `[jobber-sync] visit reconcile: ${confirmed.length} corroborated but capped at ` +
-      `${VISIT_TOMBSTONE_MAX_PER_RUN} this run — re-run to continue draining`
+      `${maxTombstones} this run — re-run to continue draining`
     )
   }
   const missingConfirmed = doomed.map(r => r.external_id as string)
+  if (opts.dryRun) {
+    result.wouldTombstone = missingConfirmed.length
+    console.log(`[jobber-sync] visit reconcile DRY RUN: ${checked} checked, would tombstone ${missingConfirmed.length}`)
+    return result
+  }
 
   let killedCount = 0
   for (let i = 0; i < missingConfirmed.length; i += 100) {
@@ -1944,7 +2003,33 @@ async function reconcileDeletedVisits(
   console.log(
     `[jobber-sync] visit reconcile: ${checked} checked, tombstoned ${killedCount}, refreshed ${jobIds.length} job(s)`
   )
-  return killedCount
+  result.tombstoned = killedCount
+  return result
+}
+
+/**
+ * The nightly ghost-visit sweep (`/api/jobber/visits/sweep`): ask Jobber by id
+ * whether every uncompleted visit we hold still exists, and tombstone the ones it
+ * dropped — under the same four guards as above. Default window = every date
+ * (`horizonDays: null`): a reschedule of a recurring job replaces visits a year
+ * out, and the per-job JOB_UPDATE re-check only looks six months ahead.
+ */
+export async function sweepVanishedVisits(
+  companyId: string,
+  opts: { horizonDays?: number | null; maxTombstones?: number; dryRun?: boolean } = {},
+): Promise<VisitReconcileResult & { error?: string }> {
+  const userId = await resolveJobberUserId(companyId)
+  if (!userId) {
+    return { candidates: 0, checked: 0, missing: 0, withheld: 0, tombstoned: 0, remaining: 0, skipped: 'no Jobber connection' }
+  }
+  try {
+    return await reconcileDeletedVisits(userId, companyId, { horizonDays: null, ...opts })
+  } catch (e) {
+    return {
+      candidates: 0, checked: 0, missing: 0, withheld: 0, tombstoned: 0, remaining: 0,
+      error: e instanceof Error ? e.message : String(e),
+    }
+  }
 }
 
 /**
@@ -1984,7 +2069,7 @@ export async function reconcileJobberOpenRecords(
   // Runs LAST: it re-reads the jobs behind anything it tombstones, so doing it
   // after the job pass means those refreshes are the final word on that job.
   try {
-    deletedVisits = await reconcileDeletedVisits(userId, companyId)
+    deletedVisits = (await reconcileDeletedVisits(userId, companyId)).tombstoned
   } catch (e) {
     errors.push(`visits: ${e instanceof Error ? e.message : String(e)}`)
   }
