@@ -11,7 +11,7 @@ export default async function DailyLogV2Page() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_daily_log, can_access_daily_log_v2, can_access_irrigation')
+    .select('role, can_admin_daily_log, can_access_daily_log_v2, can_access_irrigation, can_access_dialer, can_access_txt')
     .eq('id', user.id)
     .single()
 
@@ -27,11 +27,17 @@ export default async function DailyLogV2Page() {
   // for free — same rule as lib/irrigation-server.ts resolveIrrigationAccess.
   const canAccessIrrigation = profile?.role === 'admin' || profile?.can_access_irrigation === true
 
+  // The stop's 📞 Call / 💬 Text buttons — same grants as the Lead Tracker's.
+  const canCall = profile?.role === 'admin' || profile?.can_access_dialer === true
+  const canText = profile?.role === 'admin' || profile?.can_access_txt === true
+
   return (
     <DailyLogV2View
       currentUserId={user.id}
       isAdmin={isAdmin}
       canAccessIrrigation={canAccessIrrigation}
+      canCall={canCall}
+      canText={canText}
     />
   )
 }

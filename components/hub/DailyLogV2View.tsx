@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { Spinner, EmptyState } from '@/components/ui'
@@ -94,6 +95,8 @@ type StopMessage = {
   created_at: string
   user: { id: string; display_name: string; avatar_url?: string | null } | null
   reactions?: StopReaction[] | null
+  /** Set when the note was changed after it was posted — shows "(edited)". */
+  edited_at?: string | null
 }
 
 /** Ben, Oct 2 2026: a reaction picker on a work order's notes. Same quick set as Daily Log v1. */
@@ -187,6 +190,12 @@ function offsetDate(dateStr: string, days: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+/** "Fri, Oct 2" — the phone header's date label. */
+function formatShortDate(dateStr: string) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 function formatDateHeading(dateStr: string) {
   const [y, m, d] = dateStr.split('-').map(Number)
   const date = new Date(y, m - 1, d)
@@ -233,22 +242,31 @@ export default function DailyLogV2View({
   currentUserId,
   isAdmin,
   canAccessIrrigation = false,
+  canCall = false,
+  canText = false,
 }: {
   currentUserId: string
   isAdmin: boolean
   /** May start / continue an irrigation inspection from a stop (can_access_irrigation or admin). */
   canAccessIrrigation?: boolean
+  /** The stop's 📞 Call button — Dialer access (can_access_dialer or admin). */
+  canCall?: boolean
+  /** The stop's 💬 Text button — Txt access (can_access_txt or admin). */
+  canText?: boolean
 }) {
   const [date, setDate] = useState<string>(todayStr())
-  // DL4 — techs land on their own day (matches Daily Log v1's "My Day" default);
-  // admins, who oversee everyone, default to the full "All Techs" view.
-  const [filter, setFilter] = useState<'all' | 'mine'>(isAdmin ? 'all' : 'mine')
+  // Ben, Oct 2 2026: a tech picker replaces All / My Day. null = every tech;
+  // otherwise the ids picked (multi-select). Techs land on their own day,
+  // admins on everyone — then the phone remembers the last choice.
+  const [techSel, setTechSel] = useState<string[] | null>(isAdmin ? null : [currentUserId])
   const [entries, setEntries] = useState<Entry[]>([])
   const [depot, setDepot] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
-  const [expandedStopId, setExpandedStopId] = useState<string | null>(null)
+  // The stop open in the full-screen view (Ben, Oct 2 2026 — replaces the
+  // expand-in-place panel, which pushed everything else off the phone).
+  const [openStopId, setOpenStopId] = useState<string | null>(null)
   const [pendingActionStopId, setPendingActionStopId] = useState<string | null>(null)
   const [skipReasons, setSkipReasons] = useState<SkipReason[]>([])
   const [routeCompleteEntryId, setRouteCompleteEntryId] = useState<string | null>(null)
@@ -264,16 +282,57 @@ export default function DailyLogV2View({
   // it on for as long as this screen is up. No-op off a phone.
   useEffect(() => keepAwake(), [])
 
+  // The tech picker's last choice, per phone. Read after mount (never during
+  // render) so the server and client agree on the first paint.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(TECH_SEL_KEY)
+      if (raw === 'all') setTechSel(null)
+      else if (raw) {
+        const ids = JSON.parse(raw)
+        if (Array.isArray(ids) && ids.length > 0 && ids.every(x => typeof x === 'string')) setTechSel(ids)
+      }
+    } catch { /* storage blocked — keep the default */ }
+  }, [])
+  const chooseTechs = useCallback((next: string[] | null) => {
+    setTechSel(next)
+    try { localStorage.setItem(TECH_SEL_KEY, next ? JSON.stringify(next) : 'all') } catch { /* best effort */ }
+  }, [])
+
   // Deep links — /hub/daily-log-v2?date=YYYY-MM-DD&stop=<id> — from an
   // inspection's "From work order" line or the customer file's Work orders
-  // card: land on that day with that stop expanded. Read once on mount so the
+  // card: land on that day with that stop open. Read once on mount so the
   // date picker stays in charge afterwards.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search)
     const d = q.get('date')
     if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setDate(d)
     const stopId = q.get('stop')
-    if (stopId) setExpandedStopId(stopId)
+    if (stopId) setOpenStopId(stopId)
+  }, [])
+
+  // The open stop lives in the URL (?stop=) and in its own history entry, so the
+  // phone's Back closes the stop instead of leaving Work Orders — and coming
+  // back from the customer file lands on the same stop.
+  useEffect(() => {
+    const onPop = () => setOpenStopId(new URLSearchParams(window.location.search).get('stop'))
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  const openStop = useCallback((stopId: string) => {
+    setOpenStopId(stopId)
+    const url = new URL(window.location.href)
+    url.searchParams.set('date', date)
+    url.searchParams.set('stop', stopId)
+    window.history.pushState({ ...(window.history.state ?? {}), woStop: stopId }, '', url.toString())
+  }, [date])
+  const closeStop = useCallback(() => {
+    if (window.history.state?.woStop) { window.history.back(); return }
+    // Opened from a deep link — there is no entry of ours to pop.
+    setOpenStopId(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('stop')
+    window.history.replaceState(window.history.state, '', url.toString())
   }, [])
 
   useEffect(() => {
@@ -298,10 +357,6 @@ export default function DailyLogV2View({
         stops: e.stops.map(s => s.id === stopId ? { ...s, ...fields } : s),
       })),
     )
-  }, [])
-
-  const handleToggleExpand = useCallback((stopId: string) => {
-    setExpandedStopId(curr => curr === stopId ? null : stopId)
   }, [])
 
   const handleComplete = useCallback(async (stopId: string, undo: boolean, entryId: string) => {
@@ -521,79 +576,105 @@ export default function DailyLogV2View({
   }
 
   const visibleEntries = useMemo(() => {
-    if (filter === 'all') return entries
+    if (!techSel) return entries
+    const want = new Set(techSel)
     return entries.filter(e =>
-      e.tech?.id === currentUserId ||
-      e.secondary_techs.some(t => t.id === currentUserId),
+      (e.tech && want.has(e.tech.id)) ||
+      e.secondary_techs.some(t => want.has(t.id)),
     )
-  }, [entries, filter, currentUserId])
+  }, [entries, techSel])
+
+  // Everyone with a day on screen, for the picker (plus "Me", always offered).
+  const techOptions = useMemo(() => {
+    const m = new Map<string, HubUser>()
+    for (const e of entries) {
+      if (e.tech) m.set(e.tech.id, e.tech)
+      for (const t of e.secondary_techs) m.set(t.id, t)
+    }
+    return [...m.values()].sort((a, b) => a.display_name.localeCompare(b.display_name))
+  }, [entries])
+
+  // The open stop, looked up fresh each render so every action's patch shows.
+  const openStopCtx = useMemo(() => {
+    if (!openStopId) return null
+    for (const e of entries) {
+      const st = e.stops.find(x => x.id === openStopId)
+      if (st) return { stop: st, entry: e }
+    }
+    return null
+  }, [entries, openStopId])
+
+  const isToday = date === todayStr()
 
   return (
     <div className="flex flex-col h-full">
-      <header className="flex-none px-3 md:px-6 pt-2 pb-2 md:pt-4 md:pb-3 border-b border-gray-800 max-md:pl-14">
+      {/* Ben, Oct 2 2026: the header was three rows on a phone. Now ONE row:
+          ‹ date › · Today (only off today) · tech picker · ↻ — tap the date to
+          pick a day. The title shows from tablet width up. */}
+      <header className="flex-none px-3 md:px-6 py-1.5 md:pt-4 md:pb-3 border-b border-gray-800 max-md:pl-14">
         <div className="max-w-5xl mx-auto">
-          {/* Title row — the All / My Day switch lives here so the controls row below stays one line on a phone */}
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <h1 className="text-lg md:text-2xl font-semibold text-white truncate">Work Orders</h1>
-              <span className="hidden md:inline text-xs bg-white/10 text-gray-300 px-2 py-0.5 rounded" title="The office name for this screen">Daily Log v2</span>
-            </div>
-            <div className="flex-none flex items-center gap-0.5 bg-gray-800 border border-gray-700 rounded p-0.5">
-              <button
-                onClick={() => setFilter('all')}
-                className={`px-2.5 py-1 rounded text-xs md:text-sm ${filter === 'all' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
-              >All</button>
-              <button
-                onClick={() => setFilter('mine')}
-                className={`px-2.5 py-1 rounded text-xs md:text-sm ${filter === 'mine' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
-              >My Day</button>
-            </div>
+          <div className="hidden md:flex items-center gap-2 mb-1">
+            <h1 className="text-2xl font-semibold text-white truncate">Work Orders</h1>
+            <span className="text-xs bg-white/10 text-gray-300 px-2 py-0.5 rounded" title="The office name for this screen">Daily Log v2</span>
+            <span className="ml-auto text-xs text-gray-400">{formatDateHeading(date)}</span>
           </div>
-          <p className="text-xs md:text-sm text-gray-400 hidden md:block">
+          <p className="text-sm text-gray-400 hidden md:block">
             Your stops for the day, in route order — each one is a work order. The day fills itself from the Jobber schedule; the office changes it in Jobber or with the Route Optimizer.
           </p>
-          {/* Controls row — small buttons, one line on a phone */}
-          <div className="flex flex-wrap items-center gap-1.5 mt-1.5 md:mt-3">
+          <div className="flex items-center gap-1 md:gap-1.5 md:mt-3 min-w-0">
             <button
               onClick={() => setDate(offsetDate(date, -1))}
               aria-label="Previous day"
-              className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white min-w-[36px]"
-            >←</button>
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white w-[8.5rem] md:w-auto"
-            />
+              className="flex-none w-8 h-8 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
+            >‹</button>
+            {/* The label is what you see; the real date input sits on top of it,
+                invisible, so a tap opens the phone's own date picker. */}
+            <label className="relative flex-none h-8 px-2 flex items-center bg-gray-800 border border-gray-700 rounded text-sm text-white whitespace-nowrap cursor-pointer">
+              {formatShortDate(date)}
+              <input
+                type="date"
+                value={date}
+                onChange={e => { if (e.target.value) setDate(e.target.value) }}
+                aria-label="Pick a day"
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+            </label>
             <button
               onClick={() => setDate(offsetDate(date, 1))}
               aria-label="Next day"
-              className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white min-w-[36px]"
-            >→</button>
-            {date !== todayStr() && (
+              className="flex-none w-8 h-8 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
+            >›</button>
+            {!isToday && (
               <button
                 onClick={() => setDate(todayStr())}
-                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
+                className="flex-none h-8 px-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-xs text-sky-200"
               >Today</button>
             )}
+            <div className="flex-1 min-w-0" />
+            <TechPicker
+              options={techOptions}
+              selected={techSel}
+              currentUserId={currentUserId}
+              onChange={chooseTechs}
+            />
             {isAdmin && (
               <button
                 onClick={syncFromJobber}
                 disabled={syncing || loading}
                 title="Rebuild this day's Work Orders from the Jobber schedule now (it also happens on its own every few minutes)"
-                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-sky-200 disabled:opacity-50"
+                aria-label="Sync from Jobber"
+                className="flex-none h-8 px-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-sky-200 disabled:opacity-50"
               >
-                {syncing ? 'Syncing…' : <><span className="md:hidden">↻ Sync</span><span className="hidden md:inline">↻ Sync from Jobber</span></>}
+                {syncing ? '…' : <><span>↻</span><span className="hidden md:inline"> Sync from Jobber</span></>}
               </button>
             )}
-            <span className="ml-auto text-[11px] md:text-xs text-gray-400">{formatDateHeading(date)}</span>
           </div>
           {syncNote && <div className="text-xs text-sky-300 mt-1">{syncNote}</div>}
         </div>
       </header>
 
       <div className="flex-1 overflow-y-auto overscroll-contain">
-        <div className="max-w-5xl mx-auto px-3 md:px-6 py-4 pb-24">
+        <div className="max-w-5xl mx-auto px-3 md:px-6 py-3 md:py-4 pb-24">
           {loading && <div className="py-12 text-center"><Spinner size={6} /></div>}
           {error && (
             <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm mb-4">
@@ -613,10 +694,10 @@ export default function DailyLogV2View({
           )}
           {!loading && !error && visibleEntries.length === 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 md:p-8 text-center">
-              <p className="text-gray-400 mb-2">No work orders for {formatDateHeading(date)}.</p>
+              <p className="text-gray-400 mb-2">No work orders for {formatDateHeading(date)}{techSel ? ' for the tech(s) picked' : ''}.</p>
               <p className="text-sm text-gray-500">
                 A tech&apos;s day appears here on its own from the Jobber schedule once visits are assigned to them for this date.
-                {isAdmin ? ' Tap ↻ Sync from Jobber above to pull it now, or send a route from the ' : ' The office can also send a route from the '}
+                {isAdmin ? ' Tap ↻ above to pull it from Jobber now, or send a route from the ' : ' The office can also send a route from the '}
                 <a href="/hub/routing" className="text-sky-400 hover:underline">Route Optimizer</a>.
               </p>
             </div>
@@ -628,19 +709,11 @@ export default function DailyLogV2View({
                 entry={entry}
                 depot={depot}
                 isAdmin={isAdmin}
-                canAccessIrrigation={canAccessIrrigation}
                 currentUserId={currentUserId}
                 mapHeight={isMobile ? 240 : 360}
-                expandedStopId={expandedStopId}
-                pendingActionStopId={pendingActionStopId}
-                skipReasons={skipReasons}
+                openStopId={openStopId}
                 showRouteCompleteBanner={routeCompleteEntryId === entry.id}
-                onToggleExpand={handleToggleExpand}
-                onArrive={handleArrive}
-                onComplete={(stopId, undo) => handleComplete(stopId, undo, entry.id)}
-                onSkip={handleSkip}
-                onOnMyWay={handleOnMyWay}
-                onPestNotesSave={handlePestNotesSave}
+                onOpenStop={openStop}
                 onMarkRouteComplete={handleMarkRouteComplete}
                 onDismissRouteComplete={() => setRouteCompleteEntryId(null)}
               />
@@ -648,6 +721,108 @@ export default function DailyLogV2View({
           </div>
         </div>
       </div>
+
+      {openStopCtx && (
+        <StopSheet
+          key={openStopCtx.stop.id}
+          stop={openStopCtx.stop}
+          pending={pendingActionStopId === openStopCtx.stop.id}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          canAccessIrrigation={canAccessIrrigation}
+          canCall={canCall}
+          canText={canText}
+          skipReasons={skipReasons}
+          onClose={closeStop}
+          onArrive={handleArrive}
+          onComplete={(stopId, undo) => handleComplete(stopId, undo, openStopCtx.entry.id)}
+          onSkip={handleSkip}
+          onOnMyWay={handleOnMyWay}
+          onPestNotesSave={handlePestNotesSave}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Tech picker ───────────────────────────────────────────────────────────────
+
+const TECH_SEL_KEY = 'lynxedo.workOrders.techs'
+
+/**
+ * Ben, Oct 2 2026: "Instead of All/My Day I would like a drop-down box to choose
+ * which tech to look at. You can multiselect or there can be an ALL option."
+ * `selected` null = all techs.
+ */
+function TechPicker({ options, selected, currentUserId, onChange }: {
+  options: HubUser[]
+  selected: string[] | null
+  currentUserId: string
+  onChange: (next: string[] | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useOutsideClose(ref, open, () => setOpen(false))
+
+  const isMeOnly = !!selected && selected.length === 1 && selected[0] === currentUserId
+  const label = !selected
+    ? 'All techs'
+    : isMeOnly
+      ? 'Me'
+      : selected.length === 1
+        ? (options.find(o => o.id === selected[0])?.display_name.split(/\s+/)[0] ?? '1 tech')
+        : `${selected.length} techs`
+
+  function toggle(id: string) {
+    const cur = selected ?? []
+    const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
+    onChange(next.length ? next : null)
+  }
+
+  const row = 'w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-gray-700'
+  const box = (on: boolean) => (
+    <span className={`flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ${on ? 'bg-sky-500 border-sky-500 text-[#fff]' : 'border-gray-500'}`}>
+      {on ? '✓' : ''}
+    </span>
+  )
+
+  return (
+    <div ref={ref} className="relative flex-none">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="h-8 px-2 max-w-[7.5rem] flex items-center gap-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
+        title="Choose which techs to show"
+      >
+        <span aria-hidden>👤</span>
+        <span className="truncate">{label}</span>
+        <span className="text-gray-400 text-xs" aria-hidden>▾</span>
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 mt-1 z-30 w-60 max-h-80 overflow-y-auto bg-gray-800 border border-gray-700 rounded-lg shadow-2xl py-1">
+          <button type="button" role="menuitemcheckbox" aria-checked={!selected} className={row} onClick={() => { onChange(null); setOpen(false) }}>
+            {box(!selected)}<span className="text-white">All techs</span>
+          </button>
+          <button type="button" role="menuitemcheckbox" aria-checked={isMeOnly} className={row} onClick={() => { onChange([currentUserId]); setOpen(false) }}>
+            {box(isMeOnly)}<span className="text-white">Me</span>
+          </button>
+          {options.length > 0 && <div className="my-1 border-t border-gray-700" />}
+          {options.map(o => {
+            const on = !!selected && selected.includes(o.id)
+            return (
+              <button key={o.id} type="button" role="menuitemcheckbox" aria-checked={on} className={row} onClick={() => toggle(o.id)}>
+                {box(on)}
+                <span className="text-gray-200 truncate">{o.display_name}{o.id === currentUserId ? ' (me)' : ''}</span>
+              </button>
+            )
+          })}
+          {options.length === 0 && (
+            <div className="px-3 py-2 text-xs text-gray-500">No tech has a day on this date.</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -770,43 +945,30 @@ function EntryCard({
   entry,
   depot,
   isAdmin,
-  canAccessIrrigation,
   currentUserId,
   mapHeight,
-  expandedStopId,
-  pendingActionStopId,
-  skipReasons,
+  openStopId,
   showRouteCompleteBanner,
-  onToggleExpand,
-  onArrive,
-  onComplete,
-  onSkip,
-  onOnMyWay,
-  onPestNotesSave,
+  onOpenStop,
   onMarkRouteComplete,
   onDismissRouteComplete,
 }: {
   entry: Entry
   depot: { lat: number; lng: number } | null
   isAdmin: boolean
-  canAccessIrrigation: boolean
   currentUserId: string
   mapHeight: number
-  expandedStopId: string | null
-  pendingActionStopId: string | null
-  skipReasons: SkipReason[]
+  openStopId: string | null
   showRouteCompleteBanner: boolean
-  onToggleExpand: (stopId: string) => void
-  onArrive: (stopId: string, undo: boolean) => void | Promise<void>
-  onComplete: (stopId: string, undo: boolean) => void | Promise<void>
-  onSkip: (stopId: string, undo: boolean, reasonId?: string, reasonLabel?: string) => void | Promise<void>
-  onOnMyWay: (stopId: string, etaMinutes: number) => Promise<{ ok: true } | { ok: false }>
-  onPestNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  onOpenStop: (stopId: string) => void
   onMarkRouteComplete: (entryId: string) => void | Promise<void>
   onDismissRouteComplete: () => void
 }) {
   const [officeNotesDraft, setOfficeNotesDraft] = useState(entry.office_notes ?? '')
   const [officeNotesSaving, setOfficeNotesSaving] = useState(false)
+  // An empty instructions box is a big yellow block on a phone — fold it to a
+  // one-line "+ Add" until there is something to say.
+  const [officeNotesOpen, setOfficeNotesOpen] = useState(!!entry.office_notes)
 
   async function saveOfficeNotes() {
     if (officeNotesDraft === (entry.office_notes ?? '')) return
@@ -891,10 +1053,16 @@ function EntryCard({
   const totalStops = entry.stops.length
   const completedStops = entry.stops.filter(s => s.status === 'complete' || s.status === 'skipped').length
 
+  // Ben, Oct 2 2026: a finished stop drops to the bottom (greyed) so the next
+  // stop is always at the top. Each keeps its route number.
+  const isDone = (s: Stop) => s.status === 'complete' || s.status === 'skipped'
+  const openStops = entry.stops.filter(s => !isDone(s))
+  const doneStops = entry.stops.filter(isDone)
+
   return (
     <div className={`bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden ${isClosed ? 'opacity-60' : ''}`}>
       {/* Header */}
-      <div className="px-4 md:px-5 py-3 md:py-4 border-b border-gray-800 flex items-center justify-between gap-3">
+      <div className="px-4 md:px-5 py-3 md:py-4 border-b border-gray-800 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex items-center gap-3 min-w-0">
           <UserAvatar user={entry.tech} />
           <div className="min-w-0">
@@ -908,7 +1076,7 @@ function EntryCard({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-none">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           {entry.synced_from_jobber_at && (
             <span
               className="hidden md:inline text-[10px] text-sky-300/80 bg-sky-500/10 px-2 py-1 rounded"
@@ -955,7 +1123,15 @@ function EntryCard({
       )}
 
       {/* Office instructions */}
-      {isAdmin ? (
+      {isAdmin && !officeNotesOpen ? (
+        <button
+          type="button"
+          onClick={() => setOfficeNotesOpen(true)}
+          className="w-full text-left px-4 md:px-5 py-2 border-b border-gray-800 text-xs text-amber-300/80 hover:bg-amber-500/5"
+        >
+          + Office instructions
+        </button>
+      ) : isAdmin ? (
         <div className="px-5 py-3 bg-amber-500/5 border-b border-gray-800">
           <div className="flex items-center justify-between mb-1">
             <div className="text-xs font-medium text-amber-300">Office Instructions</div>
@@ -999,24 +1175,19 @@ function EntryCard({
             No stops attached yet. Send a route from the Route Optimizer to populate.
           </div>
         ) : (
-          entry.stops.map(s => (
-            <StopRow
-              key={s.id}
-              stop={s}
-              expanded={expandedStopId === s.id}
-              pending={pendingActionStopId === s.id}
-              currentUserId={currentUserId}
-              isAdmin={isAdmin}
-              canAccessIrrigation={canAccessIrrigation}
-              skipReasons={skipReasons}
-              onToggleExpand={onToggleExpand}
-              onArrive={onArrive}
-              onComplete={onComplete}
-              onSkip={onSkip}
-              onOnMyWay={onOnMyWay}
-              onPestNotesSave={onPestNotesSave}
-            />
-          ))
+          <>
+            {openStops.map(s => (
+              <StopRow key={s.id} stop={s} active={openStopId === s.id} onOpen={onOpenStop} />
+            ))}
+            {doneStops.length > 0 && (
+              <div className="px-4 md:px-5 py-1.5 bg-gray-950/40 text-[10px] uppercase tracking-wide text-gray-500">
+                Done · {doneStops.length}
+              </div>
+            )}
+            {doneStops.map(s => (
+              <StopRow key={s.id} stop={s} active={openStopId === s.id} onOpen={onOpenStop} />
+            ))}
+          </>
         )}
       </div>
 
@@ -1117,130 +1288,64 @@ function inspectionLink(stop: Stop): { href: string; label: string; state: 'star
 }
 
 /**
- * The two work-order links at the top of an expanded stop: the customer file
- * (every stop) and the irrigation inspection (irrigation stops). The inspection
- * link opens the customer file's Irrigation card with the form already tied to
- * this stop + Jobber visit (`?irrigation=new&stop=&visit=`), or the saved report
- * (`?irrigation=open&insp=`). A saved report can be texted to the customer from
- * here through the same route the customer file uses.
+ * Ben, Oct 2 2026: the after-service report (and the pesticide application
+ * notes) belong on lawn-treatment stops only — WF (weed & fert) and MO
+ * (mosquito) in the Jobber catalog. An irrigation or pet-waste stop never
+ * shows them.
  */
-function WorkOrderLinks({ stop, isIrrigation, canAccessIrrigation }: {
-  stop: Stop
-  isIrrigation: boolean
-  canAccessIrrigation: boolean
+function isTreatmentStop(stop: Stop): boolean {
+  return stop.line_items.some(li => /^\s*(WF|MO)\s*-/i.test(li.name ?? ''))
+}
+
+/**
+ * One round icon with a small label under it — the stop's action row and its
+ * bottom bar. Same round-emoji look as the Txt conversation header.
+ */
+function ActionIcon({ icon, label, onClick, href, external, disabled, tone = 'gray', title }: {
+  icon: React.ReactNode
+  label: string
+  onClick?: () => void
+  href?: string | null
+  external?: boolean
+  disabled?: boolean
+  tone?: 'gray' | 'indigo' | 'cyan' | 'sky' | 'amber' | 'emerald' | 'muted'
+  title?: string
 }) {
-  const [texting, setTexting] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
-  const insp = stop.inspection
-  const customerHref = stop.contact_id ? `/hub/contacts/${stop.contact_id}` : null
-
-  const link = inspectionLink(stop)
-  const inspHref = link?.href ?? null
-  const inspLabel = link ? `💧 ${link.label}` : '💧 Start inspection'
-  // Shown on every irrigation stop that has a customer file; the customer page
-  // enforces who may actually edit (Ben, Oct 2 2026: the link was hiding).
-  const showInspection = isIrrigation && !!inspHref
-
-  async function textLink() {
-    if (texting || !stop.contact_id || !insp || insp.status !== 'final') return
-    setTexting(true); setToast(null)
-    try {
-      const res = await fetch(`/api/hub/contacts/${stop.contact_id}/irrigation/${insp.id}/text`, { method: 'POST' })
-      const j = await res.json().catch(() => ({}))
-      setToast(res.ok ? '✓ Report link texted to the customer' : (j.error || 'Could not send'))
-    } catch { setToast('Could not send') } finally { setTexting(false) }
+  const tones: Record<string, string> = {
+    gray: 'bg-white/10 text-white hover:bg-white/20',
+    indigo: 'bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30',
+    cyan: 'bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30',
+    sky: 'bg-sky-500/20 text-sky-100 hover:bg-sky-500/30',
+    amber: 'bg-amber-500/25 text-amber-100 hover:bg-amber-500/35',
+    emerald: 'bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30',
+    muted: 'bg-white/5 text-gray-500',
   }
-
+  const circle = `w-11 h-11 rounded-full flex items-center justify-center text-lg transition-colors ${disabled ? tones.muted : tones[tone]}`
+  const inner = (
+    <>
+      <span className={circle} aria-hidden>{icon}</span>
+      <span className={`text-[10px] leading-tight text-center max-w-[4.5rem] truncate ${disabled ? 'text-gray-600' : 'text-gray-300'}`}>{label}</span>
+    </>
+  )
+  const wrap = 'flex flex-col items-center gap-1 min-w-0'
+  if (href && !disabled) {
+    return external
+      ? <a href={href} target="_blank" rel="noopener noreferrer" className={wrap} title={title ?? label}>{inner}</a>
+      : <Link href={href} className={wrap} title={title ?? label}>{inner}</Link>
+  }
   return (
-    <div className="space-y-2">
-      <div className={`grid gap-2 ${showInspection ? 'grid-cols-2' : 'grid-cols-1'}`}>
-        {customerHref ? (
-          <Link
-            href={customerHref}
-            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-[#fff] rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5"
-          >
-            👤 Customer file
-          </Link>
-        ) : (
-          <div
-            className="px-3 py-2.5 bg-gray-800 text-gray-500 rounded font-medium text-sm text-center"
-            title="The Contacts directory has no Jobber link for this customer yet"
-          >
-            👤 No customer file
-          </div>
-        )}
-        {showInspection && inspHref && (
-          <Link
-            href={inspHref}
-            className={`px-3 py-2 rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5 ${
-              insp?.status === 'final'
-                ? 'bg-cyan-600/25 text-cyan-100 hover:bg-cyan-600/35'
-                : insp?.status === 'draft'
-                  ? 'bg-cyan-600 hover:bg-cyan-500 text-[#fff]'
-                  : 'bg-cyan-700 hover:bg-cyan-600 text-[#fff]'
-            }`}
-          >
-            {inspLabel}
-          </Link>
-        )}
-      </div>
-      {isIrrigation && !stop.contact_id && (
-        <div className="text-[11px] text-amber-300/80">
-          No customer file is linked to this stop, so the inspection can&apos;t be started from here — open the customer in Contacts and start it there.
-        </div>
-      )}
-      {isIrrigation && insp?.status === 'final' && canAccessIrrigation && stop.contact_id && (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={textLink}
-            disabled={texting}
-            className="text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 text-gray-200 disabled:opacity-50 transition-colors"
-          >
-            {texting ? 'Sending…' : '💬 Text the customer the report link'}
-          </button>
-          {insp.share_url && (
-            <a href={insp.share_url} target="_blank" rel="noopener noreferrer" className="text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 text-gray-400 transition-colors">
-              View customer link ↗
-            </a>
-          )}
-          {toast && <span className="text-xs text-emerald-300">{toast}</span>}
-        </div>
-      )}
-    </div>
+    <button type="button" onClick={onClick} disabled={disabled} className={`${wrap} disabled:cursor-not-allowed`} title={title ?? label} aria-label={label}>
+      {inner}
+    </button>
   )
 }
 
-// ── StopRow ───────────────────────────────────────────────────────────────────
+// ── StopRow (the compact line in the list) ────────────────────────────────────
 
-function StopRow({
-  stop,
-  expanded,
-  pending,
-  currentUserId,
-  isAdmin,
-  canAccessIrrigation,
-  skipReasons,
-  onToggleExpand,
-  onArrive,
-  onComplete,
-  onSkip,
-  onOnMyWay,
-  onPestNotesSave,
-}: {
+function StopRow({ stop, active, onOpen }: {
   stop: Stop
-  expanded: boolean
-  pending: boolean
-  currentUserId: string
-  isAdmin: boolean
-  canAccessIrrigation: boolean
-  skipReasons: SkipReason[]
-  onToggleExpand: (stopId: string) => void
-  onArrive: (stopId: string, undo: boolean) => void | Promise<void>
-  onComplete: (stopId: string, undo: boolean) => void | Promise<void>
-  onSkip: (stopId: string, undo: boolean, reasonId?: string, reasonLabel?: string) => void | Promise<void>
-  onOnMyWay: (stopId: string, etaMinutes: number) => Promise<{ ok: true } | { ok: false }>
-  onPestNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  active: boolean
+  onOpen: (stopId: string) => void
 }) {
   const lineItemNames = stop.line_items.map(li => li.name).filter(Boolean)
   const lineItemsSummary = lineItemNames.length === 0
@@ -1253,6 +1358,151 @@ function StopRow({
   const isInProgress = stop.status === 'in_progress'
   const isSkipped = stop.status === 'skipped'
 
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(stop.id)}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(stop.id) } }}
+      className={`w-full text-left px-4 md:px-5 py-3 flex items-start gap-3 hover:bg-gray-800/40 transition-colors cursor-pointer select-none ${
+        isComplete || isSkipped ? 'opacity-55 bg-gray-950/30' : ''
+      } ${active ? 'bg-gray-800/30' : ''}`}
+    >
+      <div
+        className={`w-8 h-8 rounded-full flex-none flex items-center justify-center text-sm font-semibold ${
+          isComplete
+            ? 'bg-emerald-700 text-emerald-100'
+            : isSkipped
+              ? 'bg-gray-700 text-gray-400'
+              : isInProgress
+                ? 'bg-amber-500 text-amber-50'
+                : 'bg-red-900/40 text-red-300'
+        }`}
+        title={`Stop ${stop.ord}`}
+      >
+        {isComplete ? '✓' : isSkipped ? '⊘' : pinLabel(stop.ord)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className={`font-medium ${isComplete || isSkipped ? 'text-gray-400' : 'text-white'}`}>
+            {stop.client_name}
+          </div>
+          {stop.contact_id && (
+            <Link
+              href={`/hub/contacts/${stop.contact_id}`}
+              onClick={e => e.stopPropagation()}
+              className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline"
+              title="Open the customer file"
+            >
+              Customer file ›
+            </Link>
+          )}
+          {isIrrigationStop(stop) && (() => {
+            const link = inspectionLink(stop)
+            return link ? (
+              <Link
+                href={link.href}
+                onClick={e => e.stopPropagation()}
+                className={`text-[11px] hover:underline ${link.state === 'final' ? 'text-cyan-300' : 'text-cyan-400'}`}
+                title="Irrigation inspection for this visit"
+              >
+                💧 {link.label} ›
+              </Link>
+            ) : null
+          })()}
+          {isComplete && stop.completed_at && (
+            <div className="text-[10px] bg-emerald-500/15 text-emerald-300 px-1.5 py-0.5 rounded">
+              ✓ Done {formatTime(stop.completed_at)}
+            </div>
+          )}
+          {stop.scheduled_start_at && !isComplete && !isSkipped && (
+            <div className="text-xs text-gray-400">{formatTime(stop.scheduled_start_at)}</div>
+          )}
+          {stop.duration_minutes && !isComplete && !isSkipped && (
+            <div className="text-xs text-gray-500">~{stop.duration_minutes} min</div>
+          )}
+          {isInProgress && (
+            <div className="text-[10px] bg-amber-500/20 text-amber-200 px-1.5 py-0.5 rounded">On site</div>
+          )}
+          {stop.on_my_way_sent_at && !isComplete && !isSkipped && (
+            <div className="text-[10px] bg-sky-500/15 text-sky-300 px-1.5 py-0.5 rounded">
+              🚗 {formatTime(stop.on_my_way_sent_at)}
+            </div>
+          )}
+          {isSkipped && (
+            <div className="text-[10px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">
+              {stop.skip_reason_label ?? 'Skipped'}
+            </div>
+          )}
+          {stop.removed_from_jobber_at && (
+            <div className="text-[10px] bg-red-500/15 text-red-300 px-1.5 py-0.5 rounded" title="This visit is no longer on your day in Jobber (moved, reassigned or deleted). Kept because you had already started on it.">
+              ⚠ Removed from Jobber
+            </div>
+          )}
+        </div>
+        <div className="text-sm text-gray-400 truncate">{stop.address}</div>
+        {stop.job_title && (
+          <div className="text-xs text-gray-500 mt-0.5">{stop.job_title}</div>
+        )}
+        {lineItemsSummary && (
+          <div className="text-xs text-gray-500 mt-0.5">{lineItemsSummary}</div>
+        )}
+      </div>
+      <div className="flex-none self-center text-gray-500 text-lg" aria-hidden>›</div>
+    </div>
+  )
+}
+
+// ── StopSheet (one stop, full screen) ─────────────────────────────────────────
+
+/**
+ * Ben, Oct 2 2026: "Instead of expanding maybe it pops up a new screen. That way
+ * everything about that stop is more visible on the display." On a phone it
+ * covers the page above the app's bottom bar; on a desktop it is a panel on the
+ * right. The phone's Back closes it (the parent owns the history entry).
+ *
+ * Top: one row of round icons — customer file, inspection (irrigation stops),
+ * navigate, on my way, call, text. Bottom: the stop's actions as a bar of
+ * icons — arrived, complete, skip (or reopen / undo skip).
+ */
+function StopSheet({
+  stop,
+  pending,
+  currentUserId,
+  isAdmin,
+  canAccessIrrigation,
+  canCall,
+  canText,
+  skipReasons,
+  onClose,
+  onArrive,
+  onComplete,
+  onSkip,
+  onOnMyWay,
+  onPestNotesSave,
+}: {
+  stop: Stop
+  pending: boolean
+  currentUserId: string
+  isAdmin: boolean
+  canAccessIrrigation: boolean
+  canCall: boolean
+  canText: boolean
+  skipReasons: SkipReason[]
+  onClose: () => void
+  onArrive: (stopId: string, undo: boolean) => void | Promise<void>
+  onComplete: (stopId: string, undo: boolean) => void | Promise<void>
+  onSkip: (stopId: string, undo: boolean, reasonId?: string, reasonLabel?: string) => void | Promise<void>
+  onOnMyWay: (stopId: string, etaMinutes: number) => Promise<{ ok: true } | { ok: false }>
+  onPestNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
+}) {
+  const router = useRouter()
+  const isComplete = stop.status === 'complete'
+  const isInProgress = stop.status === 'in_progress'
+  const isSkipped = stop.status === 'skipped'
+  const isIrrigation = isIrrigationStop(stop)
+  const isTreatment = isTreatmentStop(stop)
+
   const [omwPickerOpen, setOmwPickerOpen] = useState(false)
   const [omwEta, setOmwEta] = useState<number>(15)
   const [omwCustom, setOmwCustom] = useState<string>('')
@@ -1260,6 +1510,9 @@ function StopRow({
   const [skipPickerOpen, setSkipPickerOpen] = useState(false)
   const [selectedReasonId, setSelectedReasonId] = useState<string | null>(null)
   const [selectedReasonLabel, setSelectedReasonLabel] = useState<string | null>(null)
+
+  const [texting, setTexting] = useState(false)
+  const [textError, setTextError] = useState<string | null>(null)
 
   // Pesticide tech notes local state
   const [pestNotesDraft, setPestNotesDraft] = useState(stop.pesticide_tech_notes ?? '')
@@ -1270,6 +1523,13 @@ function StopRow({
     setPestNotesDraft(prev => (pestNotesStatus === 'idle' ? (stop.pesticide_tech_notes ?? '') : prev))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stop.pesticide_tech_notes])
+
+  // Esc closes on a desktop.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   async function savePestNotes() {
     if ((pestNotesDraft ?? '') === (stop.pesticide_tech_notes ?? '')) return
@@ -1285,18 +1545,19 @@ function StopRow({
     }
   }
 
-  // Live timer — only ticks when in_progress AND expanded
+  // Live timer — ticks while the stop is open and in progress
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (!expanded || !isInProgress || !stop.arrived_at) return
+    if (!isInProgress || !stop.arrived_at) return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [expanded, isInProgress, stop.arrived_at])
+  }, [isInProgress, stop.arrived_at])
 
   const lineItemTotal = stop.line_items.reduce((s, li) => s + (li.totalPrice ?? 0), 0)
   const navHref = stop.address
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.address)}`
     : null
+  const inspLink = isIrrigation ? inspectionLink(stop) : null
 
   async function submitOmw() {
     const eta = omwCustom ? parseInt(omwCustom, 10) : omwEta
@@ -1312,169 +1573,127 @@ function StopRow({
     setSelectedReasonLabel(null)
   }
 
+  // 📞 / 💬 — the same two moves as the Lead Tracker's buttons: Call pre-fills
+  // the Dialer; Text find-or-creates the customer's Txt thread and opens it.
+  function call() {
+    if (!stop.client_phone) return
+    router.push(`/hub/dialer?number=${encodeURIComponent(stop.client_phone)}`)
+  }
+  async function text() {
+    if (!stop.client_phone || texting) return
+    setTexting(true); setTextError(null)
+    try {
+      const res = await fetch('/api/txt/conversations/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: stop.client_phone, name: stop.client_name || undefined }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.conversation_id) {
+        router.push(`/hub/txt/${data.conversation_id}`)
+        return // stay busy through the navigation
+      }
+      setTextError(data?.error || 'Could not open the text thread')
+    } catch {
+      setTextError('Could not open the text thread')
+    }
+    setTexting(false)
+  }
+
+  const openSkip = () => { setSkipPickerOpen(v => !v); setSelectedReasonId(null); setSelectedReasonLabel(null) }
+
   return (
-    <div>
-      {/* Compact row */}
+    <>
+      {/* Desktop backdrop — click to close */}
+      <div className="hidden md:block fixed inset-0 z-[44] bg-black/50" onClick={onClose} aria-hidden />
       <div
-        role="button"
-        tabIndex={0}
-        onClick={() => onToggleExpand(stop.id)}
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleExpand(stop.id) } }}
-        className={`w-full text-left px-4 md:px-5 py-3 flex items-start gap-3 hover:bg-gray-800/40 transition-colors cursor-pointer select-none ${
-          isComplete || isSkipped ? 'opacity-60' : ''
-        } ${expanded ? 'bg-gray-800/30' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Stop ${stop.ord}: ${stop.client_name}`}
+        className="fixed inset-x-0 top-0 z-[45] flex flex-col bg-gray-950 md:left-auto md:w-[min(560px,100%)] md:border-l md:border-gray-800 md:shadow-2xl bottom-[var(--wo-sheet-bottom)] md:bottom-0"
+        style={{ ['--wo-sheet-bottom' as string]: 'calc(env(safe-area-inset-bottom, 0px) + 56px)' }}
       >
-        <div
-          className={`w-8 h-8 rounded-full flex-none flex items-center justify-center text-sm font-semibold ${
-            isComplete
-              ? 'bg-emerald-700 text-emerald-100'
-              : isSkipped
-                ? 'bg-gray-700 text-gray-400'
-                : isInProgress
-                  ? 'bg-amber-500 text-amber-50'
+        {/* Header */}
+        <div className="flex-none border-b border-gray-800 bg-gray-900 px-3 pb-2 pt-[calc(env(safe-area-inset-top,0px)+8px)] md:pt-3">
+          <div className="flex items-start gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close this stop"
+              className="flex-none w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div
+              className={`flex-none mt-0.5 w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                isComplete ? 'bg-emerald-700 text-emerald-100'
+                  : isSkipped ? 'bg-gray-700 text-gray-400'
+                  : isInProgress ? 'bg-amber-500 text-amber-50'
                   : 'bg-red-900/40 text-red-300'
-          }`}
-        >
-          {isComplete ? '✓' : isSkipped ? '⊘' : pinLabel(stop.ord)}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className={`font-medium ${isComplete || isSkipped ? 'text-gray-400 line-through' : 'text-white'}`}>
-              {stop.client_name}
+              }`}
+            >
+              {isComplete ? '✓' : isSkipped ? '⊘' : pinLabel(stop.ord)}
             </div>
-            {stop.contact_id && (
-              <Link
-                href={`/hub/contacts/${stop.contact_id}`}
-                onClick={e => e.stopPropagation()}
-                className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline"
-                title="Open the customer file"
-              >
-                Customer file ›
-              </Link>
-            )}
-            {isIrrigationStop(stop) && (() => {
-              const link = inspectionLink(stop)
-              return link ? (
-                <Link
-                  href={link.href}
-                  onClick={e => e.stopPropagation()}
-                  className={`text-[11px] hover:underline ${link.state === 'final' ? 'text-cyan-300' : 'text-cyan-400'}`}
-                  title="Irrigation inspection for this visit"
-                >
-                  💧 {link.label} ›
-                </Link>
-              ) : null
-            })()}
-            {stop.scheduled_start_at && (
-              <div className="text-xs text-gray-400">{formatTime(stop.scheduled_start_at)}</div>
-            )}
-            {stop.duration_minutes && !isComplete && !isSkipped && (
-              <div className="text-xs text-gray-500">~{stop.duration_minutes} min</div>
-            )}
-            {stop.on_my_way_sent_at && !isComplete && !isSkipped && (
-              <div className="text-[10px] bg-sky-500/15 text-sky-300 px-1.5 py-0.5 rounded">
-                💬 {formatTime(stop.on_my_way_sent_at)}
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-white text-base leading-tight truncate">{stop.client_name}</div>
+              <div className="text-sm text-gray-400 truncate">{stop.address}</div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 mt-0.5">
+                {stop.scheduled_start_at && <span>{formatTime(stop.scheduled_start_at)}</span>}
+                {stop.duration_minutes && <span>~{stop.duration_minutes} min</span>}
+                {stop.client_phone && <span>{formatPhone(stop.client_phone)}</span>}
+                {isComplete && stop.completed_at && <span className="text-emerald-300">✓ Done {formatTime(stop.completed_at)}</span>}
+                {isInProgress && stop.arrived_at && (
+                  <span className="font-mono text-amber-300">⏱ {formatDuration(now - new Date(stop.arrived_at).getTime())}</span>
+                )}
               </div>
+            </div>
+          </div>
+
+          {/* Icon row */}
+          <div className="flex items-start justify-around gap-1 mt-3">
+            <ActionIcon
+              icon="👤"
+              label={stop.contact_id ? 'Customer' : 'No file'}
+              href={stop.contact_id ? `/hub/contacts/${stop.contact_id}` : null}
+              disabled={!stop.contact_id}
+              tone="indigo"
+              title={stop.contact_id ? 'Open the customer file' : 'The Contacts directory has no Jobber link for this customer yet'}
+            />
+            {isIrrigation && (
+              <ActionIcon
+                icon="💧"
+                label={inspLink ? (inspLink.state === 'final' ? 'Inspection' : inspLink.state === 'draft' ? 'Continue' : 'Inspect') : 'Inspect'}
+                href={inspLink?.href ?? null}
+                disabled={!inspLink}
+                tone="cyan"
+                title={inspLink?.label ?? 'No customer file is linked to this stop, so the inspection can’t be started from here'}
+              />
             )}
-            {isSkipped && (
-              <div className="text-[10px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">
-                {stop.skip_reason_label ?? 'Skipped'}
-              </div>
+            <ActionIcon icon="🗺️" label="Navigate" href={navHref} external disabled={!navHref} tone="sky" />
+            {!isSkipped && (
+              <ActionIcon
+                icon="🚗"
+                label={stop.on_my_way_sent_at ? `Sent ${formatTime(stop.on_my_way_sent_at)}` : 'On my way'}
+                onClick={() => setOmwPickerOpen(v => !v)}
+                disabled={!stop.client_phone || pending}
+                tone={stop.on_my_way_sent_at ? 'sky' : 'amber'}
+                title={stop.client_phone ? 'Text the customer you are on the way' : 'No phone number on this stop'}
+              />
             )}
-            {stop.removed_from_jobber_at && (
-              <div className="text-[10px] bg-red-500/15 text-red-300 px-1.5 py-0.5 rounded" title="This visit is no longer on your day in Jobber (moved, reassigned or deleted). Kept because you had already started on it.">
-                ⚠ Removed from Jobber
-              </div>
+            {canCall && (
+              <ActionIcon icon="📞" label="Call" onClick={call} disabled={!stop.client_phone} tone="emerald" title={stop.client_phone ? 'Call in the Dialer' : 'No phone number on this stop'} />
+            )}
+            {canText && (
+              <ActionIcon icon="💬" label={texting ? 'Opening…' : 'Text'} onClick={text} disabled={!stop.client_phone || texting} tone="sky" title={stop.client_phone ? 'Open the text thread with this customer' : 'No phone number on this stop'} />
             )}
           </div>
-          <div className="text-sm text-gray-400 truncate">{stop.address}</div>
-          {stop.job_title && !expanded && (
-            <div className="text-xs text-gray-500 mt-0.5">{stop.job_title}</div>
-          )}
-          {lineItemsSummary && !expanded && (
-            <div className="text-xs text-gray-500 mt-0.5">{lineItemsSummary}</div>
-          )}
+          {textError && <div className="text-xs text-red-300 mt-1 text-center">⚠ {textError}</div>}
         </div>
-        <div className="flex-none self-center text-gray-500 text-lg">
-          {expanded ? '▾' : '▸'}
-        </div>
-      </div>
 
-      {/* Detail panel */}
-      {expanded && (
-        <div className="px-4 md:px-5 pb-4 pt-1 bg-gray-800/20 border-t border-gray-800/50 space-y-3 text-sm">
-
-          {/* Skipped notice */}
-          {isSkipped && (
-            <div className="bg-gray-800/60 border border-gray-700 rounded px-3 py-2.5 text-sm text-gray-400">
-              ⊘ This stop was skipped
-              {stop.skip_reason_label && <span className="text-gray-300 ml-1">— {stop.skip_reason_label}</span>}
-            </div>
-          )}
-
-          {/* Removed from Jobber — kept only because the tech had already worked it */}
-          {stop.removed_from_jobber_at && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2.5 text-sm text-red-200">
-              ⚠ <strong>This visit is no longer on your day in Jobber</strong> (moved, reassigned or deleted) since {formatTime(stop.removed_from_jobber_at)}. It stays here because you had already started on it — check with the office before doing more.
-            </div>
-          )}
-
-          {/* Work order links — customer file + the irrigation inspection for this visit */}
-          <WorkOrderLinks stop={stop} isIrrigation={isIrrigationStop(stop)} canAccessIrrigation={canAccessIrrigation} />
-
-          {/* Contact */}
-          {stop.client_phone && (
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Contact</div>
-              <a
-                href={`tel:${stop.client_phone}`}
-                onClick={e => e.stopPropagation()}
-                className="text-sky-400 hover:underline"
-              >
-                📞 {formatPhone(stop.client_phone)}
-              </a>
-            </div>
-          )}
-
-          {/* Navigate + On My Way */}
-          {!isSkipped && (
-            <div className="grid grid-cols-2 gap-2">
-              {navHref ? (
-                <a
-                  href={navHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-[#fff] rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5"
-                >
-                  🗺️ Navigate
-                </a>
-              ) : (
-                <button disabled className="px-3 py-2.5 bg-gray-800 text-gray-500 rounded font-medium text-sm cursor-not-allowed">
-                  🗺️ No address
-                </button>
-              )}
-              {stop.client_phone ? (
-                <button
-                  onClick={() => setOmwPickerOpen(v => !v)}
-                  disabled={pending}
-                  className={`px-3 py-2 rounded font-medium text-sm transition-colors flex items-center justify-center gap-1.5 ${
-                    stop.on_my_way_sent_at
-                      ? 'bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
-                      : 'bg-amber-600 hover:bg-amber-500 text-[#fff] disabled:opacity-50'
-                  }`}
-                >
-                  {stop.on_my_way_sent_at
-                    ? `💬 Sent ${formatTime(stop.on_my_way_sent_at)}${stop.on_my_way_eta_minutes ? ` · ${stop.on_my_way_eta_minutes}m` : ''}`
-                    : '💬 On My Way'}
-                </button>
-              ) : (
-                <button disabled className="px-3 py-2.5 bg-gray-800 text-gray-500 rounded font-medium text-sm cursor-not-allowed">
-                  💬 No phone
-                </button>
-              )}
-            </div>
-          )}
-
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3 space-y-3 text-sm">
           {/* On-My-Way ETA picker */}
           {omwPickerOpen && stop.client_phone && !isSkipped && (
             <div className="bg-amber-500/5 border border-amber-500/30 rounded p-3 space-y-3">
@@ -1524,6 +1743,33 @@ function StopRow({
             </div>
           )}
 
+          {/* Skipped notice */}
+          {isSkipped && (
+            <div className="bg-gray-800/60 border border-gray-700 rounded px-3 py-2.5 text-sm text-gray-400">
+              ⊘ This stop was skipped
+              {stop.skip_reason_label && <span className="text-gray-300 ml-1">— {stop.skip_reason_label}</span>}
+            </div>
+          )}
+
+          {/* Removed from Jobber — kept only because the tech had already worked it */}
+          {stop.removed_from_jobber_at && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2.5 text-sm text-red-200">
+              ⚠ <strong>This visit is no longer on your day in Jobber</strong> (moved, reassigned or deleted) since {formatTime(stop.removed_from_jobber_at)}. It stays here because you had already started on it — check with the office before doing more.
+            </div>
+          )}
+
+          {/* Jobber warning */}
+          {stop._jobber_warning && (
+            <div className="bg-amber-900/30 border border-amber-700/50 text-amber-200 rounded px-2.5 py-2 text-xs">
+              ⚠ {stop._jobber_warning}
+            </div>
+          )}
+
+          {/* A saved inspection can be texted to the customer from here */}
+          {isIrrigation && stop.inspection?.status === 'final' && canAccessIrrigation && stop.contact_id && (
+            <InspectionTextLink stop={stop} />
+          )}
+
           {/* Job title */}
           {stop.job_title && (
             <div>
@@ -1569,10 +1815,10 @@ function StopRow({
           )}
 
           {/* Unified notes + attachments thread */}
-          <StopNotesAndAttachments stopId={stop.id} currentUserId={currentUserId} />
+          <StopNotesAndAttachments stopId={stop.id} currentUserId={currentUserId} isAdmin={isAdmin} />
 
           {/* Time on property */}
-          {!isSkipped && (
+          {!isSkipped && (isComplete || isInProgress) && (
             <div className="bg-gray-900/40 border border-gray-800 rounded px-3 py-2.5">
               <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Time on property</div>
               {isComplete && stop.arrived_at && stop.completed_at && (
@@ -1596,11 +1842,6 @@ function StopRow({
                     {formatDuration(now - new Date(stop.arrived_at).getTime())}
                   </span>
                   <span className="text-gray-500 text-xs ml-2">since {formatTime(stop.arrived_at)}</span>
-                </div>
-              )}
-              {!isComplete && !isInProgress && (
-                <div className="text-gray-500 text-xs">
-                  Not started — tap <strong>Arrived</strong> below to start the timer.
                 </div>
               )}
             </div>
@@ -1640,15 +1881,14 @@ function StopRow({
           {stop.pesticide_record_id && (
             <a
               href={`/hub/pesticide-records/${stop.pesticide_record_id}`}
-              onClick={e => e.stopPropagation()}
               className="block bg-emerald-500/5 border border-emerald-500/30 rounded px-3 py-2 text-xs text-emerald-200 hover:bg-emerald-500/10 transition-colors"
             >
               🧪 Products used — view record →
             </a>
           )}
 
-          {/* Pesticide tech notes — shown for any non-skipped stop so techs can fill in before completing */}
-          {!isSkipped && (
+          {/* Pesticide notes + after-service report — WF / MO stops only (Ben, Oct 2 2026) */}
+          {!isSkipped && isTreatment && (
             <div>
               <div className="flex items-center justify-between mb-1">
                 <div className="text-[10px] uppercase tracking-wide text-emerald-500/70">Pesticide application notes</div>
@@ -1671,142 +1911,110 @@ function StopRow({
               />
             </div>
           )}
-
-          {/* After-service report — shown for any non-skipped stop so techs can fill in before completing */}
-          {!isSkipped && (
+          {!isSkipped && isTreatment && (
             <ServiceReportSection stopId={stop.id} clientPhone={stop.client_phone} />
           )}
+        </div>
 
-          {/* Jobber warning */}
-          {stop._jobber_warning && (
-            <div className="bg-amber-900/30 border border-amber-700/50 text-amber-200 rounded px-2.5 py-2 text-xs">
-              ⚠ {stop._jobber_warning}
+        {/* Bottom action bar */}
+        <div className="flex-none border-t border-gray-800 bg-gray-900 px-3 pt-2 pb-2">
+          {skipPickerOpen && !isComplete && !isSkipped && (
+            <div className="mb-2 max-h-[45vh] overflow-y-auto bg-gray-950/70 border border-gray-700 rounded p-3 space-y-2">
+              <div className="text-xs text-gray-400 mb-1.5">Why is this stop being skipped?</div>
+              {skipReasons.length === 0 ? (
+                <EmptyState size="sm" title="No reason codes configured. Contact your admin." />
+              ) : (
+                skipReasons.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => { setSelectedReasonId(r.id); setSelectedReasonLabel(r.label) }}
+                    className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                      selectedReasonId === r.id
+                        ? 'bg-gray-600 text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))
+              )}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={submitSkip}
+                  disabled={pending || (skipReasons.length > 0 && !selectedReasonId)}
+                  className="flex-1 px-3 py-2.5 bg-gray-600 hover:bg-gray-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors"
+                >
+                  {pending ? 'Skipping…' : 'Skip stop'}
+                </button>
+                <button
+                  onClick={() => setSkipPickerOpen(false)}
+                  className="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded text-sm transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
-
-          {/* Action buttons */}
-          <div className="pt-1 space-y-2">
+          <div className="flex items-start justify-around gap-2">
             {!isComplete && !isInProgress && !isSkipped && (
               <>
-                <button
-                  onClick={() => onArrive(stop.id, false)}
-                  disabled={pending}
-                  className="w-full px-3 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-[#fff] rounded font-semibold text-sm transition-colors"
-                >
-                  {pending ? 'Starting…' : '▶ Arrived at property'}
-                </button>
-                <button
-                  onClick={() => onComplete(stop.id, false)}
-                  disabled={pending}
-                  className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#fff] rounded font-medium text-sm transition-colors"
-                >
-                  {pending ? 'Marking complete…' : '✓ Mark Complete (skip timer)'}
-                </button>
-                <button
-                  onClick={() => { setSkipPickerOpen(v => !v); setSelectedReasonId(null); setSelectedReasonLabel(null) }}
-                  disabled={pending}
-                  className="w-full px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-gray-300 rounded font-medium text-sm transition-colors"
-                >
-                  ⊘ Skip this stop
-                </button>
+                <ActionIcon icon="▶" label={pending ? 'Starting…' : 'Arrived'} onClick={() => onArrive(stop.id, false)} disabled={pending} tone="amber" title="Arrived at the property — starts the timer" />
+                <ActionIcon icon="✓" label={pending ? 'Saving…' : 'Complete'} onClick={() => onComplete(stop.id, false)} disabled={pending} tone="emerald" title="Mark complete without the timer — also marks the visit done in Jobber" />
+                <ActionIcon icon="⊘" label="Skip" onClick={openSkip} disabled={pending} title="Skip this stop" />
               </>
             )}
-
             {isInProgress && (
               <>
-                <button
-                  onClick={() => onComplete(stop.id, false)}
-                  disabled={pending}
-                  className="w-full px-3 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#fff] rounded font-semibold text-base transition-colors"
-                >
-                  {pending ? 'Marking complete…' : '✓ Mark Complete'}
-                </button>
-                <button
-                  onClick={() => { setSkipPickerOpen(v => !v); setSelectedReasonId(null); setSelectedReasonLabel(null) }}
-                  disabled={pending}
-                  className="w-full px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-gray-300 rounded font-medium text-sm transition-colors"
-                >
-                  ⊘ Skip this stop
-                </button>
-                <button
-                  onClick={() => onArrive(stop.id, true)}
-                  disabled={pending}
-                  className="w-full px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
-                >
-                  ↺ Reset arrival time
-                </button>
+                <ActionIcon icon="✓" label={pending ? 'Saving…' : 'Complete'} onClick={() => onComplete(stop.id, false)} disabled={pending} tone="emerald" title="Mark complete — also marks the visit done in Jobber" />
+                <ActionIcon icon="⊘" label="Skip" onClick={openSkip} disabled={pending} title="Skip this stop" />
+                <ActionIcon icon="↺" label="Reset time" onClick={() => onArrive(stop.id, true)} disabled={pending} title="Reset the arrival time" />
               </>
             )}
-
             {isComplete && (
-              <button
-                onClick={() => onComplete(stop.id, true)}
-                disabled={pending}
-                className="w-full px-3 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded font-medium text-sm transition-colors"
-              >
-                {pending ? 'Reopening…' : '↩ Reopen this stop'}
-              </button>
+              <ActionIcon icon="↩" label={pending ? 'Reopening…' : 'Reopen'} onClick={() => onComplete(stop.id, true)} disabled={pending} title="Reopen this stop — also flips the visit back in Jobber" />
             )}
-
             {isSkipped && (
-              <button
-                onClick={() => onSkip(stop.id, true)}
-                disabled={pending}
-                className="w-full px-3 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded font-medium text-sm transition-colors"
-              >
-                {pending ? 'Undoing…' : '↩ Undo skip'}
-              </button>
-            )}
-
-            {/* Skip picker — inline reveal */}
-            {skipPickerOpen && !isComplete && !isSkipped && (
-              <div className="bg-gray-900/70 border border-gray-700 rounded p-3 space-y-2">
-                <div className="text-xs text-gray-400 mb-1.5">Why is this stop being skipped?</div>
-                {skipReasons.length === 0 ? (
-                  <EmptyState size="sm" title="No reason codes configured. Contact your admin." />
-                ) : (
-                  skipReasons.map(r => (
-                    <button
-                      key={r.id}
-                      onClick={() => { setSelectedReasonId(r.id); setSelectedReasonLabel(r.label) }}
-                      className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
-                        selectedReasonId === r.id
-                          ? 'bg-gray-600 text-white'
-                          : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))
-                )}
-                <div className="flex gap-2 pt-1">
-                  <button
-                    onClick={submitSkip}
-                    disabled={pending || (skipReasons.length > 0 && !selectedReasonId)}
-                    className="flex-1 px-3 py-2.5 bg-gray-600 hover:bg-gray-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors"
-                  >
-                    {pending ? 'Skipping…' : 'Skip stop'}
-                  </button>
-                  <button
-                    onClick={() => setSkipPickerOpen(false)}
-                    className="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded text-sm transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {stop.jobber_visit_id && !isSkipped && (
-              <p className="text-[10px] text-gray-500 text-center">
-                {isComplete
-                  ? 'Reopening also flips the visit back in Jobber.'
-                  : 'Mark Complete also marks the visit done in Jobber.'}
-              </p>
+              <ActionIcon icon="↩" label={pending ? 'Undoing…' : 'Undo skip'} onClick={() => onSkip(stop.id, true)} disabled={pending} title="Undo the skip" />
             )}
           </div>
         </div>
+      </div>
+    </>
+  )
+}
+
+/** Text a saved irrigation inspection's customer link from the stop. */
+function InspectionTextLink({ stop }: { stop: Stop }) {
+  const [texting, setTexting] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+  const insp = stop.inspection
+
+  async function textLink() {
+    if (texting || !stop.contact_id || !insp || insp.status !== 'final') return
+    setTexting(true); setToast(null)
+    try {
+      const res = await fetch(`/api/hub/contacts/${stop.contact_id}/irrigation/${insp.id}/text`, { method: 'POST' })
+      const j = await res.json().catch(() => ({}))
+      setToast(res.ok ? '✓ Report link texted to the customer' : (j.error || 'Could not send'))
+    } catch { setToast('Could not send') } finally { setTexting(false) }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={textLink}
+        disabled={texting}
+        className="text-xs px-2.5 py-1.5 rounded bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-100 disabled:opacity-50 transition-colors"
+      >
+        {texting ? 'Sending…' : '💧 Text the customer the inspection link'}
+      </button>
+      {insp?.share_url && (
+        <a href={insp.share_url} target="_blank" rel="noopener noreferrer" className="text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 text-gray-400 transition-colors">
+          View customer link ↗
+        </a>
       )}
+      {toast && <span className="text-xs text-emerald-300">{toast}</span>}
     </div>
   )
 }
@@ -1814,7 +2022,7 @@ function StopRow({
 // ── StopNotesAndAttachments ───────────────────────────────────────────────────
 
 type ThreadItem =
-  | { kind: 'message'; id: string; content: string; created_at: string; user: StopMessage['user']; reactions: StopReaction[] }
+  | { kind: 'message'; id: string; content: string; created_at: string; edited_at: string | null; user: StopMessage['user']; reactions: StopReaction[] }
   | { kind: 'file'; id: string; file_name: string; file_type: string | null; file_size: number | null; file_url: string; created_at: string; uploaded_by: string | null }
 
 type PendingFile = { file: File; previewUrl: string | null }
@@ -1822,9 +2030,12 @@ type PendingFile = { file: File; previewUrl: string | null }
 function StopNotesAndAttachments({
   stopId,
   currentUserId,
+  isAdmin,
 }: {
   stopId: string
   currentUserId: string
+  /** A Daily Log admin may edit or delete anyone's note; everyone else only their own. */
+  isAdmin: boolean
 }) {
   const [messages, setMessages] = useState<StopMessage[]>([])
   const [attachments, setAttachments] = useState<StopAttachment[]>([])
@@ -1851,7 +2062,44 @@ function StopNotesAndAttachments({
       (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true))
   }, [])
   useOutsideClose(attachMenuRef, attachOpen, () => setAttachOpen(false))
-  const bottomRef = useRef<HTMLDivElement>(null)
+  // ⚠ The thread box scrolls ITSELF to the newest note. It used to call
+  // scrollIntoView on a marker at the bottom, which scrolls every scrollable
+  // ancestor too — so opening a stop yanked the whole screen down to the note
+  // box (Ben, Oct 2 2026). Setting scrollTop moves only this box.
+  const listRef = useRef<HTMLDivElement>(null)
+
+  // Edit / delete a note (Ben, Oct 2 2026). One note in edit at a time.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
+  const [editBusy, setEditBusy] = useState(false)
+  const [noteError, setNoteError] = useState<string | null>(null)
+
+  async function saveEdit(messageId: string) {
+    const content = editText.trim()
+    if (!content || editBusy) return
+    setEditBusy(true); setNoteError(null)
+    try {
+      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/messages/${messageId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j.message) { setNoteError(j.error || 'Could not save the change'); return }
+      setMessages(prev => prev.map(m => (m.id === messageId ? (j.message as StopMessage) : m)))
+      setEditingId(null)
+    } catch { setNoteError('Could not save the change') } finally { setEditBusy(false) }
+  }
+
+  async function deleteNote(messageId: string) {
+    if (!window.confirm('Delete this note?')) return
+    setNoteError(null)
+    try {
+      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/messages/${messageId}`, { method: 'DELETE' })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) { setNoteError(j.error || 'Could not delete the note'); return }
+      setMessages(prev => prev.filter(m => m.id !== messageId))
+      if (editingId === messageId) setEditingId(null)
+    } catch { setNoteError('Could not delete the note') }
+  }
 
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
 
@@ -1918,8 +2166,9 @@ function StopNotesAndAttachments({
   }, [stopId])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, attachments])
+    const el = listRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages.length, attachments.length])
 
   // Revoke blob URLs when they leave the staging area
   useEffect(() => {
@@ -1984,7 +2233,7 @@ function StopNotesAndAttachments({
 
   const threadItems = useMemo<ThreadItem[]>(() => {
     const items: ThreadItem[] = [
-      ...messages.map(m => ({ kind: 'message' as const, id: m.id, content: m.content, created_at: m.created_at, user: m.user, reactions: m.reactions ?? [] })),
+      ...messages.map(m => ({ kind: 'message' as const, id: m.id, content: m.content, created_at: m.created_at, edited_at: m.edited_at ?? null, user: m.user, reactions: m.reactions ?? [] })),
       ...attachments.map(a => ({ kind: 'file' as const, id: a.id, file_name: a.file_name, file_type: a.file_type, file_size: a.file_size, file_url: a.file_url, created_at: a.created_at, uploaded_by: a.uploaded_by })),
     ]
     return items.sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -2000,13 +2249,15 @@ function StopNotesAndAttachments({
       {loading ? (
         <div className="py-6 text-center"><Spinner size={5} /></div>
       ) : (
-        <div className="space-y-2 mb-2 max-h-64 overflow-y-auto">
+        <div ref={listRef} className="space-y-2 mb-2 max-h-64 overflow-y-auto">
           {threadItems.length === 0 && (
             <EmptyState size="sm" title="No notes or attachments yet." />
           )}
           {threadItems.map(item => {
             if (item.kind === 'message') {
               const isMine = item.user?.id === currentUserId
+              const canModify = isMine || isAdmin
+              const isEditing = editingId === item.id
               const initials = item.user ? item.user.display_name.split(/\s+/).map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?'
               return (
                 <div key={`m-${item.id}`} className={`flex gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
@@ -2016,9 +2267,25 @@ function StopNotesAndAttachments({
                   <div className="max-w-[82%] min-w-0">
                     <div className={`rounded px-2.5 py-1.5 text-xs ${isMine ? 'bg-sky-600/25 text-sky-100' : 'bg-gray-800 text-gray-200'}`}>
                       <div className="font-medium text-[10px] opacity-60 mb-0.5">
-                        {item.user?.display_name ?? 'Unknown'} · {formatTime(item.created_at)}
+                        {item.user?.display_name ?? 'Unknown'} · {formatTime(item.created_at)}{item.edited_at ? ' · (edited)' : ''}
                       </div>
-                      <div className="whitespace-pre-wrap">{item.content}</div>
+                      {isEditing ? (
+                        <div className="space-y-1.5">
+                          <textarea
+                            value={editText}
+                            onChange={e => setEditText(e.target.value)}
+                            rows={3}
+                            autoFocus
+                            className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1.5 text-base md:text-xs text-white outline-none focus:border-sky-500 resize-y"
+                          />
+                          <div className="flex justify-end gap-1.5">
+                            <button type="button" onClick={() => setEditingId(null)} disabled={editBusy} className="px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 text-[11px]">Cancel</button>
+                            <button type="button" onClick={() => saveEdit(item.id)} disabled={editBusy || !editText.trim()} className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-[#fff] text-[11px] font-medium">{editBusy ? 'Saving…' : 'Save'}</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="whitespace-pre-wrap">{item.content}</div>
+                      )}
                     </div>
                     {/* Reactions: grouped pills (tap to toggle yours) + a small picker */}
                     <div className={`flex flex-wrap items-center gap-1 mt-1 ${isMine ? 'justify-end' : ''}`}>
@@ -2070,6 +2337,24 @@ function StopNotesAndAttachments({
                           </div>
                         )}
                       </div>
+                      {canModify && !isEditing && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => { setEditingId(item.id); setEditText(item.content); setNoteError(null) }}
+                            className="w-6 h-6 flex items-center justify-center rounded-full text-gray-500 hover:text-white hover:bg-gray-700 text-[11px]"
+                            title="Edit this note"
+                            aria-label="Edit this note"
+                          >✏️</button>
+                          <button
+                            type="button"
+                            onClick={() => deleteNote(item.id)}
+                            className="w-6 h-6 flex items-center justify-center rounded-full text-gray-500 hover:text-white hover:bg-gray-700 text-[11px]"
+                            title="Delete this note"
+                            aria-label="Delete this note"
+                          >🗑️</button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2110,9 +2395,10 @@ function StopNotesAndAttachments({
               )
             }
           })}
-          <div ref={bottomRef} />
         </div>
       )}
+
+      {noteError && <div className="text-xs text-red-300 mb-2">⚠ {noteError}</div>}
 
       {/* Staged files preview */}
       {pendingFiles.length > 0 && (
