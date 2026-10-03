@@ -196,6 +196,13 @@ function formatShortDate(dateStr: string) {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+/** "Mon 10/5" — the narrowest readable form, for a phone header. */
+function formatTinyDate(dateStr: string) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const wd = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short' })
+  return `${wd} ${m}/${d}`
+}
+
 function formatDateHeading(dateStr: string) {
   const [y, m, d] = dateStr.split('-').map(Number)
   const date = new Date(y, m - 1, d)
@@ -621,16 +628,17 @@ export default function DailyLogV2View({
           <p className="text-sm text-gray-400 hidden md:block">
             Your stops for the day, in route order — each one is a work order. The day fills itself from the Jobber schedule; the office changes it in Jobber or with the Route Optimizer.
           </p>
-          <div className="flex items-center gap-1 md:gap-1.5 md:mt-3 min-w-0">
+          <div className="flex flex-wrap items-center gap-1 md:gap-1.5 md:mt-3 min-w-0">
             <button
               onClick={() => setDate(offsetDate(date, -1))}
               aria-label="Previous day"
-              className="flex-none w-8 h-8 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
+              className="flex-none w-7 md:w-8 h-8 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
             >‹</button>
             {/* The label is what you see; the real date input sits on top of it,
                 invisible, so a tap opens the phone's own date picker. */}
-            <label className="relative flex-none h-8 px-2 flex items-center bg-gray-800 border border-gray-700 rounded text-sm text-white whitespace-nowrap cursor-pointer">
-              {formatShortDate(date)}
+            <label className="relative flex-none h-8 px-1.5 md:px-2 flex items-center bg-gray-800 border border-gray-700 rounded text-sm text-white whitespace-nowrap cursor-pointer">
+              <span className="md:hidden">{formatTinyDate(date)}</span>
+              <span className="hidden md:inline">{formatShortDate(date)}</span>
               <input
                 type="date"
                 value={date}
@@ -642,20 +650,21 @@ export default function DailyLogV2View({
             <button
               onClick={() => setDate(offsetDate(date, 1))}
               aria-label="Next day"
-              className="flex-none w-8 h-8 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
+              className="flex-none w-7 md:w-8 h-8 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
             >›</button>
             {!isToday && (
               <button
                 onClick={() => setDate(todayStr())}
-                className="flex-none h-8 px-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-xs text-sky-200"
+                className="flex-none h-8 px-1.5 md:px-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-xs text-sky-200"
               >Today</button>
             )}
-            <div className="flex-1 min-w-0" />
             <TechPicker
               options={techOptions}
               selected={techSel}
               currentUserId={currentUserId}
               onChange={chooseTechs}
+              onSync={isAdmin ? syncFromJobber : undefined}
+              syncing={syncing || loading}
             />
             {isAdmin && (
               <button
@@ -663,9 +672,9 @@ export default function DailyLogV2View({
                 disabled={syncing || loading}
                 title="Rebuild this day's Work Orders from the Jobber schedule now (it also happens on its own every few minutes)"
                 aria-label="Sync from Jobber"
-                className="flex-none h-8 px-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-sky-200 disabled:opacity-50"
+                className="hidden md:inline-flex items-center flex-none h-8 px-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-sky-200 disabled:opacity-50"
               >
-                {syncing ? '…' : <><span>↻</span><span className="hidden md:inline"> Sync from Jobber</span></>}
+                {syncing ? 'Syncing…' : '↻ Sync from Jobber'}
               </button>
             )}
           </div>
@@ -697,7 +706,7 @@ export default function DailyLogV2View({
               <p className="text-gray-400 mb-2">No work orders for {formatDateHeading(date)}{techSel ? ' for the tech(s) picked' : ''}.</p>
               <p className="text-sm text-gray-500">
                 A tech&apos;s day appears here on its own from the Jobber schedule once visits are assigned to them for this date.
-                {isAdmin ? ' Tap ↻ above to pull it from Jobber now, or send a route from the ' : ' The office can also send a route from the '}
+                {isAdmin ? ' Use ↻ Sync from Jobber (in the 👤 menu on a phone) to pull it now, or send a route from the ' : ' The office can also send a route from the '}
                 <a href="/hub/routing" className="text-sky-400 hover:underline">Route Optimizer</a>.
               </p>
             </div>
@@ -754,11 +763,14 @@ const TECH_SEL_KEY = 'lynxedo.workOrders.techs'
  * which tech to look at. You can multiselect or there can be an ALL option."
  * `selected` null = all techs.
  */
-function TechPicker({ options, selected, currentUserId, onChange }: {
+function TechPicker({ options, selected, currentUserId, onChange, onSync, syncing }: {
   options: HubUser[]
   selected: string[] | null
   currentUserId: string
   onChange: (next: string[] | null) => void
+  /** Admins: "↻ Sync this day from Jobber" lives in this menu on a phone (no room in the row). */
+  onSync?: () => void
+  syncing?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -787,18 +799,18 @@ function TechPicker({ options, selected, currentUserId, onChange }: {
   )
 
   return (
-    <div ref={ref} className="relative flex-none">
+    <div ref={ref} className="relative flex flex-1 basis-[3.25rem] min-w-[3.25rem] justify-end">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="h-8 px-2 max-w-[7.5rem] flex items-center gap-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
+        className="h-8 px-1.5 md:px-2 max-w-full md:max-w-[12rem] min-w-0 flex items-center gap-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
         title="Choose which techs to show"
       >
-        <span aria-hidden>👤</span>
-        <span className="truncate">{label}</span>
-        <span className="text-gray-400 text-xs" aria-hidden>▾</span>
+        <span className="flex-none" aria-hidden>👤</span>
+        <span className="truncate min-w-0">{label}</span>
+        <span className="flex-none text-gray-400 text-xs" aria-hidden>▾</span>
       </button>
       {open && (
         <div role="menu" className="absolute right-0 mt-1 z-30 w-60 max-h-80 overflow-y-auto bg-gray-800 border border-gray-700 rounded-lg shadow-2xl py-1">
@@ -820,6 +832,21 @@ function TechPicker({ options, selected, currentUserId, onChange }: {
           })}
           {options.length === 0 && (
             <div className="px-3 py-2 text-xs text-gray-500">No tech has a day on this date.</div>
+          )}
+          {onSync && (
+            <>
+              <div className="my-1 border-t border-gray-700 md:hidden" />
+              <button
+                type="button"
+                role="menuitem"
+                disabled={syncing}
+                className={`${row} md:hidden text-sky-200 disabled:opacity-50`}
+                onClick={() => { setOpen(false); onSync() }}
+              >
+                <span className="flex-none w-4 text-center" aria-hidden>↻</span>
+                <span>{syncing ? 'Syncing…' : 'Sync this day from Jobber'}</span>
+              </button>
+            </>
           )}
         </div>
       )}
