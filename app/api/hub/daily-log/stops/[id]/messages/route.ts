@@ -45,8 +45,9 @@ export async function GET(
 
   const { data: messages, error } = await admin
     .from('daily_log_stop_messages')
-    .select('id, content, created_at, user:hub_users!user_id(id, display_name, avatar_url), reactions:daily_log_stop_message_reactions(user_id, emoji)')
+    .select('id, content, created_at, edited_at, user:hub_users!user_id(id, display_name, avatar_url), reactions:daily_log_stop_message_reactions(user_id, emoji)')
     .eq('stop_id', id)
+    .is('deleted_at', null)
     .order('created_at', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -73,7 +74,7 @@ export async function POST(
   const { data: inserted, error } = await admin
     .from('daily_log_stop_messages')
     .insert({ stop_id: id, company_id: companyId, user_id: userId, content })
-    .select('id, content, created_at, user:hub_users!user_id(id, display_name, avatar_url), reactions:daily_log_stop_message_reactions(user_id, emoji)')
+    .select('id, content, created_at, edited_at, user:hub_users!user_id(id, display_name, avatar_url), reactions:daily_log_stop_message_reactions(user_id, emoji)')
     .single()
 
   if (error || !inserted) {
