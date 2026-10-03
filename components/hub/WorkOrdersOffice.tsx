@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import WorkOrderSuggestionRules from './WorkOrderSuggestionRules'
 
 type Base = {
   stopId: string
@@ -30,7 +31,7 @@ const fmtDate = (d: string | null) => d ? new Date(`${d}T12:00:00`).toLocaleDate
 export default function WorkOrdersOffice() {
   const [data, setData] = useState<{ needsAttention: Attention[]; changed: Changed[]; readyToInvoice: Base[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'attention' | 'changed' | 'invoice'>('attention')
+  const [tab, setTab] = useState<'attention' | 'changed' | 'invoice' | 'rules'>('attention')
 
   const load = useCallback(async () => {
     try {
@@ -53,10 +54,11 @@ export default function WorkOrdersOffice() {
     }).catch(() => {})
   }
 
-  const tabs: Array<{ key: typeof tab; label: string; count: number }> = [
+  const tabs: Array<{ key: typeof tab; label: string; count: number | null }> = [
     { key: 'attention', label: 'Needs attention', count: data?.needsAttention.length ?? 0 },
     { key: 'changed', label: 'Changed by techs', count: data?.changed.length ?? 0 },
     { key: 'invoice', label: 'Ready to invoice', count: data?.readyToInvoice.length ?? 0 },
+    { key: 'rules', label: 'Inspection rules', count: null },
   ]
 
   return (
@@ -71,7 +73,7 @@ export default function WorkOrdersOffice() {
         {tabs.map(t => (
           <button key={t.key} type="button" onClick={() => setTab(t.key)}
             className={`shrink-0 px-3 py-1.5 rounded-full text-sm ${tab === t.key ? 'bg-indigo-600 text-white' : 'bg-white/10 text-gray-300'}`}>
-            {t.label}{data ? ` · ${t.count}` : ''}
+            {t.label}{data && t.count != null ? ` · ${t.count}` : ''}
           </button>
         ))}
       </div>
@@ -117,6 +119,8 @@ export default function WorkOrdersOffice() {
           ))}
         </List>
       )}
+
+      {tab === 'rules' && <WorkOrderSuggestionRules />}
 
       {data && tab === 'invoice' && (
         <List empty="Nothing waiting to be invoiced."

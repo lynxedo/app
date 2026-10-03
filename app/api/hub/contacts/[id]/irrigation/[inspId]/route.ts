@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveIrrigationAccess, contactInCompany } from '@/lib/irrigation-server'
+import { suggestForStop } from '@/lib/work-order-suggestions'
 
 // One inspection.
 //   PATCH  … /irrigation/:inspId   → autosave the draft (data / sketch / photos)
@@ -78,10 +79,24 @@ export async function POST(request: Request, ctx: Ctx) {
     .eq('company_id', access.companyId)
     .eq('contact_id', contactId)
     .eq('status', 'draft')
-    .select('id, finalized_at, inspected_on')
+    .select('id, finalized_at, inspected_on, stop_id')
     .maybeSingle()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!data) return NextResponse.json({ error: 'No draft to finalize' }, { status: 404 })
+
+  // Work Orders Phase 2: an inspection done from a stop proposes line items on
+  // that stop from the office's rules — waiting there when the tech goes back.
+  if (data.stop_id) {
+    const stopId = data.stop_id as string
+    after(async () => {
+      try {
+        const r = await suggestForStop(admin, access.companyId, stopId, access.userId)
+        if (r.added) console.log(`[work-orders] inspection ${inspId} suggested ${r.added} line item(s) on stop ${stopId}`)
+      } catch (e) {
+        console.error('[work-orders] suggest after finalize failed:', e)
+      }
+    })
+  }
   return NextResponse.json({ ok: true, id: data.id, finalizedAt: data.finalized_at, inspectedOn: data.inspected_on })
 }
 
