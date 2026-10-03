@@ -43,11 +43,11 @@ const isChanged = (li: WoItem) =>
 // One catalog read per page load — the picker opens on many stops in a day.
 let catalogCache: { products: CatalogProduct[]; usage: CatalogUsage[] } | null = null
 
-export default function WorkOrderLineItems({ stopId, stopStatus, suggestSlot }: {
+export default function WorkOrderLineItems({ stopId, stopStatus, canSuggest }: {
   stopId: string
   stopStatus: string
-  /** Part 2: the "Suggest from inspection" control, rendered under the list. */
-  suggestSlot?: (reload: () => void, locked: boolean) => React.ReactNode
+  /** Part 2: an irrigation stop with a saved inspection gets "💡 Suggest from inspection". */
+  canSuggest?: boolean
 }) {
   const [items, setItems] = useState<WoItem[] | null>(null)
   const [locked, setLocked] = useState<string | null>(null)
@@ -56,6 +56,7 @@ export default function WorkOrderLineItems({ stopId, stopStatus, suggestSlot }: 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [suggestMsg, setSuggestMsg] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -86,6 +87,22 @@ export default function WorkOrderLineItems({ stopId, stopStatus, suggestSlot }: 
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save')
       return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function suggest() {
+    setBusy(true)
+    setSuggestMsg(null)
+    try {
+      const res = await fetch(`/api/hub/work-orders/stops/${stopId}/suggest`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Could not suggest')
+      setItems(json.items)
+      setSuggestMsg(json.added ? null : json.message)
+    } catch (e) {
+      setSuggestMsg(e instanceof Error ? e.message : 'Could not suggest')
     } finally {
       setBusy(false)
     }
@@ -206,7 +223,15 @@ export default function WorkOrderLineItems({ stopId, stopStatus, suggestSlot }: 
         <div className="mt-1 text-[11px] text-gray-500">Reopen the stop to change line items.</div>
       )}
 
-      {suggestSlot?.(() => { void load() }, !!locked)}
+      {canSuggest && !locked && (
+        <div className="mt-2">
+          <button type="button" disabled={busy} onClick={() => void suggest()}
+            className="w-full py-2 rounded bg-cyan-500/10 border border-cyan-500/30 text-sm text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50">
+            💡 Suggest from inspection
+          </button>
+          {suggestMsg && <div className="mt-1 text-[11px] text-gray-400">{suggestMsg}</div>}
+        </div>
+      )}
 
       {pickerOpen && (
         <CatalogPicker deptHint={deptHint} busy={busy}

@@ -1813,7 +1813,8 @@ function StopSheet({
           )}
 
           {/* Line items — Work Orders Phase 2: editable, sent to the Jobber visit at Complete */}
-          <WorkOrderLineItems stopId={stop.id} stopStatus={stop.status} />
+          <WorkOrderLineItems stopId={stop.id} stopStatus={stop.status}
+            canSuggest={isIrrigation && stop.inspection?.status === 'final'} />
 
           {/* Visit instructions */}
           {stop.instructions && (
