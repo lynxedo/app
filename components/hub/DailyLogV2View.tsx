@@ -5,9 +5,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
+import WorkOrderLineItems from './WorkOrderLineItems'
 import { Spinner, EmptyState } from '@/components/ui'
 import { fmtQty, type StoredRouteLoadout, type StoredLoadoutProduct } from '@/lib/route-capacity'
-import { formatPhone, formatCurrency, formatDurationMs, formatDurationSec } from '@/lib/format'
+import { formatPhone, formatDurationMs, formatDurationSec } from '@/lib/format'
 import { keepAwake } from '@/lib/native-device'
 import { getDailyLog, saveDailyLog } from '@/lib/hub-cache'
 import { isNativeApp } from '@/lib/hub-idle'
@@ -216,11 +217,6 @@ function formatTime(iso: string | null): string {
 
 function pinLabel(ord: number): string {
   return ord <= 9 ? String(ord) : String.fromCharCode(97 + (ord - 10))
-}
-
-
-function formatMoney(n: number): string {
-  return formatCurrency(n, { decimals: 2 })
 }
 
 function formatDuration(ms: number): string {
@@ -665,6 +661,7 @@ export default function DailyLogV2View({
               onChange={chooseTechs}
               onSync={isAdmin ? syncFromJobber : undefined}
               syncing={syncing || loading}
+              showOffice={isAdmin}
             />
             {isAdmin && (
               <button
@@ -763,7 +760,7 @@ const TECH_SEL_KEY = 'lynxedo.workOrders.techs'
  * which tech to look at. You can multiselect or there can be an ALL option."
  * `selected` null = all techs.
  */
-function TechPicker({ options, selected, currentUserId, onChange, onSync, syncing }: {
+function TechPicker({ options, selected, currentUserId, onChange, onSync, syncing, showOffice }: {
   options: HubUser[]
   selected: string[] | null
   currentUserId: string
@@ -771,6 +768,8 @@ function TechPicker({ options, selected, currentUserId, onChange, onSync, syncin
   /** Admins: "↻ Sync this day from Jobber" lives in this menu on a phone (no room in the row). */
   onSync?: () => void
   syncing?: boolean
+  /** Admins: the Work Orders office lists (Phase 2 — needs attention, changed, ready to invoice). */
+  showOffice?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -846,6 +845,15 @@ function TechPicker({ options, selected, currentUserId, onChange, onSync, syncin
                 <span className="flex-none w-4 text-center" aria-hidden>↻</span>
                 <span>{syncing ? 'Syncing…' : 'Sync this day from Jobber'}</span>
               </button>
+            </>
+          )}
+          {showOffice && (
+            <>
+              <div className="my-1 border-t border-gray-700" />
+              <Link href="/hub/daily-log-v2/office" role="menuitem" className={`${row} text-emerald-200`} onClick={() => setOpen(false)}>
+                <span className="flex-none w-4 text-center" aria-hidden>🧾</span>
+                <span>Office: line items &amp; invoicing</span>
+              </Link>
             </>
           )}
         </div>
@@ -1580,7 +1588,6 @@ function StopSheet({
     return () => clearInterval(t)
   }, [isInProgress, stop.arrived_at])
 
-  const lineItemTotal = stop.line_items.reduce((s, li) => s + (li.totalPrice ?? 0), 0)
   const navHref = stop.address
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.address)}`
     : null
@@ -1805,31 +1812,8 @@ function StopSheet({
             </div>
           )}
 
-          {/* Line items */}
-          {stop.line_items.length > 0 && (
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Line items</div>
-              <div className="bg-gray-900/40 rounded border border-gray-800 overflow-hidden">
-                <table className="w-full text-xs">
-                  <tbody>
-                    {stop.line_items.map((li, i) => (
-                      <tr key={i} className="border-b border-gray-800 last:border-b-0">
-                        <td className="px-2 py-1.5 text-gray-200">{li.name}</td>
-                        <td className="px-2 py-1.5 text-right text-gray-400 w-12">{li.qty}×</td>
-                        <td className="px-2 py-1.5 text-right text-gray-200 w-20">{formatMoney(li.totalPrice ?? 0)}</td>
-                      </tr>
-                    ))}
-                    {lineItemTotal > 0 && (
-                      <tr className="bg-gray-900/60">
-                        <td className="px-2 py-1.5 text-right text-gray-400 text-[10px] uppercase tracking-wide" colSpan={2}>Total</td>
-                        <td className="px-2 py-1.5 text-right text-white font-medium">{formatMoney(lineItemTotal)}</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {/* Line items — Work Orders Phase 2: editable, sent to the Jobber visit at Complete */}
+          <WorkOrderLineItems stopId={stop.id} stopStatus={stop.status} />
 
           {/* Visit instructions */}
           {stop.instructions && (
