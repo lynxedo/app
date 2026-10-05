@@ -315,7 +315,7 @@ export async function queueAmberAction(
       url: '/hub/amber',
       type: 'amber_queue',
       groupKey: 'amber-queue',
-    }).catch(() => {})
+    }, { waitForDelivery: true }).catch(() => {})
   }
   return (
     'QUEUED FOR APPROVAL — nothing has been done yet. A person will approve, edit or reject it in the Hub. ' +
