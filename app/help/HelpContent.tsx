@@ -577,7 +577,7 @@ function HubTab() {
       </Section>
 
       <Section title="Amber — waiting for approval">
-        <p>Amber can now do some work <strong className="text-white">on her own</strong>, without anyone asking her first. Each time, she prepares the work, and it waits at the top of the <strong className="text-white">Amber</strong> screen (the Amber row in the Hub sidebar) for an approver. Approvers also get a notification when something new is waiting.</p>
+        <p>Amber can now do some work <strong className="text-white">on her own</strong>, without anyone asking her first. Each time, she prepares the work, and it waits at the top of the <strong className="text-white">Amber</strong> screen for an approver: the Amber row in the Hub sidebar, just below My Tasks, which shows a blue <em>“to approve”</em> count when something is waiting. Approvers also get a notification when something new is waiting.</p>
         <p className="mt-2">Each card shows what she wants to do, <em>why</em>, and exactly what will happen: who it goes to and the exact words. When you tap Approve, Hub checks the details again first. If something changed while it waited (say the customer opted out of texts), nothing runs, and the card updates so you can look again. You have three choices:</p>
         <ul className="list-disc ml-5 mt-2 space-y-1">
           <li><strong className="text-white">Approve</strong>: it runs right away. A customer text she sends on her own goes back to the Txt Queue, unassigned, so the reply reaches the team.</li>

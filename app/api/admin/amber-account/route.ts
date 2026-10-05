@@ -168,5 +168,9 @@ export async function POST() {
       reason: "A test item added from Admin → AI → Amber's account.",
     },
   )
-  return NextResponse.json({ result: out })
+  return NextResponse.json({
+    result: out.startsWith('QUEUED')
+      ? 'Added. Open Amber in the Hub sidebar (under My Tasks) to approve it. Approvers were sent a notification.'
+      : out,
+  })
 }
