@@ -13,6 +13,7 @@ import {
   type AmberMode,
 } from '@/lib/hub-actions/amber'
 import { amberActionStats } from '@/lib/hub-actions/amber-queue'
+import { getMorningSettings } from '@/lib/amber-run'
 
 // Admin → AI → Amber's account: what she may do on her own (off / approve /
 // auto per action), who approves, and her track record per action.
@@ -35,7 +36,7 @@ export async function GET() {
   if (!g) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const admin = createAdminClient()
 
-  const [settings, modes, approverIds, stats, actor, { data: profiles }, { data: hubUsers }] = await Promise.all([
+  const [settings, modes, approverIds, stats, actor, { data: profiles }, { data: hubUsers }, morning, { data: rooms }, { data: runs }] = await Promise.all([
     getAssistantSettings(admin, g.companyId),
     getAmberModes(admin, g.companyId),
     getAmberApproverIds(admin, g.companyId),
@@ -46,6 +47,19 @@ export async function GET() {
       .select('id, role, can_admin_ai, locked_at, deactivated_at')
       .eq('company_id', g.companyId),
     admin.from('hub_users').select('id, display_name, is_bot').eq('company_id', g.companyId),
+    getMorningSettings(admin, g.companyId),
+    admin
+      .from('rooms')
+      .select('id, name, is_private')
+      .eq('company_id', g.companyId)
+      .is('archived_at', null)
+      .order('name', { ascending: true }),
+    admin
+      .from('amber_runs')
+      .select('id, kind, run_date, status, started_at, finished_at, model, input_tokens, output_tokens, model_calls, tool_calls, queued, est_cost_usd, error')
+      .eq('company_id', g.companyId)
+      .order('started_at', { ascending: false })
+      .limit(15),
   ])
 
   const meta = new Map(allActionMeta().map((m) => [m.name, m]))
@@ -90,6 +104,13 @@ export async function GET() {
     actions,
     approverIds,
     people,
+    morning,
+    rooms: ((rooms || []) as Array<{ id: string; name: string | null; is_private: boolean | null }>).map((r) => ({
+      id: r.id,
+      name: (r.name || 'unnamed').trim(),
+      isPrivate: r.is_private === true,
+    })),
+    runs: runs ?? [],
   })
 }
 
@@ -97,7 +118,11 @@ export async function PUT(request: Request) {
   const g = await guard()
   if (!g) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const admin = createAdminClient()
-  let body: { modes?: Record<string, string>; approverIds?: unknown } = {}
+  let body: {
+    modes?: Record<string, string>
+    approverIds?: unknown
+    morning?: { enabled?: unknown; time?: unknown; days?: unknown; roomId?: unknown }
+  } = {}
   try {
     body = await request.json()
   } catch {
@@ -138,6 +163,44 @@ export async function PUT(request: Request) {
       .from('hub_assistant_settings')
       .upsert({ company_id: g.companyId, amber_approver_ids: keep }, { onConflict: 'company_id' })
     if (error) return NextResponse.json({ error: 'Could not save approvers' }, { status: 500 })
+  }
+
+  if (body.morning) {
+    const m = body.morning
+    const patch: Record<string, unknown> = {}
+    if (m.enabled !== undefined) patch.amber_morning_enabled = m.enabled === true
+    if (m.time !== undefined) {
+      if (typeof m.time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(m.time)) {
+        return NextResponse.json({ error: 'Time must be HH:MM' }, { status: 400 })
+      }
+      patch.amber_morning_time = m.time
+    }
+    if (m.days !== undefined) {
+      if (!Array.isArray(m.days) || m.days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+        return NextResponse.json({ error: 'Days must be 0–6' }, { status: 400 })
+      }
+      patch.amber_morning_days = [...new Set(m.days as number[])].sort()
+    }
+    if (m.roomId !== undefined) {
+      if (m.roomId === null || m.roomId === '') patch.amber_morning_room_id = null
+      else {
+        // Only a room of THIS company.
+        const { data: room } = await admin
+          .from('rooms')
+          .select('id')
+          .eq('company_id', g.companyId)
+          .eq('id', String(m.roomId))
+          .maybeSingle()
+        if (!room) return NextResponse.json({ error: 'Unknown room' }, { status: 400 })
+        patch.amber_morning_room_id = (room as { id: string }).id
+      }
+    }
+    if (Object.keys(patch).length) {
+      const { error } = await admin
+        .from('hub_assistant_settings')
+        .upsert({ company_id: g.companyId, ...patch }, { onConflict: 'company_id' })
+      if (error) return NextResponse.json({ error: 'Could not save the morning summary settings' }, { status: 500 })
+    }
   }
 
   return NextResponse.json({ ok: true })
