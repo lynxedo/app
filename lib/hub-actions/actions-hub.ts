@@ -43,8 +43,12 @@ async function actorRooms(ctx: ActionContext): Promise<Array<{ id: string; name:
 
   // A private room requires membership. A public room is postable by any
   // teammate — matching how the Hub itself behaves.
+  // On Amber's own account, public rooms only: the bot is added to every room it
+  // has ever posted in at someone's request, and what she reads (texts, calls)
+  // must not leak into a private room by that back door.
+  const ownAccount = ctx.actor.source === 'amber'
   return all
-    .filter((r) => !r.is_private || memberOf.has(r.id))
+    .filter((r) => (ownAccount ? !r.is_private : !r.is_private || memberOf.has(r.id)))
     .map((r) => ({ id: r.id, name: (r.name || 'unnamed').trim(), isPrivate: r.is_private === true }))
 }
 
@@ -53,7 +57,9 @@ async function actorRooms(ctx: ActionContext): Promise<Array<{ id: string; name:
  * than a wrapper ("Ben asked me to post this: …") — a wrapper reads as clumsy
  * around every message, and buries the content one clause deep.
  */
-function withAttribution(message: string, actorName: string, verb: 'posted' | 'sent'): string {
+function withAttribution(message: string, actorName: string, verb: 'posted' | 'sent', ctx?: ActionContext): string {
+  // On Amber's own account nobody asked — the post is simply hers.
+  if (ctx?.actor.source === 'amber') return message
   const who = (actorName || '').trim() || 'a teammate'
   return `${message}\n\n— ${verb} at ${who}'s request`
 }
@@ -128,7 +134,7 @@ export const postHubMessageAction: HubAction = {
 
       const messageId = await postGuardianToRoom(
         room.id,
-        withAttribution(message, ctx.actor.displayName, 'posted'),
+        withAttribution(message, ctx.actor.displayName, 'posted', ctx),
         { admin: ctx.admin },
       )
       if (!messageId) return "I couldn't post that message just now."
@@ -163,7 +169,7 @@ export const postHubMessageAction: HubAction = {
     const messageId = await postGuardianToUserDm(
       ctx.actor.companyId,
       recipient.id,
-      withAttribution(message, ctx.actor.displayName, 'sent'),
+      withAttribution(message, ctx.actor.displayName, 'sent', ctx),
       { admin: ctx.admin },
     )
     if (!messageId) return "I couldn't send that direct message just now."
