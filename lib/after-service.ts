@@ -28,9 +28,27 @@ export type AsrProduct = {
   added?: boolean
 }
 
+/**
+ * What one treatment does, in the customer's words — copied in from the
+ * office's Report text (after_service_templates) when the report is saved, so a
+ * later edit of that text never changes a report already sent.
+ */
+export type AsrTreatment = {
+  /** The line item it came from ("WF - Lawn Health Basic"). */
+  service: string
+  /** What the customer reads as the heading ("Lawn Health Basic"). */
+  display: string
+  /** The Service Mapping round in effect on the visit date ("Round 3"), when known. */
+  round: string | null
+  description: string
+  care: string
+}
+
 export type AfterServiceData = {
   /** What was done — the stop's accepted work-order line items (refreshed from the stop). */
   services?: { name: string; qty: number }[]
+  /** What each treatment does + care instructions (customer-facing, from the office's text). */
+  treatments?: AsrTreatment[]
   /** What the tech saw (keys of OBSERVATIONS). Customer-facing. */
   observations?: string[]
   mowingHeight?: '' | 'ok' | 'short' | 'tall'
@@ -111,3 +129,42 @@ export function mergeMappedProducts(current: AsrProduct[], mapped: AsrProduct[])
   }
   return out
 }
+
+/** "WF - Lawn Health Basic" → "Lawn Health Basic": the Jobber department prefix means nothing to a customer. */
+export function customerServiceName(name: string): string {
+  return name.replace(/^\s*[A-Z]{2,3}\s*-\s*(OT\s*-\s*)?/i, '').replace(/\s+/g, ' ').trim()
+}
+
+/** Line items a customer shouldn't see listed as "work done" (pricing adjustments). */
+export function isAdjustmentItem(name: string): boolean {
+  return /\b(discount|credit|coupon|promo|refund)\b/i.test(name)
+}
+
+/**
+ * The customer-safe projection of a report — the ONLY thing the public page
+ * renders. Products, amounts, EPA numbers and internal notes never leave the
+ * server (Ben, Oct 5 2026: no product names to customers).
+ */
+export function toCustomerReport(d: AfterServiceData) {
+  const treated = new Set((d.treatments ?? []).map(t => t.service))
+  return {
+    treatments: (d.treatments ?? [])
+      .filter(t => t.description.trim() || t.care.trim())
+      .map(t => ({ name: t.display, round: t.round, description: t.description.trim(), care: t.care.trim() })),
+    otherServices: (d.services ?? [])
+      .filter(s => s.name && !treated.has(s.name) && !isAdjustmentItem(s.name) && s.qty > 0)
+      .map(s => customerServiceName(s.name)),
+    observations: (d.observations ?? []).map(observationLabel),
+    mowingHeight: d.mowingHeight === 'short' ? 'A little short — raising the mower blade will help'
+      : d.mowingHeight === 'tall' ? 'A little tall — regular mowing will help'
+      : d.mowingHeight === 'ok' ? 'Looks good' : '',
+    observationNotes: (d.observationNotes ?? '').trim(),
+    recommendations: d.recommendations ?? [],
+    recommendationNotes: (d.recommendationNotes ?? '').trim(),
+    weather: d.weather && (typeof d.weather.temperature_f === 'number' || d.weather.conditions)
+      ? [typeof d.weather.temperature_f === 'number' ? `${d.weather.temperature_f}°F` : null, d.weather.conditions].filter(Boolean).join(', ')
+      : '',
+  }
+}
+
+export const REPORT_SHARE_TTL_DAYS = 60

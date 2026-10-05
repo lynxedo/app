@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { observationLabel, MOWING, type AfterServiceData } from '@/lib/after-service'
 import AfterServiceForm, { fmtReportDate, type FullReport } from './AfterServiceForm'
+import SendReportPanel, { type ReportContact } from './SendReportPanel'
 
 // Work Orders Phase 3 — the customer file's After-service reports card, built
 // like the Irrigation card (Ben, Oct 5 2026). Reports are started from the stop
@@ -60,6 +61,19 @@ export function ReportReadView({ report }: { report: FullReport }) {
         </div>
       )}
 
+      {(d.treatments?.length ?? 0) > 0 && (
+        <div className="pt-2 border-t border-white/5">
+          <div className="text-[11px] uppercase tracking-wide text-white/35 mb-1">What the treatment does <span className="normal-case tracking-normal text-white/30">(customer sees this)</span></div>
+          {d.treatments!.map((t, i) => (
+            <div key={i} className="mt-1">
+              <div className="text-sm text-white/85">{t.display}{t.round ? <span className="text-white/45"> · {t.round}</span> : null}</div>
+              {t.description && <div className="text-[12px] text-white/60">{t.description}</div>}
+              {t.care && <div className="text-[12px] text-white/45 mt-0.5"><span className="text-white/35">Care: </span>{t.care}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
       {((d.observations?.length ?? 0) > 0 || mowing || d.observationNotes) && (
         <div className="pt-2 border-t border-white/5">
           <div className="text-[11px] uppercase tracking-wide text-white/35 mb-1">What we saw</div>
@@ -113,6 +127,7 @@ export function ReportReadView({ report }: { report: FullReport }) {
 export default function AfterServiceSection({ contactId }: { contactId: string }) {
   const [list, setList] = useState<{ canEdit: boolean; reports: ListItem[] } | null>(null)
   const [viewing, setViewing] = useState<FullReport | null>(null)
+  const [contact, setContact] = useState<ReportContact | null>(null)
   const [formReport, setFormReport] = useState<FullReport | null>(null)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState('')
@@ -131,6 +146,7 @@ export default function AfterServiceSection({ contactId }: { contactId: string }
     if (!res.ok) return
     const j = await res.json()
     if (!j.report) return
+    setContact(j.contact ?? null)
     if (j.report.status === 'draft' && j.canEdit) setFormReport(j.report)
     else setViewing(j.report)
   }, [contactId])
@@ -180,7 +196,7 @@ export default function AfterServiceSection({ contactId }: { contactId: string }
         contactId={contactId}
         report={formReport}
         onClose={() => { setFormReport(null); void load() }}
-        onSaved={() => { setFormReport(null); setToast('✓ Report saved'); void load() }}
+        onSaved={() => { const id = formReport.id; setFormReport(null); setToast('✓ Report saved — send it to the customer below'); void load(); void openReport(id) }}
       />
     )
   }
@@ -201,6 +217,12 @@ export default function AfterServiceSection({ contactId }: { contactId: string }
         <>
           <button type="button" onClick={() => setViewing(null)} className="text-xs text-sky-300 hover:text-sky-200 mb-2">← All reports</button>
           <ReportReadView report={viewing} />
+          {canEdit && viewing.status === 'final' && (
+            <div className="mt-3">
+              <SendReportPanel contactId={contactId} report={viewing} contact={contact}
+                onSent={r => { setViewing(v => v ? { ...v, sentAt: new Date().toISOString(), sentVia: r.sentVia, shareUrl: r.url } : v); void load() }} />
+            </div>
+          )}
           {canEdit && viewing.status === 'final' && !viewing.sentAt && (
             <div className="mt-3 pt-3 border-t border-white/5">
               <button type="button" onClick={() => reopen(viewing.id)} disabled={busy}

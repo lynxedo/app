@@ -36,7 +36,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       .eq('contact_id', contactId)
       .maybeSingle()
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    return NextResponse.json({ canEdit: access.canEdit, report: await toFullReport(admin, row as ReportRow) })
+    // Where Send can reach the customer (the Send panel shows these).
+    const { data: c } = await admin.from('txt_contacts').select('phone, email, do_not_text').eq('id', contactId).maybeSingle()
+    return NextResponse.json({
+      canEdit: access.canEdit,
+      report: await toFullReport(admin, row as ReportRow),
+      contact: { phone: (c?.phone as string | null) ?? null, email: (c?.email as string | null) ?? null, doNotText: c?.do_not_text === true },
+    })
   }
 
   const { data: rows } = await admin

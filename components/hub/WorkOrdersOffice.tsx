@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import WorkOrderSuggestionRules from './WorkOrderSuggestionRules'
+import WorkOrderReportTexts from './WorkOrderReportTexts'
 
 type Base = {
   stopId: string
@@ -35,7 +36,7 @@ const fmtDate = (d: string | null) => d ? new Date(`${d}T12:00:00`).toLocaleDate
 export default function WorkOrdersOffice() {
   const [data, setData] = useState<{ needsAttention: Attention[]; changed: Changed[]; readyToInvoice: Base[]; notes: Base[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'attention' | 'changed' | 'invoice' | 'notes' | 'rules'>('attention')
+  const [tab, setTab] = useState<'attention' | 'changed' | 'invoice' | 'notes' | 'rules' | 'texts'>('attention')
 
   const load = useCallback(async () => {
     try {
@@ -64,6 +65,7 @@ export default function WorkOrdersOffice() {
     { key: 'invoice', label: 'Ready to invoice', count: data?.readyToInvoice.length ?? 0 },
     { key: 'notes', label: 'Tech notes', count: data?.notes.length ?? 0 },
     { key: 'rules', label: 'Inspection rules', count: null },
+    { key: 'texts', label: 'Report text', count: null },
   ]
 
   return (
@@ -126,6 +128,7 @@ export default function WorkOrdersOffice() {
       )}
 
       {tab === 'rules' && <WorkOrderSuggestionRules />}
+      {tab === 'texts' && <WorkOrderReportTexts />}
 
       {data && tab === 'notes' && (
         <List empty="No tech notes or photos in the last 30 days."
