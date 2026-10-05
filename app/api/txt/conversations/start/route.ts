@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/twilio'
+import { denyUnlessTxtUser } from '@/lib/txt-permissions'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -15,6 +16,8 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await denyUnlessTxtUser(supabase, user.id, HEROES_COMPANY_ID)
+  if (denied) return denied
 
   const body = await request.json().catch(() => ({}))
   const phoneE164 = toE164(body.phone || '')

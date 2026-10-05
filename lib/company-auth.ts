@@ -17,7 +17,7 @@ export type CompanyCaller = {
  * company). Allowed = the admin role or the grant, same as the Tracker
  * from-source / draft-note routes.
  */
-export type FeatureGrant = 'can_access_routing' | 'can_access_tracker' | 'can_access_lawn'
+export type FeatureGrant = 'can_access_routing' | 'can_access_tracker' | 'can_access_lawn' | 'can_access_hub'
 
 function hasGrant(profile: { role?: string | null } & Partial<Record<FeatureGrant, boolean | null>>, grant: FeatureGrant): boolean {
   return profile.role === 'admin' || profile[grant] === true
@@ -31,7 +31,7 @@ export async function denyWithoutGrant(
 ): Promise<NextResponse | null> {
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_access_routing, can_access_tracker, can_access_lawn')
+    .select('role, can_access_routing, can_access_tracker, can_access_lawn, can_access_hub')
     .eq('id', userId)
     .single()
   if (!profile || !hasGrant(profile, grant)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -65,7 +65,7 @@ export async function requireCompany(opts?: { grant?: FeatureGrant }): Promise<C
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('company_id, role, can_access_routing, can_access_tracker, can_access_lawn')
+    .select('company_id, role, can_access_routing, can_access_tracker, can_access_lawn, can_access_hub')
     .eq('id', user.id)
     .single()
 

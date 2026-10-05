@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { callHeroesTool } from '@/lib/hub-claude'
+import { denyUnlessTxtUser } from '@/lib/txt-permissions'
 
 // Search Jobber via Heroes MCP. Returns parsed clients.
 function parseJobberClients(
@@ -26,6 +27,9 @@ export async function GET(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Searches Heroes' Jobber client list — Txt users of that company only.
+  const denied = await denyUnlessTxtUser(supabase, user.id, process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002')
+  if (denied) return denied
 
   const url = new URL(request.url)
   const q = (url.searchParams.get('q') || '').trim()

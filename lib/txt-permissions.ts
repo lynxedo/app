@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
 
 export type TxtConvRole = 'owner' | 'member' | null
 
@@ -82,4 +83,33 @@ export async function getTxtConvPermissions(
     // themselves so they get a voice without waiting to be added.
     canJoin: isTxtUser && !isMember,
   }
+}
+
+/**
+ * Route gate for Txt APIs that act outside one conversation (start a thread,
+ * edit / search contacts). Oct 5 2026 audit: these checked only "signed in", so
+ * anyone — any tenant, no Txt grant — could take over a customer's thread, flip
+ * do_not_text back off, or search the Jobber client list. Requires a Txt user
+ * (can_access_txt, or a Txt manager / assigner, or admin) in `companyId` — the
+ * company these routes are wired to (TXT_COMPANY_ID). Returns a 403 or null.
+ */
+export async function denyUnlessTxtUser(
+  supabase: SupabaseClient,
+  userId: string,
+  companyId: string,
+): Promise<NextResponse | null> {
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, company_id, can_admin_txt, can_assign_txt_threads, can_access_txt')
+    .eq('id', userId)
+    .single()
+  const isTxtUser =
+    profile?.role === 'admin' ||
+    profile?.can_admin_txt === true ||
+    profile?.can_assign_txt_threads === true ||
+    profile?.can_access_txt === true
+  if (!profile || !isTxtUser || profile.company_id !== companyId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  return null
 }

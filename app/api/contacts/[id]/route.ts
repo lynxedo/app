@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/phone'
+import { denyWithoutGrant } from '@/lib/company-auth'
 
 // GET /api/contacts/:id — full detail incl. tags
 export async function GET(
@@ -12,6 +13,9 @@ export async function GET(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Same gate as the Contacts pages (Oct 5 2026 audit: was signed-in + company only).
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_hub')
+  if (denied) return denied
 
   const { data, error } = await supabase
     .from('txt_contacts')
@@ -55,6 +59,9 @@ export async function PATCH(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Same gate as the Contacts pages (Oct 5 2026 audit: was signed-in + company only).
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_hub')
+  if (denied) return denied
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -133,6 +140,9 @@ export async function DELETE(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Same gate as the Contacts pages (Oct 5 2026 audit: was signed-in + company only).
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_hub')
+  if (denied) return denied
 
   const { data: profile } = await supabase
     .from('user_profiles')
