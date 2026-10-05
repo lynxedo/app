@@ -24,6 +24,12 @@ interface PushOptions {
   isMention?: boolean   // true when this push is an @mention (bypasses mentions-level filter, not DND)
   isDm?: boolean        // true for DM messages — bypasses mentions-level filter but not muted/DND
   roomId?: string | null  // room context for per-room mute checks
+  // Wait for the iPhone (APNs) and Android (FCM) sends too, instead of firing them
+  // off. A caller whose route returns right after this call MUST set it: a detached
+  // send is dropped once the response goes out (memory
+  // lesson_nextjs_after_for_post_response_work). Off by default, so existing
+  // callers keep today's timing.
+  waitForDelivery?: boolean
 }
 
 // Which DND channel a push belongs to, derived from payload.type. Master DND overrides ALL
@@ -49,7 +55,8 @@ export async function sendHubPush(
   ensureVapid()
 
   const admin = createAdminClient()
-  const { isMention = false, isDm = false, roomId = null } = options
+  const { isMention = false, isDm = false, roomId = null, waitForDelivery = false } = options
+  const nativeSends: Promise<unknown>[] = []
 
   // Fetch DND status + notification prefs + company_id + new unified DND columns for all target users
   const [statusResult, prefsResult, profilesResult] = await Promise.all([
@@ -199,13 +206,13 @@ export async function sendHubPush(
   for (const [uid, tokens] of Object.entries(apnsByUser)) {
     const badge = badgeMap[uid]
     const sound = globalPrefs[uid]?.notification_sound ?? 'default'
-    sendApnsPush(tokens, { ...payload, ...(typeof badge === 'number' ? { badge } : {}), sound })
+    nativeSends.push(sendApnsPush(tokens, { ...payload, ...(typeof badge === 'number' ? { badge } : {}), sound })
       .then(({ staleTokens }) => {
         if (staleTokens.length > 0) {
           return admin.from('apns_tokens').delete().in('device_token', staleTokens)
         }
       })
-      .catch((err: Error) => console.error('[hub-push] apns failed:', err.message))
+      .catch((err: Error) => console.error('[hub-push] apns failed:', err.message)))
   }
 
   // FCM — native Android app subscribers. Same per-user grouping.
@@ -222,12 +229,14 @@ export async function sendHubPush(
 
   for (const [uid, tokens] of Object.entries(fcmByUser)) {
     const badge = badgeMap[uid]
-    sendFcmPush(tokens, { ...payload, ...(typeof badge === 'number' ? { badge } : {}) })
+    nativeSends.push(sendFcmPush(tokens, { ...payload, ...(typeof badge === 'number' ? { badge } : {}) })
       .then(({ staleTokens }) => {
         if (staleTokens.length > 0) {
           return admin.from('fcm_tokens').delete().in('device_token', staleTokens)
         }
       })
-      .catch((err: Error) => console.error('[hub-push] fcm failed:', err.message))
+      .catch((err: Error) => console.error('[hub-push] fcm failed:', err.message)))
   }
+
+  if (waitForDelivery) await Promise.allSettled(nativeSends)
 }
