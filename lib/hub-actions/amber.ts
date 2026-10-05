@@ -17,8 +17,9 @@
 //     IS the audit log, and the per-action approval stats are counted from it.
 //
 // An action joins the list only after checking how it behaves when the actor is
-// the bot user (no profile; her own posts are limited to public rooms and shared
-// boards). Anything that reaches a customer can never be set to automatic.
+// the bot user (no profile; her own posts are limited to public rooms; her tasks
+// to shared boards and private boards she is a member of). Anything that reaches
+// a customer can never be set to automatic.
 // Amber 90% PRD: https://claude.ai/code/artifact/486f8088-2681-4f9a-b3f7-4bff2a4be15d
 
 import { getHubBotUserId } from '@/lib/guardian-post'
@@ -211,15 +212,14 @@ export const AMBER_WRITE_PREVIEWS: Record<
     const board = str(args, 'board_name')
     if (!content || !board) return { ok: false, message: 'A task needs a board_name and its content.' }
     if (content.length > 1000) return { ok: false, message: 'Keep the task text under about 1000 characters.' }
-    const { data } = await ctx.admin
-      .from('boards')
-      .select('name, is_private, is_personal')
-      .eq('company_id', ctx.actor.companyId)
-      .ilike('name', board.replace(/[%_]/g, ''))
-    const hit = ((data || []) as Array<{ name: string | null; is_private: boolean | null; is_personal: boolean | null }>).filter(
-      (b) => !b.is_private && !b.is_personal && (b.name || '').trim().toLowerCase() === board.toLowerCase(),
-    )
-    if (hit.length !== 1) return { ok: false, message: `There is no shared board named exactly "${board}". Use the board's full name.` }
+    const boards = await amberTaskBoards(ctx)
+    const hit = boards.filter((b) => b.toLowerCase() === board.toLowerCase())
+    if (hit.length !== 1) {
+      return {
+        ok: false,
+        message: `There is no board named exactly "${board}" that I can add to. Boards I can use: ${boards.join(', ') || 'none'}.`,
+      }
+    }
     const assignee = str(args, 'assignee_name')
     let assigneeLabel = ''
     if (assignee) {
@@ -230,7 +230,7 @@ export const AMBER_WRITE_PREVIEWS: Record<
     return {
       ok: true,
       preview: lines(
-        `  Board: ${(hit[0].name || board).trim()}`,
+        `  Board: ${hit[0]}`,
         `  Task: "${content}"`,
         assigneeLabel ? `  Assigned to: ${assigneeLabel}` : '  Unassigned',
         str(args, 'due_date') ? `  Due: ${str(args, 'due_date')}` : '',
@@ -253,6 +253,37 @@ export const AMBER_WRITE_PREVIEWS: Record<
     const c = data as { name: string | null; phone: string | null }
     return { ok: true, preview: lines(`  Contact: ${c.name?.trim() || c.phone || 'Unknown'}`, `  Note: "${note}"`) }
   },
+}
+
+/**
+ * Boards Amber may add tasks to on her own account: shared boards, plus private
+ * boards she has been made a member of — adding her to a board IS the admin's
+ * permission (Heroes: the private "Amber Tasks" board, Ben, Oct 5 2026: don't
+ * clutter Office Tasks). Personal boards never. Matches what create_task's own
+ * visibleBoards() lets the bot see at run time.
+ */
+export async function amberTaskBoards(ctx: ActionContext): Promise<string[]> {
+  const [{ data: boards }, { data: memberships }] = await Promise.all([
+    ctx.admin.from('boards').select('id, name, is_private, is_personal').eq('company_id', ctx.actor.companyId),
+    ctx.admin.from('board_members').select('board_id').eq('user_id', ctx.actor.userId),
+  ])
+  const memberOf = new Set(((memberships || []) as Array<{ board_id: string }>).map((m) => m.board_id))
+  return ((boards || []) as Array<{ id: string; name: string | null; is_private: boolean | null; is_personal: boolean | null }>)
+    .filter((b) => !b.is_personal && (!b.is_private || memberOf.has(b.id)))
+    .map((b) => (b.name || '').trim())
+    .filter(Boolean)
+    .sort()
+}
+
+/** Public rooms Amber may post in on her own account. */
+export async function amberPostRooms(ctx: ActionContext): Promise<string[]> {
+  const { data } = await ctx.admin
+    .from('rooms')
+    .select('name')
+    .eq('company_id', ctx.actor.companyId)
+    .is('archived_at', null)
+    .eq('is_private', false)
+  return ((data || []) as Array<{ name: string | null }>).map((r) => (r.name || '').trim()).filter(Boolean).sort()
 }
 
 /** The one teammate (not a bot) whose Hub name is exactly this, or null. The
