@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { denyWithoutGrant } from '@/lib/company-auth'
 
 // PUT /api/contacts/:id/tags — replaces the entire set of tag assignments
 // for this contact with the provided list. Open to any Hub user with access
@@ -14,6 +15,9 @@ export async function PUT(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Same gate as the Contacts pages (Oct 5 2026 audit: was signed-in + company only).
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_hub')
+  if (denied) return denied
 
   const { data: profile } = await supabase
     .from('user_profiles')

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/phone'
 import { ilikeSearchPattern } from '@/lib/search'
+import { denyWithoutGrant } from '@/lib/company-auth'
 
 // GET /api/contacts
 //   ?search=...            (matches name / phone / email)
@@ -24,6 +25,9 @@ export async function GET(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Same gate as the Contacts pages (Oct 5 2026 audit: was signed-in + company only).
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_hub')
+  if (denied) return denied
 
   const url = new URL(request.url)
   const search = (url.searchParams.get('search') || '').trim()
@@ -132,6 +136,9 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Same gate as the Contacts pages (Oct 5 2026 audit: was signed-in + company only).
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_hub')
+  if (denied) return denied
 
   const { data: profile } = await supabase
     .from('user_profiles')

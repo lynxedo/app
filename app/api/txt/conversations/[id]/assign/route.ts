@@ -49,11 +49,10 @@ export async function POST(
     profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
   const isTxtUser = isManager || profile?.can_access_txt === true
-  const isCurrentOwner = conv.assigned_to === user.id
-  const isSelfClaim = assignTo === user.id && conv.status === 'unassigned'
-
-  // Any Txt2 user can (re)assign across the shared inbox.
-  if (!isTxtUser && !isCurrentOwner && !isSelfClaim) {
+  // Any Txt2 user can (re)assign across the shared inbox. Oct 5 2026 audit: a
+  // self-claim or a current owner without the Txt grant used to pass too — a
+  // non-Txt user could claim any Queue thread and then read + text it.
+  if (!isTxtUser) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
