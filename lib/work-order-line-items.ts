@@ -139,10 +139,13 @@ async function readRows(admin: Admin, stopId: string): Promise<WorkOrderLineItem
  * First read: one `jobber` row per item on the mirrored Jobber visit (or, for a
  * stop without a mirrored visit, the jsonb snapshot the route was sent with).
  * Later reads follow the office's own Jobber edits — an item added in Jobber
- * appears, a price changed in Jobber updates — but only on rows the tech hasn't
- * touched (sync_state 'synced') and only when the mirror is newer than our last
- * push, so a lagging mirror never undoes the tech's work. An item the office
- * removed in Jobber disappears; an empty mirror never deletes anything.
+ * appears, a price changed in Jobber updates — but ONLY on Jobber-origin rows
+ * nobody in Hub has touched (never edited, never pushed by Hub). Once a tech
+ * changes or adds an item, Hub is the authority for it: the mirror is re-read
+ * from Jobber moments after our own push and can come back with the value from
+ * BEFORE the push (seen Oct 5 2026: a tech's $25 was pushed, then a stale $125
+ * mirror read overwrote the Hub row). An item the office removed in Jobber
+ * disappears (same untouched-only rule); an empty mirror never deletes anything.
  */
 export async function loadStopLineItems(admin: Admin, companyId: string, stop: LineItemStop): Promise<WorkOrderLineItem[]> {
   const rows = await readRows(admin, stop.id)
@@ -189,7 +192,7 @@ export async function loadStopLineItems(admin: Admin, companyId: string, stop: L
     const row = byId.get(m.external_id)
     if (row) {
       const lastOurs = row.synced_at ?? row.updated_at
-      if (row.sync_state !== 'synced' || !mirrorAt || mirrorAt <= lastOurs) continue
+      if (!untouched(row) || !mirrorAt || mirrorAt <= lastOurs) continue
       if (row.name !== m.name || !sameMoney(row.quantity, m.quantity) || !sameMoney(row.unit_price, m.unit_price)) {
         await admin.from('work_order_line_items').update({
           name: m.name, description: m.description, quantity: m.quantity, unit_price: m.unit_price,
@@ -223,7 +226,7 @@ export async function loadStopLineItems(admin: Admin, companyId: string, stop: L
   // Removed in Jobber by the office: only untouched Jobber-origin rows, and only
   // when the mirror is newer than the row (a fresh push may not be mirrored yet).
   for (const r of rows) {
-    if (r.source !== 'jobber' || r.visit_only || r.sync_state !== 'synced' || !r.jobber_line_item_id) continue
+    if (!untouched(r) || !r.jobber_line_item_id) continue
     if (mirrorIds.has(r.jobber_line_item_id)) continue
     if (!mirrorAt || mirrorAt <= (r.synced_at ?? r.updated_at)) continue
     await admin.from('work_order_line_items').update({ deleted_at: nowIso, updated_at: nowIso }).eq('id', r.id)
@@ -231,6 +234,11 @@ export async function loadStopLineItems(admin: Admin, companyId: string, stop: L
   }
 
   return changed ? readRows(admin, stop.id) : rows
+}
+
+/** A Jobber-origin row Hub never changed — the only kind the mirror may update or remove. */
+function untouched(r: WorkOrderLineItem): boolean {
+  return r.source === 'jobber' && !r.visit_only && !r.edited_at && !r.replaced_jobber_line_item_id && r.sync_state === 'synced'
 }
 
 /** Line items in the shape the pesticide matcher and route snapshot use. */

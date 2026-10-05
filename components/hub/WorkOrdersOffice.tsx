@@ -69,7 +69,7 @@ export default function WorkOrdersOffice() {
         <button type="button" onClick={() => void load()} className="text-sm text-gray-400 hover:text-white">↻</button>
       </div>
 
-      <div className="flex gap-1.5 mb-3 overflow-x-auto">
+      <div className="flex flex-wrap gap-1.5 mb-3">
         {tabs.map(t => (
           <button key={t.key} type="button" onClick={() => setTab(t.key)}
             className={`shrink-0 px-3 py-1.5 rounded-full text-sm ${tab === t.key ? 'bg-indigo-600 text-white' : 'bg-white/10 text-gray-300'}`}>
