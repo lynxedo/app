@@ -261,46 +261,62 @@ export async function isAgentDndNow(
   }
 }
 
+// Why each of these users can't ring right now — the same checks the ring-group
+// filter applies (locked/deactivated, master DND + schedule, Hub presence DND,
+// dialer DND + schedule). Users who CAN ring are absent from the result. Throws
+// on a DB error; callers decide whether to fail open (filterNonDndUserIds) or
+// just show nothing (the Admin → AI → Receptionist transfer list).
+export async function dndReasonsForUserIds(
+  admin: ReturnType<typeof createAdminClient>,
+  userIds: string[],
+): Promise<Record<string, string>> {
+  if (userIds.length === 0) return {}
+  const [{ data: profileRows, error: profileErr }, { data: hubStatusRows, error: hubErr }] = await Promise.all([
+    admin
+      .from('user_profiles')
+      .select('id, master_dnd_enabled, master_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule, locked_at, deactivated_at')
+      .in('id', userIds),
+    admin
+      .from('hub_users')
+      .select('id, status, status_until')
+      .in('id', userIds),
+  ])
+  if (profileErr || hubErr) throw profileErr || hubErr
+  const hubDndById = new Map<string, boolean>()
+  for (const u of hubStatusRows ?? []) {
+    const active = u.status === 'dnd' && (!u.status_until || new Date(u.status_until) > new Date())
+    hubDndById.set(u.id, active)
+  }
+  const reasons: Record<string, string> = {}
+  for (const p of profileRows ?? []) {
+    const masterSched = (p.master_dnd_schedule || null) as DndSchedule | null
+    const dialerSched = (p.dialer_dnd_schedule || null) as DndSchedule | null
+    const reason =
+      p.deactivated_at ? 'Deactivated'
+      : p.locked_at ? 'Account locked'
+      : p.dialer_dnd_enabled ? 'Dialer Do Not Disturb is on'
+      : isInDndSchedule(dialerSched) ? 'Inside their Dialer Do Not Disturb hours'
+      : p.master_dnd_enabled ? 'Do Not Disturb is on'
+      : isInDndSchedule(masterSched) ? 'Inside their Do Not Disturb hours'
+      : hubDndById.get(p.id) ? 'Hub status is Do Not Disturb'
+      : null
+    if (reason) reasons[p.id] = reason
+  }
+  return reasons
+}
+
 // Batch variant of isAgentDndNow for the AI-receptionist transfer list: given a
-// set of user ids, return only those who may ring right now (drops locked/
-// deactivated, master DND + schedule, Hub presence DND, dialer DND + schedule —
-// the same checks the ring-group filter applies). Fails open (returns all ids)
-// on a DB error so a query hiccup never strands a caller mid-transfer.
+// set of user ids, return only those who may ring right now (see
+// dndReasonsForUserIds for the checks). Fails open (returns all ids) on a DB
+// error so a query hiccup never strands a caller mid-transfer.
 export async function filterNonDndUserIds(
   admin: ReturnType<typeof createAdminClient>,
   userIds: string[],
 ): Promise<string[]> {
   if (userIds.length === 0) return []
   try {
-    const [{ data: profileRows }, { data: hubStatusRows }] = await Promise.all([
-      admin
-        .from('user_profiles')
-        .select('id, master_dnd_enabled, master_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule, locked_at, deactivated_at')
-        .in('id', userIds),
-      admin
-        .from('hub_users')
-        .select('id, status, status_until')
-        .in('id', userIds),
-    ])
-    const hubDndById = new Map<string, boolean>()
-    for (const u of hubStatusRows ?? []) {
-      const active = u.status === 'dnd' && (!u.status_until || new Date(u.status_until) > new Date())
-      hubDndById.set(u.id, active)
-    }
-    const dnd = new Set<string>()
-    for (const p of profileRows ?? []) {
-      const masterSched = (p.master_dnd_schedule || null) as DndSchedule | null
-      const dialerSched = (p.dialer_dnd_schedule || null) as DndSchedule | null
-      if (
-        Boolean(p.locked_at) || Boolean(p.deactivated_at) ||
-        Boolean(p.master_dnd_enabled) || isInDndSchedule(masterSched) ||
-        Boolean(hubDndById.get(p.id)) ||
-        Boolean(p.dialer_dnd_enabled) || isInDndSchedule(dialerSched)
-      ) {
-        dnd.add(p.id)
-      }
-    }
-    return userIds.filter((id) => !dnd.has(id))
+    const reasons = await dndReasonsForUserIds(admin, userIds)
+    return userIds.filter((id) => !reasons[id])
   } catch {
     console.warn('[filterNonDndUserIds] DND check failed — allowing all recipients')
     return userIds

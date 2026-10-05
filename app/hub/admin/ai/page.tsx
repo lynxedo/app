@@ -10,6 +10,7 @@ import {
   resolveVoiceReceptionistSettings,
   type VoiceReceptionistSettingsRow,
 } from '@/lib/voice-receptionist-settings'
+import { dndReasonsForUserIds } from '@/lib/dialer-conference-connect'
 import AiAdminShell from './AiAdminShell'
 
 export const metadata = { title: 'AI Admin' }
@@ -72,13 +73,21 @@ export default async function AdminAiPage() {
     getAssistantPersona(admin, companyId),
   ])
 
-  const people = (peopleResult.data ?? [])
-    .filter((u: { is_bot: boolean | null }) => !u.is_bot)
-    .map((u: { id: string; display_name: string | null; claude_allowed: boolean | null }) => ({
-      id: u.id,
-      display_name: u.display_name ?? '(no name)',
-      claude_allowed: u.claude_allowed === true,
-    }))
+  const humans = (peopleResult.data ?? []).filter((u: { is_bot: boolean | null }) => !u.is_bot)
+  // Who can't ring right now, and why — shown beside the receptionist's transfer
+  // list, because a Dialer DND left on silently takes a person out of every Amber
+  // transfer (Oct 1 2026: three "get me a person" calls rang nobody). Display only;
+  // a failed check shows no badges rather than breaking the page.
+  const dndReasons = await dndReasonsForUserIds(
+    admin,
+    humans.map((u: { id: string }) => u.id),
+  ).catch(() => ({} as Record<string, string>))
+  const people = humans.map((u: { id: string; display_name: string | null; claude_allowed: boolean | null }) => ({
+    id: u.id,
+    display_name: u.display_name ?? '(no name)',
+    claude_allowed: u.claude_allowed === true,
+    dnd_reason: dndReasons[u.id] ?? null,
+  }))
 
   const rooms = (roomsResult.data ?? []) as Array<{
     id: string
