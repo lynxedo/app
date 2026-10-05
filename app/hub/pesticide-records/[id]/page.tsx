@@ -44,6 +44,22 @@ type RecordRow = {
   stop_id: string | null
   created_at: string
   updated_at: string
+  /** Work Orders Phase 3 — the tech's confirmations from the after-service report (append-only). */
+  tech_confirmation: TechConfirmation[] | null
+}
+
+type TechConfirmation = {
+  report_id: string
+  confirmed_by: string | null
+  confirmed_at: string
+  products: Array<{
+    chemical_name: string
+    applied: boolean
+    amount_applied: string | null
+    amount_as_mapped?: boolean
+    note: string | null
+    added_by_tech: boolean
+  }>
 }
 
 function formatDateTime(iso: string | null | undefined): string {
@@ -77,7 +93,7 @@ export default async function PesticideRecordDetail({
 
   const { data: record } = await supabase
     .from('pesticide_records')
-    .select('id, application_timestamp, location_address, location_lat, location_lng, customer_name, technician_name, jobber_visit_id, jobber_client_id, chemicals_applied, weather, line_items, daily_log_entry_id, stop_id, created_at, updated_at')
+    .select('id, application_timestamp, location_address, location_lat, location_lng, customer_name, technician_name, jobber_visit_id, jobber_client_id, chemicals_applied, weather, line_items, daily_log_entry_id, stop_id, created_at, updated_at, tech_confirmation')
     .eq('id', id)
     .eq('company_id', profile.company_id)
     .maybeSingle<RecordRow>()
@@ -86,6 +102,8 @@ export default async function PesticideRecordDetail({
 
   const chemicals = Array.isArray(record.chemicals_applied) ? record.chemicals_applied : []
   const lineItems = Array.isArray(record.line_items) ? record.line_items : []
+  const confirmations = Array.isArray(record.tech_confirmation) ? record.tech_confirmation : []
+  const latestConfirmation = confirmations[confirmations.length - 1] ?? null
   const w = record.weather
 
   return (
@@ -161,6 +179,30 @@ export default async function PesticideRecordDetail({
               </div>
             )}
           </section>
+
+          {/* Technician confirmation — from the after-service report. Shown beside the
+              mapped products above, which it never changes. */}
+          {latestConfirmation && (
+            <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-2 text-sm">
+              <h2 className="font-semibold text-white">Technician confirmation</h2>
+              <div className="text-xs text-gray-500">
+                {latestConfirmation.confirmed_by ?? 'Technician'} · {formatDateTime(latestConfirmation.confirmed_at)}
+                {confirmations.length > 1 && ` · changed ${confirmations.length - 1} time${confirmations.length === 2 ? '' : 's'} after the first confirmation`}
+              </div>
+              <div className="space-y-1">
+                {latestConfirmation.products.map((p, i) => (
+                  <div key={i} className="flex flex-wrap items-baseline gap-x-2">
+                    <span className={p.applied ? 'text-gray-200' : 'text-gray-500 line-through'}>{p.chemical_name}</span>
+                    <span className="text-xs text-gray-400">
+                      {p.applied ? `Applied${p.amount_applied ? ` · ${p.amount_applied}${p.amount_as_mapped ? ' (as mapped)' : ''}` : ''}` : 'Not applied'}
+                      {p.added_by_tech ? ' · added by tech' : ''}
+                      {p.note ? ` · ${p.note}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Weather snapshot */}
           {w && (

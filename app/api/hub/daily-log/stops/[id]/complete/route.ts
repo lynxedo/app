@@ -292,18 +292,17 @@ export async function POST(
 
   // Work Orders Phase 3: a saved after-service report carries the tech's
   // confirmation of what was actually applied — put it on the record now that
-  // the record exists (the report's save does the same when it comes second).
-  if (pesticideRecordId) {
-    const recordId = pesticideRecordId
-    after(async () => {
-      try {
-        const reportId = await finalReportIdForStop(admin, entry.company_id, stop)
-        if (reportId) await syncConfirmationToPesticideRecord(admin, entry.company_id, reportId)
-      } catch (e) {
-        console.error(`[after-service] confirmation → pesticide record ${recordId} failed:`, e)
-      }
-    })
-  }
+  // the stop is complete (the report's save does the same when it comes second).
+  // With no mapped products there is no record yet; the sync creates one if the
+  // tech recorded applying something.
+  after(async () => {
+    try {
+      const reportId = await finalReportIdForStop(admin, entry.company_id, stop)
+      if (reportId) await syncConfirmationToPesticideRecord(admin, entry.company_id, reportId)
+    } catch (e) {
+      console.error(`[after-service] confirmation → pesticide record for stop ${stop.id} failed:`, e)
+    }
+  })
 
   // Detect if this was the last non-complete, non-skipped stop in the entry.
   let isLastStop = false

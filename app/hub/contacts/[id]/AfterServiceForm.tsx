@@ -28,6 +28,8 @@ export type FullReport = {
   jobberVisitId: string | null
   pesticideRecordId: string | null
   workOrder: WorkOrderRef | null
+  /** The customer's link, while it is live (set once the report has been sent). */
+  shareUrl?: string | null
 }
 
 export function fmtReportDate(d: string | null): string {
@@ -98,8 +100,11 @@ export default function AfterServiceForm({ contactId, report, onClose, onSaved }
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
-  const dataRef = useRef(data); dataRef.current = data
-  const photosRef = useRef(photos); photosRef.current = photos
+  // The autosave timer and Save read the latest form through these.
+  const dataRef = useRef(data)
+  const photosRef = useRef(photos)
+  useEffect(() => { dataRef.current = data }, [data])
+  useEffect(() => { photosRef.current = photos }, [photos])
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Autosave ─────────────────────────────────────────────────────────────
@@ -232,6 +237,18 @@ export default function AfterServiceForm({ contactId, report, onClose, onSaved }
               <li key={i} className="text-sm text-white/85">• {s.name}{s.qty && s.qty !== 1 ? <span className="text-white/45"> × {s.qty}</span> : null}</li>
             ))}
           </ul>
+        )}
+        {(data.treatments?.length ?? 0) > 0 && (
+          <div className="mt-3 rounded-md border border-white/10 bg-white/[0.03] p-3">
+            <div className="text-[11px] uppercase tracking-wide text-white/40 mb-1">What the customer will read</div>
+            {data.treatments!.map((t, i) => (
+              <div key={i} className="mt-1.5">
+                <div className="text-sm text-white/85">{t.display}{t.round ? <span className="text-white/45"> · {t.round}</span> : null}</div>
+                {t.description && <div className="text-[12px] text-white/55">{t.description}</div>}
+              </div>
+            ))}
+            <div className="text-[11px] text-white/30 mt-2">The office writes this text (Work Orders office → Report text). Care instructions are added too.</div>
+          </div>
         )}
         {w && (typeof w.temperature_f === 'number' || w.conditions) && (
           <div className="text-[12px] text-white/40 mt-2">
