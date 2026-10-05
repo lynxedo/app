@@ -212,7 +212,7 @@ export default function AmberAccountPanel() {
             <p className="text-xs text-white/40">
               {postMode === 'off'
                 ? 'Turn on “Post a message in the Hub” to try it: the test is Amber asking to DM you.'
-                : 'Amber asks to DM you a short test message. Approve it on the Amber screen to check the whole loop.'}
+                : 'Amber asks to DM you a short test message. Approve it under Amber in the Hub sidebar (below My Tasks) to check the whole loop.'}
             </p>
             {testMsg && <p className="text-xs text-white/60">{testMsg}</p>}
           </div>

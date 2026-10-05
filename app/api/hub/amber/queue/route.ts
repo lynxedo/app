@@ -12,11 +12,22 @@ import { AMBER_QUEUE_COLUMNS, expireStaleAmberItems, type AmberQueueRow } from '
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await requireAdminArea('ai')
   if (!auth.ok || !auth.company_id || !auth.user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const admin = createAdminClient()
   const companyId = auth.company_id
+
+  // ?count=1 — just how many are waiting, for the Hub sidebar's Amber row.
+  if (new URL(request.url).searchParams.get('count')) {
+    const { count } = await admin
+      .from('amber_queue')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('status', 'pending')
+      .gt('expires_at', new Date().toISOString())
+    return NextResponse.json({ count: count ?? 0 })
+  }
 
   await expireStaleAmberItems(admin, companyId)
 

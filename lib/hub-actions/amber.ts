@@ -306,7 +306,10 @@ export async function queueAmberAction(
   const approvers = await amberNotifyIds(ctx.admin, ctx.actor.companyId).catch(() => [] as string[])
   if (approvers.length && data) {
     const label = amberActingAction(action)?.label ?? action
-    void sendHubPush(approvers, {
+    // AWAITED, not fire-and-forget: a detached promise is dropped once the route
+    // returns its response (memory lesson_nextjs_after_for_post_response_work) —
+    // the first staging test queued fine and nobody was notified.
+    await sendHubPush(approvers, {
       title: `${ctx.actor.displayName} needs an OK`,
       body: clip(reason || label, 140),
       url: '/hub/amber',
