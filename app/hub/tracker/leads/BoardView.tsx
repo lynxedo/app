@@ -17,7 +17,7 @@ function isClosed(g: { system_role?: string | null }): boolean {
 }
 
 export default function BoardView({
-  groups, stages, lightMode, onMoveStage, onEdit, onOpenNotes,
+  groups, stages, lightMode, onMoveStage, onEdit, onOpenNotes, canQuote,
 }: {
   groups: StageGroup[]
   stages: Stage[]
@@ -25,6 +25,7 @@ export default function BoardView({
   onMoveStage: (id: string, stageKey: string) => void
   onEdit: (id: string) => void
   onOpenNotes: (id: string) => void
+  canQuote: boolean
 }) {
   const [showClosed, setShowClosed] = useState(false)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
@@ -95,7 +96,7 @@ export default function BoardView({
                     onDragStart={e => { e.dataTransfer.setData('text/x-tracker-lead', lead.id); e.dataTransfer.effectAllowed = 'move' }}
                     className="cursor-grab active:cursor-grabbing"
                   >
-                    <LeadCard lead={lead} stages={stages} lightMode={lightMode} onEdit={onEdit} onOpenNotes={onOpenNotes} />
+                    <LeadCard lead={lead} stages={stages} lightMode={lightMode} onEdit={onEdit} onOpenNotes={onOpenNotes} canQuote={canQuote} />
                   </div>
                 ))}
                 {group.leads.length === 0 && (

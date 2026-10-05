@@ -209,6 +209,7 @@ export default function DailyLogV2View({
   canAccessIrrigation = false,
   canCall = false,
   canText = false,
+  canQuote = false,
 }: {
   currentUserId: string
   isAdmin: boolean
@@ -218,6 +219,8 @@ export default function DailyLogV2View({
   canCall?: boolean
   /** The stop's 💬 Text button — Txt access (can_access_txt or admin). */
   canText?: boolean
+  /** The stop's 💲 Quote button — can build quotes (Quotes grant, Quotes admin or admin). */
+  canQuote?: boolean
 }) {
   const [date, setDate] = useState<string>(todayStr())
   // Ben, Oct 2 2026: a tech picker replaces All / My Day. null = every tech;
@@ -705,6 +708,7 @@ export default function DailyLogV2View({
           canAccessIrrigation={canAccessIrrigation}
           canCall={canCall}
           canText={canText}
+          canQuote={canQuote}
           skipReasons={skipReasons}
           onClose={closeStop}
           onArrive={handleArrive}
@@ -1510,6 +1514,7 @@ function StopSheet({
   canAccessIrrigation,
   canCall,
   canText,
+  canQuote,
   skipReasons,
   onClose,
   onArrive,
@@ -1531,6 +1536,7 @@ function StopSheet({
   canAccessIrrigation: boolean
   canCall: boolean
   canText: boolean
+  canQuote: boolean
   skipReasons: SkipReason[]
   onClose: () => void
   onArrive: (stopId: string, undo: boolean) => void | Promise<void>
@@ -1808,6 +1814,16 @@ function StopSheet({
                 disabled={!reportMode}
                 tone="emerald"
                 title={reportMode ? 'After-service report for this visit' : 'No customer file is linked to this stop, so the report can’t be started from here'}
+              />
+            )}
+            {canQuote && (
+              <ActionIcon
+                icon="💲"
+                label="Quote"
+                href={stop.contact_id ? `/hub/quotes/new?stop=${encodeURIComponent(stop.id)}` : null}
+                disabled={!stop.contact_id}
+                tone="indigo"
+                title={stop.contact_id ? 'Start a quote for this customer and property' : 'No customer file is linked to this stop, so a quote can’t be started from here'}
               />
             )}
             <ActionIcon icon="🗺️" label="Navigate" href={navHref} external disabled={!navHref} tone="sky" />

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { quoteAccess } from '@/lib/quote-access'
 import { redirect } from 'next/navigation'
 import fs from 'fs'
 import path from 'path'
@@ -233,6 +234,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     return general ? `/hub/${general.id}` : '/hub/home'
   })()
   const canAccessPricer = isAdmin || (profileResult.data?.can_access_pricer ?? false)
+  const canAccessQuotes = quoteAccess(profileResult.data).canUse
   const rawCanAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
   const rawCanAccessReports = profileResult.data?.can_access_reports ?? false
   const rawCanAccessCoaching = profileResult.data?.can_access_coaching ?? false
@@ -341,6 +343,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     canAccessFiles: !!canAccessFiles,
     canAccessPesticideRecords: !!canAccessPesticideRecords,
     canAccessPricer: !!canAccessPricer,
+    canAccessQuotes,
     canAccessHub: !!canAccessHub,
   }
   const resolvedLayout = resolveLayout(
@@ -460,6 +463,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessFiles={canAccessFiles}
         canAccessPesticideRecords={canAccessPesticideRecords && moduleOn('pricer')}
         canAccessPricer={canAccessPricer && moduleOn('pricer')}
+        canAccessQuotes={canAccessQuotes}
         canAccessHub={canAccessHub}
         scoreboardSlugs={scoreboardSlugs}
         reportSlugs={reportSlugs}

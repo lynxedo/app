@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { quoteAccess } from '@/lib/quote-access'
 import { createClient } from '@/lib/supabase/server'
 import { fetchLeadsWithNotes } from '@/lib/tracker/leads'
 import TrackerPage from '../TrackerPage'
@@ -11,7 +12,7 @@ export default async function HubLeadTrackerRoute() {
   const [profileRes, settingsRes, stagesRes, columnsRes] = await Promise.all([
     supabase
       .from('user_profiles')
-      .select('role, tracker_column_layout, can_access_dialer, can_access_txt')
+      .select('role, tracker_column_layout, can_access_dialer, can_access_txt, can_access_quotes, can_admin_quotes')
       .eq('id', user.id)
       .single(),
     supabase.from('tracker_settings').select('*').single(),
@@ -49,6 +50,7 @@ export default async function HubLeadTrackerRoute() {
       // they do elsewhere.
       canCall={currentUser.isAdmin || profileRes.data?.can_access_dialer === true}
       canText={currentUser.isAdmin || profileRes.data?.can_access_txt === true}
+      canQuote={quoteAccess(profileRes.data).canUse}
     />
   )
 }

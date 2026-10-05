@@ -79,6 +79,7 @@ export default function CustomerDetailView({
   currentYear,
   canAccessDialer,
   canSeeActivity,
+  canQuote = false,
 }: {
   contact: Contact
   allTags: Tag[]
@@ -88,6 +89,8 @@ export default function CustomerDetailView({
   currentYear: number
   canAccessDialer: boolean
   canSeeActivity: boolean
+  /** Can build quotes (Quotes grant) — shows "New quote". */
+  canQuote?: boolean
 }) {
   const router = useRouter()
   const [contact, setContact] = useState<Contact>(initialContact)
@@ -165,6 +168,10 @@ export default function CustomerDetailView({
             )}
             {contact.email && (
               <a href={`mailto:${contact.email}`} className="px-2.5 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium">✉️ Email</a>
+            )}
+            {canQuote && (
+              <button type="button" onClick={() => router.push(`/hub/quotes/new?contact=${contact.id}`)}
+                className="px-2.5 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-xs font-medium">💲 New quote</button>
             )}
             {account?.jobberWebUri && (
               <a href={account.jobberWebUri} target="_blank" rel="noopener noreferrer" className="px-2.5 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium">Jobber ↗</a>

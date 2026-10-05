@@ -1,4 +1,5 @@
 import { redirect, notFound } from 'next/navigation'
+import { quoteAccess } from '@/lib/quote-access'
 import { createClient } from '@/lib/supabase/server'
 import CustomerDetailView from './CustomerDetailView'
 import type {
@@ -176,7 +177,7 @@ export default async function CustomerDetailPage({
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('company_id, role, can_access_hub, can_access_dialer, can_access_txt, can_access_unified_inbox')
+    .select('company_id, role, can_access_hub, can_access_dialer, can_access_txt, can_access_unified_inbox, can_access_quotes, can_admin_quotes')
     .eq('id', user.id)
     .single()
 
@@ -373,6 +374,7 @@ export default async function CustomerDetailPage({
       currentYear={currentYear}
       canAccessDialer={!!profile.can_access_dialer}
       canSeeActivity={canSeeActivity}
+      canQuote={quoteAccess(profile).canUse}
     />
   )
 }

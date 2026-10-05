@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import DailyLogV2View from '@/components/hub/DailyLogV2View'
 import { workOrderAccess } from '@/lib/work-order-access'
+import { quoteAccess } from '@/lib/quote-access'
 
 export const metadata = { title: 'Work Orders' }
 
@@ -12,7 +13,7 @@ export default async function DailyLogV2Page() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_daily_log, can_access_daily_log_v2, can_access_irrigation, can_access_dialer, can_access_txt')
+    .select('role, can_admin_daily_log, can_access_daily_log_v2, can_access_irrigation, can_access_dialer, can_access_txt, can_access_quotes, can_admin_quotes')
     .eq('id', user.id)
     .single()
 
@@ -37,6 +38,7 @@ export default async function DailyLogV2Page() {
       canAccessIrrigation={canAccessIrrigation}
       canCall={canCall}
       canText={canText}
+      canQuote={quoteAccess(profile).canUse}
     />
   )
 }
