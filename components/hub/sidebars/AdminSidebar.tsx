@@ -72,6 +72,7 @@ export default function AdminSidebar({
     products: boolean
     forms: boolean
     integrations?: boolean
+    quotes?: boolean
   }
   isSuperAdmin: boolean
   isPlatformAdmin?: boolean
@@ -152,6 +153,19 @@ export default function AdminSidebar({
       )}
       {show(grants.forms) && (
         <AdminRow href="/hub/admin/forms" iconId="forms" label="Form Builder" onClose={onClose} />
+      )}
+      {show(!!grants.quotes) && (
+        <AdminRow
+          href="/hub/admin/quotes"
+          icon={
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 3h7l5 5v13H7V3z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M14 3v5h5M10 13h6M10 17h4" />
+            </svg>
+          }
+          label="Quotes"
+          onClose={onClose}
+        />
       )}
       {show(!!grants.integrations) && (
         <AdminRow

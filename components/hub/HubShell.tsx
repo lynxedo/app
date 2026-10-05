@@ -155,6 +155,7 @@ export default function HubShell({
     products?: boolean
     forms?: boolean
     integrations?: boolean
+    quotes?: boolean
   }
   initialActiveAnnouncements?: Announcement[]
   initialTextSize?: string
@@ -912,13 +913,14 @@ export default function HubShell({
     products: !!rawGrants.products,
     forms: !!(rawGrants.forms ?? isAdmin),
     integrations: !!(rawGrants.integrations ?? isAdmin),
+    quotes: !!(rawGrants.quotes ?? isAdmin),
   }
   const isSuperAdmin = !!isAdmin
   const showAdminRail =
     isSuperAdmin || grants.people || grants.hub || grants.guardian || grants.ai || grants.txt ||
     grants.announcements || grants.file_tags || grants.routing ||
     grants.timesheet || grants.fleet || grants.daily_log ||
-    grants.dialer || grants.contacts || grants.products || grants.forms || grants.integrations
+    grants.dialer || grants.contacts || grants.products || grants.forms || grants.integrations || grants.quotes
 
   const permissions: RailPermissions = {
     isAdmin: !!isAdmin,
