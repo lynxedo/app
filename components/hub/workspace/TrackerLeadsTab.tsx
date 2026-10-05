@@ -19,6 +19,7 @@ export default function TrackerLeadsTab({
   currentUser,
   canCall,
   canText,
+  canQuote,
 }: {
   currentUser: CurrentUser
   // Passed down rather than re-derived: HubShell already holds these, and a twin
@@ -26,6 +27,7 @@ export default function TrackerLeadsTab({
   // screen — which is precisely how a twin ends up silently missing a feature.
   canCall: boolean
   canText: boolean
+  canQuote: boolean
 }) {
   const [ready, setReady] = useState(false)
   const [settings, setSettings] = useState<TrackerProps['settings']>(null)
@@ -60,6 +62,7 @@ export default function TrackerLeadsTab({
       initialColumnLayout={null}
       canCall={canCall}
       canText={canText}
+      canQuote={canQuote}
     />
   )
 }

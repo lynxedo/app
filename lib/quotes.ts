@@ -6,6 +6,8 @@
 // a quote expires 30 days after it is sent; add-ons are unticked until the
 // customer ticks them (Sep 30 2026).
 
+import type { PriceTier } from '@/lib/service-builder'
+
 export const QUOTE_EXPIRY_DAYS = 30
 
 export type QuoteStatus = 'draft' | 'sent' | 'viewed' | 'approved' | 'changes_requested' | 'expired' | 'archived'
@@ -17,7 +19,8 @@ export type QuoteItem = {
   name: string
   description?: string
   quantity: number
-  unit_price: number
+  /** null = not priced yet (a template line marked "priced on each quote"). */
+  unit_price: number | null
   /** An add-on: the customer may tick it. Unticked by default. */
   optional: boolean
   recommended?: boolean
@@ -144,4 +147,105 @@ export function cleanDeposit(type: unknown, value: unknown): { deposit_type: Dep
   if (!Number.isFinite(v) || v <= 0) return 'Enter the deposit amount'
   if (type === 'percent' && v > 100) return 'A percent deposit cannot be more than 100%'
   return { deposit_type: type, deposit_value: cents(v) }
+}
+
+/** Lines still waiting for a price — a quote can't be sent while any remain. */
+export function unpricedItems<T extends Pick<QuoteItem, 'unit_price'>>(items: T[]): T[] {
+  return items.filter(i => i.unit_price == null || !Number.isFinite(Number(i.unit_price)))
+}
+
+// --- Insert from Pricer -------------------------------------------------------
+
+export type PricerProgram = {
+  program_key: string
+  name: string
+  description: string | null
+  category: string
+  visits: number
+  base_fee: number
+  price_per_k: number
+  pricing_unit: 'sqft_k' | 'zones'
+  tiers: PriceTier[] | null
+  version_label: string | null
+}
+
+/**
+ * A quote line for a Pricer program at `input` (lawn size in K, or zones):
+ * quantity = the program's visits, unit price = the per-visit price, so the
+ * line total is the program's annual price — the same numbers the Pricer shows.
+ */
+export function pricerLine(p: PricerProgram, input: number, perVisit: number): Omit<QuoteItem, 'id' | 'optional'> & { pricer_ref: Record<string, unknown> } {
+  const visits = p.visits > 0 ? p.visits : 1
+  const unit = p.pricing_unit === 'zones' ? `${input} zone${input === 1 ? '' : 's'}` : `${input.toLocaleString('en-US', { maximumFractionDigits: 1 })}K sq ft`
+  return {
+    name: p.name,
+    description: [p.description?.trim(), `Priced for ${unit}${visits > 1 ? ` · ${visits} visits` : ''}.`].filter(Boolean).join('\n'),
+    quantity: visits,
+    unit_price: cents(perVisit),
+    jobber_product_id: null,
+    recommended: false,
+    pricer_ref: { program_key: p.program_key, version_label: p.version_label, input, pricing_unit: p.pricing_unit, per_visit: cents(perVisit), visits },
+  }
+}
+
+// --- What the customer sees (allowlist) ---------------------------------------
+// Built field by field — internal notes, Jobber ids, Pricer refs, who made it
+// and anything else on the quote row never reach the customer page or preview.
+
+export type CustomerQuoteItem = {
+  id: string
+  name: string
+  description: string
+  quantity: number
+  unit_price: number
+  total: number
+  optional: boolean
+  recommended: boolean
+}
+
+export type CustomerQuote = {
+  companyName: string
+  customerName: string
+  propertyAddress: string
+  title: string
+  intro: string
+  terms: string
+  items: CustomerQuoteItem[]
+  reviews: { author: string; rating: number; body: string; source: string; review_date: string | null }[]
+  deposit: { type: DepositType; value: number } | null
+  status: QuoteStatus
+  sentAt: string | null
+  expiresAt: string | null
+}
+
+export function toCustomerQuote(q: {
+  title: string; intro: string; terms: string; property_address: string | null
+  deposit_type: DepositType | null; deposit_value: number | null
+  status: QuoteStatus; sent_at: string | null; expires_at: string | null
+}, items: QuoteItem[], reviews: { id: string; author: string; rating: number; body: string; source: string; review_date: string | null }[], reviewIds: string[], names: { company: string; customer: string }): CustomerQuote {
+  const byId = new Map(reviews.map(r => [r.id, r]))
+  return {
+    companyName: names.company,
+    customerName: names.customer,
+    propertyAddress: q.property_address ?? '',
+    title: q.title,
+    intro: q.intro,
+    terms: q.terms,
+    items: items.map((i, n) => ({
+      id: i.id ?? `i${n}`,
+      name: i.name,
+      description: i.description ?? '',
+      quantity: Number(i.quantity),
+      unit_price: Number(i.unit_price ?? 0),
+      total: lineTotal(i),
+      optional: !!i.optional,
+      recommended: !!i.optional && !!i.recommended,
+    })),
+    reviews: reviewIds.map(id => byId.get(id)).filter((r): r is NonNullable<typeof r> => !!r).slice(0, MAX_QUOTE_REVIEWS)
+      .map(r => ({ author: r.author, rating: r.rating, body: r.body, source: r.source, review_date: r.review_date })),
+    deposit: q.deposit_type && q.deposit_value != null ? { type: q.deposit_type, value: Number(q.deposit_value) } : null,
+    status: effectiveStatus({ status: q.status, expires_at: q.expires_at }),
+    sentAt: q.sent_at,
+    expiresAt: q.expires_at,
+  }
 }

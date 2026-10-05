@@ -30,6 +30,7 @@ export type CatalogId =
   | 'reports'
   | 'scoreboards'
   | 'pricer'        // staff quoting tool, gated by canAccessPricer
+  | 'quotes'        // Quotes (Work Orders PRD Phase 4), gated by canAccessQuotes
   | 'mix-sheet'     // technician tank mix sheet (all users view, admins edit)
   | 'feedback'      // Report an Issue — bug reports + feature requests (all users)
   | 'people'        // admin-only (Admin → People)
@@ -83,6 +84,8 @@ export type RailPermissions = {
   canAccessPesticideRecords: boolean
   canAccessPricer: boolean
   canAccessHub: boolean
+  /** Quotes — build + send (can_access_quotes, or a Quotes admin, or admin). Optional = locked when absent. */
+  canAccessQuotes?: boolean
 }
 
 function I({ d, fill = false }: { d: string; fill?: boolean }) {
@@ -157,6 +160,8 @@ const PATHS = {
   fileTags: 'M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3zM6.5 6.5h.01',
   // Pricer (staff quoting tool) — a calculator with a result row + keypad dots.
   pricer: 'M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1zM8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01',
+  // Quotes — a document with a dollar sign.
+  quotes: 'M7 3h7l5 5v13H7V3zM14 3v5h5M13 11v8M15 12.5h-2.5a1.25 1.25 0 000 2.5h1a1.25 1.25 0 010 2.5H11',
   // Mix Sheet — a table/grid: outline + header row + first-column divider.
   mixSheet: 'M4 5h16v14H4zM4 9h16M9 9v10',
   // Report an Issue — a flag on a pole (raise a flag / report an issue).
@@ -192,6 +197,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'reports':       return <I d={PATHS.reports} />
     case 'scoreboards':   return <I d={PATHS.scoreboards} />
     case 'pricer':        return <I d={PATHS.pricer} />
+    case 'quotes':        return <I d={PATHS.quotes} />
     case 'mix-sheet':     return <I d={PATHS.mixSheet} />
     case 'feedback':      return <I d={PATHS.feedback} />
     case 'people':        return <I d={PATHS.people} />
@@ -268,6 +274,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'reports',   label: 'Reports',   href: '/hub/reports', prefixMatch: true, pickable: true, requires: 'canAccessReports' },
   { id: 'scoreboards', label: 'Scoreboards', href: '/hub/scoreboards', prefixMatch: true, pickable: true, requires: 'canAccessScoreboards', tabbable: true },
   { id: 'pricer',      label: 'Pricer',      href: '/hub/pricer', prefixMatch: true, pickable: true, requires: 'canAccessPricer', tabbable: true },
+  { id: 'quotes',      label: 'Quotes',      href: '/hub/quotes', prefixMatch: true, pickable: true, requires: 'canAccessQuotes' },
   { id: 'mix-sheet',   label: 'Mix Sheet',   href: '/hub/mix-sheet', prefixMatch: true, pickable: true },
   { id: 'feedback',    label: 'Report an Issue', href: '/hub/feedback', prefixMatch: true, pickable: true },
 ]

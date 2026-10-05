@@ -63,7 +63,7 @@ function relAge(ts: string | null | undefined): string {
 }
 
 export default function LeadCard({
-  lead, stages, lightMode, showStage = false, onEdit, onOpenNotes,
+  lead, stages, lightMode, showStage = false, onEdit, onOpenNotes, canQuote,
 }: {
   lead: Lead
   stages: Stage[]
@@ -71,6 +71,8 @@ export default function LeadCard({
   showStage?: boolean
   onEdit: (id: string) => void
   onOpenNotes: (id: string) => void
+  /** 💲 starts a quote for this lead (matched to the customer directory by phone/email). */
+  canQuote: boolean
 }) {
   const router = useRouter()
   const toast = useToast()
@@ -194,6 +196,10 @@ export default function LeadCard({
           <button onClick={handleText} disabled={texting || !lead.phone} title="Text" className={`${actionCls} disabled:opacity-30`}>✉</button>
           <button onClick={() => onEdit(lead.id)} title="Edit lead" className={actionCls}>✎</button>
           <button onClick={() => onOpenNotes(lead.id)} title="Notes" className={actionCls}>💬</button>
+          {canQuote && (
+            <button onClick={() => router.push(`/hub/quotes/new?lead=${encodeURIComponent(lead.id)}`)} disabled={!lead.phone && !lead.email}
+              title={lead.phone || lead.email ? 'Start a quote for this lead' : 'Add a phone or email to quote this lead'} className={`${actionCls} disabled:opacity-30`}>💲</button>
+          )}
         </div>
       </div>
     </div>

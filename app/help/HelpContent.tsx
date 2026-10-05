@@ -72,6 +72,7 @@ const TABS = [
   { id: 'service-builder', icon: '🧮', label: 'Service Builder' },
   { id: 'service-mapping', icon: '🔗', label: 'Service Mapping' },
   { id: 'pricer',       icon: '🧾', label: 'Pricer' },
+  { id: 'quotes',       icon: '💲', label: 'Quotes' },
   { id: 'scoreboards',  icon: '🏆', label: 'Scoreboards' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
   { id: 'settings',     icon: '⚙️', label: 'Settings' },
@@ -109,6 +110,7 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'service-builder': ServiceBuilderTab,
   'service-mapping': ServiceMappingTab,
   'pricer': PricerTab,
+  'quotes': QuotesTab,
   'scoreboards': ScoreboardsTab,
   'timesheet': TimesheetTab,
   'settings': SettingsTab,
@@ -386,6 +388,7 @@ export default function HelpContent() {
             {activeTab === 'service-builder' && <ServiceBuilderTab />}
             {activeTab === 'service-mapping' && <ServiceMappingTab />}
             {activeTab === 'pricer'      && <PricerTab />}
+            {activeTab === 'quotes'      && <QuotesTab />}
             {activeTab === 'scoreboards' && <ScoreboardsTab />}
             {activeTab === 'radio'      && <RadioTab />}
             {activeTab === 'timesheet'  && <TimesheetTab />}
@@ -1038,7 +1041,7 @@ function HubTab() {
         <AdminOnly>
           <p className="mt-2"><strong className="text-white">Admins:</strong> <strong className="text-white">↻ Sync from Jobber</strong> in the Work Orders header (on a phone: the 👤 tech picker menu → <em>Sync this day from Jobber</em>) rebuilds the day on screen right now and tells you what happened — including any Jobber user that is <em>not linked to a Hub person</em>. Each person&apos;s <strong className="text-white">Jobber user</strong> is set under Admin → People → Edit; left unset, the feed matches by first name (Jobber <em>Josh Allen</em> ↔ Hub <em>Josh</em>). Crew accounts like <em>HLC IR</em> only feed a list if you link them to a person. Access is the <strong className="text-white">Work Orders</strong> grant under Admin → People → Field (it used to be labelled <em>Daily Log v2</em> — same grant, new name). <strong className="text-white">Daily Log admin</strong> on its own does not open Work Orders: the office tools (the Office lists, <em>Sync from Jobber</em>, every tech&apos;s day) need the Work Orders grant <em>and</em> Daily Log admin, and a shared Work Orders link sends anyone without the grant back to Hub. Irrigation techs also need the <strong className="text-white">Irrigation</strong> grant to start inspections from a stop.</p>
           <p className="mt-2"><strong className="text-white">Quotes (being built):</strong> Admin → People now has a <strong className="text-white">Quotes</strong> grant (Sales &amp; Marketing — build and send quotes; give it to technicians <em>and</em> office staff) and a <strong className="text-white">Quotes</strong> admin grant (templates, terms and the reviews list). Admins always have both.</p>
-          <p className="mt-2"><strong className="text-white">Admin → Quotes</strong> (Quotes admin grant) has two tabs. <strong className="text-white">Templates</strong> — the starting points for a quote, which you build yourself: a name only your team sees, the title and short intro the customer reads, the line items (pick them from your Jobber Products &amp; Services or type a blank line), an optional deposit (a percent of the total or a fixed amount), up to 3 reviews, and your terms. Tick <strong className="text-white">Add-on</strong> on a line to make it an extra the customer can choose — add-ons start unticked on the quote, and you can mark one <em>Recommended</em>. Leave a price blank when it changes per customer; it&apos;s filled in on each quote. <strong className="text-white">Duplicate</strong> copies a template to start a similar one, <strong className="text-white">Turn off</strong> hides it from the list without deleting it, and editing a template never changes a quote already made from it. <strong className="text-white">Reviews</strong> — paste in your best customer reviews (name, stars, the text, where it was posted); after you save one the form stays open for the next. <strong className="text-white">Featured</strong> reviews are listed first when picking. A deposit is paid on Jobber&apos;s own payment page — after approving, the customer gets a <em>Pay deposit</em> button. The quote builder itself arrives in the next update.</p>
+          <p className="mt-2"><strong className="text-white">Admin → Quotes</strong> (Quotes admin grant) has two tabs. <strong className="text-white">Templates</strong> — the starting points for a quote, which you build yourself: a name only your team sees, the title and short intro the customer reads, the line items (pick them from your Jobber Products &amp; Services or type a blank line), an optional deposit (a percent of the total or a fixed amount), up to 3 reviews, and your terms. Tick <strong className="text-white">Add-on</strong> on a line to make it an extra the customer can choose — add-ons start unticked on the quote, and you can mark one <em>Recommended</em>. Leave a price blank when it changes per customer; it&apos;s filled in on each quote. <strong className="text-white">Duplicate</strong> copies a template to start a similar one, <strong className="text-white">Turn off</strong> hides it from the list without deleting it, and editing a template never changes a quote already made from it. <strong className="text-white">Reviews</strong> — paste in your best customer reviews (name, stars, the text, where it was posted); after you save one the form stays open for the next. <strong className="text-white">Featured</strong> reviews are listed first when picking. A deposit is paid on Jobber&apos;s own payment page — after approving, the customer gets a <em>Pay deposit</em> button. Quotes are built from the <strong className="text-white">Quotes</strong> page — see the Quotes tab.</p>
         </AdminOnly>
         <Note>📎 <strong className="text-white">Adding a photo to a stop.</strong> Tap the paperclip and pick <strong className="text-white">Take photo</strong>, <strong className="text-white">Record video</strong> or <strong className="text-white">Choose a file</strong>. Take photo opens the camera straight away instead of making you go via your gallery. <em className="text-amber-300">On the phone app, the camera option needs the next app update — until then it opens your gallery.</em> On a computer the paperclip still opens the normal file box.</Note>
 
@@ -2544,6 +2547,47 @@ function ServiceMappingTab() {
 // ──────────────────────────────────────────────────────────────────────────
 // PRICER
 // ──────────────────────────────────────────────────────────────────────────
+
+function QuotesTab() {
+  return (
+    <>
+      <Section title="What is Quotes?">
+        <p>Quotes lets technicians and the office build a good-looking quote for a customer in a few minutes — on the phone or at a desk — from a template your team set up. The customer will open it from a text or email, tick any add-ons they want, and approve it by typing their name.</p>
+        <Note>Being built in stages. <strong className="text-white">Today you can build and preview quotes.</strong> Sending them to the customer (text / email), the customer&apos;s approval page and the copy in Jobber arrive in the next updates.</Note>
+        <p className="mt-2">You need the <strong className="text-white">Quotes</strong> permission (Admin → People → Sales &amp; Marketing). Find it under <strong className="text-white">Quotes</strong> in the app list (add it to your rail in Settings), or start one straight from a customer.</p>
+      </Section>
+
+      <Section title="Starting a quote">
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">From a customer&apos;s file</strong> — the <strong className="text-white">💲 New quote</strong> button at the top.</li>
+          <li><strong className="text-white">From a work-order stop</strong> — the <strong className="text-white">💲 Quote</strong> icon. The quote is for that customer and the property at that stop&apos;s address.</li>
+          <li><strong className="text-white">From a Lead Tracker card</strong> — the <strong className="text-white">💲</strong> button. The lead is matched to the customer directory by phone, then email (and added to it if it isn&apos;t there yet).</li>
+          <li><strong className="text-white">From Quotes</strong> — <strong className="text-white">+ New quote</strong>, then search for the customer.</li>
+        </ul>
+        <p className="mt-2">Then pick a <strong className="text-white">template</strong> (or <em>Start blank</em>). The template fills in the title, intro, line items, add-ons, deposit, reviews and terms — all of it can be changed for this customer, and changing it never changes the template.</p>
+      </Section>
+
+      <Section title="Building it">
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Property &amp; lawn size</strong> — filled from the customer&apos;s Jobber property. No size on file? Measure it in the Lawn Sizer and type it in (thousands of sq ft).</li>
+          <li><strong className="text-white">+ From Pricer</strong> — adds a program priced for the lawn size (or zones), exactly as the Pricer prices it: the quantity is the number of visits and the price is per visit, so the line total is the annual price.</li>
+          <li><strong className="text-white">+ From Jobber</strong> — adds an item from your Jobber Products &amp; Services at its Jobber price. <strong className="text-white">+ Blank line</strong> — type your own.</li>
+          <li><strong className="text-white">What&apos;s included</strong> vs <strong className="text-white">Add-ons — optional</strong> — add-ons show to the customer <em>unticked</em>; they tick the ones they want and the total updates. Move a line between the two with <em>Make it an add-on</em> / <em>Move to included</em>.</li>
+          <li>A line with a <strong className="text-white">red price box</strong> still needs a price (the template left it blank on purpose). A quote can&apos;t be sent until every line is priced.</li>
+          <li><strong className="text-white">Deposit</strong> — optional, a percent or a fixed amount. After approving, the customer pays it on Jobber&apos;s payment page.</li>
+          <li><strong className="text-white">Reviews</strong> — up to 3 shown at the bottom.</li>
+          <li><strong className="text-white">Internal notes</strong> — for your team only; the customer never sees them.</li>
+        </ul>
+        <p className="mt-2">Everything <strong className="text-white">saves as you type</strong>. <strong className="text-white">Preview</strong> shows exactly what the customer will see — try ticking the add-ons. A draft you don&apos;t need can be deleted.</p>
+      </Section>
+
+      <Section title="The Quotes list">
+        <p>Every quote, newest first, with its status: <em>Draft</em>, <em>Sent</em>, <em>Viewed</em>, <em>Approved</em>, <em>Changes requested</em> or <em>Expired</em> (30 days after it&apos;s sent). Tap one to open it.</p>
+        <AdminOnly>Templates and the reviews list live in <strong className="text-white">Admin → Quotes</strong> (the Quotes admin permission) — there&apos;s a shortcut at the top of the Quotes list.</AdminOnly>
+      </Section>
+    </>
+  )
+}
 
 function PricerTab() {
   return (

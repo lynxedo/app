@@ -12,13 +12,14 @@ function recency(l: Lead): number {
 }
 
 export default function NeedsMeView({
-  leads, stages, lightMode, onEdit, onOpenNotes,
+  leads, stages, lightMode, onEdit, onOpenNotes, canQuote,
 }: {
   leads: Lead[]
   stages: Stage[]
   lightMode: boolean
   onEdit: (id: string) => void
   onOpenNotes: (id: string) => void
+  canQuote: boolean
 }) {
   const waiting = leads
     .filter(l => l.drip?.status === 'replied')
@@ -50,6 +51,7 @@ export default function NeedsMeView({
               showStage
               onEdit={onEdit}
               onOpenNotes={onOpenNotes}
+              canQuote={canQuote}
             />
           ))}
         </div>

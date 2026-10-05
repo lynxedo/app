@@ -115,6 +115,7 @@ export default function HubShell({
   canAccessFiles,
   canAccessPesticideRecords,
   canAccessPricer,
+  canAccessQuotes,
   canAccessHub,
   scoreboardSlugs,
   reportSlugs,
@@ -205,6 +206,7 @@ export default function HubShell({
   canAccessFiles?: boolean
   canAccessPesticideRecords?: boolean
   canAccessPricer?: boolean
+  canAccessQuotes?: boolean
   canAccessHub?: boolean
   scoreboardSlugs?: string[]
   /** Reports this user may open. REQUIRED so a missing wire-up fails the
@@ -944,6 +946,7 @@ export default function HubShell({
     canAccessFiles: !!canAccessFiles,
     canAccessPesticideRecords: !!canAccessPesticideRecords,
     canAccessPricer: !!canAccessPricer,
+    canAccessQuotes: !!canAccessQuotes,
     canAccessHub: !!canAccessHub,
   }
 
@@ -965,11 +968,12 @@ export default function HubShell({
           currentUser={{ email: userEmail, name: currentUserDisplayName ?? userEmail.split('@')[0], isAdmin: !!isAdmin }}
           canCall={!!isAdmin || !!canAccessDialer}
           canText={!!isAdmin || !!canAccessTxt}
+          canQuote={!!canAccessQuotes}
         />
       case 'board':
         return t.instanceKey ? <BoardTab boardId={t.instanceKey} hubUsers={hubUsers} currentUserId={currentUserId} /> : null
       case 'daily-log-v2':
-        return <DailyLogV2View currentUserId={currentUserId} isAdmin={!!isAdmin} />
+        return <DailyLogV2View currentUserId={currentUserId} isAdmin={!!isAdmin} canQuote={!!canAccessQuotes} />
       case 'room':
         return t.instanceKey ? <ChatTab roomId={t.instanceKey} label={t.label} currentUserId={currentUserId} hubUsers={hubUsers} isAdmin={!!isAdmin} rooms={rooms.map(r => ({ id: r.id, name: r.name }))} /> : null
       case 'dm':

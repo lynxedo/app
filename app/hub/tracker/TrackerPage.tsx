@@ -1265,7 +1265,7 @@ function NewLeadForm({ opts, stages, currentUser, onClose, onCreated }: {
 // ── Main TrackerPage ──────────────────────────────
 export default function TrackerPage({
   settings, currentUser, initialColumnLayout, initialLeads, stages: initialStages, customColumnDefs: initialColumnDefs,
-  canCall, canText,
+  canCall, canText, canQuote,
 }: {
   settings: TrackerSettings | null; currentUser: CurrentUser
   initialColumnLayout?: { id: string; width: number; hidden?: boolean }[] | null
@@ -1278,6 +1278,8 @@ export default function TrackerPage({
   // catches a missed wiring instead of the feature silently disappearing.
   canCall: boolean
   canText: boolean
+  /** 💲 Quote on each lead card — can build quotes (Quotes grant / Quotes admin / admin). */
+  canQuote: boolean
 }) {
   const toast = useToast()
   const [leads, setLeads] = useState<Lead[]>(initialLeads ?? [])
@@ -1667,6 +1669,7 @@ export default function TrackerPage({
                 stages={stages}
                 lightMode={lightMode}
                 onMoveStage={moveLeadStage}
+                canQuote={canQuote}
                 onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
                 onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
               />
@@ -1677,6 +1680,7 @@ export default function TrackerPage({
             ? <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Loading leads…</div>
             : <NeedsMeView
                 leads={sortedLeads}
+                canQuote={canQuote}
                 stages={stages}
                 lightMode={lightMode}
                 onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
