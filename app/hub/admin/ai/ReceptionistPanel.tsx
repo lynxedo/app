@@ -31,7 +31,7 @@ type VoiceReceptionistInitial = {
 // Capability ladder (Ben's product tiers). Levels 1–4 answer only missed /
 // after-hours calls; Level 5 (frontline) answers EVERY call as the front desk.
 // At SaaS time levels above the plan cap render locked with an upgrade nudge.
-const VR_LEVELS: { level: number; name: string; blurb: string; comingSoon?: boolean }[] = [
+export const VR_LEVELS: { level: number; name: string; blurb: string; comingSoon?: boolean }[] = [
   { level: 1, name: 'Level 1 — Message taker', blurb: 'A friendly voicemail replacement: collects name, number, and reason, then promises a callback. Politely deflects all questions.' },
   { level: 2, name: 'Level 2 — Conversational', blurb: 'Warm and human — brief small talk, answers approved basics, and talks the company up. Promotes any free/no-obligation offer. Never states pricing.' },
   { level: 3, name: 'Level 3 — Soft sell', blurb: 'Conversational plus: states approved fixed pricing, asks qualifying questions, and works an assumptive soft close. A human specialist still confirms.' },
