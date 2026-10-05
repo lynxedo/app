@@ -53,7 +53,7 @@ export default function ReceptionistPanel({
   onLevelChange,
 }: {
   initialVoiceReceptionist: VoiceReceptionistInitial
-  people: { id: string; display_name: string }[]
+  people: { id: string; display_name: string; dnd_reason?: string | null }[]
   // Notifies the parent shell of the currently-selected level so it can show
   // only the sections that level uses (Scheduling at 4+, Call routing at 5).
   onLevelChange?: (level: number) => void
@@ -622,11 +622,20 @@ export default function ReceptionistPanel({
                           className="accent-brand"
                         />
                         {u.display_name}
+                        {u.dnd_reason && (
+                          <span className="text-xs text-amber-300/80">· {u.dnd_reason}, won’t ring</span>
+                        )}
                       </label>
                     )
                   })}
                 </div>
               )}
+              {vr.transfer_user_ids.length > 0 &&
+                vr.transfer_user_ids.every((id) => people.find((p) => p.id === id)?.dnd_reason) && (
+                  <p className="text-xs text-amber-300/80 mt-1">
+                    Everyone checked is on Do Not Disturb right now, so {initialVoiceReceptionist.receptionist_name || 'the receptionist'} won’t offer to transfer a caller — she’ll take a message instead.
+                  </p>
+                )}
               <p className="text-xs text-white/40 mt-1">
                 {vr.transfer_method === 'softphone'
                   ? 'Rings the Dialer softphone for the checked people who are logged in; whoever answers first is connected. If no one answers in ~25 seconds, the caller can leave a message.'

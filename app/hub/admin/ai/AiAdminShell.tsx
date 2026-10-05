@@ -19,6 +19,8 @@ type Person = {
   id: string
   display_name: string
   claude_allowed: boolean
+  // Why this person can't take a Dialer call right now (DND, locked…), or null.
+  dnd_reason: string | null
 }
 
 type Room = {

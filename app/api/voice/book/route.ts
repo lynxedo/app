@@ -36,6 +36,7 @@ import {
   getSchedulableServices,
   getSchedulingEnabled,
   matchSchedulableService,
+  openDays,
 } from '@/lib/voice-scheduling'
 import { getActiveVoiceNotes, bookingCapsForService } from '@/lib/voice-notes'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
@@ -212,12 +213,11 @@ export async function POST(request: Request) {
   // note only in availability would leave Ben's *"we are booked for today. Do not book
   // any more"* trivially bypassed by the exact conversation it exists to prevent.
   //
-  // Scoped to NOTE caps on purpose. The service's standing `max_per_day` is still not
-  // enforced here (it never has been — this route has never counted existing visits);
-  // retrofitting that would silently start refusing bookings that succeed today, which
-  // is a separate change and not one that was asked for.
+  // The same goes for the service's standing `max_per_day`: it is checked further
+  // down, once the Jobber user is known, against the day's existing visits.
   const notes = await getActiveVoiceNotes(admin, companyId).catch(() => [])
-  const noteCap = bookingCapsForService(notes, svc.line_item)[date]
+  const capOverrides = bookingCapsForService(notes, svc.line_item)
+  const noteCap = capOverrides[date]
   if (noteCap === 0) {
     return ok(
       `The office has closed ${dateLabelForSpeech(date)} to new ${svc.line_item} bookings, so don't book that day. Offer the caller another day, or take their details for a specialist to follow up.`,
@@ -252,24 +252,29 @@ export async function POST(request: Request) {
     })
   }
 
-  // A NUMERIC note cap ("up to 4 irrigation calls Monday the 31st") needs the day's
-  // existing count, so it runs here rather than with the cheap 0-check above — and only
-  // when such a cap actually exists for this date, so the normal booking path adds no
-  // Jobber round-trip. Same counting helper find_availability uses, so the two paths
-  // cannot disagree about how full a day is.
-  if (typeof noteCap === 'number' && noteCap > 0) {
-    const counts = await countBookedVisitsByDay({
-      jobberUserId: userId,
-      serviceLineItem: svc.line_item,
-      fromYmd: date,
-      toYmd: date,
-    })
-    if ((counts[date] ?? 0) >= noteCap) {
-      return ok(
-        `${dateLabelForSpeech(date)} is already at the limit the office set for ${svc.line_item}, so don't book it. Offer another day, or take the caller's details for a specialist to follow up.`,
-        { booked: false, service: svc.line_item, date, blocked: true },
-      )
-    }
+  // The day's cap — a numeric note ("up to 4 irrigation calls Monday the 31st") or,
+  // when there is none, the service's standing max_per_day — checked against the
+  // day's existing visits. Same counting helper AND the same openDays rule that
+  // find_availability uses, so the two paths cannot disagree about how full a day
+  // is. Before Oct 5 2026 only a note cap was checked here, so a caller who named
+  // a day ("can you come Thursday?") could be booked past the standing limit.
+  // A failed count leaves the day looking empty (countBookedVisitsByDay logs it),
+  // which books as before rather than losing the caller to a Jobber hiccup.
+  const counts = await countBookedVisitsByDay({
+    jobberUserId: userId,
+    serviceLineItem: svc.line_item,
+    fromYmd: date,
+    toYmd: date,
+  })
+  if (openDays([date], counts, svc.max_per_day, capOverrides, 1).length === 0) {
+    const byNote = typeof noteCap === 'number'
+    console.warn(
+      `[voice.book] refused full day ${date} for ${svc.line_item}: ${counts[date] ?? 0} booked, cap ${byNote ? noteCap : svc.max_per_day}${byNote ? ' (note)' : ''}`,
+    )
+    return ok(
+      `${dateLabelForSpeech(date)} is already full for ${svc.line_item}${byNote ? ' — the office set a limit for that day' : ''}, so don't book it. Call find_availability and offer the caller one of the open days it returns, or take their details for a specialist to follow up.`,
+      { booked: false, service: svc.line_item, date, blocked: true, reason: 'day_full' },
+    )
   }
 
   // While the receptionist is in test mode, tag what it creates so test bookings are
