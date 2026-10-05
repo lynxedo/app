@@ -27,7 +27,10 @@ export async function GET(request: Request) {
     admin.from('user_profiles').select('last_activity_seen_at').eq('id', user.id).single(),
   ])
   const displayName: string = meHubUserRes.data?.display_name ?? ''
-  const firstName = displayName.split(/\s+/)[0]?.toLowerCase() ?? ''
+  // Letters / digits / hyphen only: the name is pasted into a PostgREST .or()
+  // filter below, and display_name is user-editable — a comma or paren in it
+  // rewrote the filter (Oct 5 2026 audit). Also drops ILIKE wildcards % and _.
+  const firstName = (displayName.split(/\s+/)[0] ?? '').toLowerCase().replace(/[^\p{L}\p{N}-]/gu, '')
   const lastSeen = profileRes.data?.last_activity_seen_at ?? null
 
   if (!firstName) {

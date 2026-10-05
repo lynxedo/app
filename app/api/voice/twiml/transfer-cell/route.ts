@@ -48,6 +48,10 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     .eq('id', attemptId)
     .maybeSingle()
 
+  // No such attempt → hang up. This URL is public (no Twilio signature yet), and
+  // answering an invented id walked the transfer list's cell numbers (Oct 5 2026 audit).
+  if (!a) return xml(HANGUP)
+
   // Someone took it → the caller was bridged and that call has ended. Done.
   if (a && (a.status === 'accepted' || a.status === 'connected')) {
     return xml(HANGUP)
