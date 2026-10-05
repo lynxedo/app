@@ -104,8 +104,24 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     }
   }
 
+  // Work Orders Phase 3 — the after-service report done on each visit.
+  const repByVisit = new Map<string, { id: string; status: string }>()
+  const repByStop = new Map<string, { id: string; status: string }>()
+  if (stops.length > 0) {
+    const { data: reps } = await admin
+      .from('after_service_reports')
+      .select('id, status, jobber_visit_id, stop_id')
+      .eq('company_id', companyId)
+      .eq('contact_id', contactId)
+    for (const r of (reps ?? []) as { id: string; status: string; jobber_visit_id: string | null; stop_id: string | null }[]) {
+      if (r.jobber_visit_id) repByVisit.set(r.jobber_visit_id, r)
+      if (r.stop_id) repByStop.set(r.stop_id, r)
+    }
+  }
+
   const workOrders = stops.map(s => {
     const insp = (s.jobber_visit_id ? byVisit.get(s.jobber_visit_id) : undefined) ?? byStop.get(s.id) ?? null
+    const rep = (s.jobber_visit_id ? repByVisit.get(s.jobber_visit_id) : undefined) ?? repByStop.get(s.id) ?? null
     const services = Array.isArray(s.line_items)
       ? s.line_items.map(li => (li?.name ?? '').trim()).filter(Boolean)
       : []
@@ -120,6 +136,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       arrivedAt: s.arrived_at,
       completedAt: s.completed_at,
       inspection: insp ? { id: insp.id, status: insp.status === 'final' ? 'final' : 'draft' } : null,
+      serviceReport: rep ? { id: rep.id, status: rep.status === 'final' ? 'final' : 'draft' } : null,
     }
   })
 

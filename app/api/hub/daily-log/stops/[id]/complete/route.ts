@@ -6,6 +6,7 @@ import { loadStopLineItems, asStopLineItems, completeStopInJobber } from '@/lib/
 import { evaluateEventAutomations } from '@/lib/automations'
 import type { WeatherSnapshot } from '@/lib/nws-weather'
 import { matchChemicalsForLineItems } from '@/lib/pesticide'
+import { finalReportIdForStop, syncConfirmationToPesticideRecord } from '@/lib/after-service-server'
 import { applyRouteSprayDecrements } from '@/lib/inventory'
 import type { StoredRouteLoadout } from '@/lib/route-capacity'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -284,6 +285,21 @@ export async function POST(
       .from('daily_log_stops')
       .update({ pesticide_record_id: pesticideRecordId })
       .eq('id', stop.id)
+  }
+
+  // Work Orders Phase 3: a saved after-service report carries the tech's
+  // confirmation of what was actually applied — put it on the record now that
+  // the record exists (the report's save does the same when it comes second).
+  if (pesticideRecordId) {
+    const recordId = pesticideRecordId
+    after(async () => {
+      try {
+        const reportId = await finalReportIdForStop(admin, entry.company_id, stop)
+        if (reportId) await syncConfirmationToPesticideRecord(admin, entry.company_id, reportId)
+      } catch (e) {
+        console.error(`[after-service] confirmation → pesticide record ${recordId} failed:`, e)
+      }
+    })
   }
 
   // Detect if this was the last non-complete, non-skipped stop in the entry.

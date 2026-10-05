@@ -21,6 +21,7 @@ type WorkOrder = {
   arrivedAt: string | null
   completedAt: string | null
   inspection: { id: string; status: 'draft' | 'final' } | null
+  serviceReport?: { id: string; status: 'draft' | 'final' } | null
 }
 
 function fmtDate(d: string): string {
@@ -53,6 +54,12 @@ export default function WorkOrdersCard({ contactId }: { contactId: string }) {
     // place (no reload, no second fetch of the customer).
     window.dispatchEvent(new CustomEvent('lx:open-inspection', { detail: { id } }))
     document.getElementById('irrigation-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  function openServiceReport(id: string) {
+    // The After-service reports card on this page opens it in place.
+    window.dispatchEvent(new CustomEvent('lx:open-service-report', { detail: { id } }))
+    setTimeout(() => document.getElementById('service-report-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150)
   }
 
   const shown = items ? (showAll ? items : items.slice(0, 5)) : []
@@ -90,6 +97,15 @@ export default function WorkOrdersCard({ contactId }: { contactId: string }) {
                       className="text-[11px] px-2 py-1 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-200"
                     >
                       💧 {wo.inspection.status === 'final' ? 'Inspection' : 'Inspection (draft)'}
+                    </button>
+                  )}
+                  {wo.serviceReport && (
+                    <button
+                      type="button"
+                      onClick={() => openServiceReport(wo.serviceReport!.id)}
+                      className="text-[11px] px-2 py-1 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-200"
+                    >
+                      📋 {wo.serviceReport.status === 'final' ? 'Report' : 'Report (draft)'}
                     </button>
                   )}
                   <Link
