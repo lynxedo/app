@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import WorkOrdersOffice from '@/components/hub/WorkOrdersOffice'
+import { workOrderAccess } from '@/lib/work-order-access'
 
 export const metadata = { title: 'Work Orders — Office' }
 
@@ -13,10 +14,10 @@ export default async function WorkOrdersOfficePage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_daily_log')
+    .select('role, can_admin_daily_log, can_access_daily_log_v2')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin' && profile?.can_admin_daily_log !== true) redirect('/hub/daily-log-v2')
+  if (!workOrderAccess(profile).isAdmin) redirect('/hub/daily-log-v2')
 
   return <WorkOrdersOffice />
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireCompany } from '@/lib/company-auth'
+import { workOrderAccess } from '@/lib/work-order-access'
 import {
   syncWorkOrdersForRange, todayInCompanyTz, addDays, WORK_ORDER_HORIZON_DAYS, type SyncDayResult,
 } from '@/lib/work-orders-sync'
@@ -13,7 +14,7 @@ import { refreshJobsByExternalIds } from '@/lib/jobber-sync'
 //    for every company that has a Jobber connection. The webhooks keep the list
 //    in step within seconds where this code is deployed; the sweep is the safety
 //    net (and, on staging, the only trigger until the hooks reach prod).
-//  • An admin (role admin or can_admin_daily_log) from the Work Orders header:
+//  • A Work Orders admin (workOrderAccess().isAdmin) from the Work Orders header:
 //    body { date?: 'YYYY-MM-DD', days?: number } — defaults to today, 1 day.
 //    body { refreshJobs: true } additionally re-pulls the Jobber jobs behind the
 //    horizon's visits whose `instructions` are still unmirrored (post-response).
@@ -85,8 +86,8 @@ export async function POST(req: NextRequest) {
   const { companyId, userId, role, supabase } = auth
   let allowed = role === 'admin'
   if (!allowed) {
-    const { data: profile } = await supabase.from('user_profiles').select('can_admin_daily_log').eq('id', userId).single()
-    allowed = profile?.can_admin_daily_log === true
+    const { data: profile } = await supabase.from('user_profiles').select('role, can_admin_daily_log, can_access_daily_log_v2').eq('id', userId).single()
+    allowed = workOrderAccess(profile).isAdmin
   }
   if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 

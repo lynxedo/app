@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { workOrderAccess } from '@/lib/work-order-access'
 
 type HubUserLite = { id: string; display_name: string; avatar_url: string | null }
 
@@ -14,10 +15,12 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('company_id')
+    .select('company_id, role, can_admin_daily_log, can_access_daily_log_v2')
     .eq('id', user.id)
     .single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+  // Same rule as the page — this feed used to answer anyone in the company.
+  if (!workOrderAccess(profile).canAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { searchParams } = new URL(request.url)
   const date = searchParams.get('date')

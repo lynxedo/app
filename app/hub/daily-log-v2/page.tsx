@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import DailyLogV2View from '@/components/hub/DailyLogV2View'
+import { workOrderAccess } from '@/lib/work-order-access'
 
 export const metadata = { title: 'Work Orders' }
 
@@ -15,11 +16,9 @@ export default async function DailyLogV2Page() {
     .eq('id', user.id)
     .single()
 
-  const isAdmin =
-    profile?.role === 'admin' ||
-    profile?.can_admin_daily_log === true
-
-  if (!isAdmin && !profile?.can_access_daily_log_v2) redirect('/hub')
+  // One rule for the page and every Work Orders API (lib/work-order-access.ts).
+  const { canAccess, isAdmin } = workOrderAccess(profile)
+  if (!canAccess) redirect('/hub')
 
   // Starting / continuing an irrigation inspection from a stop needs the same
   // grant the customer file's Irrigation card uses (can_access_irrigation, or

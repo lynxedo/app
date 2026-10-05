@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { workOrderAccess } from '@/lib/work-order-access'
 import { isEditedByTech, MAX_SYNC_ATTEMPTS, type WorkOrderLineItem } from '@/lib/work-order-line-items'
 
 // GET  /api/hub/work-orders/office — the office's three Work Orders lists
@@ -17,7 +18,7 @@ import { isEditedByTech, MAX_SYNC_ATTEMPTS, type WorkOrderLineItem } from '@/lib
 //                         carries its stop's notes + photos
 // POST /api/hub/work-orders/office { stopId, action: 'reviewed' } — "Got it" on
 //      a Changed row.
-// Daily Log admins only (role admin / can_admin_daily_log).
+// Work Orders admins only — workOrderAccess().isAdmin (lib/work-order-access.ts).
 
 const LOOKBACK_DAYS = 30
 
@@ -26,9 +27,9 @@ async function gate() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   const { data: profile } = await supabase
-    .from('user_profiles').select('company_id, role, can_admin_daily_log').eq('id', user.id).single()
+    .from('user_profiles').select('company_id, role, can_admin_daily_log, can_access_daily_log_v2').eq('id', user.id).single()
   if (!profile?.company_id) return { error: NextResponse.json({ error: 'No company' }, { status: 403 }) }
-  if (profile.role !== 'admin' && profile.can_admin_daily_log !== true) {
+  if (!workOrderAccess(profile).isAdmin) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
   return { userId: user.id, companyId: profile.company_id as string }
