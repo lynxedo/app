@@ -63,6 +63,8 @@ type UserProfile = {
   can_access_pesticide_records: boolean
   can_access_pricer: boolean
   can_access_irrigation: boolean
+  can_access_quotes: boolean
+  can_admin_quotes: boolean
 }
 
 type User = {
@@ -132,6 +134,7 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
       { key: 'can_access_tracker', label: 'Lead Tracker' },
       { key: 'can_access_lawn', label: 'Lawn Sizer' },
       { key: 'can_access_pricer', label: 'Pricer' },
+      { key: 'can_access_quotes', label: 'Quotes' },
       { key: 'can_access_marketing', label: 'Social Marketing' },
       { key: 'can_access_email', label: 'Email Marketing' },
       { key: 'can_manage_drip', label: 'Drip Marketing' },
@@ -167,6 +170,7 @@ const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_marketing', label: 'Social Marketing' },
   { key: 'can_admin_email', label: 'Email Marketing' },
   { key: 'can_admin_integrations', label: 'Integrations' },
+  { key: 'can_admin_quotes', label: 'Quotes' },
 ]
 
 function getInitials(name: string | null, email: string): string {
@@ -261,6 +265,8 @@ function defaultProfile(id: string, overrides: Partial<UserProfile> = {}): UserP
     can_access_pesticide_records: false,
     can_access_pricer: false,
     can_access_irrigation: false,
+    can_access_quotes: false,
+    can_admin_quotes: false,
     ...overrides,
   }
 }
