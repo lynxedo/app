@@ -12,7 +12,7 @@ import { unansweredProducts, type AfterServiceData } from '@/lib/after-service'
 //   POST   … /service-reports/:reportId { action:'reopen' }  → back to a draft to fix
 //          something (only before it has been sent to the customer)
 //   DELETE … /service-reports/:reportId                      → discard the draft
-// All need the Work Orders grant (or Daily Log admin).
+// All need the Work Orders grant.
 
 type Ctx = { params: Promise<{ id: string; reportId: string }> }
 

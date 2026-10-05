@@ -4,6 +4,7 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 import { r2SignedUrl } from '@/lib/r2'
 import { matchChemicalsForLineItems } from '@/lib/pesticide'
 import { loadStopLineItems, asStopLineItems } from '@/lib/work-order-line-items'
+import { workOrderAccess } from '@/lib/work-order-access'
 import { mergeMappedProducts, customerServiceName, type AfterServiceData, type AsrProduct, type AsrTreatment } from '@/lib/after-service'
 
 // Server-only helpers for the after-service report routes (Work Orders Phase 3):
@@ -32,7 +33,7 @@ export async function resolveAsrAccess(): Promise<AsrAccess | { error: NextRespo
   if (!profile?.company_id || !profile.can_access_hub) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
-  const canEdit = profile.role === 'admin' || profile.can_admin_daily_log === true || profile.can_access_daily_log_v2 === true
+  const canEdit = workOrderAccess(profile).canAccess
   return { userId: user.id, companyId: profile.company_id as string, canEdit }
 }
 
