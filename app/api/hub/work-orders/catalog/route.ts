@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { workOrderAccess } from '@/lib/work-order-access'
-import { jobberGraphQLPatient, companyJobberUserId } from '@/lib/jobber'
+import { companyJobberUserId } from '@/lib/jobber'
+import { readJobberCatalog, type JobberCatalogItem } from '@/lib/jobber-catalog'
 
 // GET  /api/hub/work-orders/catalog — the Jobber Products & Services list for
 //      the stop's "+ Add line item" picker, read LIVE (PRD rule 5: no cached
@@ -10,25 +11,6 @@ import { jobberGraphQLPatient, companyJobberUserId } from '@/lib/jobber'
 // POST /api/hub/work-orders/catalog { productId, name?, favorite: boolean }
 //      — star / unstar an item for the caller.
 // Work Orders Phase 2.
-
-type Product = {
-  id: string
-  name: string
-  description: string | null
-  defaultUnitCost: number | null
-  taxable: boolean | null
-  category: string | null
-  visible: boolean | null
-}
-
-const CATALOG_QUERY = `
-  query WorkOrderCatalog($after: String) {
-    productOrServices(first: 100, after: $after) {
-      nodes { id name description defaultUnitCost taxable category visible }
-      pageInfo { hasNextPage endCursor }
-    }
-  }
-`
 
 async function gate() {
   const supabase = await createClient()
@@ -48,18 +30,9 @@ export async function GET() {
   const jobberUserId = await companyJobberUserId(g.companyId, g.userId)
   if (!jobberUserId) return NextResponse.json({ error: 'Jobber is not connected for your company' }, { status: 400 })
 
-  const products: Product[] = []
+  let products: JobberCatalogItem[]
   try {
-    let after: string | null = null
-    for (let page = 0; page < 10; page++) {
-      const res: { data?: { productOrServices: { nodes: Product[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } =
-        await jobberGraphQLPatient(jobberUserId, CATALOG_QUERY, { after })
-      const conn = res.data?.productOrServices
-      if (!conn) break
-      products.push(...conn.nodes)
-      if (!conn.pageInfo.hasNextPage) break
-      after = conn.pageInfo.endCursor
-    }
+    products = await readJobberCatalog(jobberUserId)
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Could not read the Jobber catalog' }, { status: 502 })
   }
@@ -71,10 +44,7 @@ export async function GET() {
     .eq('user_id', g.userId)
 
   return NextResponse.json({
-    products: products
-      .filter(p => p.visible !== false)
-      .map(p => ({ id: p.id, name: p.name, description: p.description, price: p.defaultUnitCost ?? 0, taxable: p.taxable, category: p.category }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    products,
     usage: (usage ?? []).map(u => ({
       productId: u.jobber_product_id as string,
       useCount: u.use_count as number,
