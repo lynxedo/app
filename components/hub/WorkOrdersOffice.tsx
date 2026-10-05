@@ -18,6 +18,9 @@ type Base = {
   autopay: boolean | null
   jobberUrl: string | null
   total: number
+  status: string
+  notes: Array<{ author: string; content: string; at: string; edited: boolean }>
+  photos: Array<{ url: string; type: string | null; name: string | null }>
 }
 type Attention = Base & { problem: string; failingItems: Array<{ name: string; error: string | null; gaveUp: boolean }> }
 type Changed = Base & {
@@ -26,12 +29,13 @@ type Changed = Base & {
 
 const fmt = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const fmtQty = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100))
+const fmtTime = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })
 const fmtDate = (d: string | null) => d ? new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : ''
 
 export default function WorkOrdersOffice() {
-  const [data, setData] = useState<{ needsAttention: Attention[]; changed: Changed[]; readyToInvoice: Base[] } | null>(null)
+  const [data, setData] = useState<{ needsAttention: Attention[]; changed: Changed[]; readyToInvoice: Base[]; notes: Base[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'attention' | 'changed' | 'invoice' | 'rules'>('attention')
+  const [tab, setTab] = useState<'attention' | 'changed' | 'invoice' | 'notes' | 'rules'>('attention')
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +62,7 @@ export default function WorkOrdersOffice() {
     { key: 'attention', label: 'Needs attention', count: data?.needsAttention.length ?? 0 },
     { key: 'changed', label: 'Changed by techs', count: data?.changed.length ?? 0 },
     { key: 'invoice', label: 'Ready to invoice', count: data?.readyToInvoice.length ?? 0 },
+    { key: 'notes', label: 'Tech notes', count: data?.notes.length ?? 0 },
     { key: 'rules', label: 'Inspection rules', count: null },
   ]
 
@@ -122,6 +127,13 @@ export default function WorkOrdersOffice() {
 
       {tab === 'rules' && <WorkOrderSuggestionRules />}
 
+      {data && tab === 'notes' && (
+        <List empty="No tech notes or photos in the last 30 days."
+          help="Every stop where a tech left a note or a photo in the last 30 days, newest first — finished or not. Tap a customer to open their file, or Open stop to see it on the day.">
+          {data.notes.map(s => <Card key={s.stopId} s={s} notesOpen />)}
+        </List>
+      )}
+
       {data && tab === 'invoice' && (
         <List empty="Nothing waiting to be invoiced."
           help="Visits completed through Work Orders that aren't on autopay and have no invoice in Jobber yet. Open the job in Jobber and invoice as usual — autopay customers invoice themselves.">
@@ -143,7 +155,9 @@ function List({ children, empty, help }: { children: React.ReactNode[]; empty: s
   )
 }
 
-function Card({ s, children, action }: { s: Base; children?: React.ReactNode; action?: React.ReactNode }) {
+function Card({ s, children, action, notesOpen }: { s: Base; children?: React.ReactNode; action?: React.ReactNode; notesOpen?: boolean }) {
+  const [open, setOpen] = useState(!!notesOpen)
+  const hasNotes = s.notes.length > 0 || s.photos.length > 0
   return (
     <div className="bg-gray-900/50 border border-gray-800 rounded-lg px-3 py-2.5">
       <div className="flex items-start gap-2">
@@ -153,14 +167,49 @@ function Card({ s, children, action }: { s: Base; children?: React.ReactNode; ac
           </div>
           <div className="text-[11px] text-gray-500">
             {fmtDate(s.date)}{s.tech ? ` · ${s.tech}` : ''}{s.total ? ` · ${fmt(s.total)}` : ''}{s.autopay ? ' · autopay' : ''}
+            {s.status !== 'complete' ? ` · ${s.status === 'in_progress' ? 'on site' : s.status === 'skipped' ? 'skipped' : 'not done yet'}` : ''}
           </div>
         </div>
+        {s.date && (
+          <Link href={`/hub/daily-log-v2?date=${encodeURIComponent(s.date)}&stop=${encodeURIComponent(s.stopId)}`}
+            className="shrink-0 px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-xs text-gray-200">Open stop</Link>
+        )}
         {s.jobberUrl && (
           <a href={s.jobberUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2.5 py-1 rounded bg-emerald-600/80 hover:bg-emerald-600 text-xs text-white">Jobber ↗</a>
         )}
         {action}
       </div>
       {children}
+      {hasNotes && (
+        <div className="mt-2">
+          <button type="button" onClick={() => setOpen(o => !o)} className="text-xs text-sky-300 hover:text-sky-200">
+            {open ? '▾' : '▸'} 💬 {s.notes.length} note{s.notes.length === 1 ? '' : 's'}{s.photos.length ? ` · 📷 ${s.photos.length}` : ''}
+          </button>
+          {open && (
+            <div className="mt-1.5 space-y-1.5">
+              {s.notes.map((n, i) => (
+                <div key={i} className="bg-white/5 rounded px-2.5 py-1.5">
+                  <div className="text-[10px] text-gray-500">{n.author || 'Someone'} · {fmtTime(n.at)}{n.edited ? ' · edited' : ''}</div>
+                  <div className="text-sm text-gray-200 whitespace-pre-wrap break-words">{n.content}</div>
+                </div>
+              ))}
+              {s.photos.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {s.photos.map((p, i) => (
+                    <a key={i} href={p.url} target="_blank" rel="noopener noreferrer" title={p.name ?? undefined}
+                      className="block w-16 h-16 rounded overflow-hidden bg-white/10 border border-gray-800">
+                      {(p.type ?? '').startsWith('image/')
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={p.url} alt={p.name ?? 'photo'} className="w-full h-full object-cover" loading="lazy" />
+                        : <span className="w-full h-full flex items-center justify-center text-[10px] text-gray-300 px-1 text-center">{(p.type ?? '').startsWith('video/') ? '🎬 video' : '📎 file'}</span>}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

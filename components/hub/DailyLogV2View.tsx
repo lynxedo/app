@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import WorkOrderLineItems from './WorkOrderLineItems'
+import StopInspection from './StopInspection'
 import { Spinner, EmptyState } from '@/components/ui'
 import { fmtQty, type StoredRouteLoadout, type StoredLoadoutProduct } from '@/lib/route-capacity'
 import { formatPhone, formatDurationMs, formatDurationSec } from '@/lib/format'
@@ -322,7 +323,10 @@ export default function DailyLogV2View({
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
-  const openStop = useCallback((stopId: string) => {
+  // Tapping 💧 on a row opens the stop AND its inspection on top of it.
+  const [autoInspectStopId, setAutoInspectStopId] = useState<string | null>(null)
+  const openStop = useCallback((stopId: string, opts?: { inspect?: boolean }) => {
+    setAutoInspectStopId(opts?.inspect ? stopId : null)
     setOpenStopId(stopId)
     const url = new URL(window.location.href)
     url.searchParams.set('date', date)
@@ -745,6 +749,10 @@ export default function DailyLogV2View({
           onSkip={handleSkip}
           onOnMyWay={handleOnMyWay}
           onPestNotesSave={handlePestNotesSave}
+          date={openStopCtx.entry.log_date}
+          autoInspect={autoInspectStopId === openStopCtx.stop.id}
+          onAutoInspectDone={() => setAutoInspectStopId(null)}
+          onRefresh={() => { void load(date) }}
         />
       )}
     </div>
@@ -995,7 +1003,7 @@ function EntryCard({
   mapHeight: number
   openStopId: string | null
   showRouteCompleteBanner: boolean
-  onOpenStop: (stopId: string) => void
+  onOpenStop: (stopId: string, opts?: { inspect?: boolean }) => void
   onMarkRouteComplete: (entryId: string) => void | Promise<void>
   onDismissRouteComplete: () => void
 }) {
@@ -1212,7 +1220,7 @@ function EntryCard({
         ) : (
           <>
             {openStops.map(s => (
-              <StopRow key={s.id} stop={s} active={openStopId === s.id} onOpen={onOpenStop} />
+              <StopRow key={s.id} stop={s} date={entry.log_date} active={openStopId === s.id} onOpen={onOpenStop} />
             ))}
             {doneStops.length > 0 && (
               <div className="px-4 md:px-5 py-1.5 bg-gray-950/40 text-[10px] uppercase tracking-wide text-gray-500">
@@ -1220,7 +1228,7 @@ function EntryCard({
               </div>
             )}
             {doneStops.map(s => (
-              <StopRow key={s.id} stop={s} active={openStopId === s.id} onOpen={onOpenStop} />
+              <StopRow key={s.id} stop={s} date={entry.log_date} active={openStopId === s.id} onOpen={onOpenStop} />
             ))}
           </>
         )}
@@ -1309,6 +1317,16 @@ function isIrrigationStop(stop: Stop): boolean {
  * (its Irrigation card only opens the form for people who may edit), so the link
  * itself is shown to everyone on an irrigation stop.
  */
+/**
+ * The customer file, opened from a stop — carries the way back so the file
+ * shows a "‹ Back to stop" bar (Ben, Oct 5 2026: getting back to Work Orders
+ * from the customer file was not quick and easy).
+ */
+function customerFileHref(stop: Stop, date: string): string | null {
+  if (!stop.contact_id) return null
+  return `/hub/contacts/${stop.contact_id}?woDate=${encodeURIComponent(date)}&woStop=${encodeURIComponent(stop.id)}`
+}
+
 function inspectionLink(stop: Stop): { href: string; label: string; state: 'start' | 'draft' | 'final' } | null {
   if (!stop.contact_id) return null
   const insp = stop.inspection
@@ -1377,10 +1395,11 @@ function ActionIcon({ icon, label, onClick, href, external, disabled, tone = 'gr
 
 // ── StopRow (the compact line in the list) ────────────────────────────────────
 
-function StopRow({ stop, active, onOpen }: {
+function StopRow({ stop, date, active, onOpen }: {
   stop: Stop
+  date: string
   active: boolean
-  onOpen: (stopId: string) => void
+  onOpen: (stopId: string, opts?: { inspect?: boolean }) => void
 }) {
   const lineItemNames = stop.line_items.map(li => li.name).filter(Boolean)
   const lineItemsSummary = lineItemNames.length === 0
@@ -1424,7 +1443,7 @@ function StopRow({ stop, active, onOpen }: {
           </div>
           {stop.contact_id && (
             <Link
-              href={`/hub/contacts/${stop.contact_id}`}
+              href={customerFileHref(stop, date) ?? `/hub/contacts/${stop.contact_id}`}
               onClick={e => e.stopPropagation()}
               className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline"
               title="Open the customer file"
@@ -1437,7 +1456,7 @@ function StopRow({ stop, active, onOpen }: {
             return link ? (
               <Link
                 href={link.href}
-                onClick={e => e.stopPropagation()}
+                onClick={e => { e.preventDefault(); e.stopPropagation(); onOpen(stop.id, { inspect: true }) }}
                 className={`text-[11px] hover:underline ${link.state === 'final' ? 'text-cyan-300' : 'text-cyan-400'}`}
                 title="Irrigation inspection for this visit"
               >
@@ -1515,6 +1534,10 @@ function StopSheet({
   onSkip,
   onOnMyWay,
   onPestNotesSave,
+  date,
+  autoInspect,
+  onAutoInspectDone,
+  onRefresh,
 }: {
   stop: Stop
   pending: boolean
@@ -1530,6 +1553,10 @@ function StopSheet({
   onSkip: (stopId: string, undo: boolean, reasonId?: string, reasonLabel?: string) => void | Promise<void>
   onOnMyWay: (stopId: string, etaMinutes: number) => Promise<{ ok: true } | { ok: false }>
   onPestNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  date: string
+  autoInspect?: boolean
+  onAutoInspectDone?: () => void
+  onRefresh?: () => void
 }) {
   const router = useRouter()
   const isComplete = stop.status === 'complete'
@@ -1592,6 +1619,41 @@ function StopSheet({
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.address)}`
     : null
   const inspLink = isIrrigation ? inspectionLink(stop) : null
+  const customerHref = customerFileHref(stop, date)
+
+  // The inspection opens on top of the stop (Work Orders never goes away).
+  // Starting/continuing needs the Irrigation grant; a saved report anyone views.
+  // Without the grant, an unsaved one still goes to the customer file (read-only there).
+  const inspMode: 'edit' | 'view' | null = !inspLink || !stop.contact_id
+    ? null
+    : inspLink.state === 'final' ? 'view' : canAccessIrrigation ? 'edit' : null
+  const [inspecting, setInspecting] = useState<'edit' | 'view' | null>(null)
+  const [lineItemsKey, setLineItemsKey] = useState(0)
+  useEffect(() => {
+    if (!autoInspect) return
+    if (inspMode) setInspecting(inspMode)
+    onAutoInspectDone?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoInspect])
+  // The phone's Back closes the inspection first, then the stop.
+  useEffect(() => {
+    if (!inspecting) return
+    window.history.pushState({ ...(window.history.state ?? {}), woInsp: stop.id }, '', window.location.href)
+    const onPop = () => setInspecting(null)
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [inspecting, stop.id])
+  function closeInspection(changed: boolean) {
+    if (window.history.state?.woInsp) window.history.back()
+    else setInspecting(null)
+    if (changed) {
+      onRefresh?.()
+      // The inspection may have proposed line items — they're written just after
+      // the save returns, so look again a moment later as well.
+      setLineItemsKey(k => k + 1)
+      setTimeout(() => setLineItemsKey(k => k + 1), 3000)
+    }
+  }
 
   async function submitOmw() {
     const eta = omwCustom ? parseInt(omwCustom, 10) : omwEta
@@ -1638,6 +1700,16 @@ function StopSheet({
 
   return (
     <>
+      {inspecting && stop.contact_id && customerHref && (
+        <StopInspection
+          contactId={stop.contact_id}
+          stopId={stop.id}
+          inspectionId={stop.inspection?.id ?? null}
+          mode={inspecting}
+          customerHref={customerHref}
+          onClose={closeInspection}
+        />
+      )}
       {/* Desktop backdrop — click to close */}
       <div className="hidden md:block fixed inset-0 z-[44] bg-black/50" onClick={onClose} aria-hidden />
       <div
@@ -1690,7 +1762,7 @@ function StopSheet({
             <ActionIcon
               icon="👤"
               label={stop.contact_id ? 'Customer' : 'No file'}
-              href={stop.contact_id ? `/hub/contacts/${stop.contact_id}` : null}
+              href={customerHref}
               disabled={!stop.contact_id}
               tone="indigo"
               title={stop.contact_id ? 'Open the customer file' : 'The Contacts directory has no Jobber link for this customer yet'}
@@ -1699,7 +1771,8 @@ function StopSheet({
               <ActionIcon
                 icon="💧"
                 label={inspLink ? (inspLink.state === 'final' ? 'Inspection' : inspLink.state === 'draft' ? 'Continue' : 'Inspect') : 'Inspect'}
-                href={inspLink?.href ?? null}
+                href={inspMode ? null : inspLink?.href ?? null}
+                onClick={inspMode ? () => setInspecting(inspMode) : undefined}
                 disabled={!inspLink}
                 tone="cyan"
                 title={inspLink?.label ?? 'No customer file is linked to this stop, so the inspection can’t be started from here'}
@@ -1813,7 +1886,7 @@ function StopSheet({
           )}
 
           {/* Line items — Work Orders Phase 2: editable, sent to the Jobber visit at Complete */}
-          <WorkOrderLineItems stopId={stop.id} stopStatus={stop.status}
+          <WorkOrderLineItems key={lineItemsKey} stopId={stop.id} stopStatus={stop.status}
             canSuggest={isIrrigation && stop.inspection?.status === 'final'} />
 
           {/* Visit instructions */}
