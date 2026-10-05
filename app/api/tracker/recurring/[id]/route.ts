@@ -8,7 +8,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireCompany()
+  const auth = await requireCompany({ grant: 'can_access_tracker' })
   if ('error' in auth) return auth.error
   const { companyId, supabase } = auth // reuse the helper's RLS session client
 
@@ -33,7 +33,7 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireCompany()
+  const auth = await requireCompany({ grant: 'can_access_tracker' })
   if ('error' in auth) return auth.error
   const { companyId, supabase } = auth // reuse the helper's RLS session client
 

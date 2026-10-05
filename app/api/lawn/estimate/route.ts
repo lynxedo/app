@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { withApiHandler, readJson, fetchWithTimeout, ApiError } from '@/lib/api'
+import { denyWithoutGrant } from '@/lib/company-auth'
 
 const LAWN_API = 'http://localhost:8000/estimate'
 
@@ -8,6 +9,8 @@ export const POST = withApiHandler(async (request) => {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_lawn')
+  if (denied) return denied
 
   // Validate input up front so a malformed body fails clean (400) instead of crashing
   // the upstream call.

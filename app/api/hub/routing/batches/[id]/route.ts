@@ -12,7 +12,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params
-  const auth = await requireCompany()
+  const auth = await requireCompany({ grant: 'can_access_routing' })
   if ('error' in auth) return auth.error
   const { companyId } = auth
 
@@ -32,7 +32,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params
-  const auth = await requireCompany()
+  const auth = await requireCompany({ grant: 'can_access_routing' })
   if ('error' in auth) return auth.error
   const { companyId } = auth
 

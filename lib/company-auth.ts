@@ -11,6 +11,34 @@ export type CompanyCaller = {
 }
 
 /**
+ * A tool grant an API must check itself (Ben, Oct 5 2026: the middleware in
+ * proxy.ts gates PAGES only — its matcher skips /api — so a Routing / Tracker /
+ * Lawn API that checked only "signed in + same company" answered anyone in the
+ * company). Allowed = the admin role or the grant, same as the Tracker
+ * from-source / draft-note routes.
+ */
+export type FeatureGrant = 'can_access_routing' | 'can_access_tracker' | 'can_access_lawn'
+
+function hasGrant(profile: { role?: string | null } & Partial<Record<FeatureGrant, boolean | null>>, grant: FeatureGrant): boolean {
+  return profile.role === 'admin' || profile[grant] === true
+}
+
+/** For routes that already authenticated: a 403 response when the caller lacks `grant`, else null. */
+export async function denyWithoutGrant(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  grant: FeatureGrant,
+): Promise<NextResponse | null> {
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, can_access_routing, can_access_tracker, can_access_lawn')
+    .eq('id', userId)
+    .single()
+  if (!profile || !hasGrant(profile, grant)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  return null
+}
+
+/**
  * Canonical "which company is the caller in" helper (multi-tenant Track 1).
  *
  * Authenticates the cookie session and resolves the caller's company_id from
@@ -20,7 +48,7 @@ export type CompanyCaller = {
  * before acting.
  *
  * Usage:
- *   const auth = await requireCompany()
+ *   const auth = await requireCompany()                              // or { grant: 'can_access_tracker' }
  *   if ('error' in auth) return auth.error
  *   const { companyId, userId, role } = auth
  *
@@ -28,7 +56,7 @@ export type CompanyCaller = {
  * second user_profiles query. For feature-flag admin gates keep using
  * requireAdminArea() (lib/admin-auth.ts), which already returns company_id.
  */
-export async function requireCompany(): Promise<CompanyCaller | { error: NextResponse }> {
+export async function requireCompany(opts?: { grant?: FeatureGrant }): Promise<CompanyCaller | { error: NextResponse }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -37,12 +65,15 @@ export async function requireCompany(): Promise<CompanyCaller | { error: NextRes
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('company_id, role')
+    .select('company_id, role, can_access_routing, can_access_tracker, can_access_lawn')
     .eq('id', user.id)
     .single()
 
   if (!profile?.company_id) {
     return { error: NextResponse.json({ error: 'No company' }, { status: 403 }) }
+  }
+  if (opts?.grant && !hasGrant(profile, opts.grant)) {
+    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
 
   return { userId: user.id, companyId: profile.company_id, role: profile.role ?? null, supabase }
