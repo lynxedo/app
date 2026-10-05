@@ -10,7 +10,10 @@
 // The invariant that makes this safe for a multi-tenant SaaS: every action runs
 // as a specific HubActor — one company, one user, that user's permission flags.
 // There is no elevated "assistant identity". If a user can't do it in the UI,
-// the assistant can't do it for them.
+// the assistant can't do it for them. The one exception is Amber's OWN account
+// (source 'amber', lib/hub-actions/amber.ts): it is NARROWER, not elevated — a
+// short code-side list of actions, each switched off/approve/auto by an admin,
+// and nothing she proposes runs without a person's tap unless set to auto.
 //
 // See Reference/PRDs/HUB_ASSISTANT_AND_MCP_PRD.md.
 
@@ -19,8 +22,9 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 
 export type Admin = ReturnType<typeof createAdminClient>
 
-/** Where the request came in from. Recorded on every usage event. */
-export type ActorSource = 'guardian' | 'mcp'
+/** Where the request came in from. Recorded on every usage event.
+ *  'amber' = Amber acting on her OWN account (no person asked — lib/hub-actions/amber.ts). */
+export type ActorSource = 'guardian' | 'mcp' | 'amber'
 
 /**
  * The resolved identity an action executes as. Built server-side from a user id
@@ -79,6 +83,12 @@ export type ActionContext = {
    * stage a customer text in one loop iteration and confirm it in the next.
    */
   turnId: string
+  /**
+   * Set only when Amber acts on her own account: where the work came from and
+   * the one-line reason a person sees on the approval card. A dedupeKey keeps
+   * a re-run from queueing the same proposal twice.
+   */
+  amber?: { source: string; reason?: string; dedupeKey?: string }
 }
 
 /**

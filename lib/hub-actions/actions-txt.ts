@@ -487,8 +487,32 @@ export const sendCustomerTextAction: HubAction = {
       body: target.body,
     })
 
+    if (ctx.actor.source === 'amber') {
+      // Sent from Amber's own account. A thread the send created (or reopened) is
+      // owned by the bot, which would hide the customer's reply from the team, so
+      // hand it back to the Queue, unassigned — the same 'unassigned' resolve drip
+      // uses. ONLY a bot-owned thread: if Josh already owns the conversation it
+      // stays his. Runs on a failed send too, which can still create the thread.
+      const convId = (res as { conversation_id?: string | null }).conversation_id ?? null
+      if (convId) {
+        await ctx.admin
+          .from('txt_conversations')
+          .update({ status: 'unassigned', assigned_to: null, archived_by: null })
+          .eq('id', convId)
+          .eq('assigned_to', ctx.actor.userId)
+        await ctx.admin
+          .from('txt_conversation_members')
+          .delete()
+          .eq('conversation_id', convId)
+          .eq('role', 'owner')
+          .eq('user_id', ctx.actor.userId)
+      }
+    }
     if (!res.ok) {
       return `The text to ${target.label} did NOT send (${res.error || 'unknown error'}). Tell the user it failed so they can follow up another way.`
+    }
+    if (ctx.actor.source === 'amber') {
+      return `Sent. ${target.label} (${phone(target.e164)}) has been texted; the reply comes back into the Txt inbox.`
     }
     return `Sent. ${target.label} (${phone(target.e164)}) has been texted, and their reply will come back into the Txt inbox under your name.`
   },

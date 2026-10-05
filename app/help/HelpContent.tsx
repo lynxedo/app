@@ -576,6 +576,19 @@ function HubTab() {
         <p><strong className="text-white">Auto-return to Home after long gaps</strong> — if it&apos;s been more than 14 hours since you last opened Hub, the next time you open it you&apos;ll land on Home instead. The idea: after an overnight gap you probably want to see the announcements and clock in first, not jump straight into whatever room you closed yesterday.</p>
       </Section>
 
+      <Section title="Amber — waiting for approval">
+        <p>Amber can now do some work <strong className="text-white">on her own</strong>, without anyone asking her first. Each time, she prepares the work, and it waits at the top of the <strong className="text-white">Amber</strong> screen (the Amber row in the Hub sidebar) for an approver. Approvers also get a notification when something new is waiting.</p>
+        <p className="mt-2">Each card shows what she wants to do, <em>why</em>, and exactly what will happen: who it goes to and the exact words. When you tap Approve, Hub checks the details again first. If something changed while it waited (say the customer opted out of texts), nothing runs, and the card updates so you can look again. You have three choices:</p>
+        <ul className="list-disc ml-5 mt-2 space-y-1">
+          <li><strong className="text-white">Approve</strong>: it runs right away. A customer text she sends on her own goes back to the Txt Queue, unassigned, so the reply reaches the team.</li>
+          <li><strong className="text-white">Edit</strong>: reword the message, then approve your version. You can change the words, never who it goes to.</li>
+          <li><strong className="text-white">Reject</strong>: nothing happens. Add a short note on why if you like.</li>
+        </ul>
+        <p className="mt-2">Anything nobody decides on within 3 days expires, and nothing is done. Amber&apos;s own Hub posts go to public rooms only. <em>Show recent decisions</em> lists what was approved, edited, rejected or run automatically, and by whom.</p>
+        <Note>This is only for work Amber starts herself. When you DM Amber, she works with <em>your</em> permissions and asks you to confirm in the chat, the same as before.</Note>
+        <AdminOnly>Set it up in <strong className="text-white">Admin → AI → Amber&apos;s account</strong>. Each thing she may do on her own (text a customer, post in the Hub, create a task, add a contact note) has its own switch: <strong className="text-white">Off</strong> (the starting setting), <strong className="text-white">Needs approval</strong>, or <strong className="text-white">Automatic</strong> (runs right away and is logged). Texting a customer can never be Automatic: Amber reads what customers write, so anything that reaches a customer always waits for a person. Under each one is her record over the last 90 days: how many were approved as she wrote them, how many were edited or rejected. Nothing switches to Automatic by itself. Pick who approves (only people with AI admin access can be picked; with nobody ticked, only company admins can approve). <em>Add a test item</em> has Amber ask to DM you, so you can check the whole loop. Looking things up (the schedule, contacts, texts, calls, leads, tasks) needs no switch, because it changes nothing.</AdminOnly>
+      </Section>
+
       <Section title="Amber — Right Now (temporary instructions)">
         <p><strong className="text-white">Amber</strong> in the Hub sidebar — right below My Tasks, above Boards — for telling the AI receptionist something that&apos;s only true for today (or this week), without editing her knowledge base. Things like <em>&ldquo;we&apos;re booked today, don&apos;t book any more&rdquo;</em> or <em>&ldquo;Kathryn&apos;s off, send her calls to me.&rdquo;</em> Every note has an expiry and disappears on its own.</p>
         <AdminOnly>

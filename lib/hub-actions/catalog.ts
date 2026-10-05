@@ -33,6 +33,17 @@ import { createTaskAction, listTasksAction, updateTaskAction } from './actions-b
 import { previewEmailReply, readEmailThreadAction, replyEmailAction, searchEmailAction } from './actions-email'
 import { postHubMessageAction } from './actions-hub'
 import { JOBBER_ACTIONS, JOBBER_PREVIEW_BUILDERS } from './actions-jobber'
+import {
+  AMBER_READ_ACTIONS,
+  amberActingAction,
+  AMBER_REASON_ARG,
+  AMBER_WRITE_PREVIEWS,
+  getAmberModes,
+  logAmberAutoRun,
+  queueAmberAction,
+  splitAmberReason,
+  type AmberMode,
+} from './amber'
 
 /**
  * confirm_action carries out something previously previewed. It is defined here
@@ -251,6 +262,12 @@ export async function runHubAction(
   const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
 
   try {
+    // Amber on her own account takes a separate, narrower path — her list and
+    // modes replace the permission flags she doesn't have. See ./amber.ts.
+    if (ctx.actor.source === 'amber') {
+      return await runAsAmber(ctx, settings, name, args)
+    }
+
     if (name === CONFIRM_ACTION_NAME) {
       return await runConfirm(ctx, settings, args)
     }
@@ -370,4 +387,146 @@ async function runConfirm(
     `Carried out the approved plan — ${steps.length} steps. Report each step's real outcome to the user; ` +
     `if any step says it failed, say so plainly.\n\n` + results.join('\n\n')
   )
+}
+
+// ── Amber's own account ──────────────────────────────────────────────────────
+
+/** Why Amber (on her own account) can't use this action, or null if she can. */
+function amberDenyReason(
+  action: HubAction,
+  settings: AssistantSettings,
+  modes: Record<string, AmberMode>,
+): string | null {
+  if (!isActionAllowedByCompany(action, settings)) {
+    return `"${action.name}" is switched off for the assistant in Admin → AI → Assistant, so I can't use it.`
+  }
+  if (AMBER_READ_ACTIONS.has(action.name)) return null
+  if (!amberActingAction(action.name)) {
+    return `"${action.name}" isn't one of the things I may do on my own. A person can ask me to do it in a DM.`
+  }
+  if (!modes[action.name]) {
+    return `"${action.name}" is switched off for my own account (Admin → AI → Amber's account), so nothing was done.`
+  }
+  return null
+}
+
+/**
+ * The tools Amber may use on her own account right now: the reads, plus each
+ * acting action that is switched on. Acting tools get a required `reason`
+ * argument — the line the approver reads on the card.
+ */
+export async function listAmberTools(
+  admin: Parameters<typeof getAmberModes>[0],
+  companyId: string,
+  settings: AssistantSettings,
+): Promise<Anthropic.Tool[]> {
+  const modes = await getAmberModes(admin, companyId)
+  return ALL_ACTIONS.filter((a) => a.name !== CONFIRM_ACTION_NAME && !amberDenyReason(a, settings, modes)).map((a) => {
+    if (AMBER_READ_ACTIONS.has(a.name)) return { name: a.name, description: a.description, input_schema: a.input_schema }
+    const schema = a.input_schema as { type: 'object'; properties?: Record<string, unknown>; required?: string[] }
+    const queued = modes[a.name] === 'approve'
+    return {
+      name: a.name,
+      description:
+        a.description +
+        (queued
+          ? ' ON YOUR OWN ACCOUNT: this goes into the approval queue for a person to approve, edit or reject. ' +
+            'There is no confirm step for you — never call confirm_action.'
+          : ' ON YOUR OWN ACCOUNT: this runs immediately and is logged.'),
+      input_schema: {
+        ...schema,
+        properties: {
+          ...(schema.properties ?? {}),
+          [AMBER_REASON_ARG]: {
+            type: 'string',
+            description: 'One sentence a person will read: why you are doing this, with the fact that prompted it.',
+          },
+        },
+        required: [...(schema.required ?? []), AMBER_REASON_ARG],
+      },
+    }
+  })
+}
+
+async function runAsAmber(
+  ctx: ActionContext,
+  settings: AssistantSettings,
+  name: string,
+  rawArgs: Record<string, unknown>,
+): Promise<string> {
+  // She can never approve her own proposals: approval is a person's Hub request.
+  if (name === CONFIRM_ACTION_NAME) {
+    return 'On your own account there is nothing for you to confirm — a person approves queued work in the Hub.'
+  }
+  const action = BY_NAME.get(name)
+  if (!action) return `Unknown action "${name}".`
+  if (!settings.enabled) return 'The Hub Assistant is switched off for this company, so I can\'t do anything on my own.'
+
+  const modes = await getAmberModes(ctx.admin, ctx.actor.companyId)
+  const denied = amberDenyReason(action, settings, modes)
+  if (denied) return denied
+
+  if (AMBER_READ_ACTIONS.has(name)) return await action.run(ctx, rawArgs)
+
+  const { reason, args } = splitAmberReason(rawArgs)
+  if (modes[name] === 'auto') {
+    let out: string
+    try {
+      out = await action.run(ctx, args)
+    } catch (err) {
+      console.warn('[hub-actions] Amber auto action failed', name, err)
+      out = "It didn't complete because of an internal error, so assume nothing happened."
+    }
+    logAmberAutoRun(ctx, name, args, reason, out)
+    return out
+  }
+
+  const builder = PREVIEW_BUILDERS[name] ?? AMBER_WRITE_PREVIEWS[name]
+  if (!builder) {
+    // Fail closed, like stagePreview: no preview means no way for a person to see it.
+    return `"${name}" has no preview a person could approve, so nothing was done.`
+  }
+  const built = await builder(ctx, args)
+  if (!built.ok) return built.message
+  return await queueAmberAction(ctx, name, args, built.preview, reason)
+}
+
+/**
+ * Carry out an approved queue item as Amber. Called only by the approver's Hub
+ * request after it has claimed the row. Re-checks her list and modes at run
+ * time — an action switched off after it was queued does not run.
+ */
+export async function runApprovedAmberAction(
+  ctx: ActionContext,
+  settings: AssistantSettings,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ ran: boolean; result: string }> {
+  const action = BY_NAME.get(name)
+  const acting = amberActingAction(name)
+  if (!action || !acting) return { ran: false, result: `The action "${name}" no longer exists.` }
+  if (!settings.enabled) return { ran: false, result: 'The Hub Assistant is switched off for this company.' }
+  const modes = await getAmberModes(ctx.admin, ctx.actor.companyId)
+  const denied = amberDenyReason(action, settings, modes)
+  if (denied) return { ran: false, result: denied }
+  try {
+    // Actions return a sentence instead of throwing — read it, so a text that
+    // did not send is recorded as failed, not approved.
+    const out = await action.run(ctx, args)
+    return { ran: acting.succeeded(out), result: out }
+  } catch (err) {
+    console.warn('[hub-actions] approved Amber action failed', name, err)
+    return { ran: false, result: "It didn't complete because of an internal error, so assume nothing happened." }
+  }
+}
+
+/** Re-run the preview for an approver's edited arguments (texts re-check the recipient). */
+export async function buildAmberPreview(
+  ctx: ActionContext,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ ok: true; preview: string } | { ok: false; message: string }> {
+  const builder = PREVIEW_BUILDERS[name] ?? AMBER_WRITE_PREVIEWS[name]
+  if (!builder) return { ok: false, message: 'No preview for that action.' }
+  return await builder(ctx, args)
 }

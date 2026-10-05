@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import AmberNotesCard from '@/components/hub/home/AmberNotesCard'
 import AmberQuickSettings from '@/components/hub/amber/AmberQuickSettings'
+import AmberApprovals from '@/components/hub/amber/AmberApprovals'
 
 // Amber's "Right Now" screen — its own Hub destination.
 //
@@ -38,10 +39,11 @@ export default async function AmberNotesPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-white">Amber — Right Now</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Her main switches, plus temporary instructions that override her knowledge base
-            until they expire.
+            What she wants to do and is waiting on your OK, her main switches, and temporary
+            instructions that override her knowledge base until they expire.
           </p>
         </div>
+        <AmberApprovals />
         <AmberQuickSettings />
         <AmberNotesCard variant="page" />
       </div>
