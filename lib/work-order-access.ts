@@ -3,6 +3,21 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { LineItemStop } from '@/lib/work-order-line-items'
 
+/**
+ * The ONE Work Orders access rule (Ben, Oct 5 2026 — a manager with only the
+ * old Daily Log admin grant got into Work Orders from a shared link):
+ *  - canAccess: the admin role, or the Work Orders grant (can_access_daily_log_v2).
+ *  - isAdmin (the office tools — Office lists, Sync from Jobber, suggestion
+ *    rules, every tech's day): the admin role, or the Work Orders grant AND
+ *    Daily Log admin. Daily Log admin on its own opens nothing here.
+ * Every Work Orders page and API checks this, so a pasted URL gets the same answer.
+ */
+export function workOrderAccess(p: { role?: string | null; can_admin_daily_log?: boolean | null; can_access_daily_log_v2?: boolean | null } | null | undefined): { canAccess: boolean; isAdmin: boolean } {
+  const fullAdmin = p?.role === 'admin'
+  const granted = p?.can_access_daily_log_v2 === true
+  return { canAccess: fullAdmin || granted, isAdmin: fullAdmin || (granted && p?.can_admin_daily_log === true) }
+}
+
 export type WorkOrderStop = LineItemStop & {
   entry_id: string
   completed_at: string | null
@@ -14,8 +29,7 @@ export type WorkOrderStop = LineItemStop & {
 
 /**
  * Work Orders (Phase 2) access to one stop: a signed-in user in the stop's
- * company with the Work Orders grant (can_access_daily_log_v2) or Daily Log
- * admin rights (role admin / can_admin_daily_log) — the same gate as the page.
+ * company who passes workOrderAccess() — the same gate as the page.
  * Returns the admin client for the writes; every write is scoped to this stop.
  */
 export async function resolveWorkOrderStop(stopId: string): Promise<
@@ -32,8 +46,8 @@ export async function resolveWorkOrderStop(stopId: string): Promise<
     .eq('id', user.id)
     .single()
   if (!profile?.company_id) return { error: NextResponse.json({ error: 'No company' }, { status: 403 }) }
-  const isAdmin = profile.role === 'admin' || profile.can_admin_daily_log === true
-  if (!isAdmin && profile.can_access_daily_log_v2 !== true) {
+  const { canAccess, isAdmin } = workOrderAccess(profile)
+  if (!canAccess) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
 

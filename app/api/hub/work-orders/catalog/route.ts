@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { workOrderAccess } from '@/lib/work-order-access'
 import { jobberGraphQLPatient, companyJobberUserId } from '@/lib/jobber'
 
 // GET  /api/hub/work-orders/catalog — the Jobber Products & Services list for
@@ -37,8 +38,7 @@ async function gate() {
     .from('user_profiles').select('company_id, role, can_admin_daily_log, can_access_daily_log_v2')
     .eq('id', user.id).single()
   if (!profile?.company_id) return { error: NextResponse.json({ error: 'No company' }, { status: 403 }) }
-  const ok = profile.role === 'admin' || profile.can_admin_daily_log === true || profile.can_access_daily_log_v2 === true
-  if (!ok) return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+  if (!workOrderAccess(profile).canAccess) return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   return { userId: user.id, companyId: profile.company_id as string }
 }
 

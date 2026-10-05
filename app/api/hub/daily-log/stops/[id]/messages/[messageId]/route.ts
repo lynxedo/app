@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { workOrderAccess } from '@/lib/work-order-access'
 
 // PATCH  /api/hub/daily-log/stops/:id/messages/:messageId  { content }  — edit a note
 // DELETE /api/hub/daily-log/stops/:id/messages/:messageId               — delete a note
 //
 // Ben, Oct 2 2026: a tech must be able to fix or take back a note on a work order.
-// The author may edit or delete their own note; a Daily Log admin (role admin or
-// can_admin_daily_log) may do either on anyone's. A delete is SOFT (deleted_at) —
+// The author may edit or delete their own note; a Work Orders admin
+// (workOrderAccess().isAdmin) may do either on anyone's. A delete is SOFT (deleted_at) —
 // the note leaves the thread but the row stays. Company scope is checked here
 // (message → company, and the message must belong to this stop).
 
@@ -18,10 +19,12 @@ async function resolve(stopId: string, messageId: string) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('company_id, role, can_admin_daily_log')
+    .select('company_id, role, can_admin_daily_log, can_access_daily_log_v2')
     .eq('id', user.id)
     .single()
   if (!profile?.company_id) return { error: 'Profile not found', status: 404 as const }
+  // Work Orders only (lib/work-order-access.ts) — was: anyone in the company.
+  if (!workOrderAccess(profile).canAccess) return { error: 'Forbidden', status: 403 as const }
 
   const admin = createAdminClient()
   const { data: msg } = await admin
@@ -32,7 +35,7 @@ async function resolve(stopId: string, messageId: string) {
   if (!msg || msg.stop_id !== stopId || msg.company_id !== profile.company_id || msg.deleted_at) {
     return { error: 'Not found', status: 404 as const }
   }
-  const isAdmin = profile.role === 'admin' || profile.can_admin_daily_log === true
+  const { isAdmin } = workOrderAccess(profile)
   if (msg.user_id !== user.id && !isAdmin) {
     return { error: 'Only the person who wrote this note (or an admin) can change it', status: 403 as const }
   }

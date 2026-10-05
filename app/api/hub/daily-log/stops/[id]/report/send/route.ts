@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
 import { getBusinessProfile } from '@/lib/business-profile'
+import { workOrderAccess } from '@/lib/work-order-access'
 
 function buildReportMessage(args: {
   firstName: string
@@ -48,10 +49,12 @@ export async function POST(
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('company_id')
+    .select('company_id, role, can_admin_daily_log, can_access_daily_log_v2')
     .eq('id', user.id)
     .single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+  // Work Orders only (lib/work-order-access.ts) — was: anyone in the company.
+  if (!workOrderAccess(profile).canAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin = createAdminClient()
 

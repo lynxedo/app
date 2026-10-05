@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { workOrderAccess } from '@/lib/work-order-access'
 
 // POST /api/hub/daily-log/stops/:id/messages/:messageId/reactions  { emoji }
 //
@@ -19,8 +20,10 @@ export async function POST(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: profile } = await supabase.from('user_profiles').select('company_id').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('user_profiles').select('company_id, role, can_admin_daily_log, can_access_daily_log_v2').eq('id', user.id).single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+  // Work Orders only (lib/work-order-access.ts) — was: anyone in the company.
+  if (!workOrderAccess(profile).canAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = (await request.json().catch(() => ({}))) as { emoji?: unknown }
   const emoji = typeof body.emoji === 'string' ? body.emoji.trim() : ''
