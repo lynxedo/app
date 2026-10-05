@@ -7,6 +7,7 @@ import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreview
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import WorkOrderLineItems from './WorkOrderLineItems'
 import StopInspection from './StopInspection'
+import StopServiceReport from './StopServiceReport'
 import { Spinner, EmptyState } from '@/components/ui'
 import { fmtQty, type StoredRouteLoadout, type StoredLoadoutProduct } from '@/lib/route-capacity'
 import { formatPhone, formatDurationMs, formatDurationSec } from '@/lib/format'
@@ -43,6 +44,8 @@ type WeatherSnapshot = {
 // the Jobber visit id by the API). `share_url` is set only for a saved report
 // whose customer link is still live.
 type StopInspection = { id: string; status: 'draft' | 'final'; share_url: string | null }
+// Work Orders Phase 3 — the after-service report for this stop's visit (WF / MO).
+type StopReport = { id: string; status: 'draft' | 'final'; sent_at: string | null }
 
 type Stop = {
   id: string
@@ -78,6 +81,7 @@ type Stop = {
   jobber_client_id: string | null
   jobber_job_id: string | null
   inspection: StopInspection | null
+  service_report: StopReport | null
   // Work Orders Phase 1.5 — where the stop came from and whether Jobber still has it
   source: 'route' | 'jobber' | null
   jobber_synced_at: string | null
@@ -114,15 +118,6 @@ type StopAttachment = {
   uploaded_by: string | null
 }
 
-type ServiceReport = {
-  id: string
-  main_service: string | null
-  additional_services: string[]
-  issues_found: string[]
-  notes: string | null
-  sent_at: string | null
-}
-
 type Entry = {
   id: string
   log_date: string
@@ -144,40 +139,6 @@ type ApiResponse = {
   entries: Entry[]
   depot: { lat: number; lng: number } | null
 }
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const MAIN_SERVICE_OPTIONS = [
-  'Lawn Mowing',
-  'Lawn Treatment',
-  'Fertilization',
-  'Weed Control',
-  'Aeration',
-  'Irrigation Service',
-  'Landscaping',
-  'Cleanup',
-  'Other',
-]
-
-const ADDITIONAL_SERVICE_OPTIONS = [
-  'Edging',
-  'Blowing',
-  'Trimming',
-  'Bagging',
-  'Mulching',
-  'Pruning',
-  'Bed maintenance',
-]
-
-const ISSUE_OPTIONS = [
-  'Irrigation leak detected',
-  'Sprinkler head damage',
-  'Lawn disease spotted',
-  'Pest activity noted',
-  'Gate access issue',
-  'Property damage observed',
-  'Overgrowth needs attention',
-]
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -323,10 +284,12 @@ export default function DailyLogV2View({
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
-  // Tapping 💧 on a row opens the stop AND its inspection on top of it.
+  // Tapping 💧 / 📋 on a row opens the stop AND its inspection / report on top of it.
   const [autoInspectStopId, setAutoInspectStopId] = useState<string | null>(null)
-  const openStop = useCallback((stopId: string, opts?: { inspect?: boolean }) => {
+  const [autoReportStopId, setAutoReportStopId] = useState<string | null>(null)
+  const openStop = useCallback((stopId: string, opts?: { inspect?: boolean; report?: boolean }) => {
     setAutoInspectStopId(opts?.inspect ? stopId : null)
+    setAutoReportStopId(opts?.report ? stopId : null)
     setOpenStopId(stopId)
     const url = new URL(window.location.href)
     url.searchParams.set('date', date)
@@ -752,6 +715,8 @@ export default function DailyLogV2View({
           date={openStopCtx.entry.log_date}
           autoInspect={autoInspectStopId === openStopCtx.stop.id}
           onAutoInspectDone={() => setAutoInspectStopId(null)}
+          autoReport={autoReportStopId === openStopCtx.stop.id}
+          onAutoReportDone={() => setAutoReportStopId(null)}
           onRefresh={() => { void load(date) }}
         />
       )}
@@ -1350,6 +1315,14 @@ function isTreatmentStop(stop: Stop): boolean {
   return stop.line_items.some(li => /^\s*(WF|MO)\s*-/i.test(li.name ?? ''))
 }
 
+/** The after-service report's state in a word or two: Fill out / Continue / ✓ Saved / ✓ Sent. */
+function reportLabel(stop: Stop): string {
+  const r = stop.service_report
+  if (!r) return 'Fill out report'
+  if (r.status === 'draft') return 'Continue report'
+  return r.sent_at ? 'Report ✓ sent' : 'Report ✓'
+}
+
 /**
  * One round icon with a small label under it — the stop's action row and its
  * bottom bar. Same round-emoji look as the Txt conversation header.
@@ -1399,7 +1372,7 @@ function StopRow({ stop, date, active, onOpen }: {
   stop: Stop
   date: string
   active: boolean
-  onOpen: (stopId: string, opts?: { inspect?: boolean }) => void
+  onOpen: (stopId: string, opts?: { inspect?: boolean; report?: boolean }) => void
 }) {
   const lineItemNames = stop.line_items.map(li => li.name).filter(Boolean)
   const lineItemsSummary = lineItemNames.length === 0
@@ -1464,6 +1437,16 @@ function StopRow({ stop, date, active, onOpen }: {
               </Link>
             ) : null
           })()}
+          {isTreatmentStop(stop) && !isSkipped && stop.contact_id && (
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onOpen(stop.id, { report: true }) }}
+              className={`text-[11px] hover:underline ${stop.service_report?.status === 'final' ? 'text-emerald-300' : 'text-emerald-400'}`}
+              title="After-service report for this visit"
+            >
+              📋 {reportLabel(stop)} ›
+            </button>
+          )}
           {isComplete && stop.completed_at && (
             <div className="text-[10px] bg-emerald-500/15 text-emerald-300 px-1.5 py-0.5 rounded">
               ✓ Done {formatTime(stop.completed_at)}
@@ -1537,6 +1520,8 @@ function StopSheet({
   date,
   autoInspect,
   onAutoInspectDone,
+  autoReport,
+  onAutoReportDone,
   onRefresh,
 }: {
   stop: Stop
@@ -1556,6 +1541,8 @@ function StopSheet({
   date: string
   autoInspect?: boolean
   onAutoInspectDone?: () => void
+  autoReport?: boolean
+  onAutoReportDone?: () => void
   onRefresh?: () => void
 }) {
   const router = useRouter()
@@ -1655,6 +1642,31 @@ function StopSheet({
     }
   }
 
+  // The after-service report opens on top of the stop too (WF / MO stops). A
+  // saved one opens to read (with Edit until it is sent); otherwise the draft.
+  const reportMode: 'edit' | 'view' | null = !isTreatment || isSkipped || !stop.contact_id
+    ? null
+    : stop.service_report?.status === 'final' ? 'view' : 'edit'
+  const [reporting, setReporting] = useState<'edit' | 'view' | null>(null)
+  useEffect(() => {
+    if (!autoReport) return
+    if (reportMode) setReporting(reportMode)
+    onAutoReportDone?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoReport])
+  useEffect(() => {
+    if (!reporting) return
+    window.history.pushState({ ...(window.history.state ?? {}), woAsr: stop.id }, '', window.location.href)
+    const onPop = () => setReporting(null)
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [reporting, stop.id])
+  function closeReport(changed: boolean) {
+    if (window.history.state?.woAsr) window.history.back()
+    else setReporting(null)
+    if (changed) onRefresh?.()
+  }
+
   async function submitOmw() {
     const eta = omwCustom ? parseInt(omwCustom, 10) : omwEta
     if (!Number.isFinite(eta) || eta < 1 || eta > 240) return
@@ -1708,6 +1720,16 @@ function StopSheet({
           mode={inspecting}
           customerHref={customerHref}
           onClose={closeInspection}
+        />
+      )}
+      {reporting && stop.contact_id && customerHref && (
+        <StopServiceReport
+          contactId={stop.contact_id}
+          stopId={stop.id}
+          reportId={stop.service_report?.id ?? null}
+          mode={reporting}
+          customerHref={customerHref}
+          onClose={closeReport}
         />
       )}
       {/* Desktop backdrop — click to close */}
@@ -1776,6 +1798,16 @@ function StopSheet({
                 disabled={!inspLink}
                 tone="cyan"
                 title={inspLink?.label ?? 'No customer file is linked to this stop, so the inspection can’t be started from here'}
+              />
+            )}
+            {isTreatment && !isSkipped && (
+              <ActionIcon
+                icon="📋"
+                label={!stop.service_report ? 'Report' : stop.service_report.status === 'draft' ? 'Continue' : 'Report ✓'}
+                onClick={reportMode ? () => setReporting(reportMode) : undefined}
+                disabled={!reportMode}
+                tone="emerald"
+                title={reportMode ? 'After-service report for this visit' : 'No customer file is linked to this stop, so the report can’t be started from here'}
               />
             )}
             <ActionIcon icon="🗺️" label="Navigate" href={navHref} external disabled={!navHref} tone="sky" />
@@ -1997,7 +2029,20 @@ function StopSheet({
             </div>
           )}
           {!isSkipped && isTreatment && (
-            <ServiceReportSection stopId={stop.id} clientPhone={stop.client_phone} />
+            <button
+              type="button"
+              onClick={reportMode ? () => setReporting(reportMode) : undefined}
+              disabled={!reportMode}
+              className="w-full text-left bg-emerald-500/5 border border-emerald-500/30 rounded px-3 py-2.5 hover:bg-emerald-500/10 transition-colors disabled:opacity-50"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm text-emerald-100">📋 After-service report</span>
+                <span className="text-xs text-emerald-300">
+                  {!stop.contact_id ? 'Needs a customer file' : !stop.service_report ? 'Fill out ›' : stop.service_report.status === 'draft' ? 'Continue draft ›' : stop.service_report.sent_at ? '✓ Sent · View ›' : '✓ Saved · View ›'}
+                </span>
+              </div>
+              <div className="text-[11px] text-gray-500 mt-0.5">What was done, what you saw, recommendations, photos — and confirm the products applied.</div>
+            </button>
           )}
         </div>
 
@@ -2612,214 +2657,6 @@ function StopNotesAndAttachments({
           startIndex={lightbox.index}
           onClose={() => setLightbox(null)}
         />
-      )}
-    </div>
-  )
-}
-
-// ── ServiceReportSection ──────────────────────────────────────────────────────
-
-function ServiceReportSection({
-  stopId,
-  clientPhone,
-}: {
-  stopId: string
-  clientPhone: string | null
-}) {
-  const [report, setReport] = useState<ServiceReport | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [open, setOpen] = useState(false)
-  const [mainService, setMainService] = useState('')
-  const [additionalServices, setAdditionalServices] = useState<string[]>([])
-  const [issues, setIssues] = useState<string[]>([])
-  const [notes, setNotes] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [sendResult, setSendResult] = useState<{ ok: boolean; msg: string } | null>(null)
-
-  useEffect(() => {
-    fetch(`/api/hub/daily-log/stops/${stopId}/report`)
-      .then(r => r.json())
-      .then(d => {
-        setLoading(false)
-        if (d.report) {
-          const r = d.report as ServiceReport
-          setReport(r)
-          setMainService(r.main_service ?? '')
-          setAdditionalServices(r.additional_services ?? [])
-          setIssues(r.issues_found ?? [])
-          setNotes(r.notes ?? '')
-        }
-      })
-      .catch(() => setLoading(false))
-  }, [stopId])
-
-  async function saveReport() {
-    setSaving(true)
-    try {
-      const payload = {
-        main_service: mainService || null,
-        additional_services: additionalServices,
-        issues_found: issues,
-        notes: notes || null,
-      }
-      const method = report ? 'PATCH' : 'POST'
-      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/report`, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok && data.report) setReport(data.report as ServiceReport)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function sendReport() {
-    if (!clientPhone) return
-    setSending(true)
-    setSendResult(null)
-    try {
-      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/report/send`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok) {
-        setSendResult({ ok: true, msg: 'Report sent to customer' })
-        if (data.report) setReport(data.report as ServiceReport)
-      } else {
-        setSendResult({ ok: false, msg: data.error ?? 'Send failed' })
-      }
-    } finally {
-      setSending(false)
-    }
-  }
-
-  function toggleAdditional(s: string) {
-    setAdditionalServices(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])
-  }
-
-  function toggleIssue(s: string) {
-    setIssues(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])
-  }
-
-  if (loading) return null
-
-  const statusLabel = report?.sent_at ? '✓ Sent' : report ? '✓ Saved' : 'Not started'
-
-  return (
-    <div className="bg-sky-500/5 border border-sky-700/30 rounded overflow-hidden">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="w-full px-3 py-2.5 flex items-center justify-between text-sm text-sky-200 hover:bg-sky-500/5 transition-colors"
-      >
-        <span>📋 After-service report</span>
-        <span className="text-xs text-sky-300/70">
-          {statusLabel} {open ? '▴' : '▾'}
-        </span>
-      </button>
-
-      {open && (
-        <div className="px-3 pb-3 space-y-3 border-t border-sky-700/20">
-          {/* Main service */}
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1.5 mt-2.5">Main service</div>
-            <div className="flex flex-wrap gap-1.5">
-              {MAIN_SERVICE_OPTIONS.map(s => (
-                <button
-                  key={s}
-                  onClick={() => setMainService(prev => prev === s ? '' : s)}
-                  className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
-                    mainService === s
-                      ? 'bg-sky-600 text-[#fff]'
-                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Additional services */}
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1.5">Additional services</div>
-            <div className="flex flex-wrap gap-1.5">
-              {ADDITIONAL_SERVICE_OPTIONS.map(s => (
-                <button
-                  key={s}
-                  onClick={() => toggleAdditional(s)}
-                  className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
-                    additionalServices.includes(s)
-                      ? 'bg-emerald-600 text-[#fff]'
-                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Issues found */}
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1.5">Issues found</div>
-            <div className="flex flex-wrap gap-1.5">
-              {ISSUE_OPTIONS.map(s => (
-                <button
-                  key={s}
-                  onClick={() => toggleIssue(s)}
-                  className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
-                    issues.includes(s)
-                      ? 'bg-amber-600 text-[#fff]'
-                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1.5">Notes</div>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Any additional notes for this visit…"
-              rows={2}
-              className="w-full bg-gray-900 border border-gray-700 rounded px-2.5 py-2 text-base md:text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500 resize-y"
-            />
-          </div>
-
-          {/* Send result */}
-          {sendResult && (
-            <div className={`text-xs ${sendResult.ok ? 'text-emerald-300' : 'text-red-300'}`}>
-              {sendResult.ok ? '✓ ' : '⚠ '}{sendResult.msg}
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex gap-2">
-            <button
-              onClick={saveReport}
-              disabled={saving}
-              className="flex-1 px-3 py-2.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-[#fff] rounded text-sm font-medium transition-colors"
-            >
-              {saving ? 'Saving…' : 'Save report'}
-            </button>
-            {clientPhone && (
-              <button
-                onClick={sendReport}
-                disabled={sending || !report}
-                title={!report ? 'Save the report first' : ''}
-                className="flex-1 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-[#fff] rounded text-sm font-medium transition-colors"
-              >
-                {sending ? 'Sending…' : '📱 Send to customer'}
-              </button>
-            )}
-          </div>
-        </div>
       )}
     </div>
   )

@@ -134,11 +134,37 @@ export async function GET(request: Request) {
     }
   }
 
+  // Work Orders Phase 3 — the after-service report for each stop's visit (WF /
+  // MO stops), same keying as the inspection: visit id, then stop id.
+  type ReportLite = { id: string; status: string; jobber_visit_id: string | null; stop_id: string | null; sent_at: string | null }
+  const repByVisit = new Map<string, ReportLite>()
+  const repByStop = new Map<string, ReportLite>()
+  if (allStops.length > 0) {
+    const admin = createAdminClient()
+    const orParts = [
+      visitIds.length > 0 ? `jobber_visit_id.in.(${visitIds.map(v => `"${v}"`).join(',')})` : null,
+      `stop_id.in.(${stopIds.join(',')})`,
+    ].filter((x): x is string => !!x)
+    const { data: reps } = await admin
+      .from('after_service_reports')
+      .select('id, status, jobber_visit_id, stop_id, sent_at')
+      .eq('company_id', profile.company_id)
+      .or(orParts.join(','))
+    for (const r of (reps ?? []) as ReportLite[]) {
+      if (r.jobber_visit_id) repByVisit.set(r.jobber_visit_id, r)
+      if (r.stop_id) repByStop.set(r.stop_id, r)
+    }
+  }
+  const serviceReportFor = (s: StopRow) => {
+    const r = (s.jobber_visit_id ? repByVisit.get(s.jobber_visit_id) : undefined) ?? repByStop.get(s.id)
+    return r ? { id: r.id, status: r.status === 'final' ? 'final' : 'draft', sent_at: r.sent_at } : null
+  }
+
   const sorted = (entries ?? []).map(e => ({
     ...e,
     stops: [...((e.stops ?? []) as StopRow[])]
       .sort((a, b) => a.ord - b.ord)
-      .map(s => ({ ...s, inspection: inspectionFor(s) })),
+      .map(s => ({ ...s, inspection: inspectionFor(s), service_report: serviceReportFor(s) })),
     secondary_techs: ((e.secondary_tech_user_ids ?? []) as string[])
       .map(id => techMap.get(id))
       .filter((t): t is HubUserLite => Boolean(t)),

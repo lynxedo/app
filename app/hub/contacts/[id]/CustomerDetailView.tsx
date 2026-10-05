@@ -7,6 +7,7 @@ import { formatPhone, formatCurrency, formatDurationSec } from '@/lib/format'
 import { contactDisplayName, nameIsAiGuessed } from '@/lib/contact-name'
 import MergeContactModal from './MergeContactModal'
 import IrrigationSection from './IrrigationSection'
+import AfterServiceSection from './AfterServiceSection'
 import BackToStopBar from './BackToStopBar'
 import WorkOrdersCard from './WorkOrdersCard'
 import type { CustomerDetailAccount, CustomerDetailProperty, AccountProgram, AccountVisit } from './types'
@@ -187,6 +188,7 @@ export default function CustomerDetailView({
           <FlagsCard contact={contact} allTags={allTags} onUpdated={setContact} />
           <PropertyCard properties={properties} />
           <IrrigationSection contactId={contact.id} />
+          <AfterServiceSection contactId={contact.id} />
           <WorkOrdersCard contactId={contact.id} />
           {contact.jobber_client_id && <ProgramServicesCard programs={programs} currentYear={currentYear} />}
         </div>
