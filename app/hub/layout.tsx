@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { quoteAccess } from '@/lib/quote-access'
+import { workOrderViewPerms } from '@/lib/work-order-access'
 import { redirect } from 'next/navigation'
 import fs from 'fs'
 import path from 'path'
@@ -235,6 +236,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   })()
   const canAccessPricer = isAdmin || (profileResult.data?.can_access_pricer ?? false)
   const canAccessQuotes = quoteAccess(profileResult.data).canUse
+  // Work Orders opened as a workspace tab gets the same buttons as the page.
+  const workOrderPerms = workOrderViewPerms(profileResult.data)
   const rawCanAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
   const rawCanAccessReports = profileResult.data?.can_access_reports ?? false
   const rawCanAccessCoaching = profileResult.data?.can_access_coaching ?? false
@@ -464,6 +467,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessPesticideRecords={canAccessPesticideRecords && moduleOn('pricer')}
         canAccessPricer={canAccessPricer && moduleOn('pricer')}
         canAccessQuotes={canAccessQuotes}
+        workOrderPerms={workOrderPerms}
         canAccessHub={canAccessHub}
         scoreboardSlugs={scoreboardSlugs}
         reportSlugs={reportSlugs}

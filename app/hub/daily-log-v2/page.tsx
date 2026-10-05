@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import DailyLogV2View from '@/components/hub/DailyLogV2View'
-import { workOrderAccess } from '@/lib/work-order-access'
-import { quoteAccess } from '@/lib/quote-access'
+import { workOrderAccess, workOrderViewPerms } from '@/lib/work-order-access'
 
 export const metadata = { title: 'Work Orders' }
 
@@ -18,27 +17,11 @@ export default async function DailyLogV2Page() {
     .single()
 
   // One rule for the page and every Work Orders API (lib/work-order-access.ts).
-  const { canAccess, isAdmin } = workOrderAccess(profile)
+  const { canAccess } = workOrderAccess(profile)
   if (!canAccess) redirect('/hub')
 
-  // Starting / continuing an irrigation inspection from a stop needs the same
-  // grant the customer file's Irrigation card uses (can_access_irrigation, or
-  // the admin role). A Daily Log admin (can_admin_daily_log) does NOT get it
-  // for free — same rule as lib/irrigation-server.ts resolveIrrigationAccess.
-  const canAccessIrrigation = profile?.role === 'admin' || profile?.can_access_irrigation === true
+  // The viewer's buttons — the SAME helper the workspace-tab twin uses.
+  const perms = workOrderViewPerms(profile)
 
-  // The stop's 📞 Call / 💬 Text buttons — same grants as the Lead Tracker's.
-  const canCall = profile?.role === 'admin' || profile?.can_access_dialer === true
-  const canText = profile?.role === 'admin' || profile?.can_access_txt === true
-
-  return (
-    <DailyLogV2View
-      currentUserId={user.id}
-      isAdmin={isAdmin}
-      canAccessIrrigation={canAccessIrrigation}
-      canCall={canCall}
-      canText={canText}
-      canQuote={quoteAccess(profile).canUse}
-    />
-  )
+  return <DailyLogV2View currentUserId={user.id} {...perms} />
 }

@@ -1,5 +1,6 @@
 'use client'
 
+import type { WorkOrderViewPerms } from '@/lib/work-order-access'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import HubSidebar from './HubSidebar'
@@ -116,6 +117,7 @@ export default function HubShell({
   canAccessPesticideRecords,
   canAccessPricer,
   canAccessQuotes,
+  workOrderPerms,
   canAccessHub,
   scoreboardSlugs,
   reportSlugs,
@@ -207,6 +209,8 @@ export default function HubShell({
   canAccessPesticideRecords?: boolean
   canAccessPricer?: boolean
   canAccessQuotes?: boolean
+  /** The Work Orders tab's buttons — same helper as the page (lib/work-order-access.ts). */
+  workOrderPerms?: WorkOrderViewPerms
   canAccessHub?: boolean
   scoreboardSlugs?: string[]
   /** Reports this user may open. REQUIRED so a missing wire-up fails the
@@ -973,7 +977,7 @@ export default function HubShell({
       case 'board':
         return t.instanceKey ? <BoardTab boardId={t.instanceKey} hubUsers={hubUsers} currentUserId={currentUserId} /> : null
       case 'daily-log-v2':
-        return <DailyLogV2View currentUserId={currentUserId} isAdmin={!!isAdmin} canQuote={!!canAccessQuotes} />
+        return <DailyLogV2View currentUserId={currentUserId} {...(workOrderPerms ?? { isAdmin: !!isAdmin, canAccessIrrigation: !!isAdmin, canCall: !!isAdmin, canText: !!isAdmin, canQuote: !!isAdmin })} />
       case 'room':
         return t.instanceKey ? <ChatTab roomId={t.instanceKey} label={t.label} currentUserId={currentUserId} hubUsers={hubUsers} isAdmin={!!isAdmin} rooms={rooms.map(r => ({ id: r.id, name: r.name }))} /> : null
       case 'dm':
