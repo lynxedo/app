@@ -15,7 +15,7 @@ import type { AfterServiceData } from '@/lib/after-service'
 //        is started from the stop; the customer file shows and continues them.
 //
 // Viewing rides on can_access_hub; starting / editing needs the Work Orders grant
-// (or Daily Log admin). All writes go through the admin client.
+// (workOrderAccess). All writes go through the admin client.
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: contactId } = await params
