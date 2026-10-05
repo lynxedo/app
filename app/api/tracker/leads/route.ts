@@ -3,11 +3,14 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchLeadsWithNotes } from '@/lib/tracker/leads'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
+import { denyWithoutGrant } from '@/lib/company-auth'
 
 export async function GET(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_tracker')
+  if (denied) return denied
 
   const { searchParams } = new URL(request.url)
   try {
@@ -27,6 +30,8 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_tracker')
+  if (denied) return denied
 
   const { data: profile } = await supabase
     .from('user_profiles')

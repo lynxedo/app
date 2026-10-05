@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { denyWithoutGrant } from '@/lib/company-auth'
 
 export async function GET(
   _request: Request,
@@ -8,6 +9,8 @@ export async function GET(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_tracker')
+  if (denied) return denied
 
   const { id } = await params
 
@@ -28,6 +31,8 @@ export async function POST(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_tracker')
+  if (denied) return denied
 
   const { data: profile } = await supabase
     .from('user_profiles')

@@ -4,6 +4,7 @@ import { geocodeAddresses } from '@/lib/geocode'
 import { haversineKm, twoOptTSP } from '@/lib/tsp'
 import type { DurationRulesConfig } from '@/app/api/settings/types'
 import { DEFAULT_DURATION_RULES } from '@/app/api/settings/types'
+import { denyWithoutGrant } from '@/lib/company-auth'
 
 const FALLBACK_DEPOT = { lat: 30.2018, lng: -95.6972 }
 const FALLBACK_SERVICE_MIN = 30
@@ -128,6 +129,8 @@ export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_routing')
+  if (denied) return denied
 
   const {
     addresses, jobTitles, visitLineItems, visitTypes,

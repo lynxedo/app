@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { geocodeAddresses } from '@/lib/geocode'
 import { withApiHandler, readJson, ApiError } from '@/lib/api'
+import { denyWithoutGrant } from '@/lib/company-auth'
 
 // #30 — one source of truth for coordinates. The route map used to geocode addresses
 // in the browser via Mapbox while the optimizer geocoded them server-side via the US
@@ -12,6 +13,8 @@ export const POST = withApiHandler(async (request) => {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_routing')
+  if (denied) return denied
 
   const body = await readJson<{ addresses?: unknown }>(request)
   const addresses = body?.addresses
