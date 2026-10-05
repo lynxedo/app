@@ -206,21 +206,21 @@ function UserAvatar({ user, size = 8 }: { user: HubUser | null; size?: number })
 export default function DailyLogV2View({
   currentUserId,
   isAdmin,
-  canAccessIrrigation = false,
-  canCall = false,
-  canText = false,
-  canQuote = false,
+  canAccessIrrigation,
+  canCall,
+  canText,
+  canQuote,
 }: {
   currentUserId: string
   isAdmin: boolean
   /** May start / continue an irrigation inspection from a stop (can_access_irrigation or admin). */
-  canAccessIrrigation?: boolean
+  canAccessIrrigation: boolean
   /** The stop's 📞 Call button — Dialer access (can_access_dialer or admin). */
-  canCall?: boolean
+  canCall: boolean
   /** The stop's 💬 Text button — Txt access (can_access_txt or admin). */
-  canText?: boolean
+  canText: boolean
   /** The stop's 💲 Quote button — can build quotes (Quotes grant, Quotes admin or admin). */
-  canQuote?: boolean
+  canQuote: boolean
 }) {
   const [date, setDate] = useState<string>(todayStr())
   // Ben, Oct 2 2026: a tech picker replaces All / My Day. null = every tech;

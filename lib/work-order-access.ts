@@ -18,6 +18,43 @@ export function workOrderAccess(p: { role?: string | null; can_admin_daily_log?:
   return { canAccess: fullAdmin || granted, isAdmin: fullAdmin || (granted && p?.can_admin_daily_log === true) }
 }
 
+/**
+ * Everything the Work Orders screen needs to know about the viewer — computed
+ * ONCE here so the page (/hub/daily-log-v2) and its workspace-tab twin
+ * (HubShell) can't drift. Oct 5 2026: the tab passed only isAdmin, so Call,
+ * Text, Inspect (and a Daily Log admin's admin view) silently vanished there.
+ */
+export type WorkOrderViewPerms = {
+  isAdmin: boolean
+  canAccessIrrigation: boolean
+  canCall: boolean
+  canText: boolean
+  canQuote: boolean
+}
+
+export function workOrderViewPerms(p: {
+  role?: string | null
+  can_admin_daily_log?: boolean | null
+  can_access_daily_log_v2?: boolean | null
+  can_access_irrigation?: boolean | null
+  can_access_dialer?: boolean | null
+  can_access_txt?: boolean | null
+  can_access_quotes?: boolean | null
+  can_admin_quotes?: boolean | null
+} | null | undefined): WorkOrderViewPerms {
+  const admin = p?.role === 'admin'
+  return {
+    isAdmin: workOrderAccess(p).isAdmin,
+    // Same grant the customer file's Irrigation card uses; a Daily Log admin
+    // does NOT get it for free (lib/irrigation-server.ts resolveIrrigationAccess).
+    canAccessIrrigation: admin || p?.can_access_irrigation === true,
+    // The stop's 📞 / 💬 — same grants as the Lead Tracker's.
+    canCall: admin || p?.can_access_dialer === true,
+    canText: admin || p?.can_access_txt === true,
+    canQuote: admin || p?.can_admin_quotes === true || p?.can_access_quotes === true,
+  }
+}
+
 export type WorkOrderStop = LineItemStop & {
   entry_id: string
   completed_at: string | null
