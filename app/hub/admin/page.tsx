@@ -58,6 +58,7 @@ export default async function AdminPage() {
     can_access_files: boolean; can_access_pesticide_records: boolean;
     can_access_pricer: boolean; can_access_coaching: boolean; can_access_beta: boolean;
     can_access_irrigation: boolean;
+    can_access_quotes: boolean; can_admin_quotes: boolean;
     display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
     full_name: string | null;
     locked_at: string | null; deactivated_at: string | null;
@@ -126,6 +127,8 @@ export default async function AdminPage() {
       can_access_coaching: r.can_access_coaching,
       can_access_beta: r.can_access_beta,
       can_access_irrigation: r.can_access_irrigation,
+      can_access_quotes: r.can_access_quotes,
+      can_admin_quotes: r.can_admin_quotes,
     },
   }))
 
