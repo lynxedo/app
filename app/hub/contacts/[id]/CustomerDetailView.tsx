@@ -184,7 +184,7 @@ export default function CustomerDetailView({
         {/* Left column */}
         <div className="lg:col-span-2 flex flex-col gap-4">
           <CustomerInfoCard contact={contact} onUpdated={setContact} />
-          {account && <BalanceCard account={account} />}
+          {account && <BalanceCard account={account} contactId={contact.id} />}
           <FlagsCard contact={contact} allTags={allTags} onUpdated={setContact} />
           <PropertyCard properties={properties} />
           <IrrigationSection contactId={contact.id} />
@@ -356,16 +356,48 @@ function Tile({ label, value }: { label: string; value: string }) {
   )
 }
 
-function BalanceCard({ account }: { account: CustomerDetailAccount }) {
+type LiveBalance =
+  | { state: 'checking' }
+  | { state: 'live'; balance: number; checkedAt: string }
+  | { state: 'stale'; balance: number | null; syncedAt: string | null; reason: string }
+
+/**
+ * The balance is read LIVE from Jobber when the page opens (Work Orders Phase 3):
+ * our copy goes stale because a payment fires no webhook. Until Jobber answers
+ * the copy shows with "Checking Jobber…"; if Jobber can't be reached the copy
+ * stays, clearly labelled with when it was last synced.
+ */
+function BalanceCard({ account, contactId }: { account: CustomerDetailAccount; contactId: string }) {
   const hasImported = account.saPrepay != null || account.saRemit != null || account.saBalance != null
+  const [live, setLive] = useState<LiveBalance>({ state: 'checking' })
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/hub/contacts/${contactId}/balance`, { cache: 'no-store' })
+      .then(r => r.json().then(j => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (cancelled) return
+        if (ok && j.live && typeof j.balance === 'number') setLive({ state: 'live', balance: j.balance, checkedAt: j.checkedAt })
+        else setLive({ state: 'stale', balance: typeof j.balance === 'number' ? j.balance : null, syncedAt: j.syncedAt ?? null, reason: j.reason || j.error || 'Couldn’t reach Jobber' })
+      })
+      .catch(() => { if (!cancelled) setLive({ state: 'stale', balance: null, syncedAt: null, reason: 'Couldn’t reach Jobber' }) })
+    return () => { cancelled = true }
+  }, [contactId])
+
+  const shown = live.state === 'live' ? live.balance : live.state === 'stale' && live.balance != null ? live.balance : (account.balance ?? 0)
+  const note = live.state === 'checking'
+    ? <span className="text-white/35">Checking Jobber…</span>
+    : live.state === 'live'
+      ? <span className="text-emerald-300/80">✓ Live from Jobber · {new Date(live.checkedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+      : <span className="text-amber-300">⚠ {live.reason} — showing our last copy{live.syncedAt ? ` from ${new Date(live.syncedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}, which may be out of date</span>
   return (
     <Card title="Balance details" action={fromJobber}>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-        <Tile label="Net balance" value={formatCurrency(account.balance ?? 0, { decimals: 2 })} />
+        <Tile label={shown < 0 ? 'Net balance (credit)' : 'Net balance'} value={formatCurrency(shown, { decimals: 2 })} />
         {account.saPrepay != null && <Tile label="Prepay" value={formatCurrency(account.saPrepay, { decimals: 2 })} />}
         {account.saRemit != null && <Tile label="Remit" value={formatCurrency(account.saRemit, { decimals: 2 })} />}
       </div>
-      {hasImported && <div className="text-[10px] text-white/30 mt-2">Prepay / Remit imported from Real Green</div>}
+      <div className="text-[11px] mt-2">{note}</div>
+      {hasImported && <div className="text-[10px] text-white/30 mt-1">Prepay / Remit imported from Real Green</div>}
     </Card>
   )
 }
