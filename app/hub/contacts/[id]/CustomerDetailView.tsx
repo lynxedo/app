@@ -7,6 +7,7 @@ import { formatPhone, formatCurrency, formatDurationSec } from '@/lib/format'
 import { contactDisplayName, nameIsAiGuessed } from '@/lib/contact-name'
 import MergeContactModal from './MergeContactModal'
 import IrrigationSection from './IrrigationSection'
+import BackToStopBar from './BackToStopBar'
 import WorkOrdersCard from './WorkOrdersCard'
 import type { CustomerDetailAccount, CustomerDetailProperty, AccountProgram, AccountVisit } from './types'
 
@@ -132,6 +133,7 @@ export default function CustomerDetailView({
     <div className="h-full overflow-y-auto bg-[var(--t-panel-deep)] text-white min-h-0">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[var(--t-panel-deep)]/95 backdrop-blur border-b border-white/10 px-4 py-3 max-md:pl-14">
+        <BackToStopBar />
         <div className="flex items-center gap-3 flex-wrap">
           <Link href="/hub/contacts" className="text-white/50 hover:text-white text-lg leading-none" aria-label="Back to contacts">←</Link>
           <span className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full border ${statusCls}`}>{status}</span>

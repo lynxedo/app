@@ -5,7 +5,7 @@ import Link from 'next/link'
 import type { IrrigationData } from '@/lib/irrigation'
 import IrrigationForm, { type FullInspection as FormInspection, type WorkOrderRef } from './IrrigationForm'
 
-type FullInspection = FormInspection & {
+export type FullInspection = FormInspection & {
   inspectedOn: string | null
   finalizedAt: string | null
   by: string | null
@@ -46,7 +46,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 const btn = 'px-2.5 py-1.5 rounded-md text-xs font-medium'
 
-function ReadView({ insp }: { insp: FullInspection }) {
+export function ReadView({ insp }: { insp: FullInspection }) {
   const d: IrrigationData = insp.data || {}
   const zones = Array.isArray(d.zones) ? d.zones.filter(z => z.zone || z.area || z.head || z.count || z.issues) : []
   const controller = [d.ctrlBrand, d.ctrlModel].filter(Boolean).join(' ')
