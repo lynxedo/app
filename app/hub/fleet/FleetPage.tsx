@@ -76,6 +76,106 @@ type HistoryPoint = {
 type HistoryStop = { lat: number; lng: number; start: string; end: string; minutes: number }
 type DayHistory = { points: HistoryPoint[]; stops: HistoryStop[] }
 
+// --- Work Order stops (Fleet stops PRD session 1) ---
+
+type StopStatus = 'done' | 'skipped' | 'open'
+type FleetStop = {
+  id: string
+  n: number
+  lat: number
+  lng: number
+  client_name: string
+  services: string[]
+  scheduled_start_at: string | null
+  status: StopStatus
+  completed_at: string | null
+  is_next: boolean
+}
+type StopsTech = {
+  user_id: string
+  name: string
+  color: string
+  device_id: string | null
+  total: number
+  stops: FleetStop[]
+}
+type Driver = { device_id: string; user_id: string; name: string; color: string | null }
+type StopsDay = { date: string; techs: StopsTech[]; drivers: Driver[] }
+
+const DONE_GREY = '#9ca3af'
+
+function buildStopEl(stop: FleetStop, color: string): HTMLDivElement {
+  const wrap = document.createElement('div')
+  // No inline `position` (see buildMarkerEl). Below the truck pins.
+  wrap.style.zIndex = '1'
+  wrap.style.cursor = 'pointer'
+
+  const pin = document.createElement('div')
+  const finished = stop.status !== 'open'
+  pin.style.width = '24px'
+  pin.style.height = '24px'
+  pin.style.borderRadius = '50%'
+  pin.style.display = 'flex'
+  pin.style.alignItems = 'center'
+  pin.style.justifyContent = 'center'
+  pin.style.font = '700 12px/1 system-ui, sans-serif'
+  pin.style.color = 'white'
+  pin.style.background = finished ? DONE_GREY : color
+  pin.style.border = '2px solid white'
+  pin.style.opacity = stop.status === 'skipped' ? '0.75' : '1'
+  // The next stop gets a ring in the tech's colour outside the white border.
+  pin.style.boxShadow = stop.is_next
+    ? `0 0 0 3px ${color}, 0 2px 6px rgba(0,0,0,0.5)`
+    : '0 1px 3px rgba(0,0,0,0.4)'
+  pin.textContent = String(stop.n)
+  wrap.appendChild(pin)
+
+  if (finished) {
+    const badge = document.createElement('div')
+    badge.style.position = 'absolute'
+    badge.style.top = '-5px'
+    badge.style.right = '-6px'
+    badge.style.width = '14px'
+    badge.style.height = '14px'
+    badge.style.borderRadius = '50%'
+    badge.style.display = 'flex'
+    badge.style.alignItems = 'center'
+    badge.style.justifyContent = 'center'
+    badge.style.font = '700 10px/1 system-ui, sans-serif'
+    badge.style.color = 'white'
+    badge.style.border = '1.5px solid white'
+    badge.style.background = stop.status === 'done' ? '#16a34a' : '#6b7280'
+    badge.textContent = stop.status === 'done' ? '✓' : '–'
+    wrap.appendChild(badge)
+  }
+  return wrap
+}
+
+function stopPopupHtml(stop: FleetStop, tech: StopsTech): string {
+  const status =
+    stop.status === 'done'
+      ? `✓ Done${stop.completed_at ? ` ${fmtChicagoTime(stop.completed_at)}` : ''}`
+      : stop.status === 'skipped'
+        ? '– Skipped'
+        : stop.is_next
+          ? 'Next stop'
+          : ''
+  return `
+    <div style="font-family:system-ui;color:#111;min-width:170px;max-width:240px;font-size:12px">
+      <div style="font-weight:600;font-size:13px">#${stop.n} · ${escapeHtml(stop.client_name)}</div>
+      ${stop.services.length ? `<div style="color:#333;margin-top:2px">${stop.services.map(escapeHtml).join(', ')}</div>` : ''}
+      <div style="color:#555;margin-top:3px">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${tech.color};margin-right:4px"></span>${escapeHtml(tech.name)}${stop.scheduled_start_at ? ` · ${fmtChicagoTime(stop.scheduled_start_at)}` : ''}
+      </div>
+      ${status ? `<div style="margin-top:3px;font-weight:600;color:${stop.status === 'done' ? '#15803d' : '#444'}">${status}</div>` : ''}
+    </div>
+  `
+}
+
+function stopSignature(stop: FleetStop, color: string): string {
+  return [stop.n, stop.status, stop.is_next, color, stop.lat, stop.lng, stop.client_name, stop.services.join('|'), stop.completed_at].join('~')
+}
+
 const HIST_LINE_SOURCE = 'fleet-hist-line'
 const HIST_PINGS_SOURCE = 'fleet-hist-pings'
 const HIST_STOPS_SOURCE = 'fleet-hist-stops'
@@ -109,8 +209,9 @@ function relativeTime(iso: string): string {
   return `${day}d ago`
 }
 
-function buildMarkerEl(device: Device, hasAlert: boolean): HTMLDivElement {
+function buildMarkerEl(device: Device, hasAlert: boolean, driver: Driver | null): HTMLDivElement {
   const wrap = document.createElement('div')
+  wrap.style.zIndex = '3' // trucks sit above the stop pins
   // NO inline `position` here: mapbox-gl positions markers via its
   // .mapboxgl-marker class (position:absolute + transform). An inline
   // position:relative overrides that class and drops the marker into normal
@@ -155,6 +256,25 @@ function buildMarkerEl(device: Device, hasAlert: boolean): HTMLDivElement {
     wrap.appendChild(badge)
   }
 
+  if (driver) {
+    // The tech's name under the truck, in their map colour.
+    const label = document.createElement('div')
+    label.style.position = 'absolute'
+    label.style.top = '34px'
+    label.style.left = '50%'
+    label.style.transform = 'translateX(-50%)'
+    label.style.whiteSpace = 'nowrap'
+    label.style.padding = '1px 6px'
+    label.style.borderRadius = '9999px'
+    label.style.font = '600 11px/1.4 system-ui, sans-serif'
+    label.style.color = 'white'
+    label.style.background = driver.color ?? '#111827'
+    label.style.border = '1px solid rgba(255,255,255,0.8)'
+    label.style.boxShadow = '0 1px 3px rgba(0,0,0,0.4)'
+    label.textContent = driver.name
+    wrap.appendChild(label)
+  }
+
   return wrap
 }
 
@@ -183,6 +303,31 @@ export default function FleetPage() {
   const [histLoading, setHistLoading] = useState(false)
   const [histError, setHistError] = useState<string | null>(null)
   const [hist, setHist] = useState<DayHistory | null>(null)
+
+  // Work Order stops — for the same day as Day History (shared date picker).
+  const stopMarkersRef = useRef<Map<string, { marker: MapboxMarker; sig: string }>>(new Map())
+  const stopsDateRef = useRef(histDate)
+  const refitStopsRef = useRef(false)
+  const [stopsDay, setStopsDay] = useState<StopsDay | null>(null)
+  const [stopsLoaded, setStopsLoaded] = useState(false)
+  const [stopsError, setStopsError] = useState<string | null>(null)
+  const [showStops, setShowStops] = useState(true)
+  const [techFilter, setTechFilter] = useState('')
+  // The trucks on the map are always live, so they carry TODAY's drivers — kept
+  // apart from stopsDay so picking a past day doesn't relabel the live trucks.
+  const [todayDrivers, setTodayDrivers] = useState<Driver[]>([])
+
+  const driverByDevice = useMemo(() => {
+    const m = new Map<string, Driver>()
+    for (const d of todayDrivers) m.set(d.device_id, d)
+    return m
+  }, [todayDrivers])
+
+  const deviceName = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const d of devices) m.set(d.id, d.name)
+    return m
+  }, [devices])
 
   // Map of device_id → list of open alert types
   const alertsByDevice = useMemo(() => {
@@ -276,12 +421,13 @@ export default function FleetPage() {
     for (const dev of devices) {
       seen.add(dev.id)
       const hasAlert = (alertsByDevice.get(dev.id)?.length ?? 0) > 0
+      const driver = driverByDevice.get(dev.id) ?? null
       // Rebuild the marker every tick so heading rotation, status color,
       // and alert badges all stay in sync without manually patching DOM nodes.
       markersRef.current.get(dev.id)?.remove()
-      const marker = new mapboxgl.Marker({ element: buildMarkerEl(dev, hasAlert) })
+      const marker = new mapboxgl.Marker({ element: buildMarkerEl(dev, hasAlert, driver) })
         .setLngLat([dev.lng, dev.lat])
-        .setPopup(buildPopup(mapboxgl, dev, alertsByDevice.get(dev.id) ?? []))
+        .setPopup(buildPopup(mapboxgl, dev, alertsByDevice.get(dev.id) ?? [], driver))
         .addTo(map)
       markersRef.current.set(dev.id, marker)
     }
@@ -292,14 +438,108 @@ export default function FleetPage() {
         markersRef.current.delete(id)
       }
     }
-    // On first non-empty load, fit bounds to all vehicles
-    if (!fittedRef.current && devices.length > 0) {
-      const bounds = new mapboxgl.LngLatBounds()
-      for (const d of devices) bounds.extend([d.lng, d.lat])
-      map.fitBounds(bounds, { padding: 80, maxZoom: 13, duration: 0 })
-      fittedRef.current = true
+  }, [devices, alertsByDevice, driverByDevice, mapReady])
+
+  // On first load, fit the view to every truck AND today's stops — once both
+  // requests have answered (a failed stops call still counts as answered).
+  useEffect(() => {
+    const map = mapRef.current
+    const mapboxgl = mapboxglRef.current
+    if (!map || !mapboxgl || !mapReady || fittedRef.current) return
+    if (devices.length === 0 || !stopsLoaded) return
+    const bounds = new mapboxgl.LngLatBounds()
+    for (const d of devices) bounds.extend([d.lng, d.lat])
+    for (const t of stopsDay?.techs ?? []) for (const s of t.stops) bounds.extend([s.lng, s.lat])
+    map.fitBounds(bounds, { padding: 80, maxZoom: 13, duration: 0 })
+    fittedRef.current = true
+  }, [devices, stopsDay, stopsLoaded, mapReady])
+
+  // Draw the stop pins. Markers are kept between polls and rebuilt only when
+  // something about the stop changed, so an open hover card survives a refresh.
+  useEffect(() => {
+    const map = mapRef.current
+    const mapboxgl = mapboxglRef.current
+    if (!map || !mapboxgl || !mapReady) return
+    const live = stopMarkersRef.current
+    const seen = new Set<string>()
+    if (showStops) {
+      for (const tech of stopsDay?.techs ?? []) {
+        if (techFilter && tech.user_id !== techFilter) continue
+        for (const stop of tech.stops) {
+          seen.add(stop.id)
+          const sig = stopSignature(stop, tech.color) + `~${tech.name}`
+          const existing = live.get(stop.id)
+          if (existing?.sig === sig) continue
+          existing?.marker.remove()
+          const el = buildStopEl(stop, tech.color)
+          const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, maxWidth: '260px' })
+            .setHTML(stopPopupHtml(stop, tech))
+          const marker = new mapboxgl.Marker({ element: el })
+            .setLngLat([stop.lng, stop.lat])
+            .setPopup(popup) // tap / click toggles it
+            .addTo(map)
+          // Desktop: show on hover. Mouse only — a tap fires pointerenter too and
+          // would open-then-toggle-closed.
+          el.addEventListener('pointerenter', (e) => {
+            if (e.pointerType === 'mouse' && !popup.isOpen()) marker.togglePopup()
+          })
+          el.addEventListener('pointerleave', (e) => {
+            if (e.pointerType === 'mouse' && popup.isOpen()) marker.togglePopup()
+          })
+          live.set(stop.id, { marker, sig })
+        }
+      }
     }
-  }, [devices, alertsByDevice, mapReady])
+    for (const [id, entry] of live.entries()) {
+      if (!seen.has(id)) {
+        entry.marker.remove()
+        live.delete(id)
+      }
+    }
+
+    // After the person picks a different day, frame that day's stops.
+    if (refitStopsRef.current && stopsDay && stopsDay.date === stopsDateRef.current) {
+      refitStopsRef.current = false
+      const pts = (stopsDay.techs ?? [])
+        .filter((t) => !techFilter || t.user_id === techFilter)
+        .flatMap((t) => t.stops)
+      if (pts.length > 0) {
+        const bounds = new mapboxgl.LngLatBounds()
+        for (const s of pts) bounds.extend([s.lng, s.lat])
+        map.fitBounds(bounds, { padding: 70, maxZoom: 14 })
+      }
+    }
+  }, [stopsDay, showStops, techFilter, mapReady])
+
+  async function fetchStops(date: string) {
+    try {
+      const res = await fetch(`/api/fleet/stops?date=${date}`, { cache: 'no-store' })
+      const body = (await res.json().catch(() => null)) as (StopsDay & { error?: string }) | null
+      if (!res.ok) throw new Error(body?.error ?? `stops ${res.status}`)
+      if (date === chicagoToday()) setTodayDrivers(body?.drivers ?? [])
+      // Ignore an answer for a day the person has already moved off.
+      if (date !== stopsDateRef.current) return
+      const techs = body?.techs ?? []
+      setStopsDay({ date, techs, drivers: body?.drivers ?? [] })
+      // A picked tech with no route this day would hide every pin — fall back to everyone.
+      setTechFilter((f) => (f && !techs.some((t) => t.user_id === f) ? '' : f))
+      setStopsError(null)
+    } catch (err) {
+      if (date !== stopsDateRef.current) return
+      setStopsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setStopsLoaded(true)
+    }
+  }
+
+  // The stops follow the Day History date.
+  useEffect(() => {
+    if (stopsDateRef.current === histDate) return
+    stopsDateRef.current = histDate
+    refitStopsRef.current = true
+    setStopsDay(null)
+    void fetchStops(histDate)
+  }, [histDate])
 
   async function loadHistory() {
     if (!histDevice) return
@@ -546,6 +786,8 @@ export default function FleetPage() {
       // Don't poll the (paid) GPS API while the tab/app is hidden — it resumes
       // immediately via the visibilitychange listener below.
       if (typeof document !== 'undefined' && document.hidden) return
+      // Stops refresh with the trucks (our own DB, not the GPS API).
+      void fetchStops(stopsDateRef.current)
       try {
         const [devRes, evRes] = await Promise.all([
           fetch('/api/fleet/devices', { cache: 'no-store' }),
@@ -607,6 +849,78 @@ export default function FleetPage() {
         )}
       </div>
       <div className="w-full md:w-80 md:border-l border-t md:border-t-0 border-white/10 overflow-y-auto p-3 space-y-2">
+        <div className="rounded-lg border border-white/10 bg-white/5 p-2.5 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-white/70">Stops</h2>
+            <label className="flex items-center gap-1.5 text-xs text-white/70 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showStops}
+                onChange={(e) => setShowStops(e.target.checked)}
+                className="accent-sky-500"
+              />
+              Show on map
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={techFilter}
+              onChange={(e) => setTechFilter(e.target.value)}
+              disabled={!showStops}
+              className="flex-1 min-w-0 bg-gray-900 text-white border border-white/10 rounded px-2 py-1.5 text-base md:text-sm disabled:opacity-40"
+            >
+              <option value="">Everyone</option>
+              {(stopsDay?.techs ?? []).map((t) => (
+                <option key={t.user_id} value={t.user_id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="date"
+              value={histDate}
+              max={chicagoToday()}
+              onChange={(e) => e.target.value && setHistDate(e.target.value)}
+              aria-label="Day"
+              className="bg-gray-900 text-white border border-white/10 rounded px-2 py-1.5 text-base md:text-sm [color-scheme:dark]"
+            />
+          </div>
+          {stopsError && <div className="text-xs text-red-300">{stopsError}</div>}
+          {stopsDay && stopsDay.techs.length === 0 && (
+            <div className="text-xs text-white/50">No Work Order stops for this day.</div>
+          )}
+          {stopsDay && stopsDay.techs.length > 0 && (
+            <div className="space-y-1">
+              {stopsDay.techs.map((t) => {
+                const truck = t.device_id ? deviceName.get(t.device_id) : null
+                const unmapped = t.total - t.stops.length
+                return (
+                  <button
+                    key={t.user_id}
+                    type="button"
+                    onClick={() => setTechFilter(techFilter === t.user_id ? '' : t.user_id)}
+                    className={`w-full flex items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-white/10 ${
+                      techFilter === t.user_id ? 'bg-white/10' : ''
+                    }`}
+                  >
+                    <span className="w-3 h-3 rounded-full shrink-0 border border-white/70" style={{ background: t.color }} />
+                    <span className="min-w-0">
+                      <span className="block font-medium text-white/90 truncate">{t.name}</span>
+                      <span className="block text-white/40 truncate">{truck ?? 'No truck linked'}</span>
+                    </span>
+                    <span className="ml-auto text-white/50 shrink-0 text-right">
+                      {t.total} stop{t.total === 1 ? '' : 's'}
+                      {unmapped > 0 && <span className="block">{unmapped} not on map</span>}
+                    </span>
+                  </button>
+                )
+              })}
+              <div className="text-[11px] text-white/40 pt-0.5">
+                Numbers are route order · grey ✓ = done (here or in Jobber) · – = skipped · ring = next stop
+              </div>
+            </div>
+          )}
+        </div>
         <div className="rounded-lg border border-white/10 bg-white/5 p-2.5 space-y-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-white/70">Day History</h2>
@@ -675,7 +989,18 @@ export default function FleetPage() {
               }}
             >
               <div className="flex items-center justify-between gap-2">
-                <div className="font-medium">{d.name}</div>
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{d.name}</div>
+                  {driverByDevice.get(d.id) && (
+                    <div className="text-xs text-white/60 truncate">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full mr-1 align-middle"
+                        style={{ background: driverByDevice.get(d.id)?.color ?? '#9ca3af' }}
+                      />
+                      {driverByDevice.get(d.id)?.name}
+                    </div>
+                  )}
+                </div>
                 <span
                   className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
                   style={{ background: statusColor(d.drive_status), color: 'white' }}
@@ -705,7 +1030,7 @@ export default function FleetPage() {
   )
 }
 
-function buildPopup(mapboxgl: MapboxModule, device: Device, alerts: AlertEvent[]): MapboxPopup {
+function buildPopup(mapboxgl: MapboxModule, device: Device, alerts: AlertEvent[], driver: Driver | null): MapboxPopup {
   const popup = new mapboxgl.Popup({ offset: 18, closeButton: true })
   const alertHtml =
     alerts.length === 0
@@ -716,6 +1041,7 @@ function buildPopup(mapboxgl: MapboxModule, device: Device, alerts: AlertEvent[]
   popup.setHTML(`
     <div style="font-family:system-ui;color:#111;min-width:160px">
       <div style="font-weight:600">${escapeHtml(device.name)}</div>
+      ${driver ? `<div style="font-size:12px;color:#222">Driver: ${escapeHtml(driver.name)}</div>` : ''}
       <div style="font-size:12px;color:#444;margin-top:2px">${statusLabel(device.drive_status)} · ${device.speed_mph} mph</div>
       <div style="font-size:12px;color:#444">Fuel: ${device.fuel_pct == null ? '—' : device.fuel_pct + '%'}</div>
       <div style="font-size:11px;color:#888;margin-top:2px">Ping ${relativeTime(device.last_ping)}</div>
