@@ -2626,15 +2626,10 @@ function QuotesTab() {
       </Section>
 
       <Section title="Quotes in Jobber">
-        <p>When a quote is <strong className="text-white">sent</strong>, Hub creates the same quote in Jobber — same title, lines and prices, the add-ons as <em>optional</em> lines (not pre-chosen), your intro as the client message, your terms, the deposit, and your internal notes as a Jobber note. The quote shows <em>In Jobber: Quote #…</em> with a link. If you <strong className="text-white">Revise</strong> and send again, the same Jobber quote is updated — no duplicate.</p>
+        <p>When a quote is <strong className="text-white">sent</strong>, Hub creates the same quote in Jobber — same title, lines and prices, the add-ons as <em>optional</em> lines (not pre-chosen), your intro as the client message, your terms, the deposit, and your internal notes as a Jobber note. It&apos;s <strong className="text-white">marked as sent</strong> in Jobber, but Jobber doesn&apos;t send the customer anything — they only get Hub&apos;s text or email. The quote shows <em>In Jobber: Quote #…</em> with a link. If you <strong className="text-white">Revise</strong> and send again, the same Jobber quote is updated — no duplicate.</p>
         <p className="mt-2">When the customer <strong className="text-white">approves</strong>, Hub turns the add-ons they picked into regular lines on the Jobber quote and pins a note: who approved, when, and the total. Then someone in the office opens it in Jobber (the link is in the Hub message and the Office Alerts post), clicks <strong className="text-white">Approve</strong>, and books the work as usual.</p>
         <p className="mt-2">If Jobber can&apos;t take it — most often because the customer isn&apos;t in Jobber yet (a brand-new lead) — the quote shows the reason in red with a <strong className="text-white">Retry</strong> button. Add the customer (and their property) in Jobber, then press Retry. The customer&apos;s quote page works either way.</p>
         <p className="mt-2"><strong className="text-white">Salesperson:</strong> the Jobber quote names the person who sent it only when their Hub account is linked to their Jobber user (Admin → People → Edit → Jobber user).</p>
-      </Section>
-
-      <Section title="The Lead Tracker card moves by itself">
-        <p>A quote started from a Lead Tracker card moves that card when it&apos;s <strong className="text-white">sent</strong> (to your <em>Quoted</em> stage) and when the customer <strong className="text-white">approves</strong> (to your <em>Won</em> stage) — just as if you dragged it, drips included. It only ever moves forward: a card that&apos;s already won or lost stays put.</p>
-        <AdminOnly>Which stages count: Lead Tracker → Settings → Stages → <strong className="text-white">pipeline role</strong>. Tag one stage <em>Quoted</em> and one <em>Won</em>. With no stage tagged, cards don&apos;t move.</AdminOnly>
       </Section>
 
       <Section title="The Quotes list">
