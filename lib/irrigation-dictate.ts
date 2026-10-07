@@ -17,8 +17,8 @@
 
 import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import {
-  sanitizeDictatedZone, ZONE_WATERS, ZONE_HEADS, ZONE_SUN, ZONE_SLOPE,
-  type IrrigationZone,
+  sanitizeDictatedZone, zoneIsEmpty, ZONE_WATERS, ZONE_HEADS, ZONE_SUN, ZONE_SLOPE,
+  type IrrigationZone, type DictatedZone,
 } from '@/lib/irrigation'
 
 /** Longest recording we'll accept (~2 min of typical phone audio). */
@@ -63,7 +63,16 @@ Rules:
 - If the tech mentions a problem (broken head, leak, coverage gap, stuck valve, low pressure), put it in "issues" verbatim in plain words.
 - "area" is where the zone waters in the tech's own words ("front lawn", "north side beds").
 - Numbers: zone/count/runtime are digits only.
-- If the audio is unclear or describes something that is not a zone, return no records rather than a guessed one.`
+- If the audio is unclear or describes something that is not a zone, return no records rather than a guessed one.
+
+Zone numbers:
+- Always give the zone number. When the tech says "next zone" / "next one" / "moving on", it is one more than the zone they just described; if it's the first zone in these notes, one more than the highest zone already on the form (zone 1 if the form has none).
+
+Editing a zone that is already on the form (you are given the zones on the form):
+- "edit zone 3", "change zone 3", "correction on zone 3", "go back to zone 3", "zone 3 should be…" → mode "edit". Give only the fields being changed, with their NEW values. Do not create a new zone for it.
+- "add to zone 3", "also on zone 3", "one more thing on zone 3" → mode "add". Put the added problem in "issues" (just the new part, not what's already there). For a head count change like "two more heads", give the new total using the count on the form.
+- Otherwise leave mode out.
+- These are the only times a zone that is already on the form should appear in your output with fields it already has.`
 
 const ZONE_TOOL = {
   name: 'record_zones',
@@ -88,6 +97,7 @@ const ZONE_TOOL = {
             valve: { type: 'string', description: 'Valve box location for this zone' },
             runtime: { type: 'string', description: 'Run time in minutes, digits only' },
             issues: { type: 'string', description: 'Condition or problems noted' },
+            mode: { type: 'string', enum: ['edit', 'add'], description: 'Only when the tech says to edit/change or add to a zone' },
           },
         },
       },
@@ -100,7 +110,38 @@ const ZONE_TOOL = {
  * Extract zone rows from a transcript. Returns only values that survive
  * validation — the caller can write these straight into the form.
  */
-export async function extractZones(transcript: string): Promise<Partial<IrrigationZone>[]> {
+/** The zones already on the form, as context for "next zone" / "edit zone 3". */
+function describeExisting(zones: IrrigationZone[]): string {
+  const lines = zones
+    .filter(z => !zoneIsEmpty(z))
+    .slice(0, 60)
+    .map((z, i) => {
+      const parts = [
+        z.area, z.waters, z.head, z.count ? `${z.count} heads` : '', z.nozzle,
+        z.sun, z.slope, z.valve ? `valve: ${z.valve}` : '', z.runtime ? `${z.runtime} min` : '',
+        z.issues ? `issues: ${z.issues}` : '',
+      ].filter(Boolean).join(' · ')
+      return `Zone ${z.zone || `(unnumbered #${i + 1})`}: ${parts}`.slice(0, 400)
+    })
+  return lines.length ? lines.join('\n') : '(none yet)'
+}
+
+/** Coerce whatever the client sent as the form's current zones into rows. */
+export function parseExistingZones(raw: unknown): IrrigationZone[] {
+  let v = raw
+  if (typeof v === 'string') { try { v = JSON.parse(v) } catch { return [] } }
+  if (!Array.isArray(v)) return []
+  return v.slice(0, 60).map(z => {
+    const r = (z && typeof z === 'object' ? z : {}) as Record<string, unknown>
+    const t = (k: string) => String(r[k] ?? '').slice(0, 300)
+    return {
+      zone: t('zone'), area: t('area'), waters: t('waters'), head: t('head'), count: t('count'),
+      nozzle: t('nozzle'), sun: t('sun'), slope: t('slope'), valve: t('valve'), runtime: t('runtime'), issues: t('issues'),
+    }
+  })
+}
+
+export async function extractZones(transcript: string, existing: IrrigationZone[] = []): Promise<DictatedZone[]> {
   const text = transcript.trim()
   if (!text) return []
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('Voice notes are not configured on this server')
@@ -112,7 +153,10 @@ export async function extractZones(transcript: string): Promise<Partial<Irrigati
     system: SYSTEM,
     tools: [ZONE_TOOL],
     tool_choice: { type: 'tool', name: 'record_zones' },
-    messages: [{ role: 'user', content: text.slice(0, MAX_NOTE_CHARS) }],
+    messages: [{
+      role: 'user',
+      content: `Zones already on the form:\n${describeExisting(existing)}\n\nThe tech's notes:\n${text.slice(0, MAX_NOTE_CHARS)}`,
+    }],
   })
 
   const call = resp.content.find(b => b.type === 'tool_use')
@@ -123,7 +167,7 @@ export async function extractZones(transcript: string): Promise<Partial<Irrigati
   return raw
     .map(sanitizeDictatedZone)
     // A record with nothing but a zone number tells the tech nothing — drop it.
-    .filter(z => Object.keys(z).some(k => k !== 'zone'))
+    .filter(z => Object.keys(z).some(k => k !== 'zone' && k !== 'mode'))
     .slice(0, 40)
 }
 
