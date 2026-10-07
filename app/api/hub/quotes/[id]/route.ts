@@ -9,6 +9,9 @@ import { cleanDeposit, MAX_QUOTE_REVIEWS, quoteTotals } from '@/lib/quotes'
 //   PATCH  → autosave a DRAFT: any of title, intro, terms, internal_notes,
 //            review_ids, deposit_type/value, jobber_property_id +
 //            property_address, lawn_size_k, items[] (replaces all lines)
+//   POST   { action: 'revise' } → a sent / viewed / changes-requested / expired
+//            quote goes back to Draft to edit; Send again restarts its 30 days
+//            (same customer link). Never an approved one.
 //   DELETE → soft-delete a DRAFT
 // Anyone who can build quotes, same company. Sent quotes are edited by
 // "Revise" (session 4), never in place — the customer may be looking at it.
@@ -86,6 +89,24 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!data) return NextResponse.json({ error: 'This quote has been sent — it can’t be changed here.' }, { status: 409 })
   return NextResponse.json({ ok: true, updated_at: data.updated_at, total_required: data.total_required })
+}
+
+export async function POST(request: NextRequest, { params }: Ctx) {
+  const c = await resolveQuoteCaller('use')
+  if ('error' in c) return c.error
+  const { id } = await params
+  const body = await request.json().catch(() => ({})) as { action?: unknown }
+  if (body.action !== 'revise') return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  const admin = createAdminClient()
+  const { data, error } = await admin.from('quotes')
+    .update({ status: 'draft', updated_by: c.userId, updated_at: new Date().toISOString() })
+    .eq('company_id', c.companyId).eq('id', id).is('deleted_at', null)
+    .in('status', ['sent', 'viewed', 'changes_requested', 'expired'])
+    .select('id').maybeSingle()
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data) return NextResponse.json({ error: 'Only a sent quote that isn’t approved can be revised.' }, { status: 409 })
+  await admin.from('quote_events').insert({ quote_id: id, company_id: c.companyId, kind: 'revised', actor_user_id: c.userId, meta: {} })
+  return NextResponse.json({ ok: true })
 }
 
 export async function DELETE(_req: NextRequest, { params }: Ctx) {

@@ -15,7 +15,7 @@ import { useRouter } from 'next/navigation'
 import CustomerQuoteView from '@/components/quotes/CustomerQuoteView'
 import { perVisitAt } from '@/lib/service-builder'
 import {
-  depositAmount, MAX_QUOTE_REVIEWS, pricerLine, STATUS_LABEL, toCustomerQuote, unpricedItems,
+  depositAmount, effectiveStatus, MAX_QUOTE_REVIEWS, pricerLine, STATUS_LABEL, toCustomerQuote, unpricedItems,
   type DepositType, type PricerProgram, type QuoteItem, type QuoteStatus,
 } from '@/lib/quotes'
 
@@ -48,7 +48,13 @@ type Draft = {
   items: Row[]
 }
 type Loaded = {
-  quote: { id: string; status: QuoteStatus; contact_id: string; jobber_property_id: string | null; property_address: string | null; sent_at: string | null; expires_at: string | null; updated_at: string }
+  quote: {
+    id: string; status: QuoteStatus; contact_id: string; jobber_property_id: string | null; property_address: string | null
+    sent_at: string | null; sent_via: string[] | null; expires_at: string | null; first_viewed_at: string | null; updated_at: string
+    approved_at: string | null; approved_name: string | null; changes_message: string | null; total_selected: number | null; share_token: string | null
+  }
+  /** Add-ons the customer ticked when approving. */
+  pickedAddOns: string[]
   contact: Contact
   properties: Property[]
   companyName: string
@@ -114,7 +120,10 @@ export default function QuoteBuilder({ quoteId }: { quoteId: string }) {
     const hit = properties.find(p => (qq.jobber_property_id && p.jobberId === qq.jobber_property_id) || (!qq.jobber_property_id && p.address === qq.property_address))
     if (hit) key = propKey(hit)
     else if (qq.property_address) { properties.push({ jobberId: null, address: qq.property_address, lawnK: null, zones: null }); key = `addr:${qq.property_address}` }
-    setLoaded({ quote: qq, contact: q.customer?.contact, properties, companyName: q.companyName ?? '' })
+    setLoaded({
+      quote: qq, contact: q.customer?.contact, properties, companyName: q.companyName ?? '',
+      pickedAddOns: (q.items ?? []).filter((i: { optional: boolean; selected_by_customer: boolean }) => i.optional && i.selected_by_customer).map((i: { name: string }) => i.name),
+    })
     const d: Draft = {
       title: qq.title ?? '',
       intro: qq.intro ?? '',
@@ -280,7 +289,7 @@ export default function QuoteBuilder({ quoteId }: { quoteId: string }) {
             <Link href="/hub/quotes" className="text-xs text-gray-400 hover:text-white">← Quotes</Link>
             <h1 className="text-lg font-semibold text-white truncate">Quote for {loaded.contact?.name ?? 'customer'}</h1>
             <div className="text-xs text-gray-500">
-              {STATUS_LABEL[loaded.quote.status]}
+              {STATUS_LABEL[effectiveStatus(loaded.quote)]}
               {isDraft && <> · {saveState === 'saving' ? 'Saving…' : saveState === 'dirty' ? 'Unsaved changes' : saveState === 'error' ? 'Not saved' : 'Saved'}</>}
             </div>
           </div>
@@ -294,7 +303,7 @@ export default function QuoteBuilder({ quoteId }: { quoteId: string }) {
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-3 md:px-6 py-4 space-y-4 pb-24">
           {error && <div className="bg-red-500/10 border border-red-500/30 text-red-200 rounded px-3 py-2 text-sm">{error}</div>}
-          {!isDraft && <div className="bg-sky-500/10 border border-sky-500/30 text-sky-200 rounded px-3 py-2 text-sm">This quote has been sent, so it can’t be changed here.</div>}
+          {!isDraft && <div className="bg-sky-500/10 border border-sky-500/30 text-sky-200 rounded px-3 py-2 text-sm">This quote has been sent, so it’s locked. Use <strong>Revise</strong> at the bottom to change it and send it again.</div>}
 
           <section className={card}>
             <div className="flex items-start justify-between gap-2">
@@ -420,8 +429,18 @@ export default function QuoteBuilder({ quoteId }: { quoteId: string }) {
               {totals.addOns > 0 && <> · add-ons up to {money(totals.addOns)}</>}
               {unpriced > 0 && <span className="block text-[12px] text-red-300">{unpriced} line{unpriced === 1 ? '' : 's'} still need{unpriced === 1 ? 's' : ''} a price.</span>}
             </div>
-            <div className="text-[12px] text-gray-500">Sending by text / email is coming in the next update.</div>
           </section>
+
+          <SendBox
+            quoteId={quoteId}
+            q={loaded.quote}
+            status={effectiveStatus(loaded.quote)}
+            contact={loaded.contact}
+            pickedAddOns={loaded.pickedAddOns}
+            ready={unpriced === 0 && items.some(i => !i.optional) && !!draft.title.trim()}
+            beforeSend={async () => { if (timer.current) { clearTimeout(timer.current); timer.current = null } await save() }}
+            onChanged={() => { void load() }}
+          />
         </div>
       </div>
 
@@ -543,5 +562,103 @@ function LinePicker({ kind, optional, lawnK, zones, onPick, onClose }: {
         </div>
       </div>
     </div>
+  )
+}
+
+function SendBox({ quoteId, q, status, contact, pickedAddOns, ready, beforeSend, onChanged }: {
+  quoteId: string
+  q: Loaded['quote']
+  status: QuoteStatus
+  contact: Contact
+  pickedAddOns: string[]
+  ready: boolean
+  beforeSend: () => Promise<void>
+  onChanged: () => void
+}) {
+  const canText = !!contact?.phone && !contact.doNotText
+  const canEmail = !!contact?.email
+  const [via, setVia] = useState<'text' | 'email' | 'both'>(canText ? 'text' : 'email')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const base = typeof window !== 'undefined' ? window.location.origin : ''
+  const link = q.share_token ? `${base}/quote/${q.share_token}` : ''
+  const when = (s: string | null) => (s ? new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '')
+
+  async function send() {
+    if (busy) return
+    setBusy(true); setMsg(null)
+    try {
+      await beforeSend()
+      const channels = via === 'both' ? ['text', 'email'] : [via]
+      const res = await fetch(`/api/hub/quotes/${quoteId}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ via: channels }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok && !j.ok) { setMsg({ ok: false, text: j.error ?? 'Could not send' }); return }
+      setMsg({ ok: true, text: `Sent by ${(j.sent as string[]).join(' and ')}.${j.error ? ` (${j.error})` : ''}` })
+      onChanged()
+    } finally { setBusy(false) }
+  }
+
+  async function revise() {
+    if (!window.confirm('Unlock this quote to change it? The customer’s link shows “not valid” until you send it again, and sending restarts its 30 days.')) return
+    setBusy(true)
+    const res = await fetch(`/api/hub/quotes/${quoteId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'revise' }) })
+    setBusy(false)
+    if (res.ok) onChanged()
+    else setMsg({ ok: false, text: (await res.json().catch(() => ({}))).error ?? 'Could not unlock' })
+  }
+
+  const choice = (k: 'text' | 'email' | 'both', label: string, enabled: boolean) => (
+    <button key={k} type="button" disabled={!enabled} onClick={() => setVia(k)}
+      className={`px-3 py-2 rounded-md text-sm ${via === k ? 'bg-indigo-600 text-white' : 'bg-white/10 text-gray-200 hover:bg-white/20'} disabled:opacity-30`}>{label}</button>
+  )
+
+  return (
+    <section className="rounded-lg border border-indigo-400/30 bg-indigo-500/[0.06] p-3 space-y-3">
+      {status === 'draft' ? (
+        <>
+          <h2 className="text-sm font-semibold text-white">Send to {contact?.name ?? 'the customer'}</h2>
+          <div className="flex flex-wrap gap-2">
+            {choice('text', 'Text', canText)}
+            {choice('email', 'Email', canEmail)}
+            {choice('both', 'Both', canText && canEmail)}
+          </div>
+          {!canText && <p className="text-[12px] text-gray-500">{contact?.doNotText ? 'Marked do-not-text — email only.' : 'No phone number on file.'}</p>}
+          {!canEmail && <p className="text-[12px] text-gray-500">No email address on file.</p>}
+          <button type="button" onClick={send} disabled={busy || !ready || (!canText && !canEmail)}
+            className="w-full md:w-auto px-5 py-2.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm font-semibold text-white disabled:opacity-50">
+            {busy ? 'Sending…' : 'Send quote'}
+          </button>
+          {!ready && <p className="text-[12px] text-amber-300">To send: give it a title, include at least one line, and price every line.</p>}
+          <p className="text-[12px] text-gray-500">The customer gets a link to approve online. It’s good for 30 days from sending.</p>
+        </>
+      ) : (
+        <>
+          <h2 className="text-sm font-semibold text-white">{STATUS_LABEL[status]}</h2>
+          <ul className="text-[13px] text-gray-300 space-y-0.5">
+            {q.sent_at && <li>Sent {when(q.sent_at)}{q.sent_via?.length ? ` by ${q.sent_via.join(' and ')}` : ''}</li>}
+            {q.expires_at && <li>{status === 'expired' ? 'Expired' : 'Good until'} {new Date(q.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</li>}
+            <li>{q.first_viewed_at ? `Opened by the customer ${when(q.first_viewed_at)}` : 'Not opened yet'}</li>
+            {status === 'approved' && q.approved_at && (
+              <li className="text-emerald-300">Approved by {q.approved_name} {when(q.approved_at)} — {money(Number(q.total_selected ?? 0))}{pickedAddOns.length ? ` · add-ons: ${pickedAddOns.join(', ')}` : ' · no add-ons'}</li>
+            )}
+          </ul>
+          {status === 'changes_requested' && q.changes_message && (
+            <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-sm text-amber-100">Customer asked: “{q.changes_message}”</div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {link && <button type="button" onClick={() => { void navigator.clipboard?.writeText(link); setMsg({ ok: true, text: 'Link copied.' }) }} className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-sm text-white">Copy customer link</button>}
+            {link && <a href={link} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-sm text-white">Open as customer ↗</a>}
+            {(status === 'sent' || status === 'viewed') && (
+              <button type="button" onClick={send} disabled={busy} className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-sm text-white disabled:opacity-50">{busy ? 'Sending…' : `Send again (${via === 'both' ? 'text + email' : via})`}</button>
+            )}
+            {status !== 'approved' && status !== 'archived' && (
+              <button type="button" onClick={revise} disabled={busy} className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-sm text-amber-200 disabled:opacity-50">Revise</button>
+            )}
+          </div>
+          {status === 'approved' && <p className="text-[12px] text-gray-500">Next: approve it in Jobber and book the work. (Hub will create the Jobber quote automatically in the next update.)</p>}
+        </>
+      )}
+      {msg && <div className={`text-sm ${msg.ok ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</div>}
+    </section>
   )
 }
