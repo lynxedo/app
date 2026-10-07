@@ -23,9 +23,11 @@ import { loadQuoteCustomer } from '@/lib/quote-server'
 type Admin = ReturnType<typeof createAdminClient>
 
 /**
- * Whether the Jobber quote is created as "awaiting response" (Jobber: "sent to
- * client") or left as a draft. ⚠ Not yet verified whether Jobber EMAILS the
- * client on this transition — check on a test client before turning on in prod.
+ * The Jobber quote is MARKED as sent ("awaiting response") without Jobber
+ * sending anything — Ben, Oct 6 2026: "jobber allows you to mark it as sent
+ * without actually sending. build it that way". The customer only ever gets
+ * Hub's own text / email. To be confirmed on a test client (Ben Tester) on
+ * staging before prod; set false to create Jobber quotes as drafts instead.
  */
 export const JOBBER_MARK_AWAITING_RESPONSE = true
 

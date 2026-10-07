@@ -1,6 +1,5 @@
 import { NextResponse, after } from 'next/server'
 import { syncApprovalToJobber } from '@/lib/quote-jobber'
-import { moveLeadToRole } from '@/lib/lead-stage'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadPublicQuote, notifyQuoteAnswer, quoteByToken, requestIp } from '@/lib/quote-public'
 import { effectiveStatus, quoteTotals, validApprovalName, type QuoteItem } from '@/lib/quotes'
@@ -61,12 +60,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     total: totals.selected,
     addOns: items.filter(i => picked.has(i.id)).map(i => i.name),
   })
-  // Jobber (picked add-ons become regular lines + a pinned approval note) and
-  // the Lead Tracker card → Won, after the customer has their answer.
-  after(async () => {
-    const a = createAdminClient()
-    await syncApprovalToJobber(a, q.company_id, q.id)
-    if (q.lead_id) await moveLeadToRole(a, q.company_id, q.lead_id, 'won')
-  })
+  // Jobber: picked add-ons become regular lines + a pinned approval note,
+  // after the customer has their answer.
+  after(async () => { await syncApprovalToJobber(createAdminClient(), q.company_id, q.id) })
   return NextResponse.json({ ok: true, view })
 }
