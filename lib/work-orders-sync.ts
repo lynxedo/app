@@ -220,6 +220,23 @@ export async function upsertStopsForEntry(admin: Admin, p: {
 
   type Final = { id: string; ord: number; startAt: string | null; flagged: boolean; incomingIndex: number }
   const finals: Final[] = []
+  // (entry_id, ord) is UNIQUE, so new rows and re-numbered rows are first parked
+  // in a temporary range. Oct 7 2026: that range used to be FIXED (10000+ for
+  // inserts, 20000+ for re-numbering) — two syncs of the same day at the same
+  // moment (the 7 AM sweep + a webhook) collided there, one threw half-way, and
+  // the stops it left parked at 10000/20000 made every later sync of that day
+  // collide again (scrambled order; the badge drew 10000 as a stray character).
+  // Each run now parks in its own random range above everything on the entry,
+  // so a failed run can't block the next one, and the next run heals it.
+  // A random block of 1,000 between 100,000 and ~1 billion (well inside the int
+  // column) that no stop on this entry is sitting in — leftovers included.
+  const taken = existing.map(s => s.ord ?? 0)
+  let parkBase = 100_000
+  for (let tries = 0; tries < 20; tries++) {
+    const b = 100_000 + Math.floor(Math.random() * 1_000_000) * 1000
+    if (!taken.some(o => o >= b && o < b + 1000)) { parkBase = b; break }
+  }
+  let parked = 0
   const seenVisit = new Set<string>()
 
   for (let i = 0; i < p.stops.length; i++) {
@@ -266,7 +283,7 @@ export async function upsertStopsForEntry(admin: Admin, p: {
     } else {
       // (entry_id, ord) is UNIQUE — park new rows in a high, distinct range and let
       // the re-numbering below settle them.
-      const tempOrd = 10000 + i
+      const tempOrd = parkBase + parked++
       const row: Record<string, unknown> = {
         ...facts,
         entry_id: p.entryId,
@@ -329,7 +346,7 @@ export async function upsertStopsForEntry(admin: Admin, p: {
   // stop B still holds it. Park every stop that moves in a high range first.
   const moving = finals.map((f, i) => ({ f, want: i + 1 })).filter(x => x.f.ord !== x.want)
   for (let i = 0; i < moving.length; i++) {
-    const { error } = await admin.from('daily_log_stops').update({ ord: 20000 + i }).eq('id', moving[i].f.id)
+    const { error } = await admin.from('daily_log_stops').update({ ord: parkBase + parked++ }).eq('id', moving[i].f.id)
     if (error) throw new Error(`stop ord park ${moving[i].f.id}: ${error.message}`)
   }
   for (const { f, want } of moving) {
