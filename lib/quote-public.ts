@@ -10,7 +10,7 @@ import { toCustomerQuote, type CustomerQuote, type QuoteItem, type QuoteStatus, 
 
 type Admin = ReturnType<typeof createAdminClient>
 
-export const PUBLIC_QUOTE_COLS = 'id, company_id, contact_id, salesperson_user_id, created_by, title, intro, terms, property_address, review_ids, deposit_type, deposit_value, status, sent_at, expires_at, first_viewed_at, approved_at, approved_name, changes_message, changes_requested_at, total_required, total_selected, deleted_at'
+export const PUBLIC_QUOTE_COLS = 'id, company_id, contact_id, salesperson_user_id, created_by, title, intro, terms, property_address, review_ids, deposit_type, deposit_value, status, sent_at, expires_at, first_viewed_at, approved_at, approved_name, changes_message, changes_requested_at, total_required, total_selected, deleted_at, lead_id, jobber_web_uri, jobber_client_hub_uri'
 
 export type PublicQuoteRow = {
   id: string
@@ -36,6 +36,10 @@ export type PublicQuoteRow = {
   total_required: number | null
   total_selected: number | null
   deleted_at: string | null
+  lead_id: string | null
+  jobber_web_uri: string | null
+  /** Jobber's client-hub page for this quote — where the customer pays a deposit. */
+  jobber_client_hub_uri: string | null
 }
 
 export const validToken = (t: string) => /^[A-Za-z0-9_-]{20,64}$/.test(t)
@@ -55,6 +59,8 @@ export type PublicQuoteView = {
   approved: { name: string; at: string; pickedIds: string[]; total: number } | null
   changesRequestedAt: string | null
   business: { name: string; phone: string }
+  /** After approval, when the quote asks for a deposit: Jobber's payment page (Ben, Oct 5 2026). */
+  depositPayUrl: string | null
 }
 
 /** Everything the public page renders — allowlisted. */
@@ -79,6 +85,7 @@ export async function loadPublicQuote(admin: Admin, q: PublicQuoteRow): Promise<
       : null,
     changesRequestedAt: q.status === 'changes_requested' ? q.changes_requested_at : null,
     business: { name: profile.businessName, phone: profile.phone },
+    depositPayUrl: q.status === 'approved' && quote.deposit && q.jobber_client_hub_uri && /^https:\/\//.test(q.jobber_client_hub_uri) ? q.jobber_client_hub_uri : null,
   }
 }
 
@@ -105,7 +112,7 @@ export async function notifyQuoteAnswer(admin: Admin, q: PublicQuoteRow, kind: '
   const lines = [
     kind === 'approved' && detail.addOns?.length ? `Add-ons chosen: ${detail.addOns.join(', ')}` : kind === 'approved' ? 'No add-ons chosen.' : null,
     kind === 'changes' && detail.message ? `“${detail.message}”` : null,
-    kind === 'approved' ? 'Next: approve it in Jobber and book the work.' : 'Next: call or text them, then revise the quote.',
+    kind === 'approved' ? (q.jobber_web_uri ? `Next: approve it in Jobber and book the work — ${q.jobber_web_uri}` : 'Next: approve it in Jobber and book the work.') : 'Next: call or text them, then revise the quote.',
     link,
   ]
   const who = q.salesperson_user_id || q.created_by

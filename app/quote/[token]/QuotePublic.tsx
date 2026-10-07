@@ -44,6 +44,10 @@ export default function QuotePublic({ token, initial }: { token: string; initial
     <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-emerald-900">
       <div className="font-semibold">{thanks === 'approved' ? 'Thank you — your quote is approved!' : 'Approved'}</div>
       <div className="text-sm mt-0.5">Approved by {approved.name} on {fmtDate(approved.at)} · {money(approved.total)}. We’ll be in touch to schedule.</div>
+      {view.depositPayUrl && (
+        <a href={view.depositPayUrl} target="_blank" rel="noopener noreferrer"
+          className="mt-3 inline-block rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 font-semibold">Pay deposit</a>
+      )}
     </div>
   ) : expired ? (
     <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-amber-900 text-sm">
