@@ -6,10 +6,10 @@
 // sun / slope, controller and schedule to the form, which fills BLANK fields
 // only and marks them amber for the tech to check. Read-only on Rachio.
 
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DictatedZone, IrrigationData } from '@/lib/irrigation'
 
-type Choice = { id: string; name: string; model: string; zones: number; miles: number | null; online: boolean }
+type Choice = { id: string; name: string; model: string; zones: number; miles: number | null; online: boolean; match: boolean }
 export type RachioImportPayload = { system: Partial<IrrigationData>; systemFields: string[]; zones: DictatedZone[]; notes: string[]; controllerName: string }
 
 export default function RachioImport({ contactId, inspectionId, onImport }: {
@@ -25,17 +25,39 @@ export default function RachioImport({ contactId, inspectionId, onImport }: {
   const [err, setErr] = useState<string | null>(null)
   const [done, setDone] = useState<{ summary: string; notes: string[] } | null>(null)
   const base = `/api/hub/contacts/${contactId}/irrigation/${inspectionId}/rachio`
+  const loading = useRef<Promise<void> | null>(null)
+  const [notConnected, setNotConnected] = useState(false)
+
+  // A big Rachio account takes ~20 s to read the first time, so start as soon
+  // as the form opens — by the time the tech taps the button it's usually ready.
+  const fetchList = useCallback(() => {
+    if (!loading.current) {
+      loading.current = (async () => {
+        try {
+          const res = await fetch(base, { cache: 'no-store' })
+          const j = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            if (j.code === 'not_connected') setNotConnected(true)
+            setErr(j.error || 'Could not reach Rachio')
+            loading.current = null // let a tap try again
+            return
+          }
+          setErr(null)
+          setList(j.controllers ?? []); setLocated(!!j.located)
+        } catch {
+          setErr('Could not reach Rachio'); loading.current = null
+        }
+      })()
+    }
+    return loading.current
+  }, [base])
+  useEffect(() => { void fetchList() }, [fetchList])
 
   async function start() {
-    setOpen(true); setErr(null); setDone(null)
+    setOpen(true); setDone(null)
     if (list) return
     setBusy(true)
-    try {
-      const res = await fetch(base, { cache: 'no-store' })
-      const j = await res.json().catch(() => ({}))
-      if (!res.ok) { setErr(j.error || 'Could not reach Rachio'); return }
-      setList(j.controllers ?? []); setLocated(!!j.located)
-    } finally { setBusy(false) }
+    try { await fetchList() } finally { setBusy(false) }
   }
 
   async function pick(c: Choice) {
@@ -49,6 +71,9 @@ export default function RachioImport({ contactId, inspectionId, onImport }: {
       setOpen(false)
     } finally { setBusy(false) }
   }
+
+  // No Rachio key for the company → no button (nothing to import from).
+  if (notConnected) return null
 
   return (
     <div className="mt-3">
@@ -70,18 +95,18 @@ export default function RachioImport({ contactId, inspectionId, onImport }: {
             </div>
             <div className="flex-1 overflow-y-auto">
               {err && <div className="m-3 text-sm text-red-300 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{err}</div>}
-              {busy && !list && <div className="p-4 text-sm text-white/50">Reading Rachio…</div>}
+              {busy && !list && <div className="p-4 text-sm text-white/50">Reading Rachio… the first time can take about 20 seconds.</div>}
               {list && list.length === 0 && (
                 <div className="p-4 text-sm text-white/60">No controllers are on the company’s Rachio account. The customer may need to share their controller with Heroes in the Rachio app.</div>
               )}
               {list && list.length > 0 && !located && (
-                <div className="px-4 pt-3 text-[12px] text-white/45">We don’t have this customer’s map location, so controllers are listed by name.</div>
+                <div className="px-4 pt-3 text-[12px] text-white/45">Listed by name — we couldn’t place this customer on the map.</div>
               )}
               <div className="divide-y divide-white/5">
                 {(list ?? []).map(c => (
                   <button key={c.id} type="button" disabled={busy} onClick={() => pick(c)} className="w-full text-left px-4 py-3 hover:bg-white/5 disabled:opacity-50 flex items-center justify-between gap-3">
                     <span className="min-w-0">
-                      <span className="block text-sm text-white truncate">{c.name}</span>
+                      <span className="block text-sm text-white truncate">{c.name}{c.match && <span className="ml-2 text-[10px] uppercase tracking-wide text-emerald-300">likely match</span>}</span>
                       <span className="block text-[11px] text-white/45">{[c.model, `${c.zones} zone${c.zones === 1 ? '' : 's'}`, c.online ? null : 'offline'].filter(Boolean).join(' · ')}</span>
                     </span>
                     {c.miles != null && <span className={`text-[12px] shrink-0 ${c.miles < 0.2 ? 'text-emerald-300' : 'text-white/45'}`}>{c.miles < 0.1 ? 'at this address' : `${c.miles} mi`}</span>}

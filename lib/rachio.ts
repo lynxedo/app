@@ -26,11 +26,11 @@ export async function resolveRachioKey(admin: Admin, companyId: string): Promise
   return data?.enabled !== false && key ? key : null
 }
 
-async function rachioGet<T>(key: string, path: string): Promise<{ ok: true; data: T } | { ok: false; status: number | null; reachable: boolean }> {
+async function rachioGet<T>(key: string, path: string, timeoutMs = 10_000): Promise<{ ok: true; data: T } | { ok: false; status: number | null; reachable: boolean }> {
   try {
     const res = await fetch(`${API}${path}`, {
       headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(timeoutMs),
       cache: 'no-store',
     })
     if (!res.ok) return { ok: false, status: res.status, reachable: true }
@@ -86,27 +86,48 @@ type RachioDevice = {
 }
 type RachioPerson = { id: string; username?: string; fullName?: string; email?: string; devices?: RachioDevice[]; managedDevices?: RachioDevice[] }
 
-// One account read per company per few minutes — the Rachio API allows ~1,700
-// calls a day per key, and a tech may open the picker more than once.
+// Oct 7 2026: Heroes' account has ~127 controllers shared with it; the whole
+// account comes back as ONE ~1.5 MB reply that takes ~20 s. So: a long timeout,
+// a 30-minute cache per company (the picker only needs names + locations), and
+// the form starts this read as soon as the inspection opens. The import itself
+// re-reads just the chosen controller (/device/:id — quick and current).
 const cache = new Map<string, { at: number; devices: RachioDevice[] }>()
-const CACHE_MS = 5 * 60 * 1000
+const inflight = new Map<string, Promise<RachioDevice[] | { error: string }>>()
+const CACHE_MS = 30 * 60 * 1000
 
 export async function loadRachioDevices(key: string, companyId: string): Promise<RachioDevice[] | { error: string }> {
   const hit = cache.get(companyId)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.devices
-  const info = await rachioGet<{ id: string }>(key, '/person/info')
-  if (!info.ok) return { error: info.reachable ? `Rachio refused the company's key (${info.status}). Check it in Admin → Integrations.` : 'Could not reach Rachio — try again in a moment.' }
-  const person = await rachioGet<RachioPerson>(key, `/person/${encodeURIComponent(info.data.id)}`)
-  if (!person.ok) return { error: person.reachable ? `Rachio returned an error (${person.status}).` : 'Could not reach Rachio — try again in a moment.' }
-  const seen = new Set<string>()
-  const devices = [...(person.data.devices ?? []), ...(person.data.managedDevices ?? [])].filter(d => d?.id && !seen.has(d.id) && seen.add(d.id))
-  cache.set(companyId, { at: Date.now(), devices })
-  return devices
+  // Two taps (or the prefetch + a tap) share one read instead of two 20-second ones.
+  const running = inflight.get(companyId)
+  if (running) return running
+  const job = (async (): Promise<RachioDevice[] | { error: string }> => {
+    const info = await rachioGet<{ id: string }>(key, '/person/info')
+    if (!info.ok) return { error: info.reachable ? `Rachio refused the company's key (${info.status}). Check it in Admin → Integrations.` : 'Could not reach Rachio — try again in a moment.' }
+    const person = await rachioGet<RachioPerson>(key, `/person/${encodeURIComponent(info.data.id)}`, 60_000)
+    if (!person.ok) return { error: person.reachable ? `Rachio returned an error (${person.status}).` : 'Rachio took too long to answer — try again in a moment.' }
+    const seen = new Set<string>()
+    const devices = [...(person.data.devices ?? []), ...(person.data.managedDevices ?? [])].filter(d => d?.id && !seen.has(d.id) && seen.add(d.id))
+    cache.set(companyId, { at: Date.now(), devices })
+    return devices
+  })()
+  inflight.set(companyId, job)
+  try { return await job } finally { inflight.delete(companyId) }
+}
+
+/** One controller, fresh (zones + schedules) — for the import itself. */
+export async function loadRachioDevice(key: string, deviceId: string): Promise<RachioDevice | { error: string }> {
+  const d = await rachioGet<RachioDevice>(key, `/device/${encodeURIComponent(deviceId)}`, 20_000)
+  if (!d.ok) return { error: d.status === 404 ? 'That controller isn’t on the company’s Rachio account any more.' : d.reachable ? `Rachio returned an error (${d.status}).` : 'Could not reach Rachio — try again in a moment.' }
+  return d.data
 }
 
 // ── Picking the customer's controller ────────────────────────────────────────
 
-export type RachioChoice = { id: string; name: string; model: string; zones: number; miles: number | null; online: boolean }
+export type RachioChoice = { id: string; name: string; model: string; zones: number; miles: number | null; online: boolean; match: boolean }
+
+/** What we know about the customer, to find their controller among many. */
+export type RachioCustomerHint = { lastName: string; firstName: string; street: string; at: { lat: number; lng: number } | null }
 
 function milesBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const R = 3958.8, rad = Math.PI / 180
@@ -115,16 +136,40 @@ function milesBetween(a: { lat: number; lng: number }, b: { lat: number; lng: nu
   return 2 * R * Math.asin(Math.sqrt(h))
 }
 
-/** Controllers on the account, nearest to the customer's property first (when we know where both are). */
-export function rankRachioDevices(devices: RachioDevice[], at: { lat: number; lng: number } | null): RachioChoice[] {
-  return devices.map(d => ({
-    id: d.id,
-    name: (d.name || 'Rachio controller').trim(),
-    model: prettyModel(d.model),
-    zones: (d.zones ?? []).filter(z => z.enabled !== false).length,
-    miles: at && typeof d.latitude === 'number' && typeof d.longitude === 'number' ? Math.round(milesBetween(at, { lat: d.latitude, lng: d.longitude }) * 10) / 10 : null,
-    online: d.status ? d.status === 'ONLINE' : true,
-  })).sort((a, b) => (a.miles ?? 1e9) - (b.miles ?? 1e9) || a.name.localeCompare(b.name))
+/**
+ * Controllers on the account, the customer's most likely first. Oct 7 2026:
+ * Heroes' controllers are named like "Jane Smith-123 Oak St", and none of our
+ * Jobber properties carry coordinates — so a name / street match ranks first,
+ * then distance (from a work-order stop's pin or the geocoded address), then
+ * name. A match is flagged so the picker can highlight it.
+ */
+export function rankRachioDevices(devices: RachioDevice[], hint: RachioCustomerHint): RachioChoice[] {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const last = norm(hint.lastName), first = norm(hint.firstName)
+  const streetNum = hint.street.match(/^\s*(\d+)/)?.[1] ?? ''
+  const streetWord = norm(hint.street.replace(/^\s*\d+\s*/, '')).split(' ').find(w => w.length > 2 && !['the', 'north', 'south', 'east', 'west'].includes(w)) ?? ''
+  const score = (name: string) => {
+    const n = ` ${norm(name)} `
+    let sc = 0
+    if (last && last.length > 1 && n.includes(` ${last} `)) sc += 4
+    if (first && first.length > 1 && n.includes(` ${first} `)) sc += 1
+    if (streetNum && n.includes(` ${streetNum} `)) sc += 3
+    if (streetWord && n.includes(` ${streetWord} `)) sc += 2
+    return sc
+  }
+  return devices.map(d => {
+    const name = (d.name || 'Rachio controller').trim()
+    return {
+      id: d.id,
+      name,
+      model: prettyModel(d.model),
+      zones: (d.zones ?? []).filter(z => z.enabled !== false).length,
+      miles: hint.at && typeof d.latitude === 'number' && typeof d.longitude === 'number' ? Math.round(milesBetween(hint.at, { lat: d.latitude, lng: d.longitude }) * 10) / 10 : null,
+      online: d.status ? d.status === 'ONLINE' : true,
+      sc: score(name),
+    }
+  }).sort((a, b) => b.sc - a.sc || (a.miles ?? 1e9) - (b.miles ?? 1e9) || a.name.localeCompare(b.name))
+    .map(({ sc, ...c }) => ({ ...c, match: sc >= 4 || (c.miles != null && c.miles < 0.1) }))
 }
 
 // ── Mapping Rachio → the inspection form ─────────────────────────────────────
@@ -139,9 +184,12 @@ function prettyModel(model: string | undefined): string {
 }
 
 const has = (v: string, ...words: string[]) => words.some(w => v.includes(w))
+/** Rachio sends codes like LOTS_OF_SUN / FIXED_SPRAY_HEAD / FOUR_SIX — read them as words. */
+const words = (n: Named) => (n?.name ?? '').toLowerCase().replace(/_/g, ' ').trim()
 
 function headFrom(n: Named): string {
-  const v = (n?.name ?? '').toLowerCase()
+  const v = words(n)
+  if (v === 'unrecognized') return ''
   if (!v) return ''
   if (has(v, 'rotary nozzle', 'rotator', 'mp ')) return 'MP Rotator'
   if (has(v, 'rotor')) return 'Rotor'
@@ -152,7 +200,7 @@ function headFrom(n: Named): string {
   return matchZoneOption('head', v)
 }
 function sunFrom(n: Named): string {
-  const v = (n?.name ?? '').toLowerCase()
+  const v = words(n)
   if (!v) return ''
   if (has(v, 'lots of sun', 'full sun', 'sunny')) return 'Full sun'
   if (has(v, 'lots of shade', 'full shade', 'mostly shade')) return 'Shade'
@@ -160,15 +208,20 @@ function sunFrom(n: Named): string {
   return matchZoneOption('sun', v)
 }
 function slopeFrom(n: Named): string {
-  const v = (n?.name ?? '').toLowerCase()
+  const v = words(n)
   if (!v) return ''
+  // Rachio's bands: ZERO_THREE (0–3 %), FOUR_SIX (4–6 %), SEVEN_TWELVE (7–12 %),
+  // OVER_TWELVE (> 12 %) → our Flat / Slight / Steep.
+  if (v === 'zero three') return 'Flat'
+  if (v === 'four six' || v === 'seven twelve') return 'Slight'
+  if (v === 'over twelve') return 'Steep'
   if (has(v, 'flat', 'zero', 'none', 'level')) return 'Flat'
   if (has(v, 'steep', 'severe', 'high')) return 'Steep'
   if (has(v, 'slight', 'moderate', 'gentle', 'low')) return 'Slight'
   return matchZoneOption('slope', v)
 }
 function watersFrom(n: Named): string {
-  const v = (n?.name ?? '').toLowerCase()
+  const v = words(n)
   if (!v) return ''
   if (has(v, 'grass', 'turf', 'lawn')) return 'Turf'
   if (has(v, 'shrub')) return 'Shrub beds'
@@ -247,7 +300,8 @@ export function rachioToInspection(d: RachioDevice): RachioImport {
   }
   const notes: string[] = []
   if (!active.length) notes.push('No active schedule on the controller, so no watering days or run times came across.')
-  else if (!starts.length) notes.push('Rachio didn’t say what time the schedule starts (it may run around sunrise) — add start times by hand.')
+  else if (!starts.length) notes.push('The schedule is set to finish by sunrise rather than start at a set time — add start times by hand if you want them on the report.')
+  else if (active.some(r => !startFrom(r))) notes.push('One schedule finishes by sunrise instead of a set start time — only the set start times came across.')
   if (active.some(r => (r.scheduleJobTypes ?? []).some(t => !/^DAY_OF_WEEK_/.test(t)))) notes.push('A schedule runs on an interval / odd-even days, not set weekdays — check the watering days.')
   if (zonesAll.length > enabled.length) notes.push(`${zonesAll.length - enabled.length} zone(s) are turned off in Rachio and were left out.`)
 
