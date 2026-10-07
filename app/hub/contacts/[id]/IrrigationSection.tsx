@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { IrrigationData } from '@/lib/irrigation'
+import { orderedDays, fmtStartTimes, fmtScheduleDate } from '@/lib/irrigation'
 import IrrigationForm, { type FullInspection as FormInspection, type WorkOrderRef } from './IrrigationForm'
 
 export type FullInspection = FormInspection & {
@@ -50,6 +51,8 @@ export function ReadView({ insp }: { insp: FullInspection }) {
   const d: IrrigationData = insp.data || {}
   const zones = Array.isArray(d.zones) ? d.zones.filter(z => z.zone || z.area || z.head || z.count || z.issues) : []
   const controller = [d.ctrlBrand, d.ctrlModel].filter(Boolean).join(' ')
+  const schedDays = orderedDays(d.schedDays)
+  const schedStarts = fmtStartTimes(d.schedStarts)
   return (
     <div className="space-y-3">
       <div className="text-[11px] text-white/40">
@@ -83,6 +86,17 @@ export function ReadView({ insp }: { insp: FullInspection }) {
         <Row label="Maintenance plan" value={d.maintPlan === 'yes' ? 'Yes' : d.maintPlan === 'no' ? 'No' : ''} />
       </div>
 
+      {(schedDays.length > 0 || schedStarts.length > 0 || d.programs || d.schedAdjustOn || (d.schedAdjustChanges?.length ?? 0) > 0 || d.schedAdjustNote) && (
+        <div className="pt-2 border-t border-white/5">
+          <div className="text-[11px] uppercase tracking-wide text-white/35 mb-1.5">Watering schedule</div>
+          <Row label="Days" value={schedDays.join(', ')} />
+          <Row label="Start times" value={schedStarts.join(', ')} />
+          <Row label="Programs" value={d.programs ? <span className="text-white/70">{d.programs}</span> : ''} />
+          <Row label="Next adjustment" value={[fmtScheduleDate(d.schedAdjustOn), (d.schedAdjustChanges ?? []).join(', ')].filter(Boolean).join(' · ')} />
+          <Row label="Adjustment details" value={d.schedAdjustNote ? <span className="text-white/70">{d.schedAdjustNote}</span> : ''} />
+        </div>
+      )}
+
       {zones.length > 0 && (
         <div className="pt-2 border-t border-white/5">
           <div className="text-[11px] uppercase tracking-wide text-white/35 mb-1.5">Zones ({zones.length})</div>
@@ -107,6 +121,13 @@ export function ReadView({ insp }: { insp: FullInspection }) {
           {(d.upgrades?.length ?? 0) > 0 && <Row label="Recommendations" value={d.upgrades!.join(', ')} />}
           {d.estValue && <Row label="Est. value" value={d.estValue} />}
           {d.extraNotes && <Row label="Notes" value={<span className="text-white/60">{d.extraNotes}</span>} />}
+        </div>
+      )}
+
+      {d.finalNotes && (
+        <div className="pt-2 border-t border-white/5">
+          <div className="text-[11px] uppercase tracking-wide text-white/35 mb-1">Final notes &amp; recommendations</div>
+          <div className="text-sm text-white/75 whitespace-pre-wrap">{d.finalNotes}</div>
         </div>
       )}
 

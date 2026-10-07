@@ -4,11 +4,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IrrigationData, IrrigationZone } from '@/lib/irrigation'
 import {
   emptyIrrigationZone, mergeDictatedZones, confirmZoneMarks, reindexZoneMarks,
-  ZONE_WATERS, ZONE_HEADS, ZONE_SUN, ZONE_SLOPE,
+  ZONE_WATERS, ZONE_HEADS, ZONE_SUN, ZONE_SLOPE, WEEKDAYS, SCHEDULE_CHANGES,
 } from '@/lib/irrigation'
 import { fieldMark } from '@/lib/irrigation-fields'
 import ZoneDictation from './ZoneDictation'
 import PhotoFill from './PhotoFill'
+import FinalNotes from './FinalNotes'
 
 /** Work Orders Phase 1 — the stop this inspection was done from ("From work order · Oct 1 · Josh"). */
 export type WorkOrderRef = { stopId: string; date: string; tech: string | null; status: string }
@@ -168,7 +169,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
   const set = useCallback(<K extends keyof IrrigationData>(k: K, v: IrrigationData[K]) => {
     setData(d => ({ ...d, [k]: v })); scheduleSave()
   }, [])
-  const toggleIn = useCallback((k: 'source' | 'accessories' | 'upgrades', v: string) => {
+  const toggleIn = useCallback((k: 'source' | 'accessories' | 'upgrades' | 'schedDays' | 'schedAdjustChanges', v: string) => {
     setData(d => {
       const arr = new Set(d[k] ?? [])
       if (arr.has(v)) arr.delete(v); else arr.add(v)
@@ -180,6 +181,16 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
     setData(d => {
       const zones = [...(d.zones ?? [])]; zones[i] = { ...zones[i], ...patch }; return { ...d, zones }
     })
+    scheduleSave()
+  }, [])
+  // Start times — several per watering day is normal (cycle-and-soak, split programs).
+  const setStart = useCallback((i: number, v: string) => {
+    setData(d => { const starts = [...(d.schedStarts ?? [])]; starts[i] = v; return { ...d, schedStarts: starts } })
+    scheduleSave()
+  }, [])
+  const addStart = useCallback(() => setData(d => ({ ...d, schedStarts: [...(d.schedStarts ?? []), ''] })), [])
+  const removeStart = useCallback((i: number) => {
+    setData(d => ({ ...d, schedStarts: (d.schedStarts ?? []).filter((_, j) => j !== i) }))
     scheduleSave()
   }, [])
   const addZone = useCallback(() => setData(d => ({ ...d, zones: [...(d.zones ?? []), emptyIrrigationZone()] })), [])
@@ -443,12 +454,45 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
           <SelectField label="Master valve / pump relay?" value={data.ctrlMv ?? ''} onChange={v => set('ctrlMv', v)} options={['Master valve', 'Pump start relay', 'None']} />
         </div>
         <div className="mt-3"><Chips label="Wired accessories" options={ACCESSORIES} selected={data.accessories ?? []} onToggle={v => toggleIn('accessories', v)} /></div>
-        <div className="mt-3">
-          <Lbl>Current programs / run times</Lbl>
-          <textarea value={data.programs ?? ''} onChange={e => set('programs', e.target.value)} rows={2} className={`${inp} resize-none`} style={inpStyle} />
-        </div>
 
-        <SectionHead n={4} title="Backflow preventer" />
+        <SectionHead n={4} title="Watering schedule" />
+        <Chips label="Watering days" options={[...WEEKDAYS]} selected={data.schedDays ?? []} onToggle={v => toggleIn('schedDays', v)} />
+        <div className="mt-3">
+          <Lbl>Start times</Lbl>
+          <div className="flex flex-col gap-2">
+            {(data.schedStarts?.length ? data.schedStarts : ['']).map((t, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input type="time" value={t} onChange={e => setStart(i, e.target.value)}
+                  className={inp} style={{ ...inpStyle, colorScheme: 'dark' }} aria-label={`Start time ${i + 1}`} />
+                {(data.schedStarts?.length ?? 0) > 1 && (
+                  <button type="button" onClick={() => removeStart(i)} className="shrink-0 text-white/40 hover:text-red-400 w-10 h-10 rounded" aria-label="Remove start time">✕</button>
+                )}
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={addStart} className="mt-2 px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-sm">+ Add start time</button>
+        </div>
+        <div className="mt-3">
+          <Lbl>Programs / run times (details)</Lbl>
+          <textarea value={data.programs ?? ''} onChange={e => set('programs', e.target.value)} rows={2} placeholder="Program A: zones 1–4, 15 min…" className={`${inp} resize-none`} style={inpStyle} />
+        </div>
+        <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+          <div className="text-[13px] font-medium text-sky-200 mb-2">Next schedule adjustment</div>
+          <label className="block">
+            <Lbl>Adjust on (approx.)</Lbl>
+            <input type="date" value={data.schedAdjustOn ?? ''} onChange={e => set('schedAdjustOn', e.target.value)}
+              className={inp} style={{ ...inpStyle, colorScheme: 'dark' }} />
+          </label>
+          <div className="mt-3">
+            <Chips label="What to change" options={[...SCHEDULE_CHANGES]} selected={data.schedAdjustChanges ?? []} onToggle={v => toggleIn('schedAdjustChanges', v)} />
+          </div>
+          <div className="mt-3">
+            <TextField label="Details" value={data.schedAdjustNote ?? ''} onChange={v => set('schedAdjustNote', v)} placeholder="e.g. drop to Tue / Sat once temps stay under 85°" />
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] text-white/35">The schedule is shown on the customer&apos;s summary.</p>
+
+        <SectionHead n={5} title="Backflow preventer" />
         <PhotoFill contactId={contactId} inspectionId={inspection.id} section="backflow" onFields={applyPhoto} />
         <div className="mt-3">
           <Chips label="Type" options={BF_TYPES} selected={data.bfType ? [data.bfType] : []} onToggle={v => set('bfType', data.bfType === v ? '' : v)} single
@@ -464,19 +508,19 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
             options={[{ v: 'good', label: 'Good', tone: 'good' }, { v: 'fair', label: 'Fair', tone: 'warn' }, { v: 'poor', label: 'Poor', tone: 'bad' }, { v: 'fail', label: 'Leaking', tone: 'bad' }]} />
         </div>
 
-        <SectionHead n={5} title="Shutoffs & isolation" />
+        <SectionHead n={6} title="Shutoffs & isolation" />
         <TextField label="Main irrigation isolation valve" value={data.isoMain ?? ''} onChange={v => set('isoMain', v)} placeholder="Shuts off the whole system" />
         <div className="mt-3"><TextField label="Water meter location" value={data.meterLoc ?? ''} onChange={v => set('meterLoc', v)} /></div>
         <div className="mt-3"><TextField label="Secondary / section isolation valves" value={data.isoSecondary ?? ''} onChange={v => set('isoSecondary', v)} /></div>
 
-        <SectionHead n={6} title="Valve boxes" />
+        <SectionHead n={7} title="Valve boxes" />
         <div className="grid grid-cols-2 gap-3">
           <TextField label="# of valve boxes" value={data.vbCount ?? ''} onChange={v => set('vbCount', v)} inputMode="numeric" />
           <TextField label="Box locations" value={data.vbLocs ?? ''} onChange={v => set('vbLocs', v)} />
         </div>
         <div className="mt-3"><TextField label="Valves per box / wiring notes" value={data.vbNotes ?? ''} onChange={v => set('vbNotes', v)} /></div>
 
-        <SectionHead n={7} title="Zones" />
+        <SectionHead n={8} title="Zones" />
         <ZoneDictation contactId={contactId} inspectionId={inspection.id} onZones={applyDictation} />
         {dictateNote && (
           <div className="mb-3 text-[12px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-md px-3 py-2">
@@ -520,7 +564,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
         </div>
         <button type="button" onClick={addZone} className="mt-3 px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-sm">+ Add zone</button>
 
-        <SectionHead n={8} title="Condition & recommendations" />
+        <SectionHead n={9} title="Condition & recommendations" />
         <Seg label="Overall system condition" value={data.overallCond ?? ''} onChange={v => set('overallCond', v)}
           options={[{ v: 'good', label: 'Good', tone: 'good' }, { v: 'fair', label: 'Fair', tone: 'warn' }, { v: 'poor', label: 'Poor', tone: 'bad' }]} />
         <div className="mt-3">
@@ -537,7 +581,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
           <textarea value={data.extraNotes ?? ''} onChange={e => set('extraNotes', e.target.value)} rows={2} className={`${inp} resize-none`} style={inpStyle} />
         </div>
 
-        <SectionHead n={9} title="Property sketch" />
+        <SectionHead n={10} title="Property sketch" />
         <p className="text-[12px] text-white/40 mb-2">Draw the yard and mark the controller (C), backflow (B), shutoff (S), meter (M), valve boxes (V), and zone numbers. Drawing here replaces the map on file.</p>
         <div className="rounded-lg overflow-hidden border border-white/15 bg-white">
           <canvas ref={canvasRef} width={900} height={560}
@@ -546,7 +590,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
         </div>
         <button type="button" onClick={clearSketch} className="mt-2 px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-sm">Clear sketch</button>
 
-        <SectionHead n={10} title="Photos" />
+        <SectionHead n={11} title="Photos" />
         <div className="flex flex-wrap gap-2">
           {photos.map((p, i) => (
             <div key={i} className="relative w-20 h-20 rounded-md overflow-hidden border border-white/10 bg-white/5">
@@ -560,6 +604,10 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
             <input type="file" accept="image/*" multiple className="hidden" onChange={e => { void addPhotos(e.target.files); e.currentTarget.value = '' }} />
           </label>
         </div>
+
+        <SectionHead n={12} title="Final notes & recommendations" />
+        <p className="text-[12px] text-white/40 mb-2">Anything that didn&apos;t fit elsewhere. Shown to the customer — use <em>Additional notes (internal)</em> above for office-only notes.</p>
+        <FinalNotes contactId={contactId} inspectionId={inspection.id} value={data.finalNotes ?? ''} onChange={v => set('finalNotes', v)} />
       </div>
     </div>
   )
