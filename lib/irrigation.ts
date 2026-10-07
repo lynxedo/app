@@ -219,12 +219,21 @@ export function cleanZoneText(raw: unknown, maxLen = 200): string {
 }
 
 /**
+ * A dictated zone: the fields the tech spoke, plus how they asked for them to
+ * land. No mode = describing the zone (fill blanks only). `edit` = "edit zone 3"
+ * / "change zone 3" — the spoken values replace what's there. `add` = "add to
+ * zone 3" — the spoken issue is added to the zone's existing issues.
+ */
+export type DictatedZone = Partial<IrrigationZone> & { mode?: 'edit' | 'add' }
+
+/**
  * Coerce one model-proposed zone into a shape the form could have produced.
  * Every field goes through a validator; unknown keys are dropped entirely.
  */
-export function sanitizeDictatedZone(raw: unknown): Partial<IrrigationZone> {
+export function sanitizeDictatedZone(raw: unknown): DictatedZone {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  const out: Partial<IrrigationZone> = {}
+  const out: DictatedZone = {}
+  if (r.mode === 'edit' || r.mode === 'add') out.mode = r.mode
   const put = (k: keyof IrrigationZone, v: string) => { if (v) out[k] = v }
   put('zone', cleanZoneNumber(r.zone))
   put('area', cleanZoneText(r.area, 120))
@@ -255,10 +264,15 @@ export type ZoneMergeResult = {
 /**
  * Fold dictated zones into the existing rows.
  *
- * A dictated value may fill a blank field, or correct a value the AI itself put
- * there and the tech hasn't confirmed yet (so "zone three actually has eight
- * heads" works). It may NEVER overwrite something the tech typed or confirmed —
- * their hands on the form always win over the microphone.
+ * Describing a zone: a dictated value may fill a blank field, or correct a value
+ * the AI itself put there and the tech hasn't confirmed yet (so "zone three
+ * actually has eight heads" works). It never overwrites something the tech typed
+ * or confirmed.
+ *
+ * The one exception is when the tech explicitly asks: "edit zone 3 …" replaces
+ * the values they speak, and "add to zone 3 …" appends to that zone's issues.
+ * Either way every value written is marked for review (amber), so a change the
+ * microphone made is always visible.
  *
  * Rows are matched on zone number; an unmatched zone takes the first blank row
  * before appending, so dictating into a fresh form fills the placeholder rows
@@ -266,10 +280,12 @@ export type ZoneMergeResult = {
  */
 export function mergeDictatedZones(
   existing: IrrigationZone[],
-  dictated: Partial<IrrigationZone>[],
+  dictated: DictatedZone[],
   aiFilled: string[],
 ): ZoneMergeResult {
-  const zones = existing.map(z => ({ ...z }))
+  // Number placeholder-numbered rows first, so "edit zone 1" finds the card that
+  // was showing "1" even though nobody typed the number in.
+  const zones = numberZones(existing).map(z => ({ ...z }))
   const marks = new Set(aiFilled)
   const touched = new Set<number>()
   let fieldsWritten = 0
@@ -283,11 +299,17 @@ export function mergeDictatedZones(
     if (idx < 0) idx = zones.findIndex(zoneIsEmpty)
     if (idx < 0) { zones.push(emptyIrrigationZone()); idx = zones.length - 1 }
 
-    for (const [k, v] of Object.entries(patch) as [keyof IrrigationZone, string][]) {
-      if (!v) continue
+    const mode = patch.mode
+    for (const [k, raw] of Object.entries(patch) as [keyof IrrigationZone | 'mode', string][]) {
+      if (k === 'mode' || !raw) continue
       const key = `${idx}:${k}`
       const current = String(zones[idx][k] ?? '').trim()
-      const writable = !current || marks.has(key)
+      let v = raw
+      if (mode === 'add' && k === 'issues' && current) {
+        if (current.toLowerCase().includes(raw.toLowerCase())) continue
+        v = cleanZoneText(`${current}; ${raw}`, 300)
+      }
+      const writable = !current || marks.has(key) || mode === 'edit' || mode === 'add'
       if (!writable) continue
       if (current === v) { continue }
       zones[idx][k] = v
@@ -298,6 +320,65 @@ export function mergeDictatedZones(
   }
 
   return { zones, aiFilled: Array.from(marks), fieldsWritten, touched: Array.from(touched) }
+}
+
+// ── Zone order ──────────────────────────────────────────────────────────────
+// Cards are kept in zone-number order. Rows with no number (an untouched
+// placeholder, or a card still being filled in) go last, in their current order.
+
+function zoneNum(z: IrrigationZone): number | null {
+  const m = String(z.zone ?? '').match(/\d+/)
+  return m ? Number(m[0]) : null
+}
+
+/**
+ * Give a number to every row that has something in it but no zone number — the
+ * number its card was showing as a placeholder (position + 1) if nobody else has
+ * it, else the next free one. Without this, sorting would send a filled-in
+ * "zone 1" card that was never given a real number to the bottom.
+ */
+export function numberZones(zones: IrrigationZone[]): IrrigationZone[] {
+  const used = new Set(zones.map(zoneNum).filter((n): n is number => n != null))
+  return zones.map((z, i) => {
+    if (zoneNum(z) != null || zoneIsEmpty(z)) return z
+    let n = used.has(i + 1) ? Math.max(0, ...used) + 1 : i + 1
+    while (used.has(n)) n++
+    used.add(n)
+    return { ...z, zone: String(n) }
+  })
+}
+
+/** Stable sort by zone number; `order[newIndex] = oldIndex`. */
+export function zoneOrder(zones: IrrigationZone[]): number[] {
+  return zones
+    .map((z, i) => ({ i, n: zoneNum(z) }))
+    .sort((a, b) => {
+      if (a.n == null && b.n == null) return a.i - b.i
+      if (a.n == null) return 1
+      if (b.n == null) return -1
+      return a.n - b.n || a.i - b.i
+    })
+    .map(x => x.i)
+}
+
+/** Number, then sort, the zone rows — re-keying the positional review marks to match. */
+export function sortZones(zones: IrrigationZone[], aiFilled: string[]): {
+  zones: IrrigationZone[]; aiFilled: string[]; order: number[]; changed: boolean
+} {
+  const numbered = numberZones(zones)
+  const order = zoneOrder(numbered)
+  const moved = order.some((oldIdx, newIdx) => oldIdx !== newIdx)
+  const renumbered = numbered.some((z, i) => z !== zones[i])
+  if (!moved) return { zones: numbered, aiFilled, order, changed: renumbered }
+  const newIndexOf = new Map(order.map((oldIdx, newIdx) => [oldIdx, newIdx]))
+  const marks = aiFilled.map(key => {
+    const sep = key.indexOf(':')
+    const head = key.slice(0, sep)
+    if (sep < 0 || !/^\d+$/.test(head)) return key
+    const ni = newIndexOf.get(Number(head))
+    return ni == null ? key : `${ni}:${key.slice(sep + 1)}`
+  })
+  return { zones: order.map(i => numbered[i]), aiFilled: marks, order, changed: true }
 }
 
 /** Drop review marks for a zone row (the tech confirmed it). */
@@ -376,7 +457,7 @@ export function toCustomerSummary(raw: unknown): CustomerSummary {
     },
     backflow: { type: d.bfType || '', location: d.bfLoc || '' },
     mainShutoff: d.isoMain || '',
-    zones: zones.map(z => ({
+    zones: zoneOrder(zones).map(i => zones[i]).map(z => ({
       zone: z.zone || '',
       area: z.area || '',
       waters: z.waters || '',
