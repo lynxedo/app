@@ -1128,6 +1128,15 @@ function HubTab() {
           <li><strong className="text-gray-300">Gray</strong> — off / offline</li>
         </ul>
         <p>A small red dot in the corner of a pin means at least one alert is active for that vehicle. The data refreshes every 30 seconds.</p>
+        <p>When a truck is linked to the tech who drives it (see below), the truck pin carries that tech&apos;s <strong className="text-white">name</strong> in their colour, and the vehicle list shows it under the truck.</p>
+        <p className="mt-4"><strong className="text-white">Stops</strong> — every tech&apos;s Work Order stops for the day appear on the map as <strong className="text-white">numbered pins</strong> in that tech&apos;s colour. The number is the stop&apos;s place in the tech&apos;s route — the same number they see in their Work Orders list. Hover a pin (or tap it on a phone) for the customer, the service, the tech and the scheduled time. Phone numbers, notes and prices are never shown here.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Coloured pin</strong> — still to do</li>
+          <li><strong className="text-white">Coloured pin with a ring</strong> — the tech&apos;s next stop</li>
+          <li><strong className="text-gray-300">Grey pin with a green ✓</strong> — done, whether the tech finished it in Work Orders or it was completed in Jobber (a Jobber completion usually shows within a minute, at most about 10)</li>
+          <li><strong className="text-gray-300">Faded grey pin with a –</strong> — skipped</li>
+        </ul>
+        <p>In the <em>Stops</em> card, pick <strong className="text-white">Everyone</strong> or one tech (or tap a tech&apos;s name), untick <em>Show on map</em> to hide the stops, and change the day to see another day&apos;s stops. The day is shared with Day History, so you can lay a truck&apos;s actual path over that day&apos;s stops. A stop with no map location is counted as &ldquo;not on map&rdquo;.</p>
         <p className="mt-4"><strong className="text-white">Day History</strong> — see the path a vehicle actually took on any day. In the <em>Day History</em> card in the sidebar, pick a vehicle and a date, then tap <strong className="text-white">Show path</strong>: a dotted blue line traces the day&apos;s route through every GPS ping (small arrows show the direction of travel), and <strong className="text-orange-300">larger orange dots</strong> mark anywhere the truck sat for <strong className="text-white">10+ minutes</strong>. Tap any dot for its exact time — stop dots also show how long the truck was there (arrival – departure). The map zooms to fit the whole day. Tap <em>✕ Back to live</em> to clear the path and return to live tracking.</p>
         <p>Four alert types can fire:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
@@ -1138,7 +1147,8 @@ function HubTab() {
         </ul>
         <Note>Alerts are evaluated server-side every 5 minutes. Each alert is delivered by @Guardian to whoever is configured in <em>Admin → Fleet → Notify</em> — any combination of DMs and room posts. You don&apos;t need to be looking at the map for alerts to fire.</Note>
         <AdminOnly>
-          <p>Admins configure which alerts fire, the thresholds, and where alerts go (DM specific users, post in specific rooms, or both) under <strong className="text-white">/admin/fleet</strong>. Each user must have the <em>Fleet Tracker</em> permission enabled in Admin → People to see the map.</p>
+          <p>Admins configure which alerts fire, the thresholds, and where alerts go (DM specific users, post in specific rooms, or both) under <strong className="text-white">/admin/fleet</strong>. Each user must have the <em>Fleet Tracker</em> permission enabled in Admin → People to see the map — and everyone with it sees every tech&apos;s stops.</p>
+          <p><strong className="text-white">Who drives which truck</strong> (top of Admin → Fleet) — pick the person who <em>usually</em> drives each truck; it saves as you pick. A person can usually drive one truck, so picking them for a new truck moves them off the old one. For the odd day someone takes a different truck, use that truck&apos;s <em>Today</em> picker (&ldquo;Mike — today only&rdquo;, or &ldquo;Nobody today&rdquo;): for today only, it moves them off their usual truck, and everything goes back to normal tomorrow. Choose <em>Usual</em> to undo today&apos;s change. Only real people are listed.</p>
         </AdminOnly>
       </Section>
 

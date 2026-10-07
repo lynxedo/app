@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import FleetVehiclesSection from './FleetVehiclesSection'
 
 type Settings = {
   alert_speeding: boolean
@@ -87,6 +88,8 @@ export default function FleetAdminPanel({
             every 5 minutes by a server-side cron and DMed to recipients.
           </p>
         </header>
+
+        <FleetVehiclesSection />
 
         <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
           <h2 className="font-semibold">Alerts</h2>
