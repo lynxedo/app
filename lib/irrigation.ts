@@ -47,6 +47,13 @@ export type IrrigationData = {
   ctrlMv?: string
   accessories?: string[]
   programs?: string
+  // Watering schedule — what the controller is set to today, and when it should
+  // next be changed (seasonal adjustment). Shown to the customer.
+  schedDays?: string[]          // WEEKDAYS values
+  schedStarts?: string[]        // 'HH:MM' (24h, from <input type="time">); several per day is normal
+  schedAdjustOn?: string        // 'YYYY-MM-DD' — when the schedule should next be adjusted
+  schedAdjustChanges?: string[] // SCHEDULE_CHANGES values
+  schedAdjustNote?: string
   // Backflow
   bfType?: string
   bfLoc?: string
@@ -70,6 +77,9 @@ export type IrrigationData = {
   photosNote?: string       // INTERNAL
   estValue?: string         // INTERNAL — dollar figure
   extraNotes?: string       // INTERNAL
+  // Final notes & recommendations — the tech's closing word, dictated or typed,
+  // optionally polished. Shown to the customer (the internal counterpart is extraNotes).
+  finalNotes?: string
   // Review state for dictated values — `${zoneIndex}:${field}` for every zone
   // field written by the dictation endpoint and not yet confirmed by the tech.
   // Persisted (not just component state) so backgrounding the phone mid-walk
@@ -85,6 +95,41 @@ export function emptyIrrigationZone(): IrrigationZone {
 /** True when every field on the zone is still blank (a placeholder row). */
 export function zoneIsEmpty(z: IrrigationZone): boolean {
   return Object.values(z).every(v => !String(v ?? '').trim())
+}
+
+// ── Watering schedule ───────────────────────────────────────────────────────
+
+export const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
+export const SCHEDULE_CHANGES = [
+  'Remove days', 'Add days', 'Shorten run times', 'Lengthen run times',
+  'Change start times', 'Turn off for winter', 'Turn back on',
+] as const
+
+/** Days in calendar order, whatever order they were tapped in. */
+export function orderedDays(days: string[] | undefined): string[] {
+  const set = new Set(days ?? [])
+  return WEEKDAYS.filter(d => set.has(d))
+}
+
+/** '05:30' → '5:30 AM'. Anything that isn't HH:MM passes through as typed. */
+export function fmtStartTime(t: string): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec((t || '').trim())
+  if (!m) return (t || '').trim()
+  const h = Number(m[1])
+  if (h > 23) return t.trim()
+  return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`
+}
+
+/** Start times, blanks dropped, earliest first, formatted for reading. */
+export function fmtStartTimes(starts: string[] | undefined): string[] {
+  return (starts ?? []).map(s => (s || '').trim()).filter(Boolean).sort().map(fmtStartTime)
+}
+
+/** '2026-11-15' → 'November 15, 2026'. */
+export function fmtScheduleDate(d: string | undefined): string {
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return d || ''
+  const dt = new Date(d + 'T00:00:00')
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 // ── Zone field vocabularies ─────────────────────────────────────────────────
@@ -312,6 +357,8 @@ export type CustomerSummary = {
   zones: CustomerZone[]
   overallCond: string
   recommendations: string[]
+  schedule: { days: string[]; starts: string[]; adjustOn: string; adjustChanges: string[]; adjustNote: string }
+  finalNotes: string
 }
 
 export function toCustomerSummary(raw: unknown): CustomerSummary {
@@ -338,5 +385,13 @@ export function toCustomerSummary(raw: unknown): CustomerSummary {
     })).filter(z => z.zone || z.area || z.waters || z.head || z.count),
     overallCond: d.overallCond || '',
     recommendations: Array.isArray(d.upgrades) ? d.upgrades.filter(Boolean) : [],
+    schedule: {
+      days: orderedDays(Array.isArray(d.schedDays) ? d.schedDays : []),
+      starts: fmtStartTimes(Array.isArray(d.schedStarts) ? d.schedStarts : []),
+      adjustOn: fmtScheduleDate(d.schedAdjustOn),
+      adjustChanges: Array.isArray(d.schedAdjustChanges) ? d.schedAdjustChanges.filter(Boolean) : [],
+      adjustNote: (d.schedAdjustNote || '').trim(),
+    },
+    finalNotes: (d.finalNotes || '').trim(),
   }
 }

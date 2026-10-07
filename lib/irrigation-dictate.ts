@@ -126,3 +126,39 @@ export async function extractZones(transcript: string): Promise<Partial<Irrigati
     .filter(z => Object.keys(z).some(k => k !== 'zone'))
     .slice(0, 40)
 }
+
+// ── Final notes polish ──────────────────────────────────────────────────────
+// The tech talks or thumbs out their closing notes in the yard; Polish turns the
+// fumbling into something fit for the customer's summary. It edits THEIR words —
+// it never adds a finding, a price, a date or a promise that wasn't there.
+
+const POLISH_SYSTEM = `You are editing an irrigation technician's closing notes for a homeowner's irrigation inspection summary. The homeowner will read the result.
+
+Clean up the tech's OWN notes:
+- Fix grammar, spelling, punctuation and capitalization. Fix obvious speech-to-text slips in irrigation terms (rotor, spray head, MP rotator, drip, backflow, PVB, RPZ, valve box, controller, station, zone, PSI).
+- Turn fragments into short, clear, friendly, professional sentences. When the notes cover several separate points, put each on its own line starting with "- ".
+- Keep every fact, zone number, count, measurement and recommendation the tech gave. Keep their meaning; refine, don't rewrite from scratch.
+- NEVER add anything that is not in the notes: no new problems, recommendations, prices, dates, schedules or promises.
+- No greeting, sign-off, heading or markdown other than the "- " lines.
+- If the notes are already clean, return them essentially unchanged.
+- Return ONLY the polished notes, with no commentary.`
+
+/** Polish the tech's final notes. Throws on failure — the caller keeps their text. */
+export async function polishNotes(text: string): Promise<string> {
+  const notes = text.trim().slice(0, MAX_NOTE_CHARS)
+  if (!notes) return ''
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('AI is not configured on this server')
+
+  const anthropic = getAnthropic({ timeout: 60_000, maxRetries: 2 })
+  const resp = await anthropic.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 2048,
+    system: POLISH_SYSTEM,
+    messages: [{ role: 'user', content: `Polish these notes:\n\n${notes}` }],
+  })
+  return resp.content
+    .filter(b => b.type === 'text')
+    .map(b => (b.type === 'text' ? b.text : ''))
+    .join('')
+    .trim()
+}

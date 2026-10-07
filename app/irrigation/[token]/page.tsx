@@ -85,9 +85,13 @@ export default async function IrrigationSummaryPage({ params }: { params: Promis
     : (insp.finalized_at ? new Date(insp.finalized_at as string).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '')
 
   const controllerParts = [s.controller.brand, s.controller.model].filter(Boolean).join(' ')
+  const sch = s.schedule
+  const hasAdjust = !!(sch.adjustOn || sch.adjustChanges.length || sch.adjustNote)
+  const hasSchedule = !!(sch.days.length || sch.starts.length || hasAdjust)
   const hasSystem =
     s.source.length || s.psi || controllerParts || s.controller.type || s.controller.stations ||
-    s.backflow.type || s.mainShutoff || s.zones.length || s.overallCond || s.recommendations.length
+    s.backflow.type || s.mainShutoff || s.zones.length || s.overallCond || s.recommendations.length ||
+    hasSchedule || s.finalNotes
 
   return (
     <div style={wrap}>
@@ -120,6 +124,26 @@ export default async function IrrigationSummaryPage({ params }: { params: Promis
                 <InfoRow k="Type" v={s.controller.type} />
                 <InfoRow k="Zones (stations)" v={s.controller.stations} />
                 <InfoRow k="Location" v={s.controller.location} />
+              </Section>
+            )}
+
+            {hasSchedule && (
+              <Section title="Watering schedule">
+                <InfoRow k="Watering days" v={sch.days.join(', ')} />
+                <InfoRow k="Start times" v={sch.starts.join(', ')} />
+                {hasAdjust && (
+                  <div style={{ marginTop: 10, background: '#f6f8f7', borderRadius: 9, padding: '10px 12px' }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>
+                      Next adjustment{sch.adjustOn ? ` — around ${sch.adjustOn}` : ''}
+                    </div>
+                    {sch.adjustChanges.length > 0 && (
+                      <div style={{ fontSize: 14, color: '#5a6b64', marginTop: 2 }}>{sch.adjustChanges.join(' · ')}</div>
+                    )}
+                    {sch.adjustNote && (
+                      <div style={{ fontSize: 14, marginTop: 4 }}>{sch.adjustNote}</div>
+                    )}
+                  </div>
+                )}
               </Section>
             )}
 
@@ -164,6 +188,12 @@ export default async function IrrigationSummaryPage({ params }: { params: Promis
                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 15, lineHeight: 1.7 }}>
                   {s.recommendations.map((r, i) => <li key={i}>{r}</li>)}
                 </ul>
+              </Section>
+            )}
+
+            {s.finalNotes && (
+              <Section title="Technician notes">
+                <div style={{ fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{s.finalNotes}</div>
               </Section>
             )}
 

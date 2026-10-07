@@ -70,6 +70,18 @@ async function workOrdersFor(admin: ReturnType<typeof createAdminClient>, stopId
   return map
 }
 
+// What a new visit inherits from the last one: the system and its current
+// schedule, yes — but not that visit's closing notes or its "next adjustment"
+// plan, which go to the customer and would be stale on the next summary.
+function carryForward(prev: IrrigationData): IrrigationData {
+  const next = { ...prev }
+  delete next.finalNotes
+  delete next.schedAdjustOn
+  delete next.schedAdjustChanges
+  delete next.schedAdjustNote
+  return next
+}
+
 async function namesFor(admin: ReturnType<typeof createAdminClient>, ids: (string | null)[]) {
   const uniq = Array.from(new Set(ids.filter((x): x is string => !!x)))
   const map = new Map<string, string>()
@@ -219,7 +231,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       contact_id: contactId,
       property_id: latestFinal?.property_id ?? null,
       status: 'draft',
-      data: latestFinal?.data ?? {},
+      data: latestFinal?.data ? carryForward(latestFinal.data as IrrigationData) : {},
       created_by: access.userId,
       updated_by: access.userId,
       stop_id: stopLink?.stop_id ?? null,
