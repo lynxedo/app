@@ -239,6 +239,8 @@ export async function upsertStopsForEntry(admin: Admin, p: {
     if (!taken.some(o => o >= b && o < b + 1000)) { parkBase = b; break }
   }
   let parked = 0
+  /** The one stop row kept per incoming visit. */
+  const keptIds = new Set<string>()
   const seenVisit = new Set<string>()
 
   for (let i = 0; i < p.stops.length; i++) {
@@ -281,6 +283,7 @@ export async function upsertStopsForEntry(admin: Admin, p: {
       if (lineItemsKey(target.line_items) !== lineItemsKey(s.line_items) || target.removed_from_jobber_at) res.changed = true
       const { error } = await admin.from('daily_log_stops').update(facts).eq('id', target.id)
       if (error) throw new Error(`stop update ${target.id}: ${error.message}`)
+      keptIds.add(target.id)
       finals.push({ id: target.id, ord: target.ord, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
     } else {
       // (entry_id, ord) is UNIQUE — park new rows in a high, distinct range and let
@@ -303,16 +306,46 @@ export async function upsertStopsForEntry(admin: Admin, p: {
         completed_at: s.jobber_completed_at ?? null,
       }
       const { data: created, error } = await admin.from('daily_log_stops').insert(row).select('id').single()
+      if (error?.code === '23505' && vid) {
+        // Another sync of this day added the same visit a moment ago — UNIQUE
+        // (entry_id, jobber_visit_id) refused a second copy (Oct 7 2026: two
+        // overlapping syncs had doubled stops). Treat it as already here.
+        const { data: twin } = await admin.from('daily_log_stops').select('id, ord').eq('entry_id', p.entryId).eq('jobber_visit_id', vid).maybeSingle()
+        if (!twin) throw new Error(`stop insert: ${error.message}`)
+        const { error: upErr } = await admin.from('daily_log_stops').update(facts).eq('id', twin.id)
+        if (upErr) throw new Error(`stop update ${twin.id}: ${upErr.message}`)
+        res.updated += 1
+        keptIds.add(twin.id as string)
+        finals.push({ id: twin.id as string, ord: twin.ord as number, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
+        continue
+      }
       if (error || !created) throw new Error(`stop insert: ${error?.message ?? 'no row'}`)
       res.inserted += 1
       res.changed = true
+      keptIds.add(created.id as string)
       finals.push({ id: created.id as string, ord: tempOrd, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
     }
   }
 
   // Survivors: stops on this entry that were not in the incoming set.
   for (const s of existing) {
-    if (s.jobber_visit_id && seenVisit.has(s.jobber_visit_id)) continue
+    if (s.jobber_visit_id && seenVisit.has(s.jobber_visit_id)) {
+      if (keptIds.has(s.id)) continue
+      // A second copy of a visit already on this day (left by overlapping syncs
+      // before the UNIQUE index). Drop it unless a person worked on THIS copy
+      // (a Jobber completion copied onto both doesn't count).
+      const worked = !!s.arrived_at || !!s.notes || !!s.on_my_way_sent_at || !!s.pesticide_tech_notes
+        || !!s.pesticide_record_id || !!s.office_reviewed_at || inspected.has(s.id)
+      if (!worked) {
+        const { error } = await admin.from('daily_log_stops').delete().eq('id', s.id)
+        if (error) throw new Error(`duplicate stop delete ${s.id}: ${error.message}`)
+        res.deleted += 1
+        res.changed = true
+      } else {
+        finals.push({ id: s.id, ord: s.ord, startAt: s.scheduled_start_at, flagged: true, incomingIndex: Number.MAX_SAFE_INTEGER })
+      }
+      continue
+    }
     const manageable = p.pruneMissingVisits && isJobberVisitGid(s.jobber_visit_id)
       && !(s.jobber_visit_id && p.keepVisitIds?.has(s.jobber_visit_id))
     if (manageable) {
