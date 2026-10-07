@@ -28,7 +28,7 @@ export default async function AdminIntegrationsPage() {
   const companyId = profile.company_id
   const admin = createAdminClient()
 
-  const [jobber, qbo, gusto, meta, email, onestep, google, voicedrop, hubAssistant] = await Promise.all([
+  const [jobber, qbo, gusto, meta, email, onestep, google, voicedrop, hubAssistant, rachio] = await Promise.all([
     admin.from('jobber_tokens').select('id').eq('company_id', companyId).limit(1).maybeSingle(),
     admin.from('qbo_tokens').select('id').eq('company_id', companyId).maybeSingle(), // QBO is now company-scoped (Track 3)
     admin.from('gusto_connections').select('company_id').eq('company_id', companyId).maybeSingle(),
@@ -40,6 +40,7 @@ export default async function AdminIntegrationsPage() {
     // Hub Assistant (Claude over MCP). RLS is on with no policies → service-role
     // only, so this MUST go through the admin client like the rows above.
     admin.from('hub_assistant_settings').select('enabled, mcp_enabled').eq('company_id', companyId).maybeSingle(),
+    admin.from('company_integrations').select('config, enabled').eq('company_id', companyId).eq('provider', 'rachio').maybeSingle(),
   ])
 
   const gustoConfigured = !!(process.env.GUSTO_CLIENT_ID && process.env.GUSTO_CLIENT_SECRET)
@@ -66,6 +67,9 @@ export default async function AdminIntegrationsPage() {
   // "connected" signal — the env key is just a resolver fallback (dev), never
   // tied to a hardcoded company. See lib/voicedrop.ts.
   const voiceDropOwnKey = !!((voicedrop.data?.config ?? null) as { api_key?: string } | null)?.api_key
+  // Rachio (Import from Rachio on the irrigation inspection) — the company's own key only.
+  const rachioConfig = (rachio.data?.config ?? null) as { api_key?: string; account?: string | null } | null
+  const rachioOwnKey = !!rachioConfig?.api_key && rachio.data?.enabled !== false
 
   // Hub Assistant: the assistant can be on for in-Hub use while OUTSIDE Claude
   // apps (claude.ai / Claude Code / desktop) are still not allowed to connect —
@@ -115,6 +119,9 @@ export default async function AdminIntegrationsPage() {
     voicedrop: voiceDropOwnKey
       ? { status: 'connected', detail: 'Your VoiceDrop account' }
       : { status: 'not_connected' },
+    rachio: rachioOwnKey
+      ? { status: 'connected', detail: rachioConfig?.account ? `Rachio account: ${rachioConfig.account}` : 'Your Rachio account' }
+      : { status: 'not_connected' },
     shared_inbox: sharedInbox.data
       ? { status: 'connected', detail: sharedInboxEmail ?? undefined }
       : !nylasConfigured()
@@ -161,7 +168,7 @@ export default async function AdminIntegrationsPage() {
       <IntegrationsAdminPanel
         statuses={statuses}
         webhookBase={webhookBase}
-        ownKeys={{ onestepgps: oneStepOwnKey, voicedrop: voiceDropOwnKey }}
+        ownKeys={{ onestepgps: oneStepOwnKey, voicedrop: voiceDropOwnKey, rachio: rachioOwnKey }}
         googleLsa={googleLsa}
         payroll={payroll}
       />

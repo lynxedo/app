@@ -427,7 +427,9 @@ export function shareExpiryFromNow(nowIso: string): string {
 // the single allowlist of what the public summary page may render. Anything not
 // copied here cannot reach the customer, even if the form later grows new fields.
 
-export type CustomerZone = { zone: string; area: string; waters: string; head: string; count: string }
+// Oct 7 2026 (Ben): the customer sees each zone's sun exposure, run time and
+// condition notes too — techs write zone issues for the customer to read.
+export type CustomerZone = { zone: string; area: string; waters: string; head: string; count: string; sun: string; runtime: string; notes: string }
 
 export type CustomerSummary = {
   source: string[]
@@ -463,7 +465,10 @@ export function toCustomerSummary(raw: unknown): CustomerSummary {
       waters: z.waters || '',
       head: z.head || '',
       count: z.count || '',
-    })).filter(z => z.zone || z.area || z.waters || z.head || z.count),
+      sun: z.sun || '',
+      runtime: z.runtime || '',
+      notes: (z.issues || '').trim(),
+    })).filter(z => z.zone || z.area || z.waters || z.head || z.count || z.notes),
     overallCond: d.overallCond || '',
     recommendations: Array.isArray(d.upgrades) ? d.upgrades.filter(Boolean) : [],
     schedule: {
