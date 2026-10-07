@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAudioRecorder } from './useAudioRecorder'
 
 // Final notes & recommendations — the tech's closing word on the inspection.
@@ -24,20 +24,22 @@ export default function FinalNotes({ contactId, inspectionId, value, onChange }:
   const [busy, setBusy] = useState<'' | 'transcribing' | 'polishing'>('')
   const [msg, setMsg] = useState('')
   const [undo, setUndo] = useState<string | null>(null)
-  const valueRef = useRef(value); valueRef.current = value
+  const valueRef = useRef(value)
+  useEffect(() => { valueRef.current = value }, [value])
   const lastClip = useRef<Blob | null>(null)
+  const [canRetry, setCanRetry] = useState(false)
 
   const url = `/api/hub/contacts/${contactId}/irrigation/${inspectionId}/notes`
 
   const handleClip = useCallback(async (blob: Blob) => {
     lastClip.current = blob
-    setBusy('transcribing'); setMsg('')
+    setBusy('transcribing'); setMsg(''); setCanRetry(false)
     try {
       const fd = new FormData()
       fd.append('audio', new File([blob], 'notes.webm', { type: blob.type || 'audio/webm' }))
       const res = await fetch(url, { method: 'POST', body: fd })
       const j = await res.json().catch(() => ({}))
-      if (!res.ok) { setMsg(j.error || 'Could not transcribe that'); return }
+      if (!res.ok) { setMsg(j.error || 'Could not transcribe that'); setCanRetry(true); return }
       const t = String(j.transcript || '').trim()
       if (!t) { setMsg('Didn’t catch any speech'); return }
       const cur = valueRef.current.trim()
@@ -46,6 +48,7 @@ export default function FinalNotes({ contactId, inspectionId, value, onChange }:
       lastClip.current = null
     } catch {
       setMsg('Network error — your recording is still here, try again')
+      setCanRetry(true)
     } finally {
       setBusy('')
     }
@@ -57,7 +60,7 @@ export default function FinalNotes({ contactId, inspectionId, value, onChange }:
   async function polish() {
     const text = valueRef.current.trim()
     if (!text || busy) return
-    setBusy('polishing'); setMsg('')
+    setBusy('polishing'); setMsg(''); setCanRetry(false)
     try {
       const res = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
@@ -125,7 +128,7 @@ export default function FinalNotes({ contactId, inspectionId, value, onChange }:
       {msg && (
         <div className="mt-1.5 text-[12px] text-amber-400 flex items-center gap-2">
           <span>{msg}</span>
-          {lastClip.current && !busy && (
+          {canRetry && !busy && (
             <button type="button" onClick={() => { if (lastClip.current) void handleClip(lastClip.current) }}
               className="underline underline-offset-2 hover:text-amber-300">
               Try again

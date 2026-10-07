@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
-import type { IrrigationZone } from '@/lib/irrigation'
+import type { IrrigationZone, DictatedZone } from '@/lib/irrigation'
 import { useAudioRecorder } from './useAudioRecorder'
 
 // Capture card above the zone list: talk through the yard, or type the same
@@ -16,10 +16,12 @@ function mmss(total: number) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-export default function ZoneDictation({ contactId, inspectionId, onZones }: {
+export default function ZoneDictation({ contactId, inspectionId, getZones, onZones }: {
   contactId: string
   inspectionId: string
-  onZones: (zones: Partial<IrrigationZone>[], transcript: string) => void
+  /** The form's current zone rows — sent along so "next zone" and "edit zone 3" have context. */
+  getZones: () => IrrigationZone[]
+  onZones: (zones: DictatedZone[], transcript: string) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [typing, setTyping] = useState(false)
@@ -46,7 +48,7 @@ export default function ZoneDictation({ contactId, inspectionId, onZones }: {
         return
       }
       setHeard(j.transcript || '')
-      const zones: Partial<IrrigationZone>[] = Array.isArray(j.zones) ? j.zones : []
+      const zones: DictatedZone[] = Array.isArray(j.zones) ? j.zones : []
       if (zones.length === 0) {
         setMsg(j.transcript ? 'No zones found in that — try naming the zone number first' : 'Didn’t catch any speech')
         return
@@ -64,15 +66,16 @@ export default function ZoneDictation({ contactId, inspectionId, onZones }: {
   const handleClip = useCallback((blob: Blob) => {
     const fd = new FormData()
     fd.append('audio', new File([blob], 'zones.webm', { type: blob.type || 'audio/webm' }))
+    fd.append('zones', JSON.stringify(getZones()))
     void send(fd, blob)
-  }, [send])
+  }, [send, getZones])
 
   const rec = useAudioRecorder(handleClip)
   const recording = rec.state === 'recording'
 
   function retry() {
     if (lastClip.current) { handleClip(lastClip.current); return }
-    if (note.trim()) void send(JSON.stringify({ text: note.trim() }), null)
+    if (note.trim()) void send(JSON.stringify({ text: note.trim(), zones: getZones() }), null)
   }
 
   return (
@@ -108,8 +111,8 @@ export default function ZoneDictation({ contactId, inspectionId, onZones }: {
           {!recording && !busy && (
             <p className="mt-2 text-[11px] text-white/40 leading-relaxed">
               Say the zone number first, then what you see: “Zone three, front lawn, turf, rotors,
-              six heads, full sun — one broken head spraying the driveway.” Keep going for as many
-              zones as you like.
+              six heads, full sun — one broken head spraying the driveway.” Say “next zone” to move on.
+              To fix one already filled in, say “edit zone three…” or “add to zone three…”.
             </p>
           )}
           {rec.error && <p className="mt-2 text-[12px] text-amber-400">{rec.error}</p>}
@@ -129,7 +132,7 @@ export default function ZoneDictation({ contactId, inspectionId, onZones }: {
           <button
             type="button"
             disabled={busy || !note.trim()}
-            onClick={() => void send(JSON.stringify({ text: note.trim() }), null)}
+            onClick={() => void send(JSON.stringify({ text: note.trim(), zones: getZones() }), null)}
             className="mt-2 w-full min-h-[46px] rounded-md bg-sky-600 hover:bg-sky-500 text-white text-[15px] font-medium disabled:opacity-40"
           >
             {busy ? 'Reading your notes…' : 'Fill zones from these notes'}

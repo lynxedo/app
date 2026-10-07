@@ -1,9 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { IrrigationData, IrrigationZone } from '@/lib/irrigation'
+import type { IrrigationData, IrrigationZone, DictatedZone } from '@/lib/irrigation'
 import {
-  emptyIrrigationZone, mergeDictatedZones, confirmZoneMarks, reindexZoneMarks,
+  emptyIrrigationZone, mergeDictatedZones, confirmZoneMarks, reindexZoneMarks, sortZones,
   ZONE_WATERS, ZONE_HEADS, ZONE_SUN, ZONE_SLOPE, WEEKDAYS, SCHEDULE_CHANGES,
 } from '@/lib/irrigation'
 import { fieldMark } from '@/lib/irrigation-fields'
@@ -131,6 +131,15 @@ function Seg({ label, value, onChange, options }: {
   )
 }
 
+/** Keys for `n` cards: the ones we have, plus fresh unique ones. Pure. */
+function padKeys(keys: number[], n: number): number[] {
+  if (keys.length >= n) return keys.slice(0, n)
+  let next = keys.length ? Math.max(...keys) + 1 : 0
+  const out = [...keys]
+  while (out.length < n) out.push(next++)
+  return out
+}
+
 function SectionHead({ n, title }: { n: number; title: string }) {
   return (
     <div className="flex items-center gap-2.5 mt-6 mb-3">
@@ -146,12 +155,13 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
   onClose: () => void
   onFinalized: () => void
 }) {
-  const [data, setData] = useState<IrrigationData>(() => ({
-    ...inspection.data,
-    zones: Array.isArray(inspection.data.zones) && inspection.data.zones.length
+  const [data, setData] = useState<IrrigationData>(() => {
+    const zones = Array.isArray(inspection.data.zones) && inspection.data.zones.length
       ? inspection.data.zones
-      : Array.from({ length: 6 }, () => emptyIrrigationZone()),
-  }))
+      : Array.from({ length: 6 }, () => emptyIrrigationZone())
+    const sorted = sortZones(zones, inspection.data.aiFilled ?? [])
+    return { ...inspection.data, zones: sorted.zones, aiFilled: sorted.aiFilled }
+  })
   const [photos, setPhotos] = useState<{ key: string; url: string }[]>(
     () => inspection.photoKeys.map((key, i) => ({ key, url: inspection.photoUrls[i] || '' })),
   )
@@ -160,6 +170,10 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
   const [err, setErr] = useState('')
 
   const dataRef = useRef(data); dataRef.current = data
+  // Stable React keys for the zone cards. Cards re-sort by zone number, and an
+  // index key would hand the field the tech just tapped to whichever zone slid
+  // into that slot. Kept beside the rows and permuted with them.
+  const [zoneKeys, setZoneKeys] = useState<number[]>(() => (data.zones ?? []).map((_, i) => i))
   const photosRef = useRef(photos); photosRef.current = photos
   const sketchDirty = useRef(false)
   const sketchKeyRef = useRef<string | null>(null)
@@ -193,8 +207,12 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
     setData(d => ({ ...d, schedStarts: (d.schedStarts ?? []).filter((_, j) => j !== i) }))
     scheduleSave()
   }, [])
-  const addZone = useCallback(() => setData(d => ({ ...d, zones: [...(d.zones ?? []), emptyIrrigationZone()] })), [])
+  const addZone = useCallback(() => {
+    setData(d => ({ ...d, zones: [...(d.zones ?? []), emptyIrrigationZone()] }))
+    setZoneKeys(k => padKeys(k, k.length + 1))
+  }, [])
   const removeZone = useCallback((i: number) => {
+    setZoneKeys(k => k.filter((_, j) => j !== i))
     setData(d => ({
       ...d,
       zones: (d.zones ?? []).filter((_, j) => j !== i),
@@ -208,7 +226,24 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
   // ── Dictation ──────────────────────────────────────────────────────────────
   const [dictateNote, setDictateNote] = useState('')
 
-  const applyDictation = useCallback((dictated: Partial<IrrigationZone>[]) => {
+  // Put the cards in zone-number order (after a zone number is typed, and after
+  // dictation). Computed off the ref, outside a setData updater, because it also
+  // permutes the card keys — an updater may run twice.
+  const sortCards = useCallback((d: IrrigationData) => {
+    const res = sortZones(d.zones ?? [], d.aiFilled ?? [])
+    const n = res.order.length
+    setZoneKeys(k => { const p = padKeys(k, n); return res.order.map(i => p[i]) })
+    return { ...d, zones: res.zones, aiFilled: res.aiFilled, changed: res.changed }
+  }, [])
+  const sortNow = useCallback(() => {
+    const { changed, ...next } = sortCards(dataRef.current)
+    if (!changed) return
+    setData(next); scheduleSave()
+  }, [sortCards])
+
+  const getZones = useCallback(() => dataRef.current.zones ?? [], [])
+
+  const applyDictation = useCallback((dictated: DictatedZone[]) => {
     // Merged off the ref, not inside the setData updater — an updater must be
     // pure (React runs it twice in dev StrictMode), so the summary message is
     // computed here and set alongside rather than as a side effect within it.
@@ -222,9 +257,11 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
           + `${merged.touched.length} zone${merged.touched.length === 1 ? '' : 's'}`
           + (untouched > 0 ? ` · ${untouched} left alone (already filled in)` : ''),
     )
-    setData(prev => ({ ...prev, zones: merged.zones, aiFilled: merged.aiFilled }))
+    const { changed: _changed, ...sorted } = sortCards({ ...d, zones: merged.zones, aiFilled: merged.aiFilled })
+    void _changed
+    setData(prev => ({ ...prev, zones: sorted.zones, aiFilled: sorted.aiFilled }))
     scheduleSave()
-  }, [])
+  }, [sortCards])
 
   const marks = data.aiFilled ?? []
   const isAi = useCallback((i: number, field: keyof IrrigationZone) => marks.includes(`${i}:${field}`), [marks])
@@ -521,7 +558,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
         <div className="mt-3"><TextField label="Valves per box / wiring notes" value={data.vbNotes ?? ''} onChange={v => set('vbNotes', v)} /></div>
 
         <SectionHead n={8} title="Zones" />
-        <ZoneDictation contactId={contactId} inspectionId={inspection.id} onZones={applyDictation} />
+        <ZoneDictation contactId={contactId} inspectionId={inspection.id} getZones={getZones} onZones={applyDictation} />
         {dictateNote && (
           <div className="mb-3 text-[12px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-md px-3 py-2">
             {dictateNote}
@@ -531,11 +568,12 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
           {zones.map((z, i) => {
             const zoneMarked = marks.some(k => k.startsWith(`${i}:`))
             return (
-            <div key={i} className={`border rounded-lg bg-white/[0.03] ${zoneMarked ? 'border-amber-500/40' : 'border-white/10'}`}>
+            <div key={zoneKeys[i] ?? `new-${i}`} className={`border rounded-lg bg-white/[0.03] ${zoneMarked ? 'border-amber-500/40' : 'border-white/10'}`}>
               <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
                 <span className="text-[13px] font-semibold text-sky-300">Zone</span>
                 <input value={z.zone} onChange={e => { setZone(i, { zone: e.target.value }); clearMark(i, 'zone') }} placeholder={`${i + 1}`}
                   onFocus={() => clearMark(i, 'zone')}
+                  onBlur={sortNow}
                   inputMode="numeric" className={`w-14 px-2 py-1 rounded bg-white/5 border text-center text-white ${isAi(i, 'zone') ? aiRing : 'border-white/10'}`} style={inpStyle} />
                 <button type="button" onClick={() => removeZone(i)} className="ml-auto text-white/40 hover:text-red-400 w-8 h-8 rounded" aria-label="Remove zone">✕</button>
               </div>
