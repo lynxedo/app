@@ -8,7 +8,7 @@ import type { QuoteItem } from '@/lib/quotes'
 
 type Admin = ReturnType<typeof createAdminClient>
 
-export const QUOTE_COLS = 'id, contact_id, jobber_client_id, jobber_property_id, property_address, lawn_size_k, stop_id, lead_id, template_id, title, intro, terms, internal_notes, review_ids, deposit_type, deposit_value, status, sent_at, sent_via, expires_at, first_viewed_at, approved_at, approved_name, changes_message, total_required, total_selected, salesperson_user_id, jobber_quote_id, jobber_quote_number, share_token, created_by, created_at, updated_at'
+export const QUOTE_COLS = 'id, contact_id, jobber_client_id, jobber_property_id, property_address, lawn_size_k, stop_id, lead_id, template_id, title, intro, terms, internal_notes, review_ids, deposit_type, deposit_value, status, sent_at, sent_via, expires_at, first_viewed_at, approved_at, approved_name, changes_message, total_required, total_selected, salesperson_user_id, jobber_quote_id, jobber_quote_number, jobber_web_uri, jobber_synced_at, jobber_sync_error, share_token, created_by, created_at, updated_at'
 export const ITEM_COLS = 'id, sort_order, optional, recommended, jobber_product_id, pricer_ref, name, description, quantity, unit_price, taxable, selected_by_customer'
 
 export type QuoteProperty = {

@@ -52,6 +52,7 @@ type Loaded = {
     id: string; status: QuoteStatus; contact_id: string; jobber_property_id: string | null; property_address: string | null
     sent_at: string | null; sent_via: string[] | null; expires_at: string | null; first_viewed_at: string | null; updated_at: string
     approved_at: string | null; approved_name: string | null; changes_message: string | null; total_selected: number | null; share_token: string | null
+    jobber_quote_id: string | null; jobber_quote_number: string | null; jobber_web_uri: string | null; jobber_synced_at: string | null; jobber_sync_error: string | null
   }
   /** Add-ons the customer ticked when approving. */
   pickedAddOns: string[]
@@ -642,6 +643,7 @@ function SendBox({ quoteId, q, status, contact, pickedAddOns, ready, beforeSend,
               <li className="text-emerald-300">Approved by {q.approved_name} {when(q.approved_at)} — {money(Number(q.total_selected ?? 0))}{pickedAddOns.length ? ` · add-ons: ${pickedAddOns.join(', ')}` : ' · no add-ons'}</li>
             )}
           </ul>
+          <JobberLine quoteId={quoteId} q={q} onChanged={onChanged} />
           {status === 'changes_requested' && q.changes_message && (
             <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-sm text-amber-100">Customer asked: “{q.changes_message}”</div>
           )}
@@ -655,10 +657,39 @@ function SendBox({ quoteId, q, status, contact, pickedAddOns, ready, beforeSend,
               <button type="button" onClick={revise} disabled={busy} className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-sm text-amber-200 disabled:opacity-50">Revise</button>
             )}
           </div>
-          {status === 'approved' && <p className="text-[12px] text-gray-500">Next: approve it in Jobber and book the work. (Hub will create the Jobber quote automatically in the next update.)</p>}
+          {status === 'approved' && <p className="text-[12px] text-gray-500">Next: approve it in Jobber and book the work — the add-ons they chose are already marked there, with a pinned note.</p>}
         </>
       )}
       {msg && <div className={`text-sm ${msg.ok ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</div>}
     </section>
   )
+}
+
+function JobberLine({ quoteId, q, onChanged }: { quoteId: string; q: Loaded['quote']; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  async function retry() {
+    setBusy(true); setErr(null)
+    const res = await fetch(`/api/hub/quotes/${quoteId}/jobber`, { method: 'POST' })
+    setBusy(false)
+    if (!res.ok) setErr((await res.json().catch(() => ({}))).error ?? 'Retry failed')
+    onChanged()
+  }
+  if (q.jobber_sync_error) {
+    return (
+      <div className="rounded-md bg-red-500/10 border border-red-500/30 px-3 py-2 text-sm text-red-200 space-y-1">
+        <div>Jobber: {q.jobber_sync_error}</div>
+        {err && <div className="text-red-300">{err}</div>}
+        <button type="button" onClick={retry} disabled={busy} className="px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-xs text-white disabled:opacity-50">{busy ? 'Trying…' : 'Retry'}</button>
+      </div>
+    )
+  }
+  if (q.jobber_quote_id) {
+    return (
+      <div className="text-[13px] text-gray-300">
+        In Jobber: {q.jobber_web_uri ? <a href={q.jobber_web_uri} target="_blank" rel="noopener noreferrer" className="text-sky-300 hover:text-sky-200">Quote #{q.jobber_quote_number} ↗</a> : `Quote #${q.jobber_quote_number}`}
+      </div>
+    )
+  }
+  return <div className="text-[13px] text-gray-500">Creating the quote in Jobber… <button type="button" onClick={onChanged} className="text-sky-300 hover:text-sky-200">Refresh</button></div>
 }

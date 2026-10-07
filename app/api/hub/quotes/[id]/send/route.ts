@@ -1,4 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
+import { pushQuoteToJobber } from '@/lib/quote-jobber'
+import { moveLeadToRole } from '@/lib/lead-stage'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveQuoteCaller } from '@/lib/quote-access'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
@@ -142,6 +144,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!isResend) Object.assign(up, { status: 'sent', sent_at: now.toISOString(), expires_at: expiresAt, salesperson_user_id: c.userId })
     await admin.from('quotes').update(up).eq('id', id).eq('company_id', c.companyId)
     await admin.from('quote_events').insert({ quote_id: id, company_id: c.companyId, kind: isResend ? 'resent' : 'sent', actor_user_id: c.userId, meta: { via: sent } })
+    // First send (or re-send after a Revise): mirror into Jobber and move the
+    // Lead Tracker card — after the response, so the tech isn't kept waiting.
+    if (!isResend) {
+      const companyId = c.companyId, userId = c.userId, leadId = q.lead_id as string | null
+      after(async () => {
+        const a = createAdminClient()
+        await pushQuoteToJobber(a, companyId, id, userId)
+        if (leadId) await moveLeadToRole(a, companyId, leadId, 'quoted')
+      })
+    }
   }
 
   const failed = (Object.entries(results) as ['text' | 'email', { ok: boolean; error?: string }][]).filter(([, r]) => !r.ok)

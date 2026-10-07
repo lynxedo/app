@@ -2580,7 +2580,7 @@ function QuotesTab() {
     <>
       <Section title="What is Quotes?">
         <p>Quotes lets technicians and the office build a good-looking quote for a customer in a few minutes — on the phone or at a desk — from a template your team set up. The customer will open it from a text or email, tick any add-ons they want, and approve it by typing their name.</p>
-        <Note>Being built in stages. <strong className="text-white">You can build, preview and send quotes, and customers can approve them online.</strong> Creating the matching quote in Jobber (and the customer&apos;s <em>Pay deposit</em> button) and moving the Lead Tracker card arrive in the next update — until then, approve the quote in Jobber yourself as usual.</Note>
+        <Note>Build, preview and send quotes; customers approve them online; every sent quote also appears in Jobber. The one step still done by hand: when a customer approves, <strong className="text-white">approve the quote in Jobber</strong> (Jobber doesn&apos;t let other apps do that) — Hub has already marked their add-ons there and pinned a note.</Note>
         <p className="mt-2">You need the <strong className="text-white">Quotes</strong> permission (Admin → People → Sales &amp; Marketing). Find it under <strong className="text-white">Quotes</strong> in the app list (add it to your rail in Settings), or start one straight from a customer.</p>
       </Section>
 
@@ -2620,8 +2620,21 @@ function QuotesTab() {
 
       <Section title="What the customer sees">
         <p>A clean page with your title and intro, what&apos;s included with prices, the add-ons with tick boxes (all unticked), a live total, any deposit, the reviews and your terms. To approve they <strong className="text-white">type their full name</strong> and tap <strong className="text-white">Approve</strong>. We record the name, the time, the add-ons they ticked and the total. Or they tap <strong className="text-white">Request changes</strong> and tell you what they&apos;d like.</p>
-        <p className="mt-2">When they answer, whoever sent the quote gets a Hub message and the <strong className="text-white">Office Alerts</strong> room gets a post, both with a link to the quote. The quote&apos;s status changes to <em>Approved</em> or <em>Changes requested</em> (their note shows on the quote). For now, then approve it in Jobber and book the work as usual.</p>
+        <p className="mt-2">When they answer, whoever sent the quote gets a Hub message and the <strong className="text-white">Office Alerts</strong> room gets a post, both with a link to the quote (and, once approved, to the quote in Jobber). The quote&apos;s status changes to <em>Approved</em> or <em>Changes requested</em> (their note shows on the quote).</p>
+        <p className="mt-2"><strong className="text-white">Deposit:</strong> if the quote asks for one, the customer sees a <strong className="text-white">Pay deposit</strong> button after approving. It opens Jobber&apos;s own payment page for that quote.</p>
         <p className="mt-2">Internal notes, where a price came from, and anything else for your team never appear on the customer&apos;s page.</p>
+      </Section>
+
+      <Section title="Quotes in Jobber">
+        <p>When a quote is <strong className="text-white">sent</strong>, Hub creates the same quote in Jobber — same title, lines and prices, the add-ons as <em>optional</em> lines (not pre-chosen), your intro as the client message, your terms, the deposit, and your internal notes as a Jobber note. The quote shows <em>In Jobber: Quote #…</em> with a link. If you <strong className="text-white">Revise</strong> and send again, the same Jobber quote is updated — no duplicate.</p>
+        <p className="mt-2">When the customer <strong className="text-white">approves</strong>, Hub turns the add-ons they picked into regular lines on the Jobber quote and pins a note: who approved, when, and the total. Then someone in the office opens it in Jobber (the link is in the Hub message and the Office Alerts post), clicks <strong className="text-white">Approve</strong>, and books the work as usual.</p>
+        <p className="mt-2">If Jobber can&apos;t take it — most often because the customer isn&apos;t in Jobber yet (a brand-new lead) — the quote shows the reason in red with a <strong className="text-white">Retry</strong> button. Add the customer (and their property) in Jobber, then press Retry. The customer&apos;s quote page works either way.</p>
+        <p className="mt-2"><strong className="text-white">Salesperson:</strong> the Jobber quote names the person who sent it only when their Hub account is linked to their Jobber user (Admin → People → Edit → Jobber user).</p>
+      </Section>
+
+      <Section title="The Lead Tracker card moves by itself">
+        <p>A quote started from a Lead Tracker card moves that card when it&apos;s <strong className="text-white">sent</strong> (to your <em>Quoted</em> stage) and when the customer <strong className="text-white">approves</strong> (to your <em>Won</em> stage) — just as if you dragged it, drips included. It only ever moves forward: a card that&apos;s already won or lost stays put.</p>
+        <AdminOnly>Which stages count: Lead Tracker → Settings → Stages → <strong className="text-white">pipeline role</strong>. Tag one stage <em>Quoted</em> and one <em>Won</em>. With no stage tagged, cards don&apos;t move.</AdminOnly>
       </Section>
 
       <Section title="The Quotes list">
