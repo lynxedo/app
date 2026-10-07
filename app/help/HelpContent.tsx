@@ -2553,7 +2553,7 @@ function QuotesTab() {
     <>
       <Section title="What is Quotes?">
         <p>Quotes lets technicians and the office build a good-looking quote for a customer in a few minutes — on the phone or at a desk — from a template your team set up. The customer will open it from a text or email, tick any add-ons they want, and approve it by typing their name.</p>
-        <Note>Being built in stages. <strong className="text-white">Today you can build and preview quotes.</strong> Sending them to the customer (text / email), the customer&apos;s approval page and the copy in Jobber arrive in the next updates.</Note>
+        <Note>Being built in stages. <strong className="text-white">You can build, preview and send quotes, and customers can approve them online.</strong> Creating the matching quote in Jobber (and the customer&apos;s <em>Pay deposit</em> button) and moving the Lead Tracker card arrive in the next update — until then, approve the quote in Jobber yourself as usual.</Note>
         <p className="mt-2">You need the <strong className="text-white">Quotes</strong> permission (Admin → People → Sales &amp; Marketing). Find it under <strong className="text-white">Quotes</strong> in the app list (add it to your rail in Settings), or start one straight from a customer.</p>
       </Section>
 
@@ -2579,6 +2579,22 @@ function QuotesTab() {
           <li><strong className="text-white">Internal notes</strong> — for your team only; the customer never sees them.</li>
         </ul>
         <p className="mt-2">Everything <strong className="text-white">saves as you type</strong>. <strong className="text-white">Preview</strong> shows exactly what the customer will see — try ticking the add-ons. A draft you don&apos;t need can be deleted.</p>
+      </Section>
+
+      <Section title="Sending it">
+        <p>At the bottom of the quote, pick <strong className="text-white">Text</strong>, <strong className="text-white">Email</strong> or <strong className="text-white">Both</strong> and tap <strong className="text-white">Send quote</strong>. The customer gets a link to their own quote page. Texts go from the company number (customers marked do-not-text can only get email); emails go from the company&apos;s sending address.</p>
+        <p className="mt-2">To send, the quote needs a title, at least one line under <em>What&apos;s included</em>, and a price on every line. Once sent it&apos;s <strong className="text-white">locked</strong> and good for <strong className="text-white">30 days</strong>. After that the customer sees it as expired and can&apos;t approve it.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Send again</strong> re-sends the same link (the 30 days don&apos;t restart).</li>
+          <li><strong className="text-white">Revise</strong> unlocks it to change it. The customer&apos;s link shows &ldquo;not valid&rdquo; until you send it again, and sending restarts the 30 days.</li>
+          <li><strong className="text-white">Copy customer link</strong> / <strong className="text-white">Open as customer</strong> show you exactly what they see. Opening the link yourself also counts as &ldquo;opened&rdquo;, so keep that in mind when you read the quote&apos;s <em>Opened</em> line.</li>
+        </ul>
+      </Section>
+
+      <Section title="What the customer sees">
+        <p>A clean page with your title and intro, what&apos;s included with prices, the add-ons with tick boxes (all unticked), a live total, any deposit, the reviews and your terms. To approve they <strong className="text-white">type their full name</strong> and tap <strong className="text-white">Approve</strong>. We record the name, the time, the add-ons they ticked and the total. Or they tap <strong className="text-white">Request changes</strong> and tell you what they&apos;d like.</p>
+        <p className="mt-2">When they answer, whoever sent the quote gets a Hub message and the <strong className="text-white">Office Alerts</strong> room gets a post, both with a link to the quote. The quote&apos;s status changes to <em>Approved</em> or <em>Changes requested</em> (their note shows on the quote). For now, then approve it in Jobber and book the work as usual.</p>
+        <p className="mt-2">Internal notes, where a price came from, and anything else for your team never appear on the customer&apos;s page.</p>
       </Section>
 
       <Section title="The Quotes list">

@@ -16,13 +16,17 @@ import { depositAmount, type CustomerQuote } from '@/lib/quotes'
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 const SOURCE_LABEL: Record<string, string> = { google: 'Google', facebook: 'Facebook', nextdoor: 'Nextdoor', yelp: 'Yelp', angi: 'Angi' }
 
-export default function CustomerQuoteView({ quote, mode, footer }: {
+export default function CustomerQuoteView({ quote, mode, footer, initialPicked, locked = false }: {
   quote: CustomerQuote
   mode: 'preview' | 'live'
+  /** Add-ons already chosen (an approved quote shows them ticked). */
+  initialPicked?: string[]
+  /** Approved / expired: the ticks can't change. */
+  locked?: boolean
   /** The approve / request-changes area (live page); preview shows a stand-in. */
   footer?: (picked: Set<string>, total: number) => ReactNode
 }) {
-  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(initialPicked ?? []))
   const required = quote.items.filter(i => !i.optional)
   const addOns = quote.items.filter(i => i.optional)
   const total = useMemo(() => {
@@ -31,7 +35,7 @@ export default function CustomerQuoteView({ quote, mode, footer }: {
     return Math.round(t * 100) / 100
   }, [quote.items, picked])
   const deposit = quote.deposit ? depositAmount(total, quote.deposit.type, quote.deposit.value) : null
-  const toggle = (id: string) => setPicked(prev => {
+  const toggle = (id: string) => !locked && setPicked(prev => {
     const next = new Set(prev)
     if (next.has(id)) next.delete(id); else next.add(id)
     return next
@@ -74,14 +78,14 @@ export default function CustomerQuoteView({ quote, mode, footer }: {
 
         {addOns.length > 0 && (
           <section className="rounded-xl border border-emerald-200 overflow-hidden">
-            <div className="px-4 py-2.5 bg-emerald-50 text-sm font-semibold text-emerald-900">Add-ons — optional <span className="font-normal text-emerald-800">· tick any you’d like</span></div>
+            <div className="px-4 py-2.5 bg-emerald-50 text-sm font-semibold text-emerald-900">Add-ons — optional{!locked && <span className="font-normal text-emerald-800"> · tick any you’d like</span>}</div>
             <ul className="divide-y divide-emerald-100">
               {addOns.map(i => {
                 const on = picked.has(i.id)
                 return (
                   <li key={i.id}>
-                    <label className="px-4 py-3 flex gap-3 cursor-pointer">
-                      <input type="checkbox" checked={on} onChange={() => toggle(i.id)} className="mt-1 h-5 w-5 accent-emerald-600 shrink-0" />
+                    <label className={`px-4 py-3 flex gap-3 ${locked ? '' : 'cursor-pointer'}`}>
+                      <input type="checkbox" checked={on} disabled={locked} onChange={() => toggle(i.id)} className="mt-1 h-5 w-5 accent-emerald-600 shrink-0" />
                       <span className="min-w-0 flex-1">
                         <span className="font-medium">{i.name}</span>
                         {i.recommended && <span className="ml-2 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-100 rounded px-1.5 py-0.5">Recommended</span>}
