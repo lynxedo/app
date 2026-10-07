@@ -23,7 +23,7 @@ export type ConnectionModel = 'oauth' | 'domain' | 'webhook' | 'apikey' | 'comin
 export type ProviderKey =
   | 'jobber' | 'quickbooks' | 'gusto' | 'onestepgps'
   | 'angi' | 'google' | 'thumbtack' | 'networx' | 'zillow'
-  | 'meta' | 'email' | 'voicedrop' | 'shared_inbox' | 'claude_assistant'
+  | 'meta' | 'email' | 'voicedrop' | 'shared_inbox' | 'claude_assistant' | 'rachio'
 
 export type IntegrationStatus =
   | 'connected' | 'action_needed' | 'not_connected' | 'error' | 'coming_soon'
@@ -108,6 +108,11 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     // each user connects their own Claude from Settings, and the admin only
     // turns the feature on. So the card is status + a deep link to the editor.
     manageHref: '/hub/admin/ai', manageLabel: 'Open AI settings',
+  },
+
+  {
+    key: 'rachio', name: 'Rachio', group: 'business_systems', model: 'apikey',
+    blurb: 'Smart irrigation controllers — “Import from Rachio” fills an irrigation inspection’s zones, head types, sun / slope and watering schedule (read-only).',
   },
 
   // ── Marketing ─────────────────────────────────────────────────────────────

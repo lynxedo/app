@@ -6,6 +6,11 @@ import { suggestForStop } from '@/lib/work-order-suggestions'
 // One inspection.
 //   PATCH  … /irrigation/:inspId   → autosave the draft (data / sketch / photos)
 //   POST   … /irrigation/:inspId   → finalize the draft into a dated snapshot
+//   POST   … /irrigation/:inspId { action: 'reopen' } → turn the customer's
+//            LATEST finished inspection back into a draft to edit (Ben, Oct 7
+//            2026: "I hit Save … I couldn't get back into that inspection. I
+//            thought I could edit it"). Only when no other draft is open
+//            (one draft per customer); finishing it again re-dates the snapshot.
 //   DELETE … /irrigation/:inspId   → discard the draft
 // All require can_access_irrigation (admins always) and act only on a `draft`.
 
@@ -54,6 +59,25 @@ export async function POST(request: Request, ctx: Ctx) {
   const { access, admin, contactId, inspId } = g
 
   const body = await request.json().catch(() => ({}))
+  if (body.action === 'reopen') {
+    const { data: latest } = await admin.from('irrigation_inspections')
+      .select('id').eq('company_id', access.companyId).eq('contact_id', contactId).eq('status', 'final')
+      .order('finalized_at', { ascending: false }).limit(1).maybeSingle()
+    if (!latest || latest.id !== inspId) {
+      return NextResponse.json({ error: 'Only the most recent inspection can be edited — start a new one instead.' }, { status: 409 })
+    }
+    const { data: reopened, error: reErr } = await admin.from('irrigation_inspections')
+      .update({ status: 'draft', updated_at: new Date().toISOString(), updated_by: access.userId })
+      .eq('id', inspId).eq('company_id', access.companyId).eq('contact_id', contactId).eq('status', 'final')
+      .select('id').maybeSingle()
+    if (reErr) {
+      // irrigation_inspections_one_draft_idx: another draft is already open.
+      if (reErr.code === '23505') return NextResponse.json({ error: 'This customer already has a draft inspection open — finish or discard it first.' }, { status: 409 })
+      return NextResponse.json({ error: reErr.message }, { status: 500 })
+    }
+    if (!reopened) return NextResponse.json({ error: 'Inspection not found' }, { status: 404 })
+    return NextResponse.json({ ok: true, id: inspId })
+  }
   const now = new Date()
   const inspectedOn =
     typeof body.inspected_on === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.inspected_on)

@@ -1,5 +1,6 @@
 'use client'
 
+import RachioImport, { type RachioImportPayload } from './RachioImport'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IrrigationData, IrrigationZone, DictatedZone } from '@/lib/irrigation'
 import {
@@ -311,6 +312,15 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
     return { written, skipped: fields.length - written }
   }, [])
 
+  // ── Import from Rachio ────────────────────────────────────────────────────
+  // Same rules as the photo and voice fills: blanks only, amber until checked.
+  const applyRachio = useCallback((p: RachioImportPayload): string => {
+    const sys = applyPhoto(p.system, p.systemFields, null, '')
+    const before = (dataRef.current.zones ?? []).length
+    applyDictation(p.zones)
+    return `From “${p.controllerName}”: ${p.zones.length} zone${p.zones.length === 1 ? '' : 's'}${before ? ' (filled into blanks only)' : ''}, ${sys.written} controller / schedule field${sys.written === 1 ? '' : 's'}.`
+  }, [applyPhoto, applyDictation])
+
   const isField = useCallback((name: string) => (data.aiFilled ?? []).includes(fieldMark(name)), [data.aiFilled])
   const clearField = useCallback((name: string) => {
     setData(d => {
@@ -431,12 +441,12 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
   return (
     <div className="fixed inset-0 z-50 bg-[var(--t-panel-deep)] text-white flex flex-col">
       {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-[var(--t-panel-deep)]">
+      <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+12px)] border-b border-white/10 bg-[var(--t-panel-deep)]">
         <button type="button" onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none" aria-label="Close">✕</button>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-semibold leading-tight">Irrigation inspection</div>
           <div className={`text-[11px] ${saveState === 'error' ? 'text-red-400' : 'text-white/40'}`}>
-            {saveLabel}
+            {saveLabel === 'Saved' ? 'Draft saved — close any time and come back to it' : saveLabel}
             {inspection.workOrder && (
               <span className="text-white/40"> · From work order · {fmtWorkOrderDate(inspection.workOrder.date)}{inspection.workOrder.tech ? ` · ${inspection.workOrder.tech}` : ''}</span>
             )}
@@ -444,13 +454,15 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
         </div>
         <button type="button" onClick={finalize} disabled={finalizing}
           className="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium disabled:opacity-50">
-          {finalizing ? 'Saving…' : 'Save inspection'}
+          {finalizing ? 'Finishing…' : 'Finish inspection'}
         </button>
       </div>
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-4 pb-28 max-w-2xl w-full mx-auto">
         {err && <div className="mt-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">{err}</div>}
+
+        <RachioImport contactId={contactId} inspectionId={inspection.id} onImport={applyRachio} />
 
         <SectionHead n={1} title="System overview" />
         <div className="grid grid-cols-2 gap-3">

@@ -24,6 +24,25 @@ export default function StopInspection({ contactId, stopId, inspectionId, mode, 
   const [form, setForm] = useState<FormInspection | null>(null)
   const [view, setView] = useState<FullInspection | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [reopening, setReopening] = useState(false)
+
+  // Ben, Oct 7 2026: a finished inspection can be opened again to edit (the
+  // customer's latest one only — the API checks).
+  async function editIt() {
+    if (!view || reopening) return
+    setReopening(true); setError(null)
+    try {
+      const res = await fetch(`/api/hub/contacts/${contactId}/irrigation/${view.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reopen' }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(j.error || 'Could not open it for editing'); return }
+      const r = await fetch(`/api/hub/contacts/${contactId}/irrigation?inspId=${encodeURIComponent(view.id)}`)
+      const g = await r.json().catch(() => ({}))
+      if (!r.ok || !g.inspection) { setError(g.error || 'Could not open it for editing'); return }
+      setForm(g.inspection)
+    } finally { setReopening(false) }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -66,9 +85,14 @@ export default function StopInspection({ contactId, stopId, inspectionId, mode, 
 
   return (
     <div className="fixed inset-0 z-50 bg-[var(--t-panel-deep)] text-white flex flex-col">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10">
+      <div className="flex items-center gap-3 px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+12px)] border-b border-white/10">
         <button type="button" onClick={() => onClose(false)} className="text-sm text-white/70 hover:text-white">‹ Back to stop</button>
         <div className="flex-1 text-sm font-medium text-white/80">Irrigation inspection</div>
+        {view?.status === 'final' && (
+          <button type="button" onClick={editIt} disabled={reopening} className="text-xs px-2.5 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white disabled:opacity-50">
+            {reopening ? 'Opening…' : '✏️ Edit'}
+          </button>
+        )}
         <Link href={customerHref} className="text-xs text-sky-300 hover:text-sky-200">Customer file ›</Link>
       </div>
       <div className="flex-1 overflow-y-auto p-4">

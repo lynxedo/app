@@ -221,6 +221,23 @@ export default function IrrigationSection({ contactId }: { contactId: string }) 
     } finally { setBusy(false) }
   }
 
+  /** Reopen the latest finished inspection as a draft and open it in the form. */
+  async function editFinished(id: string) {
+    if (busy) return
+    setBusy(true); setToast('')
+    try {
+      const res = await fetch(`/api/hub/contacts/${contactId}/irrigation/${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reopen' }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) { setToast(j.error || 'Could not open it for editing'); return }
+      const r = await fetch(`/api/hub/contacts/${contactId}/irrigation?inspId=${encodeURIComponent(id)}`)
+      const g = await r.json().catch(() => ({}))
+      if (r.ok && g.inspection) { setViewing(null); setFormInsp(g.inspection) }
+      else void load()
+    } finally { setBusy(false) }
+  }
+
   /** Open one inspection by id: a draft goes to the form (with the grant), a saved one to the read view. */
   async function openInspection(id: string) {
     setToast('')
@@ -294,6 +311,12 @@ export default function IrrigationSection({ contactId }: { contactId: string }) 
           <ReadView insp={shown} />
 
           <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-white/5">
+            {canEdit && !viewing && shown.status === 'final' && !draft && (
+              <button type="button" onClick={() => editFinished(shown.id)} disabled={busy}
+                className={`${btn} bg-white/10 hover:bg-white/20 text-white/80 disabled:opacity-50`}>
+                ✏️ Edit inspection
+              </button>
+            )}
             {canEdit && !viewing && shown.status === 'final' && (
               <button type="button" onClick={() => textSummary(shown.id)} disabled={texting}
                 className={`${btn} bg-white/10 hover:bg-white/20 text-white/80 disabled:opacity-50`}>

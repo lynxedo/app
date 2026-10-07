@@ -111,6 +111,53 @@ export default async function IrrigationSummaryPage({ params }: { params: Promis
           </div>
         ) : (
           <>
+            {/* Oct 7 2026 (Ben): the technician's notes first — if the customer reads
+                one thing it's that — then condition and recommendations, the zones, and
+                the system reference details at the bottom for anyone who scrolls. */}
+            {s.finalNotes && (
+              <Section title="From your technician">
+                <div style={{ fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{s.finalNotes}</div>
+              </Section>
+            )}
+
+            {s.overallCond && (
+              <Section title="Overall condition">
+                <div style={{ fontSize: 15, textTransform: 'capitalize' }}>{s.overallCond}</div>
+              </Section>
+            )}
+
+            {s.recommendations.length > 0 && (
+              <Section title="Recommendations">
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 15, lineHeight: 1.7 }}>
+                  {s.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </Section>
+            )}
+
+            {s.zones.length > 0 && (
+              <Section title={`Zones (${s.zones.length})`}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {s.zones.map((z, i) => (
+                    <div key={i} style={{ background: '#f6f8f7', borderRadius: 9, padding: '10px 12px' }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>
+                        {z.zone ? `Zone ${z.zone}` : `Zone ${i + 1}`}{z.area ? ` — ${z.area}` : ''}
+                      </div>
+                      <div style={{ fontSize: 13, color: '#5a6b64', marginTop: 2 }}>
+                        {[z.waters, z.head, z.count ? `${z.count} heads` : '', z.sun, z.runtime ? `${z.runtime} min` : ''].filter(Boolean).join(' · ')}
+                      </div>
+                      {z.notes && <div style={{ fontSize: 14, marginTop: 4, whiteSpace: 'pre-wrap' }}>{z.notes}</div>}
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {(s.source.length > 0 || s.psi || controllerParts || s.controller.type || s.controller.stations || s.controller.location || hasSchedule || s.backflow.type || s.backflow.location || s.mainShutoff || sketchUrl) && (
+              <div style={{ padding: '18px 20px 0', borderTop: '8px solid #f1f5f3', fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#5a6b64', fontWeight: 700 }}>
+                System details
+              </div>
+            )}
+
             {(s.source.length > 0 || s.psi) && (
               <Section title="Water supply">
                 <InfoRow k="Source" v={s.source.join(', ')} />
@@ -157,43 +204,6 @@ export default async function IrrigationSummaryPage({ params }: { params: Promis
             {s.mainShutoff && (
               <Section title="Main shutoff">
                 <div style={{ fontSize: 15 }}>{s.mainShutoff}</div>
-              </Section>
-            )}
-
-            {s.zones.length > 0 && (
-              <Section title={`Zones (${s.zones.length})`}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {s.zones.map((z, i) => (
-                    <div key={i} style={{ background: '#f6f8f7', borderRadius: 9, padding: '10px 12px' }}>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>
-                        {z.zone ? `Zone ${z.zone}` : `Zone ${i + 1}`}{z.area ? ` — ${z.area}` : ''}
-                      </div>
-                      <div style={{ fontSize: 13, color: '#5a6b64', marginTop: 2 }}>
-                        {[z.waters, z.head, z.count ? `${z.count} heads` : ''].filter(Boolean).join(' · ')}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {s.overallCond && (
-              <Section title="Overall condition">
-                <div style={{ fontSize: 15, textTransform: 'capitalize' }}>{s.overallCond}</div>
-              </Section>
-            )}
-
-            {s.recommendations.length > 0 && (
-              <Section title="Recommendations">
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 15, lineHeight: 1.7 }}>
-                  {s.recommendations.map((r, i) => <li key={i}>{r}</li>)}
-                </ul>
-              </Section>
-            )}
-
-            {s.finalNotes && (
-              <Section title="Technician notes">
-                <div style={{ fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{s.finalNotes}</div>
               </Section>
             )}
 
