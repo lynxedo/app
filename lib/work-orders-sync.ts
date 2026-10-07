@@ -279,12 +279,16 @@ export async function upsertStopsForEntry(admin: Admin, p: {
         facts.completed_at = s.jobber_completed_at
         res.changed = true
       }
-      if (away) { facts.entry_id = p.entryId; res.moved += 1; res.changed = true } else { res.updated += 1 }
+      // A visit moving here from another tech's sheet keeps nothing of its old
+      // place: its old number could already be taken on this sheet (Oct 7 2026:
+      // "duplicate key … entry_ord_uniq"), so it parks like a new stop.
+      let ordNow = target.ord
+      if (away) { facts.entry_id = p.entryId; facts.ord = ordNow = parkBase + parked++; res.moved += 1; res.changed = true } else { res.updated += 1 }
       if (lineItemsKey(target.line_items) !== lineItemsKey(s.line_items) || target.removed_from_jobber_at) res.changed = true
       const { error } = await admin.from('daily_log_stops').update(facts).eq('id', target.id)
       if (error) throw new Error(`stop update ${target.id}: ${error.message}`)
       keptIds.add(target.id)
-      finals.push({ id: target.id, ord: target.ord, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
+      finals.push({ id: target.id, ord: ordNow, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
     } else {
       // (entry_id, ord) is UNIQUE — park new rows in a high, distinct range and let
       // the re-numbering below settle them.
