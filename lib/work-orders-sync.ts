@@ -101,6 +101,8 @@ export type SyncDayResult = {
   liveError: string | null
   /** Fed days that ended with no stops and nothing else on them → folded away. */
   daysFolded: number
+  /** Techs whose day failed to sync (the others still synced) — "name: reason". */
+  techErrors: string[]
 }
 
 // ── Dates ────────────────────────────────────────────────────────────────────
@@ -634,7 +636,7 @@ async function readMirrorVisits(admin: Admin, companyId: string, date: string): 
 function emptyResult(date: string): SyncDayResult {
   return {
     date, visits: 0, techs: 0, entriesCreated: 0, inserted: 0, updated: 0, moved: 0, deleted: 0, flagged: 0,
-    unmappedTechs: [], unassigned: 0, noCreator: false, liveChecked: false, ghostsRemoved: 0, refreshed: 0, liveError: null, daysFolded: 0,
+    unmappedTechs: [], unassigned: 0, noCreator: false, liveChecked: false, ghostsRemoved: 0, refreshed: 0, liveError: null, daysFolded: 0, techErrors: [],
   }
 }
 
@@ -736,75 +738,83 @@ export async function syncWorkOrdersForDay(companyId: string, date: string): Pro
 
   const techIds = new Set<string>([...byTech.keys(), ...entries.keys()])
   for (const techId of techIds) {
-    const tvs = (byTech.get(techId) ?? []).slice().sort((a, b) => {
-      if (a.start_at && b.start_at && a.start_at !== b.start_at) return a.start_at.localeCompare(b.start_at)
-      if (!!a.start_at !== !!b.start_at) return a.start_at ? -1 : 1
-      return (a.title ?? '').localeCompare(b.title ?? '')
-    })
-    let entry = entries.get(techId) ?? null
-    if (!entry) {
-      if (tvs.length === 0) continue
-      const dead = tombstoned.get(techId)
-      if (dead) {
-        const { data: revived, error } = await admin
-          .from('daily_log_entries')
-          .update({ deleted_at: null, synced_from_jobber_at: now })
-          .eq('id', dead.id).select(ENTRY_COLS).single()
-        if (error || !revived) throw new Error(`entry revive for ${techId}: ${error?.message ?? 'no row'}`)
-        entry = revived as EntryRow
-      } else {
-        if (!creator) { result.noCreator = true; continue }
-        const { data: created, error } = await admin
-          .from('daily_log_entries')
-          .insert({ company_id: companyId, log_date: date, tech_user_id: techId, created_by: creator, synced_from_jobber_at: now })
-          .select(ENTRY_COLS).single()
-        if (error || !created) throw new Error(`entry create for ${techId}: ${error?.message ?? 'no row'}`)
-        entry = created as EntryRow
+    // One tech's failure must not stop the rest of the day (Oct 7 2026: Ben's
+    // jammed re-number threw and Josh, synced after him, got no stops).
+    try {
+      const tvs = (byTech.get(techId) ?? []).slice().sort((a, b) => {
+        if (a.start_at && b.start_at && a.start_at !== b.start_at) return a.start_at.localeCompare(b.start_at)
+        if (!!a.start_at !== !!b.start_at) return a.start_at ? -1 : 1
+        return (a.title ?? '').localeCompare(b.title ?? '')
+      })
+      let entry = entries.get(techId) ?? null
+      if (!entry) {
+        if (tvs.length === 0) continue
+        const dead = tombstoned.get(techId)
+        if (dead) {
+          const { data: revived, error } = await admin
+            .from('daily_log_entries')
+            .update({ deleted_at: null, synced_from_jobber_at: now })
+            .eq('id', dead.id).select(ENTRY_COLS).single()
+          if (error || !revived) throw new Error(`entry revive for ${techId}: ${error?.message ?? 'no row'}`)
+          entry = revived as EntryRow
+        } else {
+          if (!creator) { result.noCreator = true; continue }
+          const { data: created, error } = await admin
+            .from('daily_log_entries')
+            .insert({ company_id: companyId, log_date: date, tech_user_id: techId, created_by: creator, synced_from_jobber_at: now })
+            .select(ENTRY_COLS).single()
+          if (error || !created) throw new Error(`entry create for ${techId}: ${error?.message ?? 'no row'}`)
+          entry = created as EntryRow
+        }
+        result.entriesCreated += 1
       }
-      result.entriesCreated += 1
-    }
 
-    const stops = tvs.map(v => buildStopInput(v, details))
-    // Coordinates for the map pins — persistent cache, so a known address costs a DB read.
-    const addrs = stops.map(s => s.address)
-    if (addrs.some(Boolean)) {
-      try {
-        const coords = await geocodeAddresses(addrs.map(a => a || '—'))
-        stops.forEach((s, i) => { const c = coords[i]; if (s.address && c) { s.lat = c.lat; s.lng = c.lng } })
-      } catch (e) {
-        console.warn('[work-orders] geocode failed (stops keep no coords):', e instanceof Error ? e.message : String(e))
+      const stops = tvs.map(v => buildStopInput(v, details))
+      // Coordinates for the map pins — persistent cache, so a known address costs a DB read.
+      const addrs = stops.map(s => s.address)
+      if (addrs.some(Boolean)) {
+        try {
+          const coords = await geocodeAddresses(addrs.map(a => a || '—'))
+          stops.forEach((s, i) => { const c = coords[i]; if (s.address && c) { s.lat = c.lat; s.lng = c.lng } })
+        } catch (e) {
+          console.warn('[work-orders] geocode failed (stops keep no coords):', e instanceof Error ? e.message : String(e))
+        }
       }
-    }
 
-    const up = await upsertStopsForEntry(admin, {
-      companyId, entryId: entry.id, stops, source: 'jobber', pruneMissingVisits: true, keepVisitIds: dayVisitIds,
-    })
-    result.inserted += up.inserted; result.updated += up.updated; result.moved += up.moved
-    result.deleted += up.deleted; result.flagged += up.flagged
+      const up = await upsertStopsForEntry(admin, {
+        companyId, entryId: entry.id, stops, source: 'jobber', pruneMissingVisits: true, keepVisitIds: dayVisitIds,
+      })
+      result.inserted += up.inserted; result.updated += up.updated; result.moved += up.moved
+      result.deleted += up.deleted; result.flagged += up.flagged
 
-    // A fed day that ends with no stops and nothing else on it is folded away
-    // (soft), so the list never shows a bare name card for a day Jobber emptied.
-    if (tvs.length === 0 && !entry.office_notes && !entry.route_sheet_url && !entry.completed_at && !entry.closed_at) {
-      const { count } = await admin.from('daily_log_stops').select('id', { count: 'exact', head: true }).eq('entry_id', entry.id)
-      if ((count ?? 0) === 0) {
-        await admin.from('daily_log_entries').update({ deleted_at: now, synced_from_jobber_at: now }).eq('id', entry.id)
-        result.daysFolded += 1
-        continue
+      // A fed day that ends with no stops and nothing else on it is folded away
+      // (soft), so the list never shows a bare name card for a day Jobber emptied.
+      if (tvs.length === 0 && !entry.office_notes && !entry.route_sheet_url && !entry.completed_at && !entry.closed_at) {
+        const { count } = await admin.from('daily_log_stops').select('id', { count: 'exact', head: true }).eq('entry_id', entry.id)
+        if ((count ?? 0) === 0) {
+          await admin.from('daily_log_entries').update({ deleted_at: now, synced_from_jobber_at: now }).eq('id', entry.id)
+          result.daysFolded += 1
+          continue
+        }
       }
-    }
 
-    const entryPatch: Record<string, unknown> = { synced_from_jobber_at: now }
-    const extra = secondaries.get(techId)
-    if (extra && extra.size > 0) {
-      const merged = new Set<string>([...(entry.secondary_tech_user_ids ?? []), ...extra])
-      merged.delete(techId)
-      if (merged.size !== (entry.secondary_tech_user_ids ?? []).length) entryPatch.secondary_tech_user_ids = [...merged]
-    }
-    await admin.from('daily_log_entries').update(entryPatch).eq('id', entry.id)
+      const entryPatch: Record<string, unknown> = { synced_from_jobber_at: now }
+      const extra = secondaries.get(techId)
+      if (extra && extra.size > 0) {
+        const merged = new Set<string>([...(entry.secondary_tech_user_ids ?? []), ...extra])
+        merged.delete(techId)
+        if (merged.size !== (entry.secondary_tech_user_ids ?? []).length) entryPatch.secondary_tech_user_ids = [...merged]
+      }
+      await admin.from('daily_log_entries').update(entryPatch).eq('id', entry.id)
 
-    if (up.changed || !entry.route_loadout) {
-      try { await recomputeLoadout(admin, companyId, entry.id, date, entry.route_loadout) }
-      catch (e) { console.warn('[work-orders] loadout recompute failed:', e instanceof Error ? e.message : String(e)) }
+      if (up.changed || !entry.route_loadout) {
+        try { await recomputeLoadout(admin, companyId, entry.id, date, entry.route_loadout) }
+        catch (e) { console.warn('[work-orders] loadout recompute failed:', e instanceof Error ? e.message : String(e)) }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error(`[work-orders] ${date} tech ${techId} failed:`, msg)
+      result.techErrors.push(`${techId}: ${msg}`)
     }
   }
 
