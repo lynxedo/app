@@ -169,10 +169,18 @@ async function mirrorThread(
   // Existing row → status/reopen decision + skip-message optimization.
   const { data: existing } = await admin
     .from('inbox_threads')
-    .select('id, status, last_message_at')
+    .select('id, status, last_message_at, unread')
     .eq('account_id', account.id)
     .eq('provider_thread_id', t.providerThreadId)
     .maybeSingle()
+
+  // Old mail must never light up as unread. A bulk move of old messages into the
+  // Inbox (Oct 7 2026: ~2,400 messages from 2022–25, ~210 of them never opened in
+  // Outlook) re-mirrors them, and copying the provider's flag lit hundreds of stale
+  // unread dots. Recent activity (within RULES_RECENCY_MS) follows the provider both
+  // ways; older threads may only go unread → read, never newly unread.
+  const isRecent = !!t.lastMessageAt && Date.now() - Date.parse(t.lastMessageAt) < RULES_RECENCY_MS
+  const unread = t.unread && (isRecent || (!!existing && existing.unread === true))
 
   // Status rule: new → 'open'; a closed thread reopens ONLY on a GENUINELY NEW
   // inbound reply (its last-message time advanced past what we stored) — NOT on
@@ -228,7 +236,7 @@ async function mirrorThread(
     from_email: fromEmail,
     last_message_at: t.lastMessageAt,
     last_message_direction: t.lastMessageDirection,
-    unread: t.unread,
+    unread,
     has_attachments: t.hasAttachments,
     provider_folder_ids: t.providerFolderIds,
     folder: folderName,
