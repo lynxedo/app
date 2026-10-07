@@ -178,7 +178,11 @@ function formatTime(iso: string | null): string {
 }
 
 function pinLabel(ord: number): string {
-  return ord <= 9 ? String(ord) : String.fromCharCode(97 + (ord - 10))
+  // 1–9, then a–z for 10–35 (one character fits the pin); anything else as a
+  // plain number — never a stray character from past the alphabet.
+  if (ord >= 1 && ord <= 9) return String(ord)
+  if (ord >= 10 && ord <= 35) return String.fromCharCode(97 + (ord - 10))
+  return String(ord)
 }
 
 function formatDuration(ms: number): string {
