@@ -1,5 +1,5 @@
 import { NextResponse, after } from 'next/server'
-import { pushQuoteToJobber } from '@/lib/quote-jobber'
+import { jobberStepInBackground, pushQuoteToJobber } from '@/lib/quote-jobber'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveQuoteCaller } from '@/lib/quote-access'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
@@ -148,7 +148,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     // is on hold — Ben, Oct 6 2026.)
     if (!isResend) {
       const companyId = c.companyId, userId = c.userId
-      after(async () => { await pushQuoteToJobber(createAdminClient(), companyId, id, userId) })
+      after(() => jobberStepInBackground(companyId, id, 'send', admin => pushQuoteToJobber(admin, companyId, id, userId)))
     }
   }
 

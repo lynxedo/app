@@ -73,6 +73,24 @@ async function record(admin: Admin, quoteId: string, companyId: string, patch: R
   await admin.from('quote_events').insert({ quote_id: quoteId, company_id: companyId, kind: event.kind, meta: event.meta })
 }
 
+/**
+ * Run a Jobber step in the background (Next's `after()`), where a throw has no
+ * caller to land on: log it and save it on the quote as a jobber_error, so the
+ * builder shows Retry instead of "creating…" forever. (Oct 8 2026: a test
+ * quote with no Jobber quote and no error was impossible to diagnose.)
+ */
+export async function jobberStepInBackground(companyId: string, quoteId: string, step: 'send' | 'approval', run: (admin: Admin) => Promise<string | null>) {
+  const admin = createAdminClient()
+  try {
+    const err = await run(admin)
+    if (err) console.error(`[quotes] Jobber ${step} step failed for quote ${quoteId}: ${err}`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`[quotes] Jobber ${step} step threw for quote ${quoteId}:`, e)
+    await record(admin, quoteId, companyId, { jobber_sync_error: `Jobber step failed unexpectedly: ${msg}` }, { kind: 'jobber_error', meta: { error: msg, step, thrown: true } }).catch(() => {})
+  }
+}
+
 const QUOTE_FIELDS = 'id quoteNumber jobberWebUri clientHubUri lineItems(first: 100) { nodes { id name optional } }'
 
 /**
