@@ -252,9 +252,29 @@ export async function runFleetVisitTick(admin: Admin, companyId: string, now = n
   // 6. Save what changed.
   const changed = [...visits.values()].filter((v) => before.get(v.stop_id) !== JSON.stringify(v))
   if (changed.length > 0) {
+    // Same keys on every row: a bulk upsert fills a key missing from one row with
+    // NULL (not the column default), so a mix of loaded rows (which carry
+    // created_at) and new rows (which don't) would null created_at. Send only
+    // the columns this tick owns.
+    const payload = changed.map((v) => ({
+      stop_id: v.stop_id,
+      company_id: v.company_id,
+      log_date: v.log_date,
+      tech_user_id: v.tech_user_id,
+      device_id: v.device_id,
+      gps_near_since: v.gps_near_since,
+      gps_arrived_at: v.gps_arrived_at,
+      gps_away_since: v.gps_away_since,
+      gps_left_at: v.gps_left_at,
+      first_arrived_at: v.first_arrived_at,
+      first_arrived_source: v.first_arrived_source,
+      first_left_at: v.first_left_at,
+      first_left_source: v.first_left_source,
+      updated_at: nowIso,
+    }))
     const { error: upErr } = await admin
       .from('fleet_stop_visits')
-      .upsert(changed.map((v) => ({ ...v, updated_at: nowIso })), { onConflict: 'stop_id' })
+      .upsert(payload, { onConflict: 'stop_id' })
     if (upErr) throw new Error(`visits upsert: ${upErr.message}`)
     result.visits_written = changed.length
   }
