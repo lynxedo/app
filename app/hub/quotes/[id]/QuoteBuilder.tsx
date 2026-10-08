@@ -462,7 +462,10 @@ export default function QuoteBuilder({ quoteId }: { quoteId: string }) {
             <span className="text-sm text-gray-300">Preview — what {loaded.contact?.name ?? 'the customer'} will see</span>
             <button type="button" onClick={() => setPreview(false)} className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-sm text-white">Close</button>
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto bg-white">
+          {/* email-light-surface pins the preview to the real light palette —
+              otherwise the Hub theme repaints bg-white/gray-* dark and the
+              preview looks nothing like the customer's page (Ben, Oct 8 2026). */}
+          <div className="flex-1 min-h-0 overflow-y-auto bg-white email-light-surface">
             <CustomerQuoteView quote={customerQuote} mode="preview" />
           </div>
         </div>
