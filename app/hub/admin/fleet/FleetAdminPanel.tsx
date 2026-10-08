@@ -8,6 +8,7 @@ type Settings = {
   alert_after_hours: boolean
   alert_low_fuel: boolean
   alert_offline: boolean
+  alert_arrivals: boolean
   speed_threshold_mph: number
   fuel_threshold_pct: number
   offline_timeout_min: number
@@ -97,6 +98,12 @@ export default function FleetAdminPanel({
           <ToggleRow label="After-hours movement alerts" on={s.alert_after_hours} onToggle={() => toggle('alert_after_hours')} />
           <ToggleRow label="Low fuel alerts" on={s.alert_low_fuel} onToggle={() => toggle('alert_low_fuel')} />
           <ToggleRow label="Vehicle offline alerts" on={s.alert_offline} onToggle={() => toggle('alert_offline')} />
+          <ToggleRow label="Arrival alerts (the ones people set up on the Fleet map)" on={s.alert_arrivals} onToggle={() => toggle('alert_arrivals')} />
+          <p className="text-xs text-white/40">
+            Arrival alerts go only to the person who set each one up, as a DM from Amber — the
+            <em> Notify</em> list below is for the four alerts above. Turning this off pauses everyone&apos;s
+            arrival alerts; each person can also turn their own on or off on the Fleet map.
+          </p>
         </section>
 
         <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">

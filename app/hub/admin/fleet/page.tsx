@@ -10,6 +10,7 @@ const DEFAULTS = {
   alert_after_hours: true,
   alert_low_fuel: true,
   alert_offline: true,
+  alert_arrivals: true,
   speed_threshold_mph: 75,
   fuel_threshold_pct: 20,
   offline_timeout_min: 30,
