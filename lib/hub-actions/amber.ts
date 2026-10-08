@@ -42,6 +42,10 @@ export const AMBER_READ_ACTIONS: ReadonlySet<string> = new Set([
   'list_leads',
   'review_leads',
   'list_tasks',
+  // The shared team mailbox only (see the inbox flag on her actor). Not
+  // read_email_thread: that goes through the inbox's own per-user permission
+  // check, which has no idea who the bot user is and would refuse every thread.
+  'search_email',
 ])
 
 /** Actions Amber may take on her own, each behind its own off/approve/auto
@@ -105,8 +109,15 @@ export async function resolveAmberActor(admin: Admin, companyId: string): Promis
     // modes do that). These exist only so the visibility checks INSIDE her read
     // actions agree with her read list — without them review_leads and
     // get_customer_overview hide texts and calls, and a lead we already texted
-    // reads as "no contact yet".
-    flags: { can_access_txt: true, can_access_call_log: true, can_access_tracker: true },
+    // reads as "no contact yet". The inbox flag makes search_email show her
+    // every SHARED thread (the team mailbox) and never anyone's personal
+    // mailbox — the same view a Shared Inbox manager has.
+    flags: {
+      can_access_txt: true,
+      can_access_call_log: true,
+      can_access_tracker: true,
+      can_manage_shared_inbox: true,
+    },
     source: 'amber',
   }
 }

@@ -67,6 +67,7 @@ export const searchEmailAction: HubAction = {
       contact_id: { type: 'string', description: 'Only threads linked to this contact (from find_contact).' },
       status: { type: 'string', enum: ['open', 'closed', 'any'], description: 'Default "open" (open or assigned).' },
       waiting_on_us: { type: 'boolean', description: 'Only threads where the customer wrote last.' },
+      since_days: { type: 'number', description: 'Only threads with a message in the last N days (1–90). Omit for any age.' },
       limit: { type: 'number', description: 'Max threads (default 10, max 30).' },
     },
     required: [],
@@ -92,6 +93,10 @@ export const searchEmailAction: HubAction = {
     else if (status === 'closed') q = q.eq('status', 'closed')
     if (contactId) q = q.eq('contact_id', contactId)
     if (args.waiting_on_us === true || args.waiting_on_us === 'true') q = q.eq('last_message_direction', 'inbound')
+    const sinceDays = Math.round(Number(args.since_days))
+    if (Number.isFinite(sinceDays) && sinceDays >= 1) {
+      q = q.gte('last_message_at', new Date(Date.now() - Math.min(90, sinceDays) * 86_400_000).toISOString())
+    }
     // ONE `or` param: visibility AND (text match). Two separate .or() calls
     // would lean on PostgREST combining duplicate params, which isn't a rule to
     // build a privacy boundary on. Quoted, because email addresses contain the
