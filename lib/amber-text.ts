@@ -340,11 +340,11 @@ export async function routeInboundToTodaysTeammate(
     // A real, active teammate who can work texts.
     const { data: prof } = await admin
       .from('user_profiles')
-      .select('id, role, can_access_txt, deactivated_at, locked_at')
+      .select('id, role, can_access_txt, deactivated_at, locked_at, amber_texted_back_dm')
       .eq('id', last.sent_by)
       .eq('company_id', opts.companyId)
       .maybeSingle()
-    const u = prof as { id: string; role: string | null; can_access_txt: boolean | null; deactivated_at: string | null; locked_at: string | null } | null
+    const u = prof as { id: string; role: string | null; can_access_txt: boolean | null; deactivated_at: string | null; locked_at: string | null; amber_texted_back_dm: boolean | null } | null
     if (!u || u.deactivated_at || u.locked_at) return null
     if (!(u.role === 'admin' || u.can_access_txt)) return null
     const { data: bot } = await admin.from('hub_users').select('is_bot').eq('id', u.id).maybeSingle()
@@ -365,6 +365,15 @@ export async function routeInboundToTodaysTeammate(
       { company_id: opts.companyId, conversation_id: opts.conversationId, status: 'human', next_turn_at: null },
       { onConflict: 'conversation_id' },
     )
+
+    // Per-person switch (Settings → Notifications, Oct 8 2026). The thread is
+    // theirs either way and the regular inbound push already tells them — this
+    // only skips the assistant's extra DM. Ben: Kathryn was getting both, and the
+    // DM was noise. NULL (a row older than the column) = on, today's behaviour.
+    if (u.amber_texted_back_dm === false) {
+      console.log('[amber-text] routed to today\'s teammate (their DM switch is off)', { conversationId: opts.conversationId, userId: u.id })
+      return u.id
+    }
 
     let who = 'A customer'
     if (opts.contactId && UUID_RE.test(opts.contactId)) {
