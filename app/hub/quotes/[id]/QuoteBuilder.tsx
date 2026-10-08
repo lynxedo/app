@@ -581,7 +581,9 @@ function SendBox({ quoteId, q, status, contact, pickedAddOns, ready, beforeSend,
 }) {
   const canText = !!contact?.phone && !contact.doNotText
   const canEmail = !!contact?.email
-  const [via, setVia] = useState<'text' | 'email' | 'both'>(canText ? 'text' : 'email')
+  // Both when the customer has both (Ben, Oct 8 2026 — a Text-only default
+  // meant the email was skipped without anyone noticing).
+  const [via, setVia] = useState<'text' | 'email' | 'both'>(canText && canEmail ? 'both' : canText ? 'text' : 'email')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const base = typeof window !== 'undefined' ? window.location.origin : ''

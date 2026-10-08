@@ -2609,7 +2609,7 @@ function QuotesTab() {
       </Section>
 
       <Section title="Sending it">
-        <p>At the bottom of the quote, pick <strong className="text-white">Text</strong>, <strong className="text-white">Email</strong> or <strong className="text-white">Both</strong> and tap <strong className="text-white">Send quote</strong>. The customer gets a link to their own quote page. Texts go from the company number (customers marked do-not-text can only get email); emails go from the company&apos;s sending address.</p>
+        <p>At the bottom of the quote, pick <strong className="text-white">Text</strong>, <strong className="text-white">Email</strong> or <strong className="text-white">Both</strong> (Both is pre-chosen when the customer has a phone and an email) and tap <strong className="text-white">Send quote</strong>. The customer gets a link to their own quote page. Texts go from the company number (customers marked do-not-text can only get email); emails go from the company&apos;s sending address.</p>
         <p className="mt-2">To send, the quote needs a title, at least one line under <em>What&apos;s included</em>, and a price on every line. Once sent it&apos;s <strong className="text-white">locked</strong> and good for <strong className="text-white">30 days</strong>. After that the customer sees it as expired and can&apos;t approve it.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Send again</strong> re-sends the same link (the 30 days don&apos;t restart).</li>
