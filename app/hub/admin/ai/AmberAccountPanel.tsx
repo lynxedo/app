@@ -338,10 +338,11 @@ export default function AmberAccountPanel() {
               })}
             </div>
             <p className="text-xs text-white/40">
-              Amber reads today&apos;s schedule, calls and voicemails since yesterday evening, texts waiting on a reply,
-              and leads nobody has contacted, then posts a short summary in the room. Anything she wants to do about
-              it goes into the approval queue. If the server is down at that time, she skips the day rather than
-              posting more than 2 hours late.
+              Amber reads today&apos;s schedule, calls and voicemails since yesterday afternoon (on Monday, since
+              Friday afternoon), texts and shared-inbox emails waiting on a reply, and leads nobody has contacted,
+              then posts a short summary in the room. Anything she wants to do about it goes into the approval
+              queue. If the server is down at that time, she skips the day rather than posting more than 2 hours
+              late.
             </p>
             {data.morning.enabled && !data.morning.roomId && (
               <p className="text-xs text-amber-300/80">Pick a room, or nothing will be posted.</p>
