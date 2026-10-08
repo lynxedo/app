@@ -316,6 +316,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
   // Same rules as the photo and voice fills: blanks only, amber until checked.
   const applyRachio = useCallback((p: RachioImportPayload): string => {
     const sys = applyPhoto(p.system, p.systemFields, null, '')
+    if (p.deviceId) setData(d => ({ ...d, rachioDeviceId: p.deviceId }))
     const before = (dataRef.current.zones ?? []).length
     applyDictation(p.zones)
     return `From “${p.controllerName}”: ${p.zones.length} zone${p.zones.length === 1 ? '' : 's'}${before ? ' (filled into blanks only)' : ''}, ${sys.written} controller / schedule field${sys.written === 1 ? '' : 's'}.`
@@ -462,7 +463,9 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
       <div className="flex-1 overflow-y-auto px-4 pb-28 max-w-2xl w-full mx-auto">
         {err && <div className="mt-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">{err}</div>}
 
-        <RachioImport contactId={contactId} inspectionId={inspection.id} onImport={applyRachio} />
+        <RachioImport contactId={contactId} inspectionId={inspection.id} onImport={applyRachio}
+          deviceId={data.rachioDeviceId ?? null}
+          onDevice={id => { setData(d => ({ ...d, rachioDeviceId: id })); scheduleSave() }} />
 
         <SectionHead n={1} title="System overview" />
         <div className="grid grid-cols-2 gap-3">

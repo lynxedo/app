@@ -8,16 +8,22 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DictatedZone, IrrigationData } from '@/lib/irrigation'
+import RachioTestRun from './RachioTestRun'
 
 type Choice = { id: string; name: string; model: string; zones: number; miles: number | null; online: boolean; match: boolean }
-export type RachioImportPayload = { system: Partial<IrrigationData>; systemFields: string[]; zones: DictatedZone[]; notes: string[]; controllerName: string }
+export type RachioImportPayload = { system: Partial<IrrigationData>; systemFields: string[]; zones: DictatedZone[]; notes: string[]; controllerName: string; deviceId: string }
 
-export default function RachioImport({ contactId, inspectionId, onImport }: {
+export default function RachioImport({ contactId, inspectionId, onImport, deviceId, onDevice }: {
   contactId: string
   inspectionId: string
   /** Returns a one-line summary of what was filled. */
   onImport: (p: RachioImportPayload) => string
+  /** The customer's controller, once known (set by an import or by picking one for a test run). */
+  deviceId: string | null
+  onDevice: (id: string) => void
 }) {
+  const [purpose, setPurpose] = useState<'import' | 'run'>('import')
+  const [testing, setTesting] = useState(false)
   const [open, setOpen] = useState(false)
   const [list, setList] = useState<Choice[] | null>(null)
   const [located, setLocated] = useState(false)
@@ -53,7 +59,15 @@ export default function RachioImport({ contactId, inspectionId, onImport }: {
   }, [base])
   useEffect(() => { void fetchList() }, [fetchList])
 
-  async function start() {
+  function testRun() {
+    if (deviceId) { setTesting(true); return }
+    void begin('run')
+  }
+
+  async function start() { return begin('import') }
+
+  async function begin(why: 'import' | 'run') {
+    setPurpose(why)
     setOpen(true); setDone(null)
     if (list) return
     setBusy(true)
@@ -61,6 +75,7 @@ export default function RachioImport({ contactId, inspectionId, onImport }: {
   }
 
   async function pick(c: Choice) {
+    if (purpose === 'run') { onDevice(c.id); setOpen(false); setTesting(true); return }
     setBusy(true); setErr(null)
     try {
       const res = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId: c.id }) })
@@ -77,9 +92,17 @@ export default function RachioImport({ contactId, inspectionId, onImport }: {
 
   return (
     <div className="mt-3">
-      <button type="button" onClick={start} className="px-3 py-2 rounded-md bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/30 text-sm text-sky-200">
-        ⤓ Import from Rachio
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={start} className="px-3 py-2 rounded-md bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/30 text-sm text-sky-200">
+          ⤓ Import from Rachio
+        </button>
+        <button type="button" onClick={testRun} className="px-3 py-2 rounded-md bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-sm text-emerald-200">
+          ▶ Test run zones
+        </button>
+      </div>
+      {testing && deviceId && (
+        <RachioTestRun contactId={contactId} inspectionId={inspectionId} deviceId={deviceId} onClose={() => setTesting(false)} />
+      )}
       {done && (
         <div className="mt-2 text-[12px] text-sky-200 bg-sky-500/10 border border-sky-500/20 rounded px-2.5 py-1.5 space-y-0.5">
           <div>{done.summary} Amber fields came from Rachio — check them.</div>
@@ -90,7 +113,7 @@ export default function RachioImport({ contactId, inspectionId, onImport }: {
         <div className="fixed inset-0 z-[60] bg-black/60 flex items-end sm:items-center justify-center" onClick={() => setOpen(false)}>
           <div className="w-full sm:max-w-md max-h-[80vh] bg-gray-950 border border-gray-800 rounded-t-xl sm:rounded-xl flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,0px)]" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-              <div className="text-sm font-semibold text-white">Which Rachio controller?</div>
+              <div className="text-sm font-semibold text-white">{purpose === 'run' ? 'Which controller to test?' : 'Which Rachio controller?'}</div>
               <button type="button" onClick={() => setOpen(false)} className="text-sm text-white/60 hover:text-white">Close</button>
             </div>
             <div className="flex-1 overflow-y-auto">

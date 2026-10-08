@@ -40,6 +40,46 @@ async function rachioGet<T>(key: string, path: string, timeoutMs = 10_000): Prom
   }
 }
 
+async function rachioPut(key: string, path: string, body: Record<string, unknown>): Promise<{ ok: true } | { ok: false; status: number | null; message: string }> {
+  try {
+    const res = await fetch(`${API}${path}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+      cache: 'no-store',
+    })
+    if (res.ok) return { ok: true }
+    const j = await res.json().catch(() => ({})) as { error?: string }
+    return { ok: false, status: res.status, message: j.error || `Rachio returned ${res.status}` }
+  } catch {
+    return { ok: false, status: null, message: 'Could not reach Rachio' }
+  }
+}
+
+// ── Test run (Ben, Oct 8 2026) ───────────────────────────────────────────────
+// "a quick run of each zone running in sequence for 2 mins each … a button to
+// skip to the next zone … a stop button". The phone drives the sequence; every
+// start carries its own duration, so the CONTROLLER turns each zone off on its
+// own even if the phone loses signal or the tech walks away. These are the only
+// two things Hub ever changes on a customer's controller.
+
+export const TEST_RUN_SECONDS = 120
+export const TEST_RUN_MAX_SECONDS = 300
+
+/** Run one zone for `seconds` (stopping whatever was running first). */
+export async function startRachioZone(key: string, deviceId: string, zoneId: string, seconds: number) {
+  const secs = Math.max(30, Math.min(TEST_RUN_MAX_SECONDS, Math.round(seconds)))
+  const stop = await rachioPut(key, '/device/stop_water', { id: deviceId })
+  if (!stop.ok) return stop
+  return rachioPut(key, '/zone/start', { id: zoneId, duration: secs })
+}
+
+/** Stop all watering on the controller. */
+export async function stopRachioWater(key: string, deviceId: string) {
+  return rachioPut(key, '/device/stop_water', { id: deviceId })
+}
+
 /** Check a key before saving it (Admin → Integrations). */
 export async function validateRachioKey(key: string): Promise<{ ok: boolean; reachable: boolean; status?: number | null; account?: string }> {
   const info = await rachioGet<{ id: string }>(key, '/person/info')
@@ -258,6 +298,8 @@ export type RachioImport = {
   /** What couldn't come across, said plainly. */
   notes: string[]
   controllerName: string
+  /** Remembered on the inspection so ▶ Test run zones knows the controller. */
+  deviceId: string
 }
 
 export function rachioToInspection(d: RachioDevice): RachioImport {
@@ -305,5 +347,12 @@ export function rachioToInspection(d: RachioDevice): RachioImport {
   if (active.some(r => (r.scheduleJobTypes ?? []).some(t => !/^DAY_OF_WEEK_/.test(t)))) notes.push('A schedule runs on an interval / odd-even days, not set weekdays — check the watering days.')
   if (zonesAll.length > enabled.length) notes.push(`${zonesAll.length - enabled.length} zone(s) are turned off in Rachio and were left out.`)
 
-  return { system, systemFields: Object.keys(system), zones, notes, controllerName: (d.name || 'Rachio controller').trim() }
+  return { system, systemFields: Object.keys(system), zones, notes, controllerName: (d.name || 'Rachio controller').trim(), deviceId: d.id }
+}
+
+/** The controller's zones for the test run, in zone order (enabled only). */
+export function testRunZones(d: RachioDevice): { id: string; number: number; name: string }[] {
+  return (d.zones ?? []).filter(z => z.enabled !== false)
+    .map(z => ({ id: z.id, number: z.zoneNumber ?? 0, name: (z.name ?? '').trim() }))
+    .sort((a, b) => a.number - b.number)
 }
