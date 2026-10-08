@@ -86,6 +86,9 @@ export type IrrigationData = {
   // can't turn unreviewed AI output into something that looks tech-entered.
   // INTERNAL — never part of the customer projection below.
   aiFilled?: string[]
+  // The customer's Rachio controller, remembered after Import from Rachio so
+  // ▶ Test run zones knows which one. INTERNAL — not in the customer projection.
+  rachioDeviceId?: string
 }
 
 export function emptyIrrigationZone(): IrrigationZone {
