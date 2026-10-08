@@ -60,6 +60,8 @@ interface Props {
   initialInboxDndSchedule?: Record<string, unknown> | null
   initialDialerDndEnabled?: boolean
   initialDialerDndSchedule?: Record<string, unknown> | null
+  /** Settings → Notifications: the assistant DMs me when a customer texts back after my conversation earlier today (Oct 8 2026). */
+  initialAmberTextedBackDm?: boolean
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -107,7 +109,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, initialTheme, initialTabsEnabled, notifPref, railPermissions, canAccessBeta = false, txtSignature, emailSignature = '', allowUserSignatures = true, companyDefaultSignature = null, canManageInbox = false, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialTxtDndEnabled = false, initialTxtDndSchedule = null, initialInboxDndEnabled = false, initialInboxDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, initialTabsEnabled, notifPref, railPermissions, canAccessBeta = false, txtSignature, emailSignature = '', allowUserSignatures = true, companyDefaultSignature = null, canManageInbox = false, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialTxtDndEnabled = false, initialTxtDndSchedule = null, initialInboxDndEnabled = false, initialInboxDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null, initialAmberTextedBackDm = true }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
@@ -271,6 +273,12 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
       setDndSave('error')
     }
   }
+
+  // ── Amber's "texted back" DM (Oct 8 2026) ─────────────────────────────────
+  // The thread is assigned to you either way (and the Txt push tells you); this
+  // only controls the assistant's extra DM. Saved through the same profile PUT
+  // as the DND switches, so it shares their Saved / error line.
+  const [amberTextedBackDm, setAmberTextedBackDm] = useState(initialAmberTextedBackDm)
 
   // ── Text signature (Txt v2) ───────────────────────────────────────────────
   const [signature, setSignature] = useState(txtSignature)
@@ -1040,6 +1048,36 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
             onCommit={() => saveDndField({ txt_dnd_schedule: { ...txtSchedule, enabled: txtScheduleEnabled } })}
           />
         </section>
+
+        {/* Amber's "texted back" DM (Oct 8 2026) */}
+        {railPermissions.canAccessTxt && (
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <div>
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                <span className="text-sky-300">🤖</span>
+                Amber&apos;s &ldquo;texted back&rdquo; DM
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">A Hub DM from the assistant when a customer texts back after your conversation earlier today.</p>
+            </div>
+            <label className="inline-flex items-center cursor-pointer flex-none">
+              <input
+                type="checkbox"
+                checked={amberTextedBackDm}
+                onChange={e => {
+                  setAmberTextedBackDm(e.target.checked)
+                  saveDndField({ amber_texted_back_dm: e.target.checked })
+                }}
+                className="sr-only peer"
+              />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-sky-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-[#ffffff] after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+            </label>
+          </div>
+          <p className="text-gray-400 text-sm">
+            When a customer texts back after you were texting them earlier the same day, the thread goes straight to your Txt inbox either way, and you still get the normal text notification. Turn this off if the extra DM from the assistant is just noise.
+          </p>
+        </section>
+        )}
 
         {/* Inbox DND */}
         <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
