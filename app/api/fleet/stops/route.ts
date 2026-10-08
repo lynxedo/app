@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { customerServiceName, isAdjustmentItem } from '@/lib/after-service'
 import { loadAssignmentRows, resolveAssignments, TECH_COLORS } from '@/lib/fleet-assignments'
+import { visitTimes, type ArrivedSource, type GpsFacts, type LeftSource } from '@/lib/fleet-visits'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,8 +25,11 @@ type StopRow = {
   job_title: string | null
   line_items: unknown
   scheduled_start_at: string | null
+  scheduled_end_at: string | null
   status: string | null
+  arrived_at: string | null
   completed_at: string | null
+  completed_by: string | null
   removed_from_jobber_at: string | null
 }
 
@@ -48,6 +52,11 @@ export type FleetStop = {
   status: FleetStopStatus
   completed_at: string | null
   is_next: boolean
+  // Arrived = the tech's tap, GPS backup. Left = completed (Work Orders / Jobber), GPS backup.
+  arrived_at: string | null
+  arrived_source: ArrivedSource | null
+  left_at: string | null
+  left_source: LeftSource | null
 }
 
 export type FleetStopsTech = {
@@ -56,6 +65,13 @@ export type FleetStopsTech = {
   color: string
   device_id: string | null
   total: number
+  done: number
+  skipped: number
+  // How many stops the schedule says should be finished by now (today only;
+  // null for another day) — the tick mark on the progress bar.
+  expected_by_now: number | null
+  // The stop the tech is at right now (arrived, not left yet).
+  current_n: number | null
   stops: FleetStop[]
 }
 
@@ -111,21 +127,31 @@ export async function GET(request: Request) {
   // Service role: the Work Orders tables' own RLS is company-wide, but the
   // gate here is Fleet access, not Work Orders access — checked above.
   const admin = createAdminClient()
-  const [{ data: entries, error }, assignmentRows] = await Promise.all([
+  const [{ data: entries, error }, assignmentRows, { data: visitRows }] = await Promise.all([
     admin
       .from('daily_log_entries')
       .select(`
         id, tech_user_id,
         stops:daily_log_stops(
           id, ord, client_name, address, lat, lng, job_title, line_items,
-          scheduled_start_at, status, completed_at, removed_from_jobber_at
+          scheduled_start_at, scheduled_end_at, status, arrived_at, completed_at, completed_by,
+          removed_from_jobber_at
         )
       `)
       .eq('company_id', companyId)
       .eq('log_date', date)
       .is('deleted_at', null),
     loadAssignmentRows(admin, companyId, date).catch(() => []),
+    admin
+      .from('fleet_stop_visits')
+      .select('stop_id, gps_arrived_at, gps_left_at')
+      .eq('company_id', companyId)
+      .eq('log_date', date),
   ])
+  const gpsByStop = new Map<string, GpsFacts>()
+  for (const v of visitRows ?? []) gpsByStop.set(v.stop_id as string, v as GpsFacts)
+  const isToday = date === new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date())
+  const nowMs = Date.now()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const { deviceToUser, userToDevice } = resolveAssignments(assignmentRows, date)
@@ -162,9 +188,13 @@ export async function GET(request: Request) {
         .sort((a, b) => a.ord - b.ord)
       const nextIdx = route.findIndex((s) => stopStatus(s.status) === 'open')
       const stops: FleetStop[] = []
+      let current_n: number | null = null
       route.forEach((s, idx) => {
+        const times = visitTimes(s, gpsByStop.get(s.id) ?? null)
+        if (times.arrived_at && !times.left_at && s.status !== 'skipped') current_n = s.ord
         if (s.lat == null || s.lng == null) return
         stops.push({
+          ...times,
           id: s.id,
           n: s.ord,
           lat: s.lat,
@@ -177,12 +207,19 @@ export async function GET(request: Request) {
           is_next: idx === nextIdx,
         })
       })
+      const expected_by_now = isToday
+        ? route.filter((s) => s.scheduled_end_at && Date.parse(s.scheduled_end_at) <= nowMs).length
+        : null
       return {
         user_id: id,
         name,
         color: '',
         device_id: userToDevice.get(id) ?? null,
         total: route.length,
+        done: route.filter((s) => stopStatus(s.status) === 'done').length,
+        skipped: route.filter((s) => stopStatus(s.status) === 'skipped').length,
+        expected_by_now,
+        current_n,
         stops,
       }
     })

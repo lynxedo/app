@@ -30,6 +30,7 @@ const ALLOWED_FIELDS = [
   'alert_after_hours',
   'alert_low_fuel',
   'alert_offline',
+  'alert_arrivals',
   'speed_threshold_mph',
   'fuel_threshold_pct',
   'offline_timeout_min',

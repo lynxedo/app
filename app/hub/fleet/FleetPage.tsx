@@ -90,6 +90,10 @@ type FleetStop = {
   status: StopStatus
   completed_at: string | null
   is_next: boolean
+  arrived_at: string | null
+  arrived_source: 'tech' | 'gps' | null
+  left_at: string | null
+  left_source: 'tech' | 'jobber' | 'gps' | null
 }
 type StopsTech = {
   user_id: string
@@ -97,7 +101,35 @@ type StopsTech = {
   color: string
   device_id: string | null
   total: number
+  done: number
+  skipped: number
+  expected_by_now: number | null
+  current_n: number | null
   stops: FleetStop[]
+}
+
+// Fleet stops session 3 — the person's own arrival alerts.
+type AlertKind = 'arrive_stop' | 'leave_stop' | 'arrive_first' | 'arrive_last' | 'leave_last'
+type MyAlert = {
+  id: string
+  kind: AlertKind
+  tech_user_id: string | null
+  stop_id: string | null
+  alert_date: string | null
+  enabled: boolean
+  label: string
+  last_fired_at: string | null
+}
+type MyAlerts = { alerts: MyAlert[]; techs: { id: string; name: string }[]; company_on: boolean }
+
+const STANDING_OPTIONS: { kind: AlertKind; label: string }[] = [
+  { kind: 'arrive_first', label: 'arrives at the first stop of the day' },
+  { kind: 'arrive_last', label: 'arrives at the last stop of the day' },
+  { kind: 'leave_last', label: 'leaves the last stop of the day' },
+]
+
+function sourceWord(src: FleetStop['arrived_source'] | FleetStop['left_source']): string {
+  return src === 'tech' ? 'tech' : src === 'jobber' ? 'Jobber' : src === 'gps' ? 'GPS' : ''
 }
 type Driver = { device_id: string; user_id: string; name: string; color: string | null }
 type StopsDay = { date: string; techs: StopsTech[]; drivers: Driver[] }
@@ -151,25 +183,82 @@ function buildStopEl(stop: FleetStop, color: string): HTMLDivElement {
   return wrap
 }
 
-function stopPopupHtml(stop: FleetStop, tech: StopsTech): string {
+type PopupCtx = {
+  isToday: boolean
+  companyAlertsOn: boolean
+  alertFor: (stopId: string, kind: AlertKind) => MyAlert | undefined
+  onSet: (stopId: string, kind: AlertKind) => void
+  onRemove: (alertId: string) => void
+}
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, css: string, text?: string): HTMLElementTagNameMap[K] {
+  const e = document.createElement(tag)
+  e.style.cssText = css
+  if (text != null) e.textContent = text
+  return e
+}
+
+/** The hover / tap card for a stop pin. Built as DOM (not HTML) so the alert buttons work. */
+function buildStopPopup(stop: FleetStop, tech: StopsTech, ctx: PopupCtx): HTMLDivElement {
+  const box = el('div', 'font-family:system-ui;color:#111;min-width:180px;max-width:250px;font-size:12px')
+  box.appendChild(el('div', 'font-weight:600;font-size:13px', `#${stop.n} · ${stop.client_name}`))
+  if (stop.services.length) box.appendChild(el('div', 'color:#333;margin-top:2px', stop.services.join(', ')))
+
+  const who = el('div', 'color:#555;margin-top:3px')
+  const dot = el('span', `display:inline-block;width:8px;height:8px;border-radius:50%;background:${tech.color};margin-right:4px`)
+  who.appendChild(dot)
+  who.appendChild(document.createTextNode(`${tech.name}${stop.scheduled_start_at ? ` · scheduled ${fmtChicagoTime(stop.scheduled_start_at)}` : ''}`))
+  box.appendChild(who)
+
+  const onSite = !!stop.arrived_at && !stop.left_at && stop.status !== 'skipped'
   const status =
-    stop.status === 'done'
-      ? `✓ Done${stop.completed_at ? ` ${fmtChicagoTime(stop.completed_at)}` : ''}`
-      : stop.status === 'skipped'
-        ? '– Skipped'
-        : stop.is_next
-          ? 'Next stop'
-          : ''
-  return `
-    <div style="font-family:system-ui;color:#111;min-width:170px;max-width:240px;font-size:12px">
-      <div style="font-weight:600;font-size:13px">#${stop.n} · ${escapeHtml(stop.client_name)}</div>
-      ${stop.services.length ? `<div style="color:#333;margin-top:2px">${stop.services.map(escapeHtml).join(', ')}</div>` : ''}
-      <div style="color:#555;margin-top:3px">
-        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${tech.color};margin-right:4px"></span>${escapeHtml(tech.name)}${stop.scheduled_start_at ? ` · ${fmtChicagoTime(stop.scheduled_start_at)}` : ''}
-      </div>
-      ${status ? `<div style="margin-top:3px;font-weight:600;color:${stop.status === 'done' ? '#15803d' : '#444'}">${status}</div>` : ''}
-    </div>
-  `
+    stop.status === 'done' ? '✓ Done' : stop.status === 'skipped' ? '– Skipped' : onSite ? 'On site now' : stop.is_next ? 'Next stop' : ''
+  if (status) {
+    box.appendChild(el('div', `margin-top:4px;font-weight:600;color:${stop.status === 'done' ? '#15803d' : onSite ? '#b45309' : '#444'}`, status))
+  }
+  if (stop.arrived_at || stop.left_at) {
+    const times = el('div', 'margin-top:2px;color:#333')
+    const parts: string[] = []
+    if (stop.arrived_at) parts.push(`Arrived ${fmtChicagoTime(stop.arrived_at)} (${sourceWord(stop.arrived_source)})`)
+    if (stop.left_at) parts.push(`Left ${fmtChicagoTime(stop.left_at)} (${sourceWord(stop.left_source)})`)
+    times.textContent = parts.join(' · ')
+    box.appendChild(times)
+  }
+
+  // One-time alerts — today's stops only, for what hasn't happened yet.
+  if (ctx.isToday && stop.status !== 'skipped') {
+    const wants: { kind: AlertKind; verb: string }[] = []
+    if (!stop.arrived_at) wants.push({ kind: 'arrive_stop', verb: 'arrives' })
+    if (!stop.left_at) wants.push({ kind: 'leave_stop', verb: 'leaves' })
+    if (wants.length) {
+      const row = el('div', 'margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb;display:flex;flex-direction:column;gap:4px')
+      if (!ctx.companyAlertsOn) {
+        row.appendChild(el('div', 'color:#6b7280', 'Arrival alerts are turned off in Admin → Fleet.'))
+      } else {
+        for (const w of wants) {
+          const existing = ctx.alertFor(stop.id, w.kind)
+          const btn = el(
+            'button',
+            `text-align:left;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;border:1px solid ${existing?.enabled ? '#16a34a' : '#d1d5db'};background:${existing?.enabled ? '#f0fdf4' : '#fff'};color:#111`,
+          )
+          btn.type = 'button'
+          btn.textContent = existing?.enabled
+            ? `🔔 I'll be told when ${tech.name} ${w.verb} — tap to cancel`
+            : `🔔 Alert me when ${tech.name} ${w.verb} here`
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation()
+            btn.disabled = true
+            btn.style.opacity = '0.6'
+            if (existing?.enabled) ctx.onRemove(existing.id)
+            else ctx.onSet(stop.id, w.kind)
+          })
+          row.appendChild(btn)
+        }
+      }
+      box.appendChild(row)
+    }
+  }
+  return box
 }
 
 function stopSignature(stop: FleetStop, color: string): string {
@@ -187,6 +276,10 @@ const HIST_STOPS_LAYER = 'fleet-hist-stops-layer'
 // Heroes' operating timezone — 'en-CA' formats as YYYY-MM-DD.
 function chicagoToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date())
+}
+
+function chicagoTodayOf(iso: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(iso))
 }
 
 function fmtChicagoTime(iso: string): string {
@@ -305,7 +398,7 @@ export default function FleetPage() {
   const [hist, setHist] = useState<DayHistory | null>(null)
 
   // Work Order stops — for the same day as Day History (shared date picker).
-  const stopMarkersRef = useRef<Map<string, { marker: MapboxMarker; sig: string }>>(new Map())
+  const stopMarkersRef = useRef<Map<string, { marker: MapboxMarker; sig: string; popup: MapboxPopup }>>(new Map())
   const stopsDateRef = useRef(histDate)
   const refitStopsRef = useRef(false)
   const [stopsDay, setStopsDay] = useState<StopsDay | null>(null)
@@ -316,6 +409,25 @@ export default function FleetPage() {
   // The trucks on the map are always live, so they carry TODAY's drivers — kept
   // apart from stopsDay so picking a past day doesn't relabel the live trucks.
   const [todayDrivers, setTodayDrivers] = useState<Driver[]>([])
+
+  // My alerts (session 3). The stop cards are built when they open, from these
+  // refs, so a card always shows the latest times and alert state.
+  const [myAlerts, setMyAlerts] = useState<MyAlerts | null>(null)
+  const [alertsError, setAlertsError] = useState<string | null>(null)
+  const [newKind, setNewKind] = useState<AlertKind>('arrive_last')
+  const [newTech, setNewTech] = useState('')
+  const [alertBusy, setAlertBusy] = useState(false)
+  const stopsDayRef = useRef<StopsDay | null>(null)
+  const myAlertsRef = useRef<MyAlerts | null>(null)
+  const openCardRef = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    stopsDayRef.current = stopsDay
+    openCardRef.current?.()
+  }, [stopsDay])
+  useEffect(() => {
+    myAlertsRef.current = myAlerts
+    openCardRef.current?.()
+  }, [myAlerts])
 
   const driverByDevice = useMemo(() => {
     const m = new Map<string, Driver>()
@@ -470,28 +582,85 @@ export default function FleetPage() {
           const sig = stopSignature(stop, tech.color) + `~${tech.name}`
           const existing = live.get(stop.id)
           if (existing?.sig === sig) continue
+          existing?.popup.remove()
           existing?.marker.remove()
-          const el = buildStopEl(stop, tech.color)
-          const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, maxWidth: '260px' })
-            .setHTML(stopPopupHtml(stop, tech))
-          const marker = new mapboxgl.Marker({ element: el })
+          const pinEl = buildStopEl(stop, tech.color)
+          const stopId = stop.id
+          const techId = tech.user_id
+          const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, maxWidth: '270px' })
             .setLngLat([stop.lng, stop.lat])
-            .setPopup(popup) // tap / click toggles it
+          const render = () => {
+            const day = stopsDayRef.current
+            const t = day?.techs.find((x) => x.user_id === techId)
+            const st = t?.stops.find((x) => x.id === stopId)
+            if (!t || !st || !day) return
+            popup.setDOMContent(
+              buildStopPopup(st, t, {
+                isToday: day.date === chicagoToday(),
+                companyAlertsOn: myAlertsRef.current?.company_on !== false,
+                alertFor: (sid, kind) => myAlertsRef.current?.alerts.find((a) => a.stop_id === sid && a.kind === kind),
+                onSet: (sid, kind) => void setStopAlert(sid, kind),
+                onRemove: (id) => void removeAlert(id),
+              }),
+            )
+          }
+          // Desktop: hover shows the card, with a short grace period so the mouse
+          // can move onto it (to press an alert button). A click / tap pins it open.
+          let pinned = false
+          let closeTimer: number | null = null
+          const cancelClose = () => {
+            if (closeTimer != null) window.clearTimeout(closeTimer)
+            closeTimer = null
+          }
+          const scheduleClose = () => {
+            cancelClose()
+            closeTimer = window.setTimeout(() => {
+              if (!pinned) popup.remove()
+            }, 250)
+          }
+          const open = () => {
+            if (popup.isOpen()) return
+            render()
+            popup.addTo(map)
+            openCardRef.current = render
+            const card = popup.getElement()
+            card?.addEventListener('pointerenter', cancelClose)
+            card?.addEventListener('pointerleave', (e) => {
+              if (e.pointerType === 'mouse' && !pinned) scheduleClose()
+            })
+          }
+          popup.on('close', () => {
+            pinned = false
+            if (openCardRef.current === render) openCardRef.current = null
+          })
+          pinEl.addEventListener('pointerenter', (e) => {
+            if (e.pointerType !== 'mouse') return
+            cancelClose()
+            open()
+          })
+          pinEl.addEventListener('pointerleave', (e) => {
+            if (e.pointerType === 'mouse' && !pinned) scheduleClose()
+          })
+          pinEl.addEventListener('click', (e) => {
+            e.stopPropagation()
+            cancelClose()
+            if (popup.isOpen() && pinned) {
+              popup.remove()
+              return
+            }
+            pinned = true
+            open()
+          })
+          const marker = new mapboxgl.Marker({ element: pinEl })
+            .setLngLat([stop.lng, stop.lat])
             .addTo(map)
-          // Desktop: show on hover. Mouse only — a tap fires pointerenter too and
-          // would open-then-toggle-closed.
-          el.addEventListener('pointerenter', (e) => {
-            if (e.pointerType === 'mouse' && !popup.isOpen()) marker.togglePopup()
-          })
-          el.addEventListener('pointerleave', (e) => {
-            if (e.pointerType === 'mouse' && popup.isOpen()) marker.togglePopup()
-          })
-          live.set(stop.id, { marker, sig })
+          live.set(stop.id, { marker, sig, popup })
         }
       }
     }
     for (const [id, entry] of live.entries()) {
       if (!seen.has(id)) {
+        entry.popup.remove()
         entry.marker.remove()
         live.delete(id)
       }
@@ -530,6 +699,50 @@ export default function FleetPage() {
     } finally {
       setStopsLoaded(true)
     }
+  }
+
+  async function fetchMyAlerts() {
+    try {
+      const res = await fetch('/api/fleet/arrival-alerts', { cache: 'no-store' })
+      const body = (await res.json().catch(() => null)) as (MyAlerts & { error?: string }) | null
+      if (!res.ok) throw new Error(body?.error ?? `alerts ${res.status}`)
+      setMyAlerts({ alerts: body?.alerts ?? [], techs: body?.techs ?? [], company_on: body?.company_on !== false })
+      setAlertsError(null)
+    } catch (err) {
+      setAlertsError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function alertCall(method: 'POST' | 'PATCH' | 'DELETE', payload: Record<string, unknown> | null, query = '') {
+    setAlertBusy(true)
+    try {
+      const res = await fetch(`/api/fleet/arrival-alerts${query}`, {
+        method,
+        headers: payload ? { 'Content-Type': 'application/json' } : undefined,
+        body: payload ? JSON.stringify(payload) : undefined,
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? `${method} ${res.status}`)
+      setAlertsError(null)
+    } catch (err) {
+      setAlertsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      await fetchMyAlerts()
+      setAlertBusy(false)
+    }
+  }
+
+  function setStopAlert(stopId: string, kind: AlertKind) {
+    return alertCall('POST', { kind, stop_id: stopId })
+  }
+  function addStandingAlert() {
+    return alertCall('POST', { kind: newKind, tech_user_id: newTech || null })
+  }
+  function toggleAlert(id: string, enabled: boolean) {
+    return alertCall('PATCH', { id, enabled })
+  }
+  function removeAlert(id: string) {
+    return alertCall('DELETE', null, `?id=${encodeURIComponent(id)}`)
   }
 
   // The stops follow the Day History date.
@@ -786,8 +999,10 @@ export default function FleetPage() {
       // Don't poll the (paid) GPS API while the tab/app is hidden — it resumes
       // immediately via the visibilitychange listener below.
       if (typeof document !== 'undefined' && document.hidden) return
-      // Stops refresh with the trucks (our own DB, not the GPS API).
+      // Stops (and my alerts' "Sent" times) refresh with the trucks — our own DB,
+      // not the GPS API.
       void fetchStops(stopsDateRef.current)
+      void fetchMyAlerts()
       try {
         const [devRes, evRes] = await Promise.all([
           fetch('/api/fleet/devices', { cache: 'no-store' }),
@@ -894,32 +1109,147 @@ export default function FleetPage() {
               {stopsDay.techs.map((t) => {
                 const truck = t.device_id ? deviceName.get(t.device_id) : null
                 const unmapped = t.total - t.stops.length
+                // Skipped stops are off the to-do list too, so they fill the bar.
+                const finished = t.done + t.skipped
+                const pct = t.total > 0 ? Math.min(100, (finished / t.total) * 100) : 0
+                const tickPct =
+                  t.expected_by_now != null && t.total > 0 ? Math.min(100, (t.expected_by_now / t.total) * 100) : null
                 return (
                   <button
                     key={t.user_id}
                     type="button"
                     onClick={() => setTechFilter(techFilter === t.user_id ? '' : t.user_id)}
-                    className={`w-full flex items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-white/10 ${
+                    className={`w-full rounded px-1.5 py-1.5 text-left text-xs hover:bg-white/10 ${
                       techFilter === t.user_id ? 'bg-white/10' : ''
                     }`}
                   >
-                    <span className="w-3 h-3 rounded-full shrink-0 border border-white/70" style={{ background: t.color }} />
-                    <span className="min-w-0">
-                      <span className="block font-medium text-white/90 truncate">{t.name}</span>
-                      <span className="block text-white/40 truncate">{truck ?? 'No truck linked'}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full shrink-0 border border-white/70" style={{ background: t.color }} />
+                      <span className="font-medium text-white/90 truncate">{t.name}</span>
+                      <span className="ml-auto text-white/80 shrink-0 font-medium">
+                        {t.done} of {t.total} done
+                      </span>
                     </span>
-                    <span className="ml-auto text-white/50 shrink-0 text-right">
-                      {t.total} stop{t.total === 1 ? '' : 's'}
-                      {unmapped > 0 && <span className="block">{unmapped} not on map</span>}
+                    <span
+                      className="relative block h-2 mt-1.5 rounded-full bg-white/10 overflow-visible"
+                      title={
+                        t.expected_by_now != null
+                          ? `By the schedule, ${t.expected_by_now} of ${t.total} should be done by now`
+                          : undefined
+                      }
+                    >
+                      <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${pct}%`, background: t.color }} />
+                      {tickPct != null && (
+                        <span
+                          className="absolute -top-0.5 -bottom-0.5 w-0.5 rounded bg-white"
+                          style={{ left: `calc(${tickPct}% - 1px)` }}
+                        />
+                      )}
+                    </span>
+                    <span className="flex items-center gap-1 mt-1 text-white/45">
+                      <span className="truncate">{truck ?? 'No truck linked'}</span>
+                      {t.current_n != null && <span className="shrink-0 text-amber-200/90">· on stop {t.current_n}</span>}
+                      {t.skipped > 0 && <span className="shrink-0">· {t.skipped} skipped</span>}
+                      {unmapped > 0 && <span className="shrink-0">· {unmapped} not on map</span>}
                     </span>
                   </button>
                 )
               })}
               <div className="text-[11px] text-white/40 pt-0.5">
+                {stopsDay.date === chicagoToday() && 'White tick = where the schedule says they should be by now. '}
                 Numbers are route order · grey ✓ = done (here or in Jobber) · – = skipped · ring = next stop
               </div>
             </div>
           )}
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 p-2.5 space-y-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-white/70">My alerts</h2>
+          <p className="text-[11px] text-white/45">
+            A DM from Amber when it happens. For one stop, open its pin and tap 🔔.
+          </p>
+          {myAlerts && !myAlerts.company_on && (
+            <div className="text-xs text-amber-200">Arrival alerts are turned off for everyone in Admin → Fleet.</div>
+          )}
+          {alertsError && <div className="text-xs text-red-300">{alertsError}</div>}
+          {(myAlerts?.alerts ?? []).length > 0 && (
+            <div className="space-y-1">
+              {(myAlerts?.alerts ?? []).map((a) => {
+                const firedToday = a.last_fired_at && chicagoTodayOf(a.last_fired_at) === chicagoToday()
+                return (
+                  <div key={a.id} className="flex items-center gap-2 rounded bg-gray-900/60 border border-white/10 px-2 py-1.5 text-xs">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={a.enabled}
+                      aria-label={a.enabled ? 'Turn off' : 'Turn on'}
+                      disabled={alertBusy}
+                      onClick={() => void toggleAlert(a.id, !a.enabled)}
+                      className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${a.enabled ? 'bg-emerald-500' : 'bg-gray-600'}`}
+                    >
+                      <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${a.enabled ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                    </button>
+                    <span className={`min-w-0 flex-1 ${a.enabled ? 'text-white/90' : 'text-white/40'}`}>
+                      <span className="block truncate" title={a.label}>{a.label}</span>
+                      {(a.alert_date || firedToday) && (
+                        <span className="block text-white/40">
+                          {a.alert_date ? 'Today only' : ''}
+                          {a.alert_date && firedToday ? ' · ' : ''}
+                          {firedToday ? `Sent ${fmtChicagoTime(a.last_fired_at as string)}` : ''}
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={alertBusy}
+                      onClick={() => void removeAlert(a.id)}
+                      className="shrink-0 text-white/40 hover:text-red-300 disabled:opacity-50 px-1"
+                      aria-label="Remove alert"
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <div className="space-y-1.5 pt-1">
+            <div className="flex gap-2">
+              <select
+                value={newTech}
+                onChange={(e) => setNewTech(e.target.value)}
+                className="w-28 shrink-0 bg-gray-900 text-white border border-white/10 rounded px-2 py-1.5 text-base md:text-sm"
+                aria-label="Which tech"
+              >
+                <option value="">Any tech</option>
+                {(myAlerts?.techs ?? []).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={newKind}
+                onChange={(e) => setNewKind(e.target.value as AlertKind)}
+                className="flex-1 min-w-0 bg-gray-900 text-white border border-white/10 rounded px-2 py-1.5 text-base md:text-sm"
+                aria-label="When"
+              >
+                {STANDING_OPTIONS.map((o) => (
+                  <option key={o.kind} value={o.kind}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              disabled={alertBusy || !myAlerts}
+              onClick={() => void addStandingAlert()}
+              className="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-40 rounded py-1.5 text-sm font-medium"
+            >
+              + Add alert (every day)
+            </button>
+          </div>
         </div>
         <div className="rounded-lg border border-white/10 bg-white/5 p-2.5 space-y-2">
           <div className="flex items-center justify-between">
