@@ -1,5 +1,6 @@
 'use client'
 
+import RachioTestRun from './RachioTestRun'
 import RachioImport, { type RachioImportPayload } from './RachioImport'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IrrigationData, IrrigationZone, DictatedZone } from '@/lib/irrigation'
@@ -312,7 +313,8 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
     return { written, skipped: fields.length - written }
   }, [])
 
-  // ── Import from Rachio ────────────────────────────────────────────────────
+  // ── Import from Rachio / Quick run ─────────────────────────────────────────
+  const [rachioOn, setRachioOn] = useState(true)
   // Same rules as the photo and voice fills: blanks only, amber until checked.
   const applyRachio = useCallback((p: RachioImportPayload): string => {
     const sys = applyPhoto(p.system, p.systemFields, null, '')
@@ -463,9 +465,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
       <div className="flex-1 overflow-y-auto px-4 pb-28 max-w-2xl w-full mx-auto">
         {err && <div className="mt-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">{err}</div>}
 
-        <RachioImport contactId={contactId} inspectionId={inspection.id} onImport={applyRachio}
-          deviceId={data.rachioDeviceId ?? null}
-          onDevice={id => { setData(d => ({ ...d, rachioDeviceId: id })); scheduleSave() }} />
+        <RachioImport contactId={contactId} inspectionId={inspection.id} onImport={applyRachio} onConnected={setRachioOn} />
 
         <SectionHead n={1} title="System overview" />
         <div className="grid grid-cols-2 gap-3">
@@ -574,6 +574,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
 
         <SectionHead n={8} title="Zones" />
         <ZoneDictation contactId={contactId} inspectionId={inspection.id} getZones={getZones} onZones={applyDictation} />
+        {rachioOn && <RachioTestRun contactId={contactId} inspectionId={inspection.id} deviceId={data.rachioDeviceId ?? null} />}
         {dictateNote && (
           <div className="mb-3 text-[12px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-md px-3 py-2">
             {dictateNote}
