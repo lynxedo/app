@@ -97,12 +97,11 @@ export function requestIp(headers: Headers): string | null {
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
 /**
- * Tell the team the customer answered: a Hub DM to whoever sent the quote (the
- * salesperson, else its creator) and a post in Office Alerts with the detail in
- * the thread. Best-effort — the customer's answer is already saved.
+ * Tell the team the customer answered: a post in Office Alerts with the detail
+ * in the thread. (A Hub DM to the sender as well was dropped — Ben, Oct 8 2026:
+ * Office Alerts is enough.) Best-effort — the customer's answer is already saved.
  */
 export async function notifyQuoteAnswer(admin: Admin, q: PublicQuoteRow, kind: 'approved' | 'changes', detail: { customer: string; total?: number; addOns?: string[]; message?: string }) {
-  const { postGuardianToUserDm } = await import('@/lib/guardian-post')
   const { postOfficeAlert } = await import('@/lib/office-alerts')
   const base = process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com'
   const link = `${base}/hub/quotes/${q.id}`
@@ -115,9 +114,5 @@ export async function notifyQuoteAnswer(admin: Admin, q: PublicQuoteRow, kind: '
     kind === 'approved' ? (q.jobber_web_uri ? `Next: approve it in Jobber and book the work — ${q.jobber_web_uri}` : 'Next: approve it in Jobber and book the work.') : 'Next: call or text them, then revise the quote.',
     link,
   ]
-  const who = q.salesperson_user_id || q.created_by
-  await Promise.allSettled([
-    who ? postGuardianToUserDm(q.company_id, who, [head, ...lines.filter(Boolean)].join('\n'), { admin }) : Promise.resolve(null),
-    postOfficeAlert(admin, q.company_id, { title: head, details: lines }),
-  ])
+  await postOfficeAlert(admin, q.company_id, { title: head, details: lines }).catch(e => console.error('[quotes] Office Alerts post failed:', e))
 }

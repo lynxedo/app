@@ -691,5 +691,17 @@ function JobberLine({ quoteId, q, onChanged }: { quoteId: string; q: Loaded['quo
       </div>
     )
   }
-  return <div className="text-[13px] text-gray-500">Creating the quote in Jobber… <button type="button" onClick={onChanged} className="text-sky-300 hover:text-sky-200">Refresh</button></div>
+  // Sent but no Jobber quote yet: it's normally there within a minute of
+  // sending — but never leave the office stuck waiting; Retry pushes it now.
+  return (
+    <div className="text-[13px] text-gray-400 space-y-1">
+      <div>
+        Not in Jobber yet — usually there within a minute of sending.{' '}
+        <button type="button" onClick={onChanged} className="text-sky-300 hover:text-sky-200">Refresh</button>
+        {' · '}
+        <button type="button" onClick={retry} disabled={busy} className="text-sky-300 hover:text-sky-200 disabled:opacity-50">{busy ? 'Trying…' : 'Retry'}</button>
+      </div>
+      {err && <div className="text-red-300">{err}</div>}
+    </div>
+  )
 }

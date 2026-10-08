@@ -1,5 +1,5 @@
 import { NextResponse, after } from 'next/server'
-import { syncApprovalToJobber } from '@/lib/quote-jobber'
+import { jobberStepInBackground, syncApprovalToJobber } from '@/lib/quote-jobber'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadPublicQuote, notifyQuoteAnswer, quoteByToken, requestIp } from '@/lib/quote-public'
 import { effectiveStatus, quoteTotals, validApprovalName, type QuoteItem } from '@/lib/quotes'
@@ -62,6 +62,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   })
   // Jobber: picked add-ons become regular lines + a pinned approval note,
   // after the customer has their answer.
-  after(async () => { await syncApprovalToJobber(createAdminClient(), q.company_id, q.id) })
+  after(() => jobberStepInBackground(q.company_id, q.id, 'approval', admin => syncApprovalToJobber(admin, q.company_id, q.id)))
   return NextResponse.json({ ok: true, view })
 }
