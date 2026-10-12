@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import MediaLightbox, { type LightboxItem } from '@/components/hub/MediaLightbox'
 
 // Work Orders Phase 1 — the customer file's list of work orders (Daily Log v2
 // stops) done at this customer, newest day first. Rule 7 of the PRD: every stop
@@ -22,6 +23,8 @@ type WorkOrder = {
   completedAt: string | null
   inspection: { id: string; status: 'draft' | 'final' } | null
   serviceReport?: { id: string; status: 'draft' | 'final' } | null
+  /** Photos the tech took on the stop (Work Orders Phase 5). */
+  photos?: { id: string; url: string; name: string }[]
 }
 
 function fmtDate(d: string): string {
@@ -39,6 +42,12 @@ function StatusChip({ wo }: { wo: WorkOrder }) {
 export default function WorkOrdersCard({ contactId }: { contactId: string }) {
   const [items, setItems] = useState<WorkOrder[] | null>(null)
   const [showAll, setShowAll] = useState(false)
+  const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
+
+  function openPhotos(wo: WorkOrder, index: number) {
+    const photos = wo.photos ?? []
+    setLightbox({ items: photos.map(p => ({ type: 'image', src: p.url, filename: p.name })), index })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -124,6 +133,23 @@ export default function WorkOrdersCard({ contactId }: { contactId: string }) {
                   {wo.services.length > 2 ? ` +${wo.services.length - 2} more` : ''}
                 </div>
               )}
+              {(wo.photos?.length ?? 0) > 0 && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  {wo.photos!.slice(0, 5).map((p, i) => (
+                    <button key={p.id} type="button" onClick={() => openPhotos(wo, i)}
+                      className="w-12 h-12 rounded-md overflow-hidden border border-white/10 bg-white/5 hover:border-white/40 flex-none"
+                      title={p.name}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                    </button>
+                  ))}
+                  {wo.photos!.length > 5 && (
+                    <button type="button" onClick={() => openPhotos(wo, 5)} className="text-[11px] text-white/50 hover:text-white/80 px-1">
+                      +{wo.photos!.length - 5} more
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
           {items.length > 5 && (
@@ -133,6 +159,7 @@ export default function WorkOrdersCard({ contactId }: { contactId: string }) {
           )}
         </div>
       )}
+      {lightbox && <MediaLightbox items={lightbox.items} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
     </section>
   )
 }

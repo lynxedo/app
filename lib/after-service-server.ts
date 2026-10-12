@@ -209,14 +209,30 @@ export async function toFullReport(admin: Admin, row: ReportRow) {
     for (const u of data ?? []) names.set(u.id as string, (u.display_name as string) || '')
   }
   let workOrder: WorkOrderRef | null = null
+  // Phase 5: the photos the tech took on the stop itself (📷 on the stop), so
+  // the report can offer them — a tap adds one to the customer's copy. Same R2
+  // bucket as the report's own photos, so the key goes straight into photo_keys.
+  let stopPhotos: { key: string; url: string }[] = []
   if (row.stop_id) {
-    const { data } = await admin
-      .from('daily_log_stops')
-      .select('id, status, entry:daily_log_entries!entry_id(log_date, tech:hub_users!tech_user_id(display_name))')
-      .eq('id', row.stop_id)
-      .maybeSingle()
+    const [{ data }, { data: atts }] = await Promise.all([
+      admin
+        .from('daily_log_stops')
+        .select('id, status, entry:daily_log_entries!entry_id(log_date, tech:hub_users!tech_user_id(display_name))')
+        .eq('id', row.stop_id)
+        .maybeSingle(),
+      admin
+        .from('daily_log_stop_attachments')
+        .select('storage_path, file_type')
+        .eq('stop_id', row.stop_id)
+        .like('file_type', 'image/%')
+        .order('created_at', { ascending: true })
+        .limit(40),
+    ])
     const s = data as unknown as { id: string; status: string; entry: { log_date: string; tech: { display_name: string } | null } | null } | null
     if (s?.entry) workOrder = { stopId: s.id, date: s.entry.log_date, tech: s.entry.tech?.display_name ?? null, status: s.status }
+    const keys = ((atts ?? []) as { storage_path: string | null }[]).map(a => a.storage_path).filter((k): k is string => !!k)
+    const urls = await Promise.all(keys.map(k => r2SignedUrl(k, 3600).catch(() => null)))
+    stopPhotos = keys.map((key, i) => ({ key, url: urls[i] })).filter((p): p is { key: string; url: string } => !!p.url)
   }
   const pairs = (row.photo_keys ?? []).map((key, i) => ({ key, url: photoUrls[i] })).filter(p => !!p.url)
   const shareActive = !!row.share_token && (!row.share_expires_at || new Date(row.share_expires_at) > new Date())
@@ -236,6 +252,7 @@ export async function toFullReport(admin: Admin, row: ReportRow) {
     jobberVisitId: row.jobber_visit_id,
     pesticideRecordId: row.pesticide_record_id,
     workOrder,
+    stopPhotos,
     shareUrl: shareActive ? `${baseUrl}/report/${row.share_token}` : null,
   }
 }

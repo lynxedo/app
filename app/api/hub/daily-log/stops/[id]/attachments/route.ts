@@ -68,7 +68,7 @@ export async function GET(
 
   const { data, error } = await admin
     .from('daily_log_stop_attachments')
-    .select('id, file_name, file_type, file_size, file_url, created_at, uploaded_by')
+    .select('id, file_name, file_type, file_size, file_url, storage_path, created_at, uploaded_by')
     .eq('stop_id', id)
     .order('created_at', { ascending: true })
 
@@ -130,7 +130,7 @@ export async function POST(
       storage_path: key,
       file_url: fileUrl,
     })
-    .select('id, file_name, file_type, file_size, file_url, created_at, uploaded_by')
+    .select('id, file_name, file_type, file_size, file_url, storage_path, created_at, uploaded_by')
     .single()
 
   if (error || !inserted) {
