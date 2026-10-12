@@ -260,6 +260,9 @@ export async function POST(request: Request) {
   try {
     stopRows = await upsertStopsForEntry(admin, {
       companyId: profile.company_id, entryId, stops: stopInputs, source: 'route', pruneMissingVisits: false,
+      // A route sent from the optimizer is the office's deliberate new order —
+      // it replaces any order a tech set by hand on this day (Phase 5).
+      clearManualOrder: true,
     })
   } catch (e) {
     return NextResponse.json({ error: `Failed to save stops: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 })

@@ -28,6 +28,8 @@ export type FullReport = {
   jobberVisitId: string | null
   pesticideRecordId: string | null
   workOrder: WorkOrderRef | null
+  /** Photos taken on the stop itself (Phase 5) — offered to add to the report. */
+  stopPhotos?: { key: string; url: string }[]
   /** The customer's link, while it is live (set once the report has been sent). */
   shareUrl?: string | null
 }
@@ -168,6 +170,13 @@ export default function AfterServiceForm({ contactId, report, onClose, onSaved }
     } finally { setUploadingPhoto(false) }
   }
   function removePhoto(i: number) { setPhotos(p => p.filter((_, j) => j !== i)); scheduleSave() }
+  // Phase 5: a photo the tech took on the stop — one tap puts it on the report
+  // (no re-upload: same bucket, the stop's key goes into photo_keys as-is).
+  const stopPhotos = (report.stopPhotos ?? []).filter(sp => !photos.some(p => p.key === sp.key))
+  function addStopPhoto(sp: { key: string; url: string }) {
+    setPhotos(p => (p.some(x => x.key === sp.key) ? p : [...p, sp]))
+    scheduleSave()
+  }
 
   // ── Save (draft → saved report) ────────────────────────────────────────────
   async function save() {
@@ -347,6 +356,22 @@ export default function AfterServiceForm({ contactId, report, onClose, onSaved }
             <input type="file" accept="image/*" multiple className="hidden" onChange={e => { void addPhotos(e.target.files); e.currentTarget.value = '' }} />
           </label>
         </div>
+        {stopPhotos.length > 0 && (
+          <div>
+            <div className="text-[11px] text-white/45 mb-1">From the stop — tap a photo to add it to the report</div>
+            <div className="flex flex-wrap gap-2">
+              {stopPhotos.map(sp => (
+                <button key={sp.key} type="button" onClick={() => addStopPhoto(sp)}
+                  className="relative w-20 h-20 rounded-md overflow-hidden border border-dashed border-white/25 bg-white/5 hover:border-emerald-400"
+                  title="Add this photo to the report">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={sp.url} alt="" className="w-full h-full object-cover opacity-80" />
+                  <span className="absolute bottom-0.5 right-0.5 w-5 h-5 rounded-full bg-emerald-600 text-white text-xs grid place-items-center" aria-hidden>+</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <SectionHead n={6} title="Internal notes" note="Office only — never shown to the customer." />
         <textarea value={data.internalNotes ?? ''} onChange={e => set('internalNotes', e.target.value)} rows={2}

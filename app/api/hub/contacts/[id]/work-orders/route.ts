@@ -119,6 +119,26 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     }
   }
 
+  // Work Orders Phase 5 — the photos the tech took on each stop (📷 on the
+  // stop). `file_url` is the company-gated media route, so anyone who can open
+  // this page can see them.
+  type AttLite = { id: string; stop_id: string; file_name: string; file_url: string }
+  const photosBy = new Map<string, { id: string; url: string; name: string }[]>()
+  if (stops.length > 0) {
+    const { data: atts } = await admin
+      .from('daily_log_stop_attachments')
+      .select('id, stop_id, file_name, file_url')
+      .in('stop_id', stopIds)
+      .like('file_type', 'image/%')
+      .order('created_at', { ascending: true })
+      .limit(400)
+    for (const a of (atts ?? []) as AttLite[]) {
+      const list = photosBy.get(a.stop_id) ?? []
+      list.push({ id: a.id, url: a.file_url, name: a.file_name })
+      photosBy.set(a.stop_id, list)
+    }
+  }
+
   const workOrders = stops.map(s => {
     const insp = (s.jobber_visit_id ? byVisit.get(s.jobber_visit_id) : undefined) ?? byStop.get(s.id) ?? null
     const rep = (s.jobber_visit_id ? repByVisit.get(s.jobber_visit_id) : undefined) ?? repByStop.get(s.id) ?? null
@@ -137,6 +157,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       completedAt: s.completed_at,
       inspection: insp ? { id: insp.id, status: insp.status === 'final' ? 'final' : 'draft' } : null,
       serviceReport: rep ? { id: rep.id, status: rep.status === 'final' ? 'final' : 'draft' } : null,
+      photos: photosBy.get(s.id) ?? [],
     }
   })
 

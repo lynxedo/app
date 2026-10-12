@@ -148,12 +148,14 @@ type ExistingStop = {
   instructions: string | null
   duration_minutes: number | null
   removed_from_jobber_at: string | null
+  /** Phase 5: set when a person ordered this day by hand; the sync keeps that order. */
+  manual_rank: number | null
 }
 
 const EXISTING_COLS =
   'id, entry_id, ord, jobber_visit_id, status, arrived_at, completed_at, notes, on_my_way_sent_at, ' +
   'pesticide_tech_notes, pesticide_record_id, office_reviewed_at, scheduled_start_at, line_items, address, lat, lng, ' +
-  'instructions, duration_minutes, removed_from_jobber_at'
+  'instructions, duration_minutes, removed_from_jobber_at, manual_rank'
 
 function hasTechState(s: ExistingStop, inspected: Set<string>): boolean {
   return s.status !== 'pending'
@@ -185,12 +187,23 @@ export async function upsertStopsForEntry(admin: Admin, p: {
   source: 'route' | 'jobber'
   pruneMissingVisits: boolean
   keepVisitIds?: Set<string>
+  /**
+   * Phase 5: forget any order a person set by hand on this day and number the
+   * stops from the incoming route — the Route Optimizer's Send to Daily Log is a
+   * deliberate new order. The Jobber feed never passes this: a hand-set order
+   * survives every sync.
+   */
+  clearManualOrder?: boolean
 }): Promise<UpsertStopsResult> {
   const now = new Date().toISOString()
   const res: UpsertStopsResult = { inserted: 0, updated: 0, moved: 0, deleted: 0, flagged: 0, changed: false }
 
+  if (p.clearManualOrder) {
+    const { error } = await admin.from('daily_log_stops').update({ manual_rank: null }).eq('entry_id', p.entryId).not('manual_rank', 'is', null)
+    if (error) throw new Error(`clear manual order: ${error.message}`)
+  }
   const { data: existingRaw } = await admin.from('daily_log_stops').select(EXISTING_COLS).eq('entry_id', p.entryId)
-  const existing = (existingRaw ?? []) as unknown as ExistingStop[]
+  const existing = ((existingRaw ?? []) as unknown as ExistingStop[]).map(s => (p.clearManualOrder ? { ...s, manual_rank: null } : s))
   const hereByVisit = new Map<string, ExistingStop>()
   for (const s of existing) if (s.jobber_visit_id && !hereByVisit.has(s.jobber_visit_id)) hereByVisit.set(s.jobber_visit_id, s)
 
@@ -220,7 +233,7 @@ export async function upsertStopsForEntry(admin: Admin, p: {
     for (const r of data ?? []) if (r.stop_id) inspected.add(r.stop_id as string)
   }
 
-  type Final = { id: string; ord: number; startAt: string | null; flagged: boolean; incomingIndex: number }
+  type Final = { id: string; ord: number; startAt: string | null; flagged: boolean; incomingIndex: number; manualRank: number | null }
   const finals: Final[] = []
   // (entry_id, ord) is UNIQUE, so new rows and re-numbered rows are first parked
   // in a temporary range. Oct 7 2026: that range used to be FIXED (10000+ for
@@ -288,7 +301,8 @@ export async function upsertStopsForEntry(admin: Admin, p: {
       const { error } = await admin.from('daily_log_stops').update(facts).eq('id', target.id)
       if (error) throw new Error(`stop update ${target.id}: ${error.message}`)
       keptIds.add(target.id)
-      finals.push({ id: target.id, ord: ordNow, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
+      // A visit moving in from another day/tech brings no hand-set rank with it.
+      finals.push({ id: target.id, ord: ordNow, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i, manualRank: away ? null : target.manual_rank })
     } else {
       // (entry_id, ord) is UNIQUE — park new rows in a high, distinct range and let
       // the re-numbering below settle them.
@@ -314,20 +328,20 @@ export async function upsertStopsForEntry(admin: Admin, p: {
         // Another sync of this day added the same visit a moment ago — UNIQUE
         // (entry_id, jobber_visit_id) refused a second copy (Oct 7 2026: two
         // overlapping syncs had doubled stops). Treat it as already here.
-        const { data: twin } = await admin.from('daily_log_stops').select('id, ord').eq('entry_id', p.entryId).eq('jobber_visit_id', vid).maybeSingle()
+        const { data: twin } = await admin.from('daily_log_stops').select('id, ord, manual_rank').eq('entry_id', p.entryId).eq('jobber_visit_id', vid).maybeSingle()
         if (!twin) throw new Error(`stop insert: ${error.message}`)
         const { error: upErr } = await admin.from('daily_log_stops').update(facts).eq('id', twin.id)
         if (upErr) throw new Error(`stop update ${twin.id}: ${upErr.message}`)
         res.updated += 1
         keptIds.add(twin.id as string)
-        finals.push({ id: twin.id as string, ord: twin.ord as number, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
+        finals.push({ id: twin.id as string, ord: twin.ord as number, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i, manualRank: (twin.manual_rank as number | null) ?? null })
         continue
       }
       if (error || !created) throw new Error(`stop insert: ${error?.message ?? 'no row'}`)
       res.inserted += 1
       res.changed = true
       keptIds.add(created.id as string)
-      finals.push({ id: created.id as string, ord: tempOrd, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i })
+      finals.push({ id: created.id as string, ord: tempOrd, startAt: s.scheduled_start_at ?? null, flagged: false, incomingIndex: i, manualRank: null })
     }
   }
 
@@ -346,7 +360,7 @@ export async function upsertStopsForEntry(admin: Admin, p: {
         res.deleted += 1
         res.changed = true
       } else {
-        finals.push({ id: s.id, ord: s.ord, startAt: s.scheduled_start_at, flagged: true, incomingIndex: Number.MAX_SAFE_INTEGER })
+        finals.push({ id: s.id, ord: s.ord, startAt: s.scheduled_start_at, flagged: true, incomingIndex: Number.MAX_SAFE_INTEGER, manualRank: s.manual_rank })
       }
       continue
     }
@@ -360,7 +374,7 @@ export async function upsertStopsForEntry(admin: Admin, p: {
           res.flagged += 1
           res.changed = true
         }
-        finals.push({ id: s.id, ord: s.ord, startAt: s.scheduled_start_at, flagged: true, incomingIndex: Number.MAX_SAFE_INTEGER })
+        finals.push({ id: s.id, ord: s.ord, startAt: s.scheduled_start_at, flagged: true, incomingIndex: Number.MAX_SAFE_INTEGER, manualRank: s.manual_rank })
       } else {
         const { error } = await admin.from('daily_log_stops').delete().eq('id', s.id)
         if (error) throw new Error(`stop delete ${s.id}: ${error.message}`)
@@ -368,14 +382,19 @@ export async function upsertStopsForEntry(admin: Admin, p: {
         res.changed = true
       }
     } else {
-      finals.push({ id: s.id, ord: s.ord, startAt: s.scheduled_start_at, flagged: !!s.removed_from_jobber_at, incomingIndex: Number.MAX_SAFE_INTEGER })
+      finals.push({ id: s.id, ord: s.ord, startAt: s.scheduled_start_at, flagged: !!s.removed_from_jobber_at, incomingIndex: Number.MAX_SAFE_INTEGER, manualRank: s.manual_rank })
     }
   }
 
-  // Re-number: by time (nulls last), then incoming order, then the old ord;
-  // flagged stops sink to the bottom.
+  // Re-number: flagged stops sink to the bottom; then a hand-set order (Phase 5
+  // reorder) wins — stops a person ranked keep that order and anything Jobber
+  // added since goes after them; then by time (nulls last), incoming order,
+  // and the old ord.
   finals.sort((a, b) => {
     if (a.flagged !== b.flagged) return a.flagged ? 1 : -1
+    const ar = a.manualRank, br = b.manualRank
+    if (ar != null && br != null && ar !== br) return ar - br
+    if ((ar != null) !== (br != null)) return ar != null ? -1 : 1
     if (a.startAt && b.startAt && a.startAt !== b.startAt) return a.startAt.localeCompare(b.startAt)
     if (!!a.startAt !== !!b.startAt) return a.startAt ? -1 : 1
     if (a.incomingIndex !== b.incomingIndex) return a.incomingIndex - b.incomingIndex

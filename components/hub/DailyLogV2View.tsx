@@ -15,6 +15,7 @@ import { keepAwake } from '@/lib/native-device'
 import { getDailyLog, saveDailyLog } from '@/lib/hub-cache'
 import { isNativeApp } from '@/lib/hub-idle'
 import { useOutsideClose } from '@/hooks/use-outside-close'
+import { mergeOrder } from '@/lib/work-order-reorder'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ type StopAttachment = {
   file_type: string | null
   file_size: number | null
   file_url: string
+  storage_path?: string | null
   created_at: string
   uploaded_by: string | null
 }
@@ -696,6 +698,10 @@ export default function DailyLogV2View({
                 onOpenStop={openStop}
                 onMarkRouteComplete={handleMarkRouteComplete}
                 onDismissRouteComplete={() => setRouteCompleteEntryId(null)}
+                onStopsReordered={(entryId, ords) => setEntries(prev => prev.map(e => e.id !== entryId ? e : {
+                  ...e,
+                  stops: e.stops.map(s => ({ ...s, ord: ords[s.id] ?? s.ord })).sort((a, b) => a.ord - b.ord),
+                }))}
               />
             ))}
           </div>
@@ -968,6 +974,7 @@ function EntryCard({
   onOpenStop,
   onMarkRouteComplete,
   onDismissRouteComplete,
+  onStopsReordered,
 }: {
   entry: Entry
   depot: { lat: number; lng: number } | null
@@ -977,6 +984,8 @@ function EntryCard({
   openStopId: string | null
   showRouteCompleteBanner: boolean
   onOpenStop: (stopId: string, opts?: { inspect?: boolean }) => void
+  /** Phase 5: the saved order came back — every stop's new number. */
+  onStopsReordered: (entryId: string, ords: Record<string, number>) => void
   onMarkRouteComplete: (entryId: string) => void | Promise<void>
   onDismissRouteComplete: () => void
 }) {
@@ -1074,6 +1083,48 @@ function EntryCard({
   const isDone = (s: Stop) => s.status === 'complete' || s.status === 'skipped'
   const openStops = entry.stops.filter(s => !isDone(s))
   const doneStops = entry.stops.filter(isDone)
+
+  // Phase 5 — reorder any time (Ben, Oct 12 2026): a tech on their own day, the
+  // office on anyone's — the route checks the same rule. Finished and
+  // Jobber-removed stops keep their numbers; the open ones take the rest in the
+  // order chosen. Arrows, not drag: reliable in a phone webview.
+  const isMine = entry.tech?.id === currentUserId || entry.secondary_techs.some(t => t.id === currentUserId)
+  const reorderable = openStops.filter(s => !s.removed_from_jobber_at)
+  const canReorder = !isClosed && (isAdmin || isMine) && reorderable.length > 1
+  const [reordering, setReordering] = useState(false)
+  const [draftIds, setDraftIds] = useState<string[]>([])
+  const [reorderSaving, setReorderSaving] = useState(false)
+  const [reorderError, setReorderError] = useState<string | null>(null)
+  const previewOrd = new Map(
+    mergeOrder(entry.stops.filter(s => !reorderable.some(r => r.id === s.id)).map(s => ({ id: s.id, ord: s.ord })), draftIds)
+      .map((id, i) => [id, i + 1] as const),
+  )
+  function startReorder() { setDraftIds(reorderable.map(s => s.id)); setReorderError(null); setReordering(true) }
+  function moveDraft(id: string, dir: -1 | 1) {
+    setDraftIds(prev => {
+      const i = prev.indexOf(id), j = i + dir
+      if (i < 0 || j < 0 || j >= prev.length) return prev
+      const next = [...prev]
+      next[i] = prev[j]; next[j] = prev[i]
+      return next
+    })
+  }
+  async function saveReorder() {
+    setReorderSaving(true); setReorderError(null)
+    try {
+      const res = await fetch(`/api/hub/daily-log/${entry.id}/reorder`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stopIds: draftIds }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) { setReorderError(j.error ?? 'Could not save the order'); return }
+      onStopsReordered(entry.id, (j.ords ?? {}) as Record<string, number>)
+      setReordering(false)
+    } catch {
+      setReorderError('No connection — try again.')
+    } finally {
+      setReorderSaving(false)
+    }
+  }
 
   return (
     <div className={`bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden ${isClosed ? 'opacity-60' : ''}`}>
@@ -1184,12 +1235,56 @@ function EntryCard({
         </div>
       )}
 
+      {/* Reorder (Phase 5) */}
+      {canReorder && (
+        <div className="px-4 md:px-5 py-2 border-b border-gray-800 flex items-center justify-between gap-2">
+          {reordering ? (
+            <>
+              <div className="text-xs text-gray-400">Move stops with the arrows, then save. Finished stops keep their numbers.</div>
+              <div className="flex items-center gap-2 flex-none">
+                <button type="button" onClick={() => setReordering(false)} disabled={reorderSaving}
+                  className="h-9 px-3 rounded bg-gray-800 hover:bg-gray-700 text-xs text-gray-200 disabled:opacity-50">Cancel</button>
+                <button type="button" onClick={saveReorder} disabled={reorderSaving}
+                  className="h-9 px-3 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-[#fff] disabled:opacity-50">{reorderSaving ? 'Saving…' : 'Save order'}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-xs text-gray-500">{openStops.length} to go</div>
+              <button type="button" onClick={startReorder}
+                className="h-9 px-3 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs text-gray-200" title="Change the order of the stops still to do">⇅ Reorder</button>
+            </>
+          )}
+        </div>
+      )}
+      {reorderError && <div className="px-5 py-1.5 text-xs text-red-300 bg-red-500/10 border-b border-gray-800">⚠ {reorderError}</div>}
+
       {/* Stops list */}
       <div className="divide-y divide-gray-800">
         {entry.stops.length === 0 ? (
           <div className="px-5 py-6 text-sm text-gray-500 text-center">
             No stops attached yet. Send a route from the Route Optimizer to populate.
           </div>
+        ) : reordering ? (
+          <>
+            {draftIds.map((id, i) => {
+              const s = entry.stops.find(x => x.id === id)
+              return s ? (
+                <ReorderRow key={id} stop={s} n={previewOrd.get(id) ?? s.ord} first={i === 0} last={i === draftIds.length - 1} onMove={dir => moveDraft(id, dir)} />
+              ) : null
+            })}
+            {openStops.filter(s => s.removed_from_jobber_at).map(s => (
+              <StopRow key={s.id} stop={s} date={entry.log_date} active={openStopId === s.id} onOpen={onOpenStop} />
+            ))}
+            {doneStops.length > 0 && (
+              <div className="px-4 md:px-5 py-1.5 bg-gray-950/40 text-[10px] uppercase tracking-wide text-gray-500">
+                Done · {doneStops.length} — keep their numbers
+              </div>
+            )}
+            {doneStops.map(s => (
+              <StopRow key={s.id} stop={s} date={entry.log_date} active={openStopId === s.id} onOpen={onOpenStop} />
+            ))}
+          </>
         ) : (
           <>
             {openStops.map(s => (
@@ -1371,6 +1466,35 @@ function ActionIcon({ icon, label, onClick, href, external, disabled, tone = 'gr
     <button type="button" onClick={onClick} disabled={disabled} className={`${wrap} disabled:cursor-not-allowed`} title={title ?? label} aria-label={label}>
       {inner}
     </button>
+  )
+}
+
+// ── ReorderRow (Phase 5: one open stop while the order is being changed) ───────
+
+function ReorderRow({ stop, n, first, last, onMove }: {
+  stop: Stop
+  /** The number this stop will have once saved. */
+  n: number
+  first: boolean
+  last: boolean
+  onMove: (dir: -1 | 1) => void
+}) {
+  return (
+    <div className="px-4 md:px-5 py-2.5 flex items-center gap-3 bg-gray-900/30">
+      <div className="w-8 h-8 rounded-full flex-none flex items-center justify-center text-sm font-semibold bg-red-900/40 text-red-300" title={`Will be stop ${n}`}>
+        {pinLabel(n)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-white truncate">{stop.client_name}</div>
+        <div className="text-sm text-gray-400 truncate">{stop.address}</div>
+      </div>
+      <div className="flex flex-col gap-1 flex-none">
+        <button type="button" onClick={() => onMove(-1)} disabled={first} aria-label={`Move ${stop.client_name} up`}
+          className="w-11 h-9 rounded bg-gray-800 hover:bg-gray-700 text-gray-100 disabled:opacity-30 text-sm">▲</button>
+        <button type="button" onClick={() => onMove(1)} disabled={last} aria-label={`Move ${stop.client_name} down`}
+          className="w-11 h-9 rounded bg-gray-800 hover:bg-gray-700 text-gray-100 disabled:opacity-30 text-sm">▼</button>
+      </div>
+    </div>
   )
 }
 
@@ -1572,6 +1696,9 @@ function StopSheet({
 
   const [texting, setTexting] = useState(false)
   const [textError, setTextError] = useState<string | null>(null)
+  // Phase 5: 📷 in the icon row opens the camera straight away — it clicks the
+  // notes thread's own camera input, so the photo lands in the thread as before.
+  const cameraRef = useRef<HTMLInputElement>(null)
 
   // Pesticide tech notes local state
   const [pestNotesDraft, setPestNotesDraft] = useState(stop.pesticide_tech_notes ?? '')
@@ -1831,6 +1958,7 @@ function StopSheet({
               />
             )}
             <ActionIcon icon="🗺️" label="Navigate" href={navHref} external disabled={!navHref} tone="sky" />
+            <ActionIcon icon="📷" label="Photo" onClick={() => cameraRef.current?.click()} tone="gray" title="Take a photo for this stop — it goes in the stop's notes, the customer file and can be added to the report" />
             {!isSkipped && (
               <ActionIcon
                 icon="🚗"
@@ -1952,7 +2080,7 @@ function StopSheet({
           )}
 
           {/* Unified notes + attachments thread */}
-          <StopNotesAndAttachments stopId={stop.id} currentUserId={currentUserId} isAdmin={isAdmin} />
+          <StopNotesAndAttachments stopId={stop.id} currentUserId={currentUserId} isAdmin={isAdmin} cameraRef={cameraRef} />
 
           {/* Time on property */}
           {!isSkipped && (isComplete || isInProgress) && (
@@ -2181,11 +2309,14 @@ function StopNotesAndAttachments({
   stopId,
   currentUserId,
   isAdmin,
+  cameraRef,
 }: {
   stopId: string
   currentUserId: string
   /** A Daily Log admin may edit or delete anyone's note; everyone else only their own. */
   isAdmin: boolean
+  /** Phase 5: the stop's 📷 icon clicks this input (the camera one) from outside. */
+  cameraRef?: React.RefObject<HTMLInputElement | null>
 }) {
   const [messages, setMessages] = useState<StopMessage[]>([])
   const [attachments, setAttachments] = useState<StopAttachment[]>([])
@@ -2194,7 +2325,8 @@ function StopNotesAndAttachments({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [sending, setSending] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
-  const photoRef = useRef<HTMLInputElement>(null)
+  const localPhotoRef = useRef<HTMLInputElement>(null)
+  const photoRef = cameraRef ?? localPhotoRef
   const videoRef = useRef<HTMLInputElement>(null)
   const attachMenuRef = useRef<HTMLDivElement>(null)
   const [attachOpen, setAttachOpen] = useState(false)
