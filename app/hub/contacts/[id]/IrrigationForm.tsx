@@ -157,17 +157,35 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
   onClose: () => void
   onFinalized: () => void
 }) {
-  const [data, setData] = useState<IrrigationData>(() => {
-    const zones = Array.isArray(inspection.data.zones) && inspection.data.zones.length
-      ? inspection.data.zones
-      : Array.from({ length: 6 }, () => emptyIrrigationZone())
-    const sorted = sortZones(zones, inspection.data.aiFilled ?? [])
-    return { ...inspection.data, zones: sorted.zones, aiFilled: sorted.aiFilled }
+  // ── Offline (Ben, Oct 12 2026) ────────────────────────────────────────────
+  // A dead-signal yard used to turn every edit into a red "Not saved". Now a
+  // save that can't reach the server is kept on the phone (one snapshot per
+  // inspection, last write wins) and pushed when the signal returns — or when
+  // the form is next opened, if it was closed first. Finish still needs signal.
+  const pendingKey = `lx_irr_pending:${inspection.id}`
+  const [pending] = useState<{ data: IrrigationData; photo_keys: string[]; at: number } | null>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(pendingKey) : null
+      return raw ? JSON.parse(raw) : null
+    } catch { return null }
   })
-  const [photos, setPhotos] = useState<{ key: string; url: string }[]>(
-    () => inspection.photoKeys.map((key, i) => ({ key, url: inspection.photoUrls[i] || '' })),
-  )
-  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
+  const [data, setData] = useState<IrrigationData>(() => {
+    const base = pending?.data ?? inspection.data
+    const zones = Array.isArray(base.zones) && base.zones.length
+      ? base.zones
+      : Array.from({ length: 6 }, () => emptyIrrigationZone())
+    const sorted = sortZones(zones, base.aiFilled ?? [])
+    return { ...base, zones: sorted.zones, aiFilled: sorted.aiFilled }
+  })
+  const [photos, setPhotos] = useState<{ key: string; url: string }[]>(() => {
+    const known = new Map(inspection.photoKeys.map((key, i) => [key, inspection.photoUrls[i] || '']))
+    const keys = pending?.photo_keys ?? inspection.photoKeys
+    return keys.map(key => ({ key, url: known.get(key) ?? '' }))
+  })
+  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error' | 'offline'>(pending ? 'offline' : 'saved')
+  const saveStateRef = useRef(saveState); saveStateRef.current = saveState
+  /** Photos taken with no signal — uploaded when it returns (lost if the form closes first; the form says so). */
+  const [pendingUploads, setPendingUploads] = useState<{ file: File; url: string }[]>([])
   const [finalizing, setFinalizing] = useState(false)
   const [err, setErr] = useState('')
 
@@ -267,6 +285,10 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
 
   const marks = data.aiFilled ?? []
   const isAi = useCallback((i: number, field: keyof IrrigationZone) => marks.includes(`${i}:${field}`), [marks])
+  // Which zone cards have "More" open by hand (keyed by the stable zone key, so
+  // a re-sort doesn't hand the open state to whichever zone slid into the slot).
+  const [moreOpen, setMoreOpen] = useState<Set<number>>(() => new Set())
+  const toggleMore = (k: number) => setMoreOpen(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const clearMark = useCallback((i: number, field: keyof IrrigationZone) => {
     setData(d => {
       const key = `${i}:${field}`
@@ -376,23 +398,41 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
 
   // ── Photos ─────────────────────────────────────────────────────────────────
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  // fetch() throws a TypeError when there is no connection at all — that is the
+  // only failure we keep on the phone; a server "no" stays a red "Not saved".
+  const isNoSignal = (e: unknown) => e instanceof TypeError
+  async function uploadOne(file: File): Promise<string | null> {
+    const fd = new FormData(); fd.append('file', file)
+    const res = await fetch('/api/hub/upload', { method: 'POST', body: fd })
+    if (!res.ok) return null
+    const j = await res.json()
+    return (j.storage_path as string | undefined) ?? null
+  }
   async function addPhotos(files: FileList | null) {
     if (!files || files.length === 0) return
     setUploadingPhoto(true)
     try {
       for (const file of Array.from(files)) {
-        const fd = new FormData(); fd.append('file', file)
-        const res = await fetch('/api/hub/upload', { method: 'POST', body: fd })
-        if (!res.ok) continue
-        const j = await res.json()
-        if (j.storage_path) setPhotos(p => [...p, { key: j.storage_path, url: URL.createObjectURL(file) }])
+        try {
+          const key = await uploadOne(file)
+          if (key) setPhotos(p => [...p, { key, url: URL.createObjectURL(file) }])
+        } catch (e) {
+          if (!isNoSignal(e)) continue
+          setPendingUploads(p => [...p, { file, url: URL.createObjectURL(file) }])
+        }
       }
       scheduleSave()
     } finally { setUploadingPhoto(false) }
   }
   function removePhoto(i: number) { setPhotos(p => p.filter((_, j) => j !== i)); scheduleSave() }
+  function removePendingUpload(i: number) { setPendingUploads(p => p.filter((_, j) => j !== i)) }
 
   // ── Autosave ─────────────────────────────────────────────────────────────
+  const stashLocally = useCallback(() => {
+    try {
+      window.localStorage.setItem(pendingKey, JSON.stringify({ data: dataRef.current, photo_keys: photosRef.current.map(p => p.key), at: Date.now() }))
+    } catch { /* storage full or blocked — the in-memory form still has it */ }
+  }, [pendingKey])
   const saveDraft = useCallback(async () => {
     setSaveState('saving')
     try {
@@ -405,22 +445,73 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
       const res = await fetch(`/api/hub/contacts/${contactId}/irrigation/${inspection.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
+      if (res.ok) { try { window.localStorage.removeItem(pendingKey) } catch {} }
       setSaveState(res.ok ? 'saved' : 'error')
-    } catch { setSaveState('error') }
-  }, [contactId, inspection.id])
+    } catch (e) {
+      if (isNoSignal(e)) { stashLocally(); setSaveState('offline') } else { setSaveState('error') }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactId, inspection.id, pendingKey, stashLocally])
 
   function scheduleSave() {
-    setSaveState('saving')
+    // Keep showing "on this phone" rather than flashing "Saving…" while offline —
+    // the snapshot is refreshed on every edit so nothing is lost either way.
+    if (saveStateRef.current === 'offline' || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+      // Write after React has applied the edit (dataRef updates on render).
+      setTimeout(stashLocally, 0)
+      setSaveState('offline')
+    } else {
+      setSaveState('saving')
+    }
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => { void saveDraft() }, 700)
   }
 
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
 
+  // Pending work goes up the moment the signal returns, and every 15 s while
+  // we're offline (the browser's `online` event is not reliable in a webview).
+  // A snapshot restored from the phone is pushed on open the same way.
+  const pendingUploadsRef = useRef(pendingUploads); pendingUploadsRef.current = pendingUploads
+  useEffect(() => {
+    let busy = false
+    const flush = async () => {
+      if (busy) return
+      busy = true
+      try {
+        if (saveStateRef.current === 'offline') await saveDraft()
+        if (saveStateRef.current !== 'offline' && pendingUploadsRef.current.length > 0) {
+          for (const pu of [...pendingUploadsRef.current]) {
+            try {
+              const key = await uploadOne(pu.file)
+              setPendingUploads(p => p.filter(x => x !== pu))
+              if (key) setPhotos(p => [...p, { key, url: pu.url }])
+            } catch (e) { if (isNoSignal(e)) break }
+          }
+          void saveDraft()
+        }
+      } finally { busy = false }
+    }
+    const onOnline = () => { void flush() }
+    window.addEventListener('online', onOnline)
+    const t = setInterval(() => { if (saveStateRef.current === 'offline' || pendingUploadsRef.current.length > 0) void flush() }, 15_000)
+    if (pending) void flush()
+    return () => { window.removeEventListener('online', onOnline); clearInterval(t) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveDraft])
+
   async function finalize() {
     if (finalizing) return
     setFinalizing(true); setErr('')
     if (saveTimer.current) clearTimeout(saveTimer.current)
+    // Finishing dates the snapshot and offers the customer summary — it needs the
+    // server. Edits are safe on the phone; only this tap waits for signal.
+    if ((typeof navigator !== 'undefined' && navigator.onLine === false) || saveStateRef.current === 'offline') {
+      stashLocally()
+      setErr('No signal — everything is saved on this phone. Tap Finish again when it returns.')
+      setFinalizing(false)
+      return
+    }
     try {
       // Flush the sketch first so the finalized snapshot includes it.
       let sketchKey: string | null | undefined
@@ -434,12 +525,17 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
       if (!res.ok) { setErr(j.error || 'Could not save inspection'); setFinalizing(false); return }
       onFinalized()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Network error'); setFinalizing(false)
+      if (isNoSignal(e)) { stashLocally(); setSaveState('offline'); setErr('No signal — everything is saved on this phone. Tap Finish again when it returns.') }
+      else setErr(e instanceof Error ? e.message : 'Network error')
+      setFinalizing(false)
     }
   }
 
   const zones = data.zones ?? []
-  const saveLabel = saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Not saved' : 'Saved'
+  const saveLabel = saveState === 'saving' ? 'Saving…'
+    : saveState === 'error' ? 'Not saved'
+    : saveState === 'offline' ? `Saved on this phone — will sync when signal returns${pendingUploads.length ? ` · ${pendingUploads.length} photo${pendingUploads.length === 1 ? '' : 's'} waiting` : ''}`
+    : 'Saved'
 
   return (
     <div className="fixed inset-0 z-50 bg-[var(--t-panel-deep)] text-white flex flex-col">
@@ -448,7 +544,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
         <button type="button" onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none" aria-label="Close">✕</button>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-semibold leading-tight">Irrigation inspection</div>
-          <div className={`text-[11px] ${saveState === 'error' ? 'text-red-400' : 'text-white/40'}`}>
+          <div className={`text-[11px] ${saveState === 'error' ? 'text-red-400' : saveState === 'offline' ? 'text-amber-300' : 'text-white/40'}`}>
             {saveLabel === 'Saved' ? 'Draft saved — close any time and come back to it' : saveLabel}
             {inspection.workOrder && (
               <span className="text-white/40"> · From work order · {fmtWorkOrderDate(inspection.workOrder.date)}{inspection.workOrder.tech ? ` · ${inspection.workOrder.tech}` : ''}</span>
@@ -600,18 +696,40 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
                   <span className="font-medium">Looks right ✓</span>
                 </button>
               )}
+              {/* 6 core fields; the other 5 fold under "More" (Ben, Oct 12 2026).
+                  A zone opens on its own when a detail field holds a value or an
+                  amber AI fill, so nothing dictated or imported ever hides. */}
               <div className="p-3 grid grid-cols-2 gap-3">
                 <div className="col-span-2"><TextField label="Area served" value={z.area} onChange={v => setZone(i, { area: v })} placeholder="Front lawn, back beds…" ai={isAi(i, 'area')} onConfirm={() => clearMark(i, 'area')} /></div>
-                <SelectField label="Waters" value={z.waters} onChange={v => setZone(i, { waters: v })} options={WATERS} ai={isAi(i, 'waters')} onConfirm={() => clearMark(i, 'waters')} />
                 <SelectField label="Head type" value={z.head} onChange={v => setZone(i, { head: v })} options={HEADS} ai={isAi(i, 'head')} onConfirm={() => clearMark(i, 'head')} />
-                <TextField label="# of heads" value={z.count} onChange={v => setZone(i, { count: v })} inputMode="numeric" ai={isAi(i, 'count')} onConfirm={() => clearMark(i, 'count')} />
-                <TextField label="Nozzle / brand" value={z.nozzle} onChange={v => setZone(i, { nozzle: v })} ai={isAi(i, 'nozzle')} onConfirm={() => clearMark(i, 'nozzle')} />
                 <SelectField label="Sun" value={z.sun} onChange={v => setZone(i, { sun: v })} options={SUN} ai={isAi(i, 'sun')} onConfirm={() => clearMark(i, 'sun')} />
-                <SelectField label="Slope" value={z.slope} onChange={v => setZone(i, { slope: v })} options={SLOPE} ai={isAi(i, 'slope')} onConfirm={() => clearMark(i, 'slope')} />
-                <TextField label="Valve box loc." value={z.valve} onChange={v => setZone(i, { valve: v })} ai={isAi(i, 'valve')} onConfirm={() => clearMark(i, 'valve')} />
                 <TextField label="Run time (min)" value={z.runtime} onChange={v => setZone(i, { runtime: v })} inputMode="numeric" ai={isAi(i, 'runtime')} onConfirm={() => clearMark(i, 'runtime')} />
                 <div className="col-span-2"><TextField label="Condition / issues" value={z.issues} onChange={v => setZone(i, { issues: v })} placeholder="Broken heads, coverage gaps, leaks" ai={isAi(i, 'issues')} onConfirm={() => clearMark(i, 'issues')} /></div>
               </div>
+              {(() => {
+                const detailHas = !!(z.waters || z.count || z.nozzle || z.slope || z.valve)
+                  || (['waters', 'count', 'nozzle', 'slope', 'valve'] as const).some(f => isAi(i, f))
+                const open = detailHas || moreOpen.has(zoneKeys[i] ?? -1)
+                return (
+                  <>
+                    <button type="button" onClick={() => toggleMore(zoneKeys[i] ?? -1)} disabled={detailHas}
+                      className="w-full flex items-center justify-between px-3 py-2 border-t border-white/10 text-[12px] text-white/50 hover:text-white/80 min-h-[40px] disabled:cursor-default"
+                      aria-expanded={open}>
+                      <span>{open ? 'Less' : 'More'} — waters, # of heads, nozzle, slope, valve box</span>
+                      <span aria-hidden>{open ? '▴' : '▾'}</span>
+                    </button>
+                    {open && (
+                      <div className="px-3 pb-3 grid grid-cols-2 gap-3">
+                        <SelectField label="Waters" value={z.waters} onChange={v => setZone(i, { waters: v })} options={WATERS} ai={isAi(i, 'waters')} onConfirm={() => clearMark(i, 'waters')} />
+                        <TextField label="# of heads" value={z.count} onChange={v => setZone(i, { count: v })} inputMode="numeric" ai={isAi(i, 'count')} onConfirm={() => clearMark(i, 'count')} />
+                        <TextField label="Nozzle / brand" value={z.nozzle} onChange={v => setZone(i, { nozzle: v })} ai={isAi(i, 'nozzle')} onConfirm={() => clearMark(i, 'nozzle')} />
+                        <SelectField label="Slope" value={z.slope} onChange={v => setZone(i, { slope: v })} options={SLOPE} ai={isAi(i, 'slope')} onConfirm={() => clearMark(i, 'slope')} />
+                        <TextField label="Valve box loc." value={z.valve} onChange={v => setZone(i, { valve: v })} ai={isAi(i, 'valve')} onConfirm={() => clearMark(i, 'valve')} />
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
             )
           })}
@@ -651,6 +769,14 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
               {/* eslint-disable-next-line @next/next/no-img-element */}
               {p.url ? <img src={p.url} alt="" className="w-full h-full object-cover" /> : <div className="grid place-items-center h-full text-white/30 text-xs">photo</div>}
               <button type="button" onClick={() => removePhoto(i)} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs">✕</button>
+            </div>
+          ))}
+          {pendingUploads.map((p, i) => (
+            <div key={`pending-${i}`} className="relative w-20 h-20 rounded-md overflow-hidden border border-dashed border-amber-400/60 bg-white/5" title="Waiting for signal to upload — keep the form open">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.url} alt="" className="w-full h-full object-cover opacity-60" />
+              <div className="absolute inset-x-0 bottom-0 bg-amber-500/80 text-[9px] text-black text-center leading-tight py-0.5">waiting for signal</div>
+              <button type="button" onClick={() => removePendingUpload(i)} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs" aria-label="Discard photo">✕</button>
             </div>
           ))}
           <label className="w-20 h-20 rounded-md border border-dashed border-white/20 grid place-items-center cursor-pointer text-white/40 hover:border-white/40 text-2xl">

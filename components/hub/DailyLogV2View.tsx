@@ -470,7 +470,21 @@ export default function DailyLogV2View({
     }
   }, [patchStop])
 
-  const load = useCallback(async (d: string) => {
+  const load = useCallback(async (d: string, opts?: { silent?: boolean }) => {
+    // silent = the background refresh (Phase 5): no spinner, no error banner — a
+    // failed refresh just leaves what's on screen, which is still the real day.
+    if (opts?.silent) {
+      try {
+        const res = await fetch(`/api/hub/daily-log-v2?date=${d}`)
+        if (!res.ok) return
+        const data = (await res.json()) as ApiResponse
+        setEntries(data.entries ?? [])
+        setDepot(data.depot ?? null)
+        setSavedAt(null)
+        void saveDailyLog(d, data)
+      } catch { /* no signal — keep the screen as it is */ }
+      return
+    }
     setLoading(true)
     setError(null)
 
@@ -521,6 +535,22 @@ export default function DailyLogV2View({
 
   useEffect(() => {
     load(date)
+  }, [date, load])
+
+  // Phase 5 — "a reorder pushed live" (Ben, Oct 12 2026): the list refreshes
+  // itself every 45 s while it is actually on screen, and the moment the app
+  // comes back to the front. Picks up an office reorder, a Jobber completion, a
+  // new stop. Only when visible: a Workspace Tab keeps this view mounted while
+  // hidden (display:none → offsetParent null), and a hidden tab must not poll.
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onScreen = () => document.visibilityState === 'visible' && rootRef.current?.offsetParent !== null
+    const tick = () => { if (onScreen()) void load(date, { silent: true }) }
+    const t = setInterval(tick, 45_000)
+    const onShow = () => { if (document.visibilityState === 'visible') tick() }
+    document.addEventListener('visibilitychange', onShow)
+    window.addEventListener('focus', onShow)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onShow); window.removeEventListener('focus', onShow) }
   }, [date, load])
 
   async function syncFromJobber() {
@@ -586,7 +616,7 @@ export default function DailyLogV2View({
   const isToday = date === todayStr()
 
   return (
-    <div className="flex flex-col h-full">
+    <div ref={rootRef} className="flex flex-col h-full">
       {/* Ben, Oct 2 2026: the header was three rows on a phone. Now ONE row:
           ‹ date › · Today (only off today) · tech picker · ↻ — tap the date to
           pick a day. The title shows from tablet width up. */}
