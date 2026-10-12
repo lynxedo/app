@@ -17,6 +17,7 @@ import { RadioPlayQueue } from '@/lib/radio/playQueue'
 import { radioTopic, type RadioStatus } from '@/lib/radio/types'
 import { startRadioInviteRing, stopRadioInviteRing } from '@/lib/radio/ring'
 import { haptic, keepAwake } from '@/lib/native-device'
+import { startRadioAudio, stopRadioAudio, onRadioAudioEvent, RadioAudioRefused, type RadioAudioState } from '@/lib/native-radio-audio'
 import { playRadioTone } from '@/lib/hub-chime'
 import { MicIcon, SpeakerIcon, RadioIcon } from './RadioIcons'
 
@@ -38,6 +39,8 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
   const [elapsed, setElapsed] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [btWarning, setBtWarning] = useState<string | null>(null)
+  // The app's audio session, when this page runs inside one. Null on the web.
+  const [route, setRoute] = useState<RadioAudioState | null>(null)
   const [busy, setBusy] = useState(false)
 
   const captureRef = useRef<RadioCapture | null>(null)
@@ -49,6 +52,9 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
   // above where release() is declared. Reaching for it through a ref assigned after
   // every render keeps the effect off a value that doesn't exist yet.
   const releaseRef = useRef<() => void>(() => {})
+  // The mic effect's open(), reachable from the native-interruption handler, which
+  // lives in a different effect and has to reopen the mic when a call ends.
+  const openMicRef = useRef<() => Promise<void>>(async () => {})
 
   // Mirrored for the press handler, which must see the CURRENT value rather than
   // the one captured when it was created.
@@ -135,14 +141,34 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
     let gone = false
 
     const open = async () => {
+      // ⚠ The app's audio session goes into voice mode BEFORE the mic opens, so the
+      // microphone is taken from the call-audio route (a Bluetooth earpiece) rather
+      // than the default one. Idempotent natively; null on the web, which carries on
+      // exactly as before. A refusal means a phone call owns the microphone, and
+      // the channel waits for it rather than fighting a customer for the mic.
+      let native: RadioAudioState | null = null
+      try {
+        native = await startRadioAudio()
+        if (gone) return
+      } catch (e) {
+        if (gone) return
+        setNotice(e instanceof RadioAudioRefused
+          ? `${e.message} — Radio picks up again when it ends.`
+          : 'Could not start the radio audio session.')
+        return
+      }
+      setRoute(native)
       try {
         await cap.open()
         if (gone) { cap.close(); return }
-        setBtWarning(bluetoothWarningFor(cap.mediaStream))
+        // The Bluetooth warning is about the WEB path. Inside the app's session a
+        // headset holds — that is the whole point — so the warning would be a lie.
+        setBtWarning(native ? null : bluetoothWarningFor(cap.mediaStream))
       } catch {
         setNotice('Microphone blocked — allow it in your browser settings to talk.')
       }
     }
+    openMicRef.current = open
     const onVisibility = () => {
       if (document.hidden) cap.close()
       else void open()
@@ -151,9 +177,53 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       gone = true
+      openMicRef.current = async () => {}
       document.removeEventListener('visibilitychange', onVisibility)
       cap.close()
       captureRef.current = null
+    }
+  }, [isLive])
+
+  // ---- the app's audio session: held for the LIFE of the channel, not the
+  // visibility of the screen. The mic above closes when the screen is hidden (a live
+  // mic on a tab you switched away from is a trust problem); the session stays, so
+  // audio keeps the call-style route and the door is open for playback with the
+  // screen off, which is the pocket case the native release exists for. Declared
+  // after the mic effect on purpose: cleanups run in order, so the mic is closed
+  // before the session is handed back.
+  useEffect(() => {
+    if (!isLive) return
+    let gone = false
+    const offInterrupted = onRadioAudioEvent('interrupted', (data) => {
+      if (gone) return
+      if (data.active === true) {
+        // Whatever took the microphone has let go. Pick the channel back up.
+        setNotice(null)
+        void openMicRef.current()
+        return
+      }
+      // A real call, Siri, an alarm. A channel that looks live but cannot hear
+      // anything is worse than one that says so — and a held button has to be
+      // released, or the far end stays locked on "Ben is talking".
+      releaseRef.current()
+      captureRef.current?.close()
+      setNotice('Radio paused — a call or another app took the microphone.')
+    })
+    const offRoute = onRadioAudioEvent('routeChanged', (data) => {
+      if (gone) return
+      setRoute({
+        active: data.active === true,
+        bluetooth: data.bluetooth === true,
+        output: typeof data.output === 'string' ? data.output : '',
+        input: typeof data.input === 'string' ? data.input : '',
+      })
+    })
+    return () => {
+      gone = true
+      offInterrupted()
+      offRoute()
+      setRoute(null)
+      void stopRadioAudio()
     }
   }, [isLive])
 
@@ -287,7 +357,7 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
             <RadioIcon className="h-14 w-14 text-blue-400" />
             <p className="text-lg"><span className="font-semibold">{state.other.name}</span> wants to open a radio channel</p>
             <p className="text-sm text-gray-500">
-              Press and hold to talk for the next hour. Radio conversations are recorded so they can be played back.
+              Press and hold to talk for the next hour. Nothing is recorded or kept.
             </p>
             <div className="flex gap-3 mt-2">
               <button type="button" onClick={() => act('accept')} disabled={busy}
@@ -327,6 +397,11 @@ export default function RadioScreen({ sessionId, initial }: { sessionId: string;
       {btWarning && (
         <p className="flex-none rounded-lg bg-amber-500/10 border border-amber-500/40 px-3 py-2 text-xs text-amber-300">
           {btWarning}
+        </p>
+      )}
+      {!btWarning && route?.bluetooth && (
+        <p className="flex-none rounded-lg bg-gray-800/80 border border-gray-700 px-3 py-2 text-xs text-gray-300">
+          🎧 Through {route.output || route.input || 'your headset'}
         </p>
       )}
 

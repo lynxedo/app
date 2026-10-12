@@ -2093,9 +2093,9 @@ function RadioTab() {
       </Section>
 
       <Section title="Bluetooth earpieces">
-        <p>⚠️ <strong className="text-white">Use the phone&rsquo;s own microphone for now.</strong> Through AirPods or another Bluetooth earpiece, Radio sounds fine for about thirty seconds and then starts breaking up. That is a limitation of running inside a web page, not something we can fix in the app as it stands today.</p>
-        <p>If Radio sees you are on a Bluetooth headset, it says so at the top of the screen rather than letting you find out halfway through a sentence.</p>
-        <Note>🎧 A future app update adds proper Bluetooth support, along with hearing someone with your phone in your pocket. Until then, Radio needs the screen open.</Note>
+        <p><strong className="text-white">In the Lynxedo app</strong> (from the autumn 2026 update), Radio runs on the same audio path a phone call uses. A Bluetooth earpiece holds for the whole channel, your words go in through its microphone, and the screen shows which earpiece it is using.</p>
+        <p>⚠️ <strong className="text-white">In a browser, use the phone&rsquo;s own microphone.</strong> Through AirPods or another Bluetooth earpiece, Radio on a web page sounds fine for about thirty seconds and then starts breaking up. If Radio sees you are on a Bluetooth headset there, it says so at the top of the screen rather than letting you find out halfway through a sentence.</p>
+        <Note>🎧 If a phone call takes the microphone while a channel is open, Radio pauses and picks up again when the call ends. Hearing someone with the phone in your pocket is next &mdash; for now, keep the screen on while a channel is open.</Note>
       </Section>
 
       <Section title="Things worth knowing">
