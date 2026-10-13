@@ -1470,14 +1470,17 @@ function ActionIcon({ icon, label, onClick, href, external, disabled, tone = 'gr
   tone?: 'gray' | 'indigo' | 'cyan' | 'sky' | 'amber' | 'emerald' | 'muted'
   title?: string
 }) {
+  // /10 tints + a soft ring: the light themes (Sharp) paint a /10 tint as a pale
+  // pastel with black text, so the emoji reads; the old /20 became a solid dark
+  // disc the icon vanished into (Ben, Oct 12 2026). Dark themes keep a subtle tint.
   const tones: Record<string, string> = {
-    gray: 'bg-white/10 text-white hover:bg-white/20',
-    indigo: 'bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30',
-    cyan: 'bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30',
-    sky: 'bg-sky-500/20 text-sky-100 hover:bg-sky-500/30',
-    amber: 'bg-amber-500/25 text-amber-100 hover:bg-amber-500/35',
-    emerald: 'bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30',
-    muted: 'bg-white/5 text-gray-500',
+    gray: 'bg-white/10 text-white ring-1 ring-white/25 hover:bg-white/20',
+    indigo: 'bg-indigo-500/10 text-indigo-100 ring-1 ring-indigo-400/50 hover:bg-indigo-500/20',
+    cyan: 'bg-cyan-500/10 text-cyan-100 ring-1 ring-cyan-400/50 hover:bg-cyan-500/20',
+    sky: 'bg-sky-500/10 text-sky-100 ring-1 ring-sky-400/50 hover:bg-sky-500/20',
+    amber: 'bg-amber-500/10 text-amber-100 ring-1 ring-amber-400/60 hover:bg-amber-500/20',
+    emerald: 'bg-emerald-500/10 text-emerald-100 ring-1 ring-emerald-400/50 hover:bg-emerald-500/20',
+    muted: 'bg-white/5 text-gray-500 ring-1 ring-white/10',
   }
   const circle = `w-11 h-11 rounded-full flex items-center justify-center text-lg transition-colors ${disabled ? tones.muted : tones[tone]}`
   const inner = (

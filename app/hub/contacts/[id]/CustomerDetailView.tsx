@@ -157,7 +157,9 @@ export default function CustomerDetailView({
             </div>
             {addr && <div className="text-[11px] text-white/40 truncate">{addr}</div>}
           </div>
-          <div className="flex items-center gap-1.5">
+          {/* Wraps on a phone so every button is on screen without a sideways
+              scroll (Ben, Oct 12 2026 — "Jobber ↗" and the rest were cut off). */}
+          <div className="flex flex-wrap items-center justify-end gap-1.5 [&>*]:whitespace-nowrap">
             {canAccessDialer && contact.phone && (
               <button type="button" onClick={() => router.push(`/hub/dialer?number=${encodeURIComponent(contact.phone!)}`)}
                 className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">📞 Call</button>
