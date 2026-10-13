@@ -20,9 +20,10 @@ export default function BackToStopBar() {
   }, [])
   if (!href) return null
   return (
+    // One slim line on a phone (Ben, Oct 12 2026: the header ate the screen).
     <Link href={href}
-      className="mb-2.5 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium">
-      <span aria-hidden>‹</span> Back to the stop in Work Orders
+      className="mb-2 flex items-center justify-center gap-2 px-3 py-1.5 md:py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-[#fff] text-xs md:text-sm font-medium whitespace-nowrap">
+      <span aria-hidden>‹</span> <span className="md:hidden">Back to the stop</span><span className="hidden md:inline">Back to the stop in Work Orders</span>
     </Link>
   )
 }
