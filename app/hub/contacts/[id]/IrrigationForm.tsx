@@ -540,10 +540,12 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
   return (
     <div className="fixed inset-0 z-50 bg-[var(--t-panel-deep)] text-white flex flex-col">
       {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+12px)] border-b border-white/10 bg-[var(--t-panel-deep)]">
+      {/* One line on a phone: short button label, title never wraps; a shadow so
+          content scrolling under the bar reads as under it, not cut off. */}
+      <div className="flex-none z-10 flex items-center gap-3 px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+12px)] border-b border-white/10 bg-[var(--t-panel-deep)] shadow-md shadow-black/20">
         <button type="button" onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none" aria-label="Close">✕</button>
         <div className="min-w-0 flex-1">
-          <div className="text-[15px] font-semibold leading-tight">Irrigation inspection</div>
+          <div className="text-[15px] font-semibold leading-tight whitespace-nowrap">Irrigation inspection</div>
           <div className={`text-[11px] ${saveState === 'error' ? 'text-red-400' : saveState === 'offline' ? 'text-amber-300' : 'text-white/40'}`}>
             {saveLabel === 'Saved' ? 'Draft saved — close any time and come back to it' : saveLabel}
             {inspection.workOrder && (
@@ -552,13 +554,13 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
           </div>
         </div>
         <button type="button" onClick={finalize} disabled={finalizing}
-          className="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium disabled:opacity-50">
-          {finalizing ? 'Finishing…' : 'Finish inspection'}
+          className="flex-none px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium disabled:opacity-50 whitespace-nowrap">
+          {finalizing ? 'Finishing…' : <><span className="sm:hidden">Finish</span><span className="hidden sm:inline">Finish inspection</span></>}
         </button>
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto px-4 pb-28 max-w-2xl w-full mx-auto">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-4 pt-1 pb-28 max-w-2xl w-full mx-auto">
         {err && <div className="mt-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">{err}</div>}
 
         <RachioImport contactId={contactId} inspectionId={inspection.id} onImport={applyRachio} onConnected={setRachioOn} />
