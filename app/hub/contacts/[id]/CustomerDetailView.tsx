@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useOutsideClose } from '@/hooks/use-outside-close'
 import { formatPhone, formatCurrency, formatDurationSec } from '@/lib/format'
 import { contactDisplayName, nameIsAiGuessed } from '@/lib/contact-name'
 import MergeContactModal from './MergeContactModal'
@@ -116,6 +117,10 @@ export default function CustomerDetailView({
 
   const status = account?.status ?? (contact.jobber_client_id ? 'Active' : 'Contact')
   const statusCls = STATUS_STYLES[status] ?? 'bg-white/10 text-white/50 border-white/15'
+  // Phone header's ⋯ menu (Merge / Archive).
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
+  useOutsideClose(moreRef, moreOpen, () => setMoreOpen(false))
   const addr = serviceAddress(contact, properties)
 
   async function textContact() {
@@ -136,9 +141,57 @@ export default function CustomerDetailView({
   return (
     <div className="h-full overflow-y-auto bg-[var(--t-panel-deep)] text-white min-h-0">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-[var(--t-panel-deep)]/95 backdrop-blur border-b border-white/10 px-4 py-3 max-md:pl-14">
+      <div className="sticky top-0 z-10 bg-[var(--t-panel-deep)]/95 backdrop-blur border-b border-white/10 px-4 py-2 md:py-3 max-md:pl-14">
         <BackToStopBar />
-        <div className="flex items-center gap-3 flex-wrap">
+
+        {/* ── Phone: name on one line, one row of round buttons, the rare ones
+            under ⋯ (Ben, Oct 12 2026: "the top part just takes up too much of
+            the screen"). Same /10-tint + ring circles as the Work Orders stop. ── */}
+        <div className="md:hidden">
+          <div className="flex items-center gap-2 min-w-0">
+            <Link href="/hub/contacts" className="text-white/50 hover:text-white text-lg leading-none flex-none" aria-label="Back to contacts">←</Link>
+            {contact.is_company && <span className="text-xs flex-none">🏢</span>}
+            <h1 className="text-base font-semibold truncate min-w-0">{contactDisplayName(contact.name, contact.phone)}</h1>
+            {nameIsAiGuessed(contact.name_source) && (
+              <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — Edit to confirm" />
+            )}
+            <span className={`ml-auto flex-none text-[10px] font-medium px-2 py-0.5 rounded-full border ${statusCls}`}>{status}</span>
+            {isArchived && (
+              <span className="flex-none text-[10px] font-medium px-2 py-0.5 rounded-full border bg-white/10 text-white/60 border-white/20">Archived</span>
+            )}
+          </div>
+          {(addr || contact.do_not_text) && (
+            <div className="pl-6 text-[11px] text-white/40 truncate">
+              {addr}
+              {contact.do_not_text && <span className="ml-2 text-[9px] uppercase tracking-wide text-orange-300">do not text</span>}
+            </div>
+          )}
+          <div className="mt-2 flex items-start justify-around gap-1">
+            <HeaderIcon icon="📞" label="Call" tone="emerald" disabled={!(canAccessDialer && contact.phone)}
+              onClick={() => router.push(`/hub/dialer?number=${encodeURIComponent(contact.phone!)}`)} />
+            <HeaderIcon icon="💬" label={texting ? 'Opening…' : 'Text'} tone="sky" disabled={!contact.phone || texting} onClick={textContact} />
+            <HeaderIcon icon="✉️" label="Email" tone="gray" disabled={!contact.email} href={contact.email ? `mailto:${contact.email}` : null} external />
+            {canQuote && (
+              <HeaderIcon icon="💲" label="Quote" tone="indigo" onClick={() => router.push(`/hub/quotes/new?contact=${contact.id}`)} />
+            )}
+            <HeaderIcon icon="↗" label="Jobber" tone="gray" disabled={!account?.jobberWebUri} href={account?.jobberWebUri ?? null} external />
+            <div className="relative" ref={moreRef}>
+              <HeaderIcon icon="⋯" label="More" tone="gray" onClick={() => setMoreOpen(o => !o)} />
+              {moreOpen && (
+                <div role="menu" className="absolute right-0 top-full mt-1 z-20 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg overflow-hidden">
+                  <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); setShowMerge(true) }}
+                    className="w-full text-left px-3 py-2.5 text-sm text-gray-200 hover:bg-gray-700">⧉ Merge into another contact</button>
+                  <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); void toggleArchive() }} disabled={archiving}
+                    className="w-full text-left px-3 py-2.5 text-sm text-gray-200 hover:bg-gray-700 disabled:opacity-50">
+                    {archiving ? '…' : isArchived ? '📤 Unarchive' : '🗄 Archive'}</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Desktop: unchanged ── */}
+        <div className="hidden md:flex items-center gap-3 flex-wrap">
           <Link href="/hub/contacts" className="text-white/50 hover:text-white text-lg leading-none" aria-label="Back to contacts">←</Link>
           <span className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full border ${statusCls}`}>{status}</span>
           {isArchived && (
@@ -823,5 +876,42 @@ function ActivityCard({ contactId }: { contactId: string }) {
         </div>
       )}
     </Card>
+  )
+}
+
+// ── Phone header button: a round icon with a tiny label (mirrors the Work
+// Orders stop's ActionIcon — /10 tints + ring so the icon reads on every theme).
+function HeaderIcon({ icon, label, onClick, href, external, disabled, tone }: {
+  icon: string
+  label: string
+  onClick?: () => void
+  href?: string | null
+  external?: boolean
+  disabled?: boolean
+  tone: 'gray' | 'indigo' | 'sky' | 'emerald'
+}) {
+  const tones: Record<string, string> = {
+    gray: 'bg-white/10 text-white ring-1 ring-white/25',
+    indigo: 'bg-indigo-500/10 text-indigo-100 ring-1 ring-indigo-400/50',
+    sky: 'bg-sky-500/10 text-sky-100 ring-1 ring-sky-400/50',
+    emerald: 'bg-emerald-500/10 text-emerald-100 ring-1 ring-emerald-400/50',
+  }
+  const circle = `w-11 h-11 rounded-full flex items-center justify-center text-lg ${disabled ? 'bg-white/5 text-gray-500 ring-1 ring-white/10' : tones[tone]}`
+  const inner = (
+    <>
+      <span className={circle} aria-hidden>{icon}</span>
+      <span className={`text-[10px] leading-tight text-center max-w-[3.5rem] truncate ${disabled ? 'text-gray-600' : 'text-gray-300'}`}>{label}</span>
+    </>
+  )
+  const wrap = 'flex flex-col items-center gap-1 min-w-0'
+  if (href && !disabled) {
+    return external
+      ? <a href={href} target={href.startsWith('mailto:') ? undefined : '_blank'} rel="noopener noreferrer" className={wrap} title={label}>{inner}</a>
+      : <Link href={href} className={wrap} title={label}>{inner}</Link>
+  }
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} className={`${wrap} disabled:cursor-not-allowed`} title={label} aria-label={label}>
+      {inner}
+    </button>
   )
 }
