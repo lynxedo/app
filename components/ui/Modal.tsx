@@ -47,16 +47,17 @@ export function Modal({
 
   // Full-screen-on-mobile: overlay loses its backdrop margin and the card goes
   // edge-to-edge + full-height with square corners; desktop (sm+) restores the
-  // centered card. Safe-area padding on the card keeps the header/footer clear
-  // of the notch + home indicator on phones (env() resolves to 0 on desktop).
+  // centered card. Top padding on the full-screen card keeps the header clear of
+  // the notch, or of the radio bar while a channel is open (--hub-overlay-top,
+  // globals.css); bottom padding clears the home indicator.
   const overlayCls = fullScreenOnMobile
     ? 'fixed inset-0 z-50 flex items-stretch justify-center bg-black/60 p-0 sm:items-center sm:p-4'
     : 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
   const cardCls = fullScreenOnMobile
-    ? `flex h-full max-h-none w-full ${maxWidth} flex-col border border-gray-700 bg-gray-900 shadow-2xl rounded-none sm:h-auto sm:max-h-[85vh] sm:rounded-2xl`
+    ? `flex h-full max-h-none w-full ${maxWidth} flex-col border border-gray-700 bg-gray-900 shadow-2xl rounded-none pt-[var(--hub-overlay-top)] sm:pt-0 sm:h-auto sm:max-h-[85vh] sm:rounded-2xl`
     : `flex max-h-[85vh] w-full ${maxWidth} flex-col rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl`
   const cardStyle = fullScreenOnMobile
-    ? { paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }
+    ? { paddingBottom: 'env(safe-area-inset-bottom, 0px)' }
     : undefined
   const headerCls = fullScreenOnMobile
     ? 'flex items-center justify-between border-b border-gray-800 px-4 py-3 sm:px-5 sm:py-4'

@@ -29,6 +29,7 @@ import TimesheetClockModal from './TimesheetClockModal'
 import NotifPrefsModal from './NotifPrefsModal'
 import DialerProvider from './dialer/DialerProvider'
 import GlobalCallBar from './dialer/GlobalCallBar'
+import RadioBar from './radio/RadioBar'
 import ConversationPopoutProvider from './popout/ConversationPopoutProvider'
 import { BetaFlagsProvider } from './BetaFlagsContext'
 import OnCallPresenceProvider from './OnCallPresenceProvider'
@@ -1119,7 +1120,9 @@ export default function HubShell({
 
   const shell = (
     <>
-    <div className="hub-root flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
+    {/* paddingTop: room for the radio bar, which floats at the very top while a
+        channel is open (0px otherwise — see RadioBar / globals.css). */}
+    <div className="hub-root flex h-[100dvh] bg-gray-950 text-white overflow-hidden" style={{ paddingTop: 'var(--radio-bar-h, 0px)' }}>
       {mobileDrawerOpen && (
         <div
           className="fixed left-0 right-0 top-0 z-40 bg-black/60 md:hidden"
@@ -1196,7 +1199,7 @@ export default function HubShell({
           type="button"
           onClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
           className="md:hidden fixed left-2 z-40 w-9 h-9 rounded-full bg-gray-900/80 backdrop-blur border border-white/10 text-white/80 hover:text-white flex items-center justify-center shadow-lg"
-          style={{ top: 'calc(env(safe-area-inset-top, 0) + 6px)' }}
+          style={{ top: 'calc(var(--hub-overlay-top) + 6px)' }}
           aria-label="Open sidebar"
           title="Menu"
         >
@@ -1227,9 +1230,14 @@ export default function HubShell({
             content would otherwise bleed under the iOS notch / Dynamic Island. */}
         <div
           className="md:hidden flex-none"
-          style={{ height: 'env(safe-area-inset-top, 0)' }}
+          style={{ height: 'var(--hub-safe-top)' }}
           aria-hidden="true"
         />
+
+        {/* Radio: the bar along the top while a channel is open — hold to talk from
+            any Hub page. Fixed-position (it has to sit above the full-screen Work
+            Order views), so it takes no room here; hub-root's padding makes it. */}
+        <RadioBar />
 
         {/* Desktop Dialer Control S1: persistent global call bar with inline
             controls (Mute / Hold / Transfer / End) + expand-to-full-dialer.

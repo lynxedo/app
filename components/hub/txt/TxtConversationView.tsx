@@ -2848,7 +2848,7 @@ export default function TxtConversationView({
         <div className="md:hidden fixed inset-0 z-50 bg-[var(--t-panel-deep)] flex flex-col">
           <div
             className="px-4 pb-3 border-b border-white/10 flex items-center justify-between"
-            style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
+            style={{ paddingTop: 'calc(var(--hub-overlay-top) + 0.75rem)' }}
           >
             <span className="text-sm text-[var(--t-tint-warning)]">Internal notes (not sent to customer)</span>
             <button

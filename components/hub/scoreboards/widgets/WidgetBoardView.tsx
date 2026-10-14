@@ -594,7 +594,7 @@ export default function WidgetBoardView({
       {openWidget && openDef ? (
         <>
           <button className="fixed inset-0 z-40 cursor-default bg-[#020a12]/60" aria-label="Close settings" onClick={() => setOpenId(null)} />
-          <div className="fixed inset-y-0 right-0 z-50">
+          <div className="fixed inset-y-0 right-0 z-50 pt-[var(--hub-overlay-offset)]">
             <WidgetSettings
               def={openDef}
               span={openWidget.span}

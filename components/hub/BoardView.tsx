@@ -201,7 +201,7 @@ function CommentsPanel({
   }
 
   return (
-    <div className="flex flex-col fixed inset-0 z-50 md:relative md:inset-auto md:z-auto h-[100dvh] md:h-full border-l border-gray-800 md:w-80 md:flex-none bg-gray-950">
+    <div className="flex flex-col fixed inset-0 z-50 pt-[var(--hub-overlay-offset)] md:pt-0 md:relative md:inset-auto md:z-auto h-[100dvh] md:h-full border-l border-gray-800 md:w-80 md:flex-none bg-gray-950">
       {/* Header */}
       <div className="flex-none px-4 py-3 border-b border-gray-800 flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">

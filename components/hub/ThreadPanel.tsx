@@ -935,7 +935,7 @@ export default function ThreadPanel({
           the status bar in the native app (env() is 0 on desktop/PWA, no-op). */}
       <div
         className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-800 flex-none"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.625rem)' }}
+        style={{ paddingTop: 'calc(var(--hub-mobile-overlay-top) + 0.625rem)' }}
       >
         <button
           onClick={onClose}

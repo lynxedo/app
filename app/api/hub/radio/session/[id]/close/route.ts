@@ -1,5 +1,5 @@
 // POST /api/hub/radio/session/[id]/close — either person ends the channel. The other
-// is told. Leaving the screen does NOT do this; the channel stays warm for the hour.
+// is told. Leaving the screen does NOT do this; the channel stays open until it goes quiet.
 import { NextResponse } from 'next/server'
 import { requireCompany } from '@/lib/company-auth'
 import { loadSessionForParticipant } from '@/lib/radio/session'

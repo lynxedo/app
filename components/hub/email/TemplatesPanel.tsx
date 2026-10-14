@@ -169,7 +169,7 @@ export default function TemplatesPanel({ open, onClose }: { open: boolean; onClo
   const activeSorted = templates.filter((t) => t.active).sort((a, b) => a.sort_order - b.sort_order)
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-50 flex justify-end pt-[var(--hub-overlay-offset)]">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div
         className="email-light-surface relative h-full w-full max-w-xl bg-white text-gray-900 shadow-2xl flex flex-col"

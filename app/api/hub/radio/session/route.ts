@@ -8,7 +8,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { radioBroadcast } from '@/lib/radio/broadcast'
 import { radioNames } from '@/lib/radio/session'
-import { radioEffectiveStatus, radioUserTopic, type RadioSessionRow } from '@/lib/radio/types'
+import { radioEffectiveStatus, radioExpiresAt, radioUserTopic, type RadioSessionRow } from '@/lib/radio/types'
 
 export async function POST(request: Request) {
   const auth = await requireCompany()
@@ -95,4 +95,42 @@ export async function POST(request: Request) {
   ])
 
   return NextResponse.json({ session }, { status: 201 })
+}
+
+// GET /api/hub/radio/session — "am I on a channel right now?" Asked by the Hub-wide
+// radio bar when the Hub loads, when the app comes back to the front, and when a
+// broadcast says something changed. Returns the newest live channel the caller is
+// in, or null. Only 'active' counts: a pending invite belongs to the invite banner
+// and the channel screen, not the bar.
+export async function GET() {
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('radio_sessions')
+    .select('*')
+    .eq('company_id', auth.companyId)
+    .eq('status', 'active')
+    .or(`initiator_id.eq.${auth.userId},recipient_id.eq.${auth.userId}`)
+    .order('last_activity_at', { ascending: false })
+    .limit(5)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // 'active' rows go stale silently — the first one still inside its window wins.
+  const session = ((data ?? []) as RadioSessionRow[]).find(s => radioEffectiveStatus(s) === 'active')
+  if (!session) return NextResponse.json({ channel: null })
+
+  const isInitiator = session.initiator_id === auth.userId
+  const otherId = isInitiator ? session.recipient_id : session.initiator_id
+  const names = await radioNames(admin, [auth.userId, otherId])
+  return NextResponse.json({
+    channel: {
+      sessionId: session.id,
+      conversationId: session.conversation_id,
+      expiresAt: radioExpiresAt(session),
+      me: { id: auth.userId, name: names[auth.userId] ?? 'You', isInitiator },
+      other: { id: otherId, name: names[otherId] ?? 'Teammate' },
+    },
+  })
 }

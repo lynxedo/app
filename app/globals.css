@@ -24,6 +24,40 @@
   --warning-strong: #ea580c; /* darker orange */
 }
 
+/* Room at the top of the Hub for the radio bar (components/hub/radio/RadioBar.tsx).
+   While a radio channel is open the bar floats across the very top of the screen,
+   covering the phone's notch area, and RadioBar sets --radio-bar-h to its height
+   and html[data-radio-bar]. Nothing changes when there's no channel: every value
+   below falls back to the plain safe-area inset.
+   - --hub-safe-top: the in-flow spacer under the notch (HubShell). With the bar up,
+     .hub-root's own padding already clears it, so the spacer collapses.
+   - --hub-overlay-top: the top padding of a FIXED full-screen view (a Work Order
+     stop, an inspection, a report, a full-screen modal) — those cover .hub-root,
+     so they clear the bar themselves.
+   - --hub-mobile-overlay-top: for panels that are fixed full-screen on a phone but
+     sit in the page on a desktop (the drawer sidebar, a message thread), where the
+     shell's padding already did the work.
+   - --hub-overlay-offset: a top offset for fixed panels that don't reach into the
+     notch area (desktop side panels, the task-board panel).
+   ⚠ The glass themes change the rules inside .hub-main — see the block after their
+   backdrop-filter rules below. */
+:root {
+  --radio-bar-h: 0px;
+  --hub-safe-top: env(safe-area-inset-top, 0px);
+  --hub-overlay-top: env(safe-area-inset-top, 0px);
+  --hub-mobile-overlay-top: var(--hub-overlay-top);
+  --hub-overlay-offset: 0px;
+}
+html[data-radio-bar] {
+  --hub-safe-top: 0px;
+  --hub-overlay-top: var(--radio-bar-h);
+  --hub-mobile-overlay-top: var(--radio-bar-h);
+  --hub-overlay-offset: var(--radio-bar-h);
+}
+@media (min-width: 768px) {
+  :root, html[data-radio-bar] { --hub-mobile-overlay-top: env(safe-area-inset-top, 0px); }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -408,6 +442,18 @@ html.theme-obsidian .hub-main, html.theme-obsidian .t-sidebar-surface,
 html.theme-emberglass .hub-main, html.theme-emberglass .t-sidebar-surface {
   -webkit-backdrop-filter: blur(18px) saturate(140%);
   backdrop-filter: blur(18px) saturate(140%);
+}
+
+/* Radio bar × glass. A blurred element becomes the box its fixed-position children
+   are placed in, so on a glass theme a "full-screen" view inside .hub-main is laid
+   out inside .hub-main — which .hub-root's padding has already moved below the radio
+   bar. Clearing the bar again there would leave a blank band, so inside .hub-main
+   the radio offsets are zero on these themes. ⚠ Keep this list in step with the two
+   backdrop-filter rules (Heroes Glass above, and this block's neighbour). */
+html[data-radio-bar]:is(.theme-heroesglass, .theme-aurora, .theme-nebula, .theme-tide, .theme-obsidian, .theme-emberglass) .hub-main {
+  --hub-overlay-top: 0px;
+  --hub-mobile-overlay-top: 0px;
+  --hub-overlay-offset: 0px;
 }
 
 /* Dark themes (other than Midnight): instead of inheriting Midnight's gold

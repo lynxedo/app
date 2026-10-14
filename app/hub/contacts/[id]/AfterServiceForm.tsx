@@ -217,7 +217,7 @@ export default function AfterServiceForm({ contactId, report, onClose, onSaved }
 
   return (
     <div className="fixed inset-0 z-50 bg-[var(--t-panel-deep)] text-white flex flex-col">
-      <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+12px)] border-b border-white/10 bg-[var(--t-panel-deep)]">
+      <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 pt-[calc(var(--hub-overlay-top)+12px)] border-b border-white/10 bg-[var(--t-panel-deep)]">
         <button type="button" onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none" aria-label="Close">✕</button>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-semibold leading-tight">After-service report</div>

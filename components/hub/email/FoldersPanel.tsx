@@ -87,7 +87,7 @@ export default function FoldersPanel({
   })
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-50 flex justify-end pt-[var(--hub-overlay-offset)]">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div
         className="email-light-surface relative h-full w-full max-w-md bg-white text-gray-900 shadow-2xl flex flex-col"
