@@ -268,7 +268,7 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
     'border border-gray-200 rounded-md px-2 py-1.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-500'
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-50 flex justify-end pt-[var(--hub-overlay-offset)]">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="email-light-surface relative h-full w-full max-w-xl bg-white text-gray-900 shadow-2xl flex flex-col" style={LIGHT_SURFACE_STYLE}>
         {/* Header */}

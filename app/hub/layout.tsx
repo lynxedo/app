@@ -11,6 +11,7 @@ import { getCompanyEntitlements } from '@/lib/billing/entitlements'
 import { getBillingMode } from '@/lib/billing/catalog'
 import HubShell from '@/components/hub/HubShell'
 import RadioInviteListener from '@/components/hub/radio/RadioInviteListener'
+import RadioProvider from '@/components/hub/radio/RadioProvider'
 import { HubMessagesProvider } from '@/components/hub/HubMessagesProvider'
 import PushInit from '@/components/hub/PushInit'
 import OfflineShell from '@/components/hub/OfflineShell'
@@ -422,6 +423,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       <ConfirmProvider>
       <HubMessagesProvider>
       <IosSplashScreens />
+      {/* Radio's talking + listening, above every page so a channel follows you round the Hub. */}
+      <RadioProvider enabled={canAccessRadio} currentUserId={user.id}>
       <HubShell
         rooms={rooms}
         userEmail={user.email ?? ''}
@@ -482,6 +485,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       >
         {children}
       </HubShell>
+      </RadioProvider>
       <PushInit />
       <OfflineShell />
       <ElectronNotifier

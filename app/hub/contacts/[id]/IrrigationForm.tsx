@@ -542,7 +542,7 @@ export default function IrrigationForm({ contactId, inspection, onClose, onFinal
       {/* Header */}
       {/* One line on a phone: short button label, title never wraps; a shadow so
           content scrolling under the bar reads as under it, not cut off. */}
-      <div className="flex-none z-10 flex items-center gap-3 px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+12px)] border-b border-white/10 bg-[var(--t-panel-deep)] shadow-md shadow-black/20">
+      <div className="flex-none z-10 flex items-center gap-3 px-4 py-3 pt-[calc(var(--hub-overlay-top)+12px)] border-b border-white/10 bg-[var(--t-panel-deep)] shadow-md shadow-black/20">
         <button type="button" onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none" aria-label="Close">✕</button>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-semibold leading-tight whitespace-nowrap">Irrigation inspection</div>

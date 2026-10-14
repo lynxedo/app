@@ -2061,7 +2061,7 @@ function RadioTab() {
         <Step n={1}>Open a direct message with the person you want — Radio is one-to-one, not group chats.</Step>
         <Step n={2}>Tap the <strong className="text-white">radio icon</strong> at the top right of the conversation.</Step>
         <Step n={3}>They get a message asking if they want to open a channel — a banner if they are in the Hub, a notification if they are not. It respects Do Not Disturb like everything else, and it does not ring.</Step>
-        <Step n={4}>Once they tap <strong className="text-white">Accept</strong>, you are both on the Radio screen and can start talking.</Step>
+        <Step n={4}>Once they tap <strong className="text-white">Accept</strong>, you are both on the Radio screen and can start talking — and you can carry on from any other page of the Hub (see below).</Step>
         <Note>If they tap <strong className="text-white">Not now</strong>, you will be told plainly. Nothing keeps ringing and nothing tries again — just open a channel later.</Note>
       </Section>
 
@@ -2088,10 +2088,25 @@ function RadioTab() {
         <p>If the radio icon is greyed out, that person is <strong className="text-white">on a phone call</strong> right now. Tap it and it will tell you. Give it a minute and try again.</p>
       </Section>
 
+      <Section title="Talking from anywhere in the Hub">
+        <p>While a channel is open, a <strong className="text-white">radio bar</strong> sits across the top of every Hub page — your Work Orders, an open stop, an inspection, a customer, your texts. You can leave the Radio screen and keep talking.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Hold to talk</strong> on the bar works exactly like the big button. It turns red while you talk and green while they do.</li>
+          <li>You hear them on whatever page you are on.</li>
+          <li>Tap their <strong className="text-white">name</strong> on the bar to go back to the big Radio screen.</li>
+          <li>Tap <strong className="text-white">✕</strong>, then <strong className="text-white">End?</strong>, to close the channel. It takes two taps so a glove can&rsquo;t close it by accident.</li>
+        </ul>
+        <Note>📞 On a phone call in the Dialer, Radio holds. Nothing they say is lost — it waits and plays when your call ends.</Note>
+      </Section>
+
       <Section title="How long a channel stays open">
-        <p>A channel stays open for <strong className="text-white">one hour after the last time anyone talks</strong>, then closes itself. The screen shows when that will be.</p>
-        <p>Leaving the screen does <strong className="text-white">not</strong> close it — go back to the chat, check a job, come back and carry on. Either of you can tap <strong className="text-white">Close channel</strong> to end it early, and the other person is told.</p>
+        <p>A channel stays open for <strong className="text-white">20 minutes after the last time anyone talks</strong>, then closes itself. The bar and the Radio screen show when that will be, and you get a short message when it happens.</p>
+        <p>Leaving the screen does <strong className="text-white">not</strong> close it. Either of you can close it early, and the other person is told.</p>
         <p>Once a channel has closed, opening another one needs a fresh invite and a fresh accept. Nobody&rsquo;s phone can be talked into out of nowhere.</p>
+      </Section>
+
+      <Section title="On more than one device">
+        <p>If you have the Hub open on a computer and on your phone, Radio plays on <strong className="text-white">one of them only</strong> — the one where you opened or accepted the channel. Your other device shows the bar with <strong className="text-white">Use here</strong>; tap it to move the channel there.</p>
       </Section>
 
       <Section title="Bluetooth earpieces">

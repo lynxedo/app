@@ -16,6 +16,7 @@ export type RadioEvent =
   | 'talking-start'     // radio:{id}  { transmissionId, senderId, startedAt }  ← locks the other button
   | 'piece-ready'       // radio:{id}  { transmissionId, seq, pieceId }
   | 'transmission-end'  // radio:{id}  { transmissionId, senderId, pieceCount }
+  | 'device'            // radio:{id}  { userId, deviceId }  ← "I'm using it on this device now" 
 
 export async function radioBroadcast(topic: string, event: RadioEvent, payload: Record<string, unknown>): Promise<void> {
   try {

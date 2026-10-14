@@ -1908,11 +1908,11 @@ function StopSheet({
         role="dialog"
         aria-modal="true"
         aria-label={`Stop ${stop.ord}: ${stop.client_name}`}
-        className="fixed inset-x-0 top-0 z-[45] flex flex-col bg-gray-950 md:left-auto md:w-[min(560px,100%)] md:border-l md:border-gray-800 md:shadow-2xl bottom-[var(--wo-sheet-bottom)] md:bottom-0"
+        className="fixed inset-x-0 top-0 md:top-[var(--hub-overlay-offset)] z-[45] flex flex-col bg-gray-950 md:left-auto md:w-[min(560px,100%)] md:border-l md:border-gray-800 md:shadow-2xl bottom-[var(--wo-sheet-bottom)] md:bottom-0"
         style={{ ['--wo-sheet-bottom' as string]: 'calc(env(safe-area-inset-bottom, 0px) + 56px)' }}
       >
         {/* Header */}
-        <div className="flex-none border-b border-gray-800 bg-gray-900 px-3 pb-2 pt-[calc(env(safe-area-inset-top,0px)+8px)] md:pt-3">
+        <div className="flex-none border-b border-gray-800 bg-gray-900 px-3 pb-2 pt-[calc(var(--hub-overlay-top)+8px)] md:pt-3">
           <div className="flex items-start gap-2.5">
             <button
               type="button"

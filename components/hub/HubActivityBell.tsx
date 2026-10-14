@@ -32,7 +32,7 @@ export default function HubActivityPanel({
       />
       <aside
         className="fixed top-0 right-0 bottom-0 z-50 w-full md:w-[420px] bg-gray-950 border-l border-gray-800 shadow-2xl flex flex-col"
-        style={{ paddingTop: 'env(safe-area-inset-top, 0)' }}
+        style={{ paddingTop: 'var(--hub-overlay-top)' }}
         role="dialog"
         aria-label="Activity panel"
       >

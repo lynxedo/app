@@ -30,7 +30,7 @@ export function SidebarHeader({
   return (
     <div
       className="flex-none px-4 py-3 border-b border-white/[0.07] flex items-center justify-between gap-2"
-      style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+      style={{ paddingTop: 'calc(var(--hub-mobile-overlay-top) + 12px)' }}
     >
       <h2 className="text-base font-bold text-white truncate">{title}</h2>
       <div className="flex items-center gap-1 flex-none">

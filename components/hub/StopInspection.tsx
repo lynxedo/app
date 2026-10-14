@@ -85,7 +85,7 @@ export default function StopInspection({ contactId, stopId, inspectionId, mode, 
 
   return (
     <div className="fixed inset-0 z-50 bg-[var(--t-panel-deep)] text-white flex flex-col">
-      <div className="flex items-center gap-3 px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+12px)] border-b border-white/10">
+      <div className="flex items-center gap-3 px-4 py-3 pt-[calc(var(--hub-overlay-top)+12px)] border-b border-white/10">
         <button type="button" onClick={() => onClose(false)} className="text-sm text-white/70 hover:text-white">‹ Back to stop</button>
         <div className="flex-1 text-sm font-medium text-white/80">Irrigation inspection</div>
         {view?.status === 'final' && (

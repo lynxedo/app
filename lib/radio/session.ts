@@ -55,7 +55,7 @@ export async function loadTransmissionForParticipant(transmissionId: string, use
   return { transmission, ...gate }
 }
 
-/** Every transmission keeps the channel alive another hour. */
+/** Every transmission restarts the channel's quiet clock (RADIO_CHANNEL_TTL_MS). */
 export async function touchSession(admin: Admin, sessionId: string): Promise<void> {
   await admin.from('radio_sessions').update({ last_activity_at: new Date().toISOString() }).eq('id', sessionId)
 }

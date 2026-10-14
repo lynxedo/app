@@ -4,8 +4,12 @@
 // TODO regen types — radio_* tables are not yet in lib/database.types.ts, so the
 // row shapes live here (same situation as drip_audio_assets, jobber_quotes).
 
-/** A channel closes itself after this long with nobody talking. Computed on read. */
-export const RADIO_CHANNEL_TTL_MS = 60 * 60 * 1000
+/** A channel closes itself after this long with nobody talking. Computed on read.
+ *  20 minutes (Ben, Oct 14 2026 — was an hour): a channel quiet that long is a
+ *  conversation that's over, and reopening one is a tap and an accept. */
+export const RADIO_CHANNEL_TTL_MS = 20 * 60 * 1000
+/** Shown wherever the window is put into words, so the copy can't drift from the number. */
+export const RADIO_CHANNEL_TTL_LABEL = '20 minutes'
 /** An unanswered invite is a moment, not a standing request — no ringing, no retry. */
 export const RADIO_INVITE_TTL_MS = 2 * 60 * 1000
 /** Piece lengths — Phase 0 confirmed 2s then 5s. Tune here, nowhere else. */

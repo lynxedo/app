@@ -131,6 +131,8 @@ export class RadioCapture {
   get mediaStream() { return this.stream }
   /** The transmission this hold belongs to; null if the far end never confirmed one. */
   get currentTransmissionId() { return this.transmissionId }
+  /** False once close() has dropped the mic (anything not yet uploaded went with it). */
+  get isOpen() { return this.node !== null }
   get captureKind() { return this.node instanceof AudioWorkletNode ? 'audioworklet' : this.node ? 'scriptprocessor' : 'none' }
 
   /** Opens the mic and builds the graph. Called once when the channel opens, so the

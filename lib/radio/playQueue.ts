@@ -17,6 +17,26 @@
 
 const GAP_TOLERANCE_MS = 3000
 
+let audioUnlocked = false
+
+/** iOS won't play audio that isn't rooted in a user gesture. Call this from a tap —
+ *  Accept, opening the channel, a press of the talk button, or any tap on the page
+ *  while a channel is open (the Hub-wide radio listens for them) — and WebKit lets
+ *  the page play from then on, so the first arriving piece just plays. Page-wide on
+ *  purpose: the player that needs it may be built after the tap that unlocks it. */
+export function unlockRadioAudio(): void {
+  if (audioUnlocked) return
+  audioUnlocked = true
+  try {
+    const a = new Audio()
+    // 0.05s of silence — enough to satisfy the gesture requirement, inaudible.
+    a.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQQAAAAAAAAA'
+    a.volume = 0
+    // Refused (the event didn't count as a gesture) — let the next tap try again.
+    void a.play().catch(() => { audioUnlocked = false })
+  } catch { audioUnlocked = false }
+}
+
 type Incoming = { transmissionId: string; seq: number; pieceId: string }
 
 export type PlayQueueEvents = {
@@ -34,24 +54,15 @@ export class RadioPlayQueue {
   private order: string[] = []                              // transmissions awaiting playback, in arrival order
   private playing = false
   private current: HTMLAudioElement | null = null
+  /** Moves the queue past the current piece — kept so a resume that fails can't stall it. */
+  private currentFinish: (() => void) | null = null
   private stopped = false
-  private unlocked = false
+  private paused = false
 
   constructor(private events: PlayQueueEvents = {}) {}
 
-  /** iOS won't play audio that isn't rooted in a user gesture. Called from the tap
-   *  that accepts or opens the channel, so the first arriving piece just plays. */
-  unlock(): void {
-    if (this.unlocked) return
-    this.unlocked = true
-    try {
-      const a = new Audio()
-      // 0.05s of silence — enough to satisfy the gesture requirement, inaudible.
-      a.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQQAAAAAAAAA'
-      a.volume = 0
-      void a.play().catch(() => { /* not fatal — the first real piece may still work */ })
-    } catch { /* ditto */ }
-  }
+  /** See unlockRadioAudio — kept so existing callers read naturally. */
+  unlock(): void { unlockRadioAudio() }
 
   add(p: Incoming): void {
     let m = this.pieces.get(p.transmissionId)
@@ -69,6 +80,18 @@ export class RadioPlayQueue {
       this.order.push(transmissionId)
     }
     this.totals.set(transmissionId, pieceCount ?? 0)
+    void this.pump()
+  }
+
+  /** Hold playback without losing anything — a phone call has the speaker. What
+   *  arrives meanwhile waits in order and plays once the call is over; a piece cut
+   *  off mid-word picks up where it stopped. */
+  setPaused(paused: boolean): void {
+    if (this.paused === paused) return
+    this.paused = paused
+    if (paused) { this.current?.pause(); return }
+    // A piece that won't resume is skipped, never waited on forever.
+    if (this.current) void this.current.play().catch(() => this.currentFinish?.())
     void this.pump()
   }
 
@@ -103,6 +126,13 @@ export class RadioPlayQueue {
     let waitedSince = 0
     for (;;) {
       if (this.stopped) return
+      if (this.paused) {
+        // Time spent on a call is not time a piece was missing — don't let it
+        // count toward the gap tolerance and skip words that are already here.
+        waitedSince = 0
+        await new Promise(r => setTimeout(r, 200))
+        continue
+      }
       const total = this.totals.get(id)
       if (total !== undefined && seq > total) return          // the end marker says that was all
 
@@ -135,11 +165,14 @@ export class RadioPlayQueue {
       const a = new Audio(`/api/hub/radio/piece/${pieceId}`)
       this.current = a
       let done = false
-      const finish = () => { if (done) return; done = true; this.current = null; resolve() }
+      const finish = () => { if (done) return; done = true; this.current = null; this.currentFinish = null; resolve() }
+      this.currentFinish = finish
       a.onended = finish
       // A piece that won't play must not stall the queue — the next one is already here.
       a.onerror = finish
-      a.play().catch(finish)
+      // …except when a pause (a call starting) is what interrupted the play() — that
+      // piece is resumed by setPaused(false), not skipped.
+      a.play().catch(() => { if (!this.paused) finish() })
     })
   }
 }
