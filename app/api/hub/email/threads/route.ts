@@ -123,8 +123,25 @@ export async function GET(req: Request) {
     // soft-deletes on trash, but this read filter was missing, so trashed threads still showed.
     .is('deleted_at', null)
 
+  // A folder other than the Inbox is a filing view, not the triage queue: it lists
+  // everything filed there, open or closed, newest first. The Mine/All/Closed tabs
+  // are the Inbox's workflow — applying their "not closed" rule here emptied folders
+  // whose mail had all been handled (LEADS-2026 showed 17 unread and no rows).
+  const folderView = !!folder && folder !== inboxFolderId
+
   if (isPersonal) {
     // Personal mailbox: ignore queue scopes; RLS already restricts to the owner.
+  } else if (folderView) {
+    // Managers see the whole folder; a standard user only the threads that are
+    // theirs (RLS enforces the same boundary underneath).
+    if (!flags.isManager) {
+      if (myThreadIds.length > 0) {
+        const idList = myThreadIds.map((id) => `"${id}"`).join(',')
+        q = q.or(`assigned_to_user_id.eq.${userId},id.in.(${idList}),closed_by_user_id.eq.${userId}`)
+      } else {
+        q = q.or(`assigned_to_user_id.eq.${userId},closed_by_user_id.eq.${userId}`)
+      }
+    }
   } else {
     switch (scope) {
       case 'mine': {
