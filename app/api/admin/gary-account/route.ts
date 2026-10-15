@@ -73,6 +73,7 @@ export async function GET() {
         recentTouchDays: settings.recentTouchDays,
         approverIds: settings.approverIds,
         dailyEmailCap: settings.dailyEmailCap,
+        customerSending: settings.customerSending,
       },
       serviceChoices: GARY_SERVICES.map((s) => ({ key: s, label: GARY_SERVICE_LABEL[s] })),
       skipLabels: WINBACK_SKIP_LABEL,
@@ -97,6 +98,7 @@ export async function PUT(request: Request) {
     recentTouchDays?: unknown
     approverIds?: unknown
     dailyEmailCap?: unknown
+    customerSending?: unknown
   } | null
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   const admin = createAdminClient()
@@ -112,6 +114,7 @@ export async function PUT(request: Request) {
       recentTouchDays: body.recentTouchDays,
       approverIds,
       dailyEmailCap: body.dailyEmailCap,
+      customerSending: body.customerSending,
     })
     return NextResponse.json({ ok: true })
   } catch (e) {

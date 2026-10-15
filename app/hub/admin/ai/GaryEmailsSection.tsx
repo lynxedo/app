@@ -57,6 +57,7 @@ function money(v: number | string | null): string {
 
 export default function GaryEmailsSection({
   pending,
+  customerSending,
   recent,
   isApprover,
   sentToday,
@@ -67,6 +68,7 @@ export default function GaryEmailsSection({
   onChanged,
 }: {
   pending: GaryQueueItem[]
+  customerSending: boolean
   recent: GaryQueueItem[]
   isApprover: boolean
   sentToday: number
@@ -167,7 +169,14 @@ export default function GaryEmailsSection({
       ) : (
         <div className="space-y-3">
           {pending.map((item) => (
-            <PendingCard key={item.id} item={item} canDecide={isApprover} serviceLabel={serviceLabel} onDone={cardDone} />
+            <PendingCard
+              key={item.id}
+              item={item}
+              canDecide={isApprover}
+              canSend={customerSending}
+              serviceLabel={serviceLabel}
+              onDone={cardDone}
+            />
           ))}
         </div>
       )}
@@ -214,11 +223,13 @@ export default function GaryEmailsSection({
 function PendingCard({
   item,
   canDecide,
+  canSend,
   serviceLabel,
   onDone,
 }: {
   item: GaryQueueItem
   canDecide: boolean
+  canSend: boolean
   serviceLabel: Map<string, string>
   onDone: (message: string) => Promise<void>
 }) {
@@ -318,7 +329,8 @@ function PendingCard({
           <button
             type="button"
             onClick={() => void decide('approve')}
-            disabled={busy}
+            disabled={busy || !canSend}
+            title={canSend ? undefined : 'Sending to customers is switched off above'}
             className="rounded-lg bg-brand px-3 py-1.5 text-sm text-white disabled:opacity-40"
           >
             {edited ? 'Approve my version & send' : 'Approve & send'}

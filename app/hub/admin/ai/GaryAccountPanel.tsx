@@ -28,7 +28,7 @@ type Row = {
 type Payload = {
   bot: { id: string; name: string; hasAvatar: boolean } | null
   signature: string
-  settings: { services: string[]; recentTouchDays: number; approverIds: string[]; dailyEmailCap: number }
+  settings: { services: string[]; recentTouchDays: number; approverIds: string[]; dailyEmailCap: number; customerSending: boolean }
   people: { id: string; name: string }[]
   isApprover: boolean
   sentToday: number
@@ -136,6 +136,12 @@ export default function GaryAccountPanel() {
     void save({ approverIds: next })
   }
 
+  function setCustomerSending(on: boolean) {
+    if (!data) return
+    setData({ ...data, settings: { ...data.settings, customerSending: on } })
+    void save({ customerSending: on })
+  }
+
   function setCap(n: number) {
     if (!data) return
     setData({ ...data, settings: { ...data.settings, dailyEmailCap: n } })
@@ -239,8 +245,28 @@ export default function GaryAccountPanel() {
             <p className="text-xs text-amber-300/80">This company has no Gary user in the Hub yet.</p>
           )}
 
+          <label
+            className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer ${data.settings.customerSending ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-amber-500/40 bg-amber-500/5'}`}
+          >
+            <input
+              type="checkbox"
+              checked={data.settings.customerSending}
+              onChange={(e) => setCustomerSending(e.target.checked)}
+              className="accent-brand mt-0.5"
+            />
+            <span className="text-sm text-white">
+              Gary may send to customers
+              <span className="block text-xs text-white/50 mt-0.5">
+                {data.settings.customerSending
+                  ? 'On: an approved email goes to the customer.'
+                  : 'Off: Approve & send is blocked, so nothing reaches a customer. Send me a test still works.'}
+              </span>
+            </span>
+          </label>
+
           <GaryEmailsSection
             pending={data.pending}
+            customerSending={data.settings.customerSending}
             recent={data.recent}
             isApprover={data.isApprover}
             sentToday={data.sentToday}

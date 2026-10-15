@@ -606,6 +606,7 @@ function HubTab() {
             <li><strong className="text-white">Send me a test</strong>: sends the email, exactly as the customer would get it, to <em>your own</em> email address. Nothing goes to the customer, and the email keeps waiting.</li>
             <li><strong className="text-white">Turn down</strong>: never sent, and Gary won&apos;t write to that person again. Add a note on why if you like.</li>
           </ul>
+          <p className="mt-2"><strong className="text-white">Gary may send to customers</strong> is the master switch at the top of the page, and it starts <em>off</em>. While it&apos;s off, <em>Approve &amp; send</em> is blocked, so nothing reaches a customer; <em>Send me a test</em> still works.</p>
           <p className="mt-2">Emails nobody decides on expire after 7 days. <em>Show recent decisions</em> lists what was sent, turned down or not sent, and by whom. Pick <strong className="text-white">who approves</strong> (only people with AI admin access; with nobody ticked, company admins approve) and the <strong className="text-white">daily limit</strong> (20 to start), so the team mailbox never sends a burst. Below that are the services Gary may sell, the quiet period, and his list: <em>Ready</em> (with Text / Email / Call list counts) and <em>Skipped</em> (with a chip per reason, including people Gary already emailed). Click a name to open their contact page, or a quote to open it in Jobber. <em>Change picture</em> sets Gary&apos;s avatar.</p>
         </AdminOnly>
       </Section>
