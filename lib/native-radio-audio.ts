@@ -38,7 +38,11 @@ type IosPlugin = {
   start(): Promise<RadioAudioState>
   stop(): Promise<void>
   getState(): Promise<RadioAudioState>
-  addListener(eventName: RadioAudioEvent, fn: Listener): Promise<{ remove: () => Promise<void> }>
+  /** ⚠ On our pages this is NOT a promise. The iOS app injects its own plugin stub
+   *  (Capacitor's JSExport), whose addListener returns a plain { remove } object —
+   *  only @capacitor/core, which we don't load, wraps it in a promise. Treat it as
+   *  either; see onRadioAudioEvent. */
+  addListener(eventName: RadioAudioEvent, fn: Listener): { remove: () => unknown } | Promise<{ remove: () => unknown }>
 }
 
 /** The Android door. Synchronous by nature (a JavascriptInterface); start() answers
@@ -152,13 +156,24 @@ function installAndroidSink() {
 export function onRadioAudioEvent(event: RadioAudioEvent, fn: Listener): () => void {
   const ios = iosPlugin()
   if (ios) {
-    let handle: { remove: () => Promise<void> } | null = null
+    // ⚠⚠ Promise.resolve, never .then on the raw return. The iPhone app hands back a
+    // plain { remove } object here, and calling .then on it threw inside the radio's
+    // effect — which crashed the whole page into "This page couldn't load" the moment
+    // a channel went live on an iPhone (found Oct 15 2026; the Android door doesn't
+    // come through here, so it never showed there). A native hiccup must never take
+    // the Hub down with it, so a throw is swallowed too.
+    let handle: { remove: () => unknown } | null = null
     let removed = false
-    void ios.addListener(event, fn).then(h => {
-      if (removed) void h.remove()
-      else handle = h
-    }).catch(() => { /* an app build without the plugin — nothing to hear */ })
-    return () => { removed = true; void handle?.remove() }
+    try {
+      void Promise.resolve(ios.addListener(event, fn)).then(h => {
+        if (removed) void h?.remove?.()
+        else handle = h ?? null
+      }).catch(() => { /* an app build without the plugin — nothing to hear */ })
+    } catch { /* ditto */ }
+    return () => {
+      removed = true
+      try { void handle?.remove?.() } catch { /* already gone */ }
+    }
   }
   if (androidBridge()) {
     installAndroidSink()
