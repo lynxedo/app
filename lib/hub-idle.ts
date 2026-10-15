@@ -47,3 +47,19 @@ export function staleLandingRoute(canAccessDailyLog: boolean, fallback: string):
   // No Daily Log access — the general room is more use than an empty home screen.
   return fallback
 }
+
+// ── Smart presence: the 15-minute rule ─────────────────────────────────────────
+// A salaried / unlinked person's dot is green while hub_users.last_active_at is
+// within HUB_ACTIVE_WINDOW_MIN minutes. Any real interaction in Hub (click, tap,
+// keypress, wheel) — or being on a call — bumps it via POST /api/hub/active, at
+// most once per HUB_ACTIVITY_PING_MS. Ben's call, Oct 15 2026: the old rule (2h
+// after a page load or chat send) left people green long after they'd walked away.
+//
+// ⚠ The window is ALSO hard-coded in the hub_users_with_presence view
+// (supabase/2026-10-15_hub_presence_15min.sql). Change both together.
+export const HUB_ACTIVE_WINDOW_MIN = 15
+export const HUB_ACTIVE_WINDOW_MS = HUB_ACTIVE_WINDOW_MIN * 60 * 1000
+export const HUB_ACTIVITY_PING_MS = 60 * 1000
+// Window event HubActivityPinger fires after each ping so the sidebar's own idle
+// timer restarts in step with the server.
+export const HUB_ACTIVITY_EVENT = 'hub-activity'
