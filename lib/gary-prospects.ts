@@ -258,7 +258,9 @@ async function readOneCertificate(
   const anthropic = getAnthropic({ timeout: 60_000, maxRetries: 4 })
   const response = await anthropic.messages.create({
     model: PROSPECT_MODEL,
-    max_tokens: 600,
+    // Room for the model's own thinking before the JSON: at 600 a long think cut
+    // the answer off and a perfectly readable certificate "failed" (Oct 16 2026).
+    max_tokens: 2000,
     messages: [
       {
         role: 'user',
@@ -282,7 +284,10 @@ async function readOneCertificate(
     .map((b) => b.text)
     .join('')
   const f = firstJsonObject(text) as CertFields | null
-  if (!f) return fail('Couldn’t read the certificate', costUsd)
+  if (!f) {
+    console.warn('[gary-prospects] certificate answer unreadable', p.id, response.stop_reason, text.slice(0, 200))
+    return fail('Couldn’t read the certificate', costUsd)
+  }
 
   const { error } = await admin
     .from('gary_prospects')
