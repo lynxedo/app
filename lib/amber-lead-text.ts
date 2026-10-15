@@ -8,8 +8,10 @@
 // poller). For each, Admin → AI → Amber's account → New leads sets:
 //   • mode — Off · Canned (the fixed text Angi leads have had since July) ·
 //            Amber writes it (from what they asked for; lib/amber-text
-//            composeAmberLeadFirstText). If her text can't be written, the canned
-//            one goes instead — a lead is never left silent because of the AI.
+//            composeAmberLeadFirstText). If her text can't be written — or it
+//            carries a link, a phone number, or a dollar amount that isn't in her
+//            own instructions — the canned one goes instead, so a lead is never
+//            left silent because of the AI.
 //   • when — Any hour · After hours only · Office hours only (dialer business hours).
 // plus one master switch for the whole feature.
 //
@@ -264,7 +266,9 @@ export async function runLeadTextTest(
     const { data: n } = await admin.from('lead_notes').select('note').eq('lead_id', sample.id).order('created_at', { ascending: true }).limit(1)
     note = ((n as { note: string | null }[] | null) ?? [])[0]?.note || ''
   }
-  const firstName = sample?.first_name ?? 'Sam'
+  // A real lead with no name gets "Hi," — so does its test. The made-up name is
+  // only for a company with no lead from this source on file at all.
+  const firstName = sample ? sample.first_name?.trim() || null : 'Sam'
   const service = sample?.service ?? null
   const persona = await personaName(admin, companyId)
   const companyName = await companyDisplayName(admin, companyId)
@@ -297,7 +301,11 @@ export async function runLeadTextTest(
     }
   }
 
-  const sampleLabel = sample ? `${firstName}'s ${SOURCE_LABEL[opts.source]} lead` : `a made-up ${SOURCE_LABEL[opts.source]} lead (none on file yet)`
+  const sampleLabel = sample
+    ? firstName
+      ? `${firstName}'s ${SOURCE_LABEL[opts.source]} lead`
+      : `the latest ${SOURCE_LABEL[opts.source]} lead (no name given)`
+    : `a made-up ${SOURCE_LABEL[opts.source]} lead (none on file yet)`
   const howLabel = mode === 'canned' ? 'the canned text' : fellBack ? "the canned text (I couldn't write mine, so this is what would go instead)" : 'the text I would write'
   const dm =
     `🧪 Test — nothing was sent to a customer.\n\nFor ${sampleLabel}, here is ${howLabel}:\n\n"${text}"` +
