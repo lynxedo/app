@@ -140,6 +140,39 @@ export async function hydrateThreadMessages(
   return upsertMessages(admin, account, threadDbId, messages)
 }
 
+// Nylas's thread summary (last-message time, direction, folders) can trail a newly
+// arrived message by several minutes — and an event for an OLDER message in the same
+// thread can hand back that stale summary after the new one was already mirrored
+// (Oct 15 2026: a customer's reply sat outside the Inbox for ~4 minutes because the
+// thread was rewritten back to the earlier message's time and Sent Items folder). The
+// mirror therefore never moves a thread's last activity BACKWARDS: when we already hold
+// a newer message than the summary claims, its time, direction and folders win.
+const SUMMARY_MARGIN_MS = 5000
+
+function unionIds(a: string[], b: string[] | null | undefined): string[] {
+  return Array.from(new Set([...a, ...(b || [])]))
+}
+
+async function preferStoredLatest(admin: SupabaseClient, threadDbId: string, t: MailThread): Promise<MailThread> {
+  const { data: m } = await admin
+    .from('inbox_messages')
+    .select('message_date, direction, provider_folder_ids')
+    .eq('thread_id', threadDbId)
+    .is('deleted_at', null)
+    .order('message_date', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle()
+  const storedMs = m?.message_date ? Date.parse(m.message_date as string) : NaN
+  const summaryMs = t.lastMessageAt ? Date.parse(t.lastMessageAt) : 0
+  if (Number.isNaN(storedMs) || storedMs <= summaryMs + SUMMARY_MARGIN_MS) return t
+  return {
+    ...t,
+    lastMessageAt: new Date(storedMs).toISOString(),
+    lastMessageDirection: (m!.direction as MailThread['lastMessageDirection']) ?? t.lastMessageDirection,
+    providerFolderIds: unionIds(t.providerFolderIds, m!.provider_folder_ids as string[] | null),
+  }
+}
+
 // Mirror ONE provider thread into the inbox_* tables. Shared by the normal poller
 // and the backfill pager so there is exactly one copy of the upsert/status/
 // contact-link logic.
@@ -155,7 +188,7 @@ async function mirrorThread(
   t: MailThread,
   folderMap: Map<string, string>,
   nowIso: string,
-  opts: { applyRules: boolean; headerOnly: boolean }
+  opts: { applyRules: boolean; headerOnly: boolean; forceMessages?: boolean }
 ): Promise<{ mirrored: boolean; messages: number; threadDbId?: string }> {
   const isShared = account.account_type === 'shared'
   const self = (account.email_address || '').toLowerCase()
@@ -173,6 +206,9 @@ async function mirrorThread(
     .eq('account_id', account.id)
     .eq('provider_thread_id', t.providerThreadId)
     .maybeSingle()
+
+  // Never let a lagging summary rewind the thread (see preferStoredLatest).
+  if (existing) t = await preferStoredLatest(admin, existing.id as string, t)
 
   // Old mail must never light up as unread. A bulk move of old messages into the
   // Inbox (Oct 7 2026: ~2,400 messages from 2022–25, ~210 of them never opened in
@@ -276,11 +312,43 @@ async function mirrorThread(
 
   // Only (re)fetch messages when the thread is new or its last activity moved,
   // so an unchanged thread isn't re-pulled every run.
-  const needMessages = !existing || !sameInstant(existing.last_message_at as string | null, t.lastMessageAt)
+  // forceMessages: the webhook names a message that just arrived — fetch even when the
+  // (possibly lagging) summary says nothing changed.
+  const needMessages =
+    opts.forceMessages || !existing || !sameInstant(existing.last_message_at as string | null, t.lastMessageAt)
   if (!needMessages) return { mirrored: true, messages: 0, threadDbId }
 
   const messages = await provider.listMessages(t.providerThreadId)
   const messageCount = await upsertMessages(admin, account, threadDbId, messages)
+
+  // The messages are fresher than the summary: if the newest one is later than what
+  // we just wrote, it decides the thread's last activity, direction and folders — and
+  // a genuinely new customer reply reopens a closed thread right away instead of
+  // whenever the summary catches up.
+  const newest = messages.reduce<MailMessage | null>((best, m) => {
+    if (!m.date) return best
+    return !best?.date || Date.parse(m.date) > Date.parse(best.date) ? m : best
+  }, null)
+  const writtenMs = t.lastMessageAt ? Date.parse(t.lastMessageAt) : 0
+  if (newest?.date && Date.parse(newest.date) > writtenMs + SUMMARY_MARGIN_MS) {
+    const newestMs = Date.parse(newest.date)
+    const patch: Record<string, unknown> = {
+      last_message_at: newest.date,
+      last_message_direction: newest.direction,
+      provider_folder_ids: unionIds(t.providerFolderIds, newest.providerFolderIds),
+      updated_at: new Date().toISOString(),
+    }
+    const newestFolder = newest.providerFolderIds[0] ? folderMap.get(newest.providerFolderIds[0]) : undefined
+    if (newestFolder) patch.folder = newestFolder
+    if (newest.direction === 'inbound' && newestMs > existingMs + REOPEN_MARGIN_MS) {
+      if (existing?.status === 'closed') patch.status = 'open'
+      patch.waiting_state = null
+      patch.waiting_set_at = null
+      patch.waiting_set_by = null
+      if (Date.now() - newestMs < RULES_RECENCY_MS && newest.unread) patch.unread = true
+    }
+    await admin.from('inbox_threads').update(patch).eq('id', threadDbId)
+  }
 
   // Inbound rules — NEW shared-inbox threads only, live poller only, and only when
   // the activity is recent (see RULES_RECENCY_MS). The engine itself never throws,
@@ -387,7 +455,7 @@ export async function mirrorThreadById(
   admin: SupabaseClient,
   account: InboxAccount,
   providerThreadId: string,
-  opts?: { applyRules?: boolean }
+  opts?: { applyRules?: boolean; forceMessages?: boolean }
 ): Promise<string | null> {
   const provider = getMailProvider(account)
   const nowIso = new Date().toISOString()
@@ -397,6 +465,7 @@ export async function mirrorThreadById(
   const r = await mirrorThread(admin, account, provider, t, folderMap, nowIso, {
     applyRules: opts?.applyRules ?? true,
     headerOnly: false,
+    forceMessages: opts?.forceMessages ?? false,
   })
   return r.threadDbId ?? null
 }
