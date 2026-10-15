@@ -181,6 +181,9 @@ export default function ChecksView() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState<{ posted: boolean } | null>(null)
+  // Opened from a Work Order stop (?from=wo&name=…&contact=…): the customer is
+  // filled in already, and "Back to the stop" follows the send.
+  const [fromStop, setFromStop] = useState(false)
 
   const cameraRef = { front: useRef<HTMLInputElement>(null), back: useRef<HTMLInputElement>(null) }
   const pickRef = { front: useRef<HTMLInputElement>(null), back: useRef<HTMLInputElement>(null) }
@@ -223,6 +226,20 @@ export default function ChecksView() {
       setRows(j.checks)
     } catch (e) {
       setListError(e instanceof Error ? e.message : 'Could not load checks')
+    }
+  }, [])
+
+  // A Work Order stop's "Customer paid by check?" link carries the customer. The
+  // photo can still suggest a different payer — that only shows as a typo-style
+  // hint, the stop's customer is never overwritten.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const name = q.get('name')?.trim()
+    if (q.get('from') === 'wo') setFromStop(true)
+    if (name) {
+      setCustomer(name)
+      const contact = q.get('contact')
+      if (contact && /^[0-9a-f-]{36}$/i.test(contact)) setContactId(contact)
     }
   }, [])
 
@@ -613,8 +630,14 @@ export default function ChecksView() {
               : 'It’s on the checks list, but there’s no “checks and cash” room to post it in — let the office know.'}
           </p>
           <div className="mt-7 flex flex-col sm:flex-row gap-3 justify-center">
+            {fromStop && (
+              <button type="button" onClick={() => window.history.back()}
+                className="px-4 py-2.5 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] font-medium">← Back to the stop</button>
+            )}
             <button type="button" onClick={resetForm}
-              className="px-4 py-2.5 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] font-medium">Send another</button>
+              className={fromStop
+                ? 'px-4 py-2.5 rounded-lg border border-white/15 text-white/80 hover:text-white font-medium'
+                : 'px-4 py-2.5 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] font-medium'}>Send another</button>
             <button type="button" onClick={() => { resetForm(); setTab('pending') }}
               className="px-4 py-2.5 rounded-lg border border-white/15 text-white/80 hover:text-white font-medium">See the list</button>
           </div>
@@ -632,6 +655,11 @@ export default function ChecksView() {
               </div>
             </div>
             <h2 className="text-lg font-bold mt-5">Photograph the check</h2>
+            {customer.trim() && (
+              <p className="text-sm text-white/80 mt-1">
+                from <b>{customer}</b>{contactId && <span className="text-emerald-400"> ✓</span>}
+              </p>
+            )}
             <p className="text-sm text-white/55 mt-1.5 leading-relaxed">
               Front first, then the back. Lay it flat on something dark, turn your phone sideways and
               line it up in the orange frame. Hub reads the customer, amount and check number for you.

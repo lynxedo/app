@@ -2225,6 +2225,21 @@ function StopSheet({
               <div className="text-[11px] text-gray-500 mt-0.5">What was done, what you saw, recommendations, photos — and confirm the products applied.</div>
             </button>
           )}
+
+          {/* Paid by check — opens Checks with this customer already filled in. In the
+              body, not the icon row: that row is already full on a phone. */}
+          {!isSkipped && (
+            <Link
+              href={`/hub/checks?from=wo&name=${encodeURIComponent(stop.client_name ?? '')}${stop.contact_id ? `&contact=${encodeURIComponent(stop.contact_id)}` : ''}`}
+              className="block w-full text-left bg-white/5 border border-white/15 rounded px-3 py-2.5 hover:bg-white/10 transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm text-white">💵 Customer paid by check?</span>
+                <span className="text-xs text-gray-300">Deposit it ›</span>
+              </div>
+              <div className="text-[11px] text-gray-500 mt-0.5">Photograph it here — it goes to the office for deposit.</div>
+            </Link>
+          )}
         </div>
 
         {/* Bottom action bar */}
