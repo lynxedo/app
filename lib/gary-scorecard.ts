@@ -148,7 +148,7 @@ export async function buildGaryScorecard(admin: Admin, companyId: string): Promi
       w.contacted++
       if (p.reply === 'reply') w.replied++
       if (p.reply === 'declined') w.declined++
-      if (p.reply === 'opted_out') w.optedOut++
+      if (p.reply === 'opted_out' || p.reply === 'complaint') w.optedOut++
     }
   }
 

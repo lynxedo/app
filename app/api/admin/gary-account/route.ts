@@ -14,6 +14,7 @@ import { WINBACK_SKIP_LABEL, buildWinbackPreview } from '@/lib/gary-winback'
 import { GARY_QUEUE_COLUMNS, expireStaleGaryEmails, garyFollowUpsDue, garySentToday } from '@/lib/gary-email'
 import { buildGaryScorecard } from '@/lib/gary-scorecard'
 import { checkGaryReplies } from '@/lib/gary-replies'
+import { checkGaryBounces } from '@/lib/gary-cold'
 
 // Admin → AI → Gary's account. Session 1: identity, settings, the preview list.
 // Session 2: the emails Gary writes, waiting for an approver, and what was sent.
@@ -56,6 +57,7 @@ export async function GET() {
     // The prod tick does this every 5 minutes; doing it here too means the page
     // is never behind (and staging, which has no tick, still sees replies).
     await checkGaryReplies(admin, g.companyId).catch((e) => console.error('[gary-account] reply check failed', e))
+    await checkGaryBounces(admin, g.companyId).catch((e) => console.error('[gary-account] bounce check failed', e))
     const settings = await getGarySettings(admin, g.companyId)
     const [bot, preview, people, isApprover, sentToday, { data: pending }, { data: recent }, followUps, scorecard] = await Promise.all([
       getGaryBot(admin, g.companyId, settings.botUserId),

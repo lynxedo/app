@@ -9,13 +9,20 @@ import { useState } from 'react'
 export type GaryQueueItem = {
   id: string
   channel: 'email' | 'text'
+  audience: 'winback' | 'prospect'
+  bounced_at: string | null
   touch: number
   to_email: string | null
   to_phone: string | null
   to_name: string | null
   subject: string
   body: string
-  context: { services?: string[]; sources?: { kind: 'lead' | 'quote'; id: string; detail: string; date: string | null; link: string | null }[] }
+  context: {
+    services?: string[]
+    sources?: { kind: 'lead' | 'quote'; id: string; detail: string; date: string | null; link: string | null }[]
+    manager_company?: string
+    properties?: { id: string; name: string; kind: 'hoa' | 'apartment'; city: string | null }[]
+  }
   status: string
   edited: boolean
   est_cost_usd: number | string | null
@@ -36,6 +43,7 @@ const REPLY_LABEL: Record<string, string> = {
   reply: 'They replied (sent to Office Alerts)',
   declined: 'They said no thanks',
   opted_out: 'They opted out',
+  complaint: 'They complained (cold emails paused if it was one)',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -236,7 +244,8 @@ export default function GaryEmailsSection({
                     <span className="text-sm text-white">
                       {r.to_name || r.to_email || r.to_phone}{' '}
                       <span className="text-white/40 text-xs">
-                        · {r.channel === 'text' ? 'Text' : r.subject}
+                        · {r.audience === 'prospect' ? 'Cold email · ' : ''}
+                        {r.channel === 'text' ? 'Text' : r.subject}
                         {r.touch > 1 ? ` · ${r.touch === 3 ? 'last try' : 'follow-up'}` : ''}
                       </span>
                     </span>
@@ -254,6 +263,7 @@ export default function GaryEmailsSection({
                       r.error && `Error: ${r.error}`,
                       r.reply_kind && `${REPLY_LABEL[r.reply_kind] ?? 'Replied'}${r.replied_at ? ` ${when(r.replied_at)}` : ''}`,
                       r.reply_snippet && `“${r.reply_snippet.slice(0, 140)}”`,
+                      r.bounced_at && `Bounced ${when(r.bounced_at)}`,
                     ]
                       .filter(Boolean)
                       .join(' · ')}
@@ -336,6 +346,9 @@ function PendingCard({
     <div className="border border-white/10 rounded-lg p-3 space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm text-white">
+          {item.audience === 'prospect' && (
+            <span className="mr-2 rounded px-1.5 py-0.5 text-[11px] bg-amber-500/15 text-amber-300">Cold email · prospect</span>
+          )}
           {item.touch > 1 && (
             <span className="mr-2 rounded px-1.5 py-0.5 text-[11px] bg-violet-500/15 text-violet-300">
               {item.touch === 3 ? 'Last try (3 of 3)' : 'Follow-up (2 of 3)'}
@@ -349,6 +362,16 @@ function PendingCard({
           {item.est_cost_usd != null && ` · written for ${money(item.est_cost_usd)}`}
         </p>
       </div>
+      {item.audience === 'prospect' && (item.context.properties ?? []).length > 0 && (
+        <p className="text-xs text-white/40">
+          Why: {item.context.manager_company ? `${item.context.manager_company} manages ` : 'Manages '}
+          {(item.context.properties ?? [])
+            .slice(0, 6)
+            .map((p) => `${p.name}${p.city ? ` (${p.city})` : ''}`)
+            .join(', ')}
+          {(item.context.properties ?? []).length > 6 ? ` and ${(item.context.properties ?? []).length - 6} more` : ''} near us.
+        </p>
+      )}
       {(item.context.sources ?? []).length > 0 && (
         <ul className="space-y-0.5">
           {(item.context.sources ?? []).map((s) => (

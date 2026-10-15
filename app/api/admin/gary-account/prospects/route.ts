@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { getGarySettings, saveGarySettings } from '@/lib/gary'
 import { PROSPECT_COLUMNS, findApartments, importHoas, prospectCities, readCertificates } from '@/lib/gary-prospects'
+import { checkGaryBounces, coldStats, draftColdEmails } from '@/lib/gary-cold'
 
 // Admin → AI → Gary's account → Prospects (session 5). Finding commercial
 // prospects from free sources; nothing here contacts anyone.
@@ -34,7 +35,28 @@ export async function GET() {
     if (!data || data.length < 1000) break
   }
   const cities = await prospectCities(admin, g.companyId, settings.prospectZips)
-  return NextResponse.json({ zips: settings.prospectZips, cities, prospects: rows })
+  await checkGaryBounces(admin, g.companyId).catch((e) => console.error('[gary-prospects] bounce check failed', e))
+  const fresh = await getGarySettings(admin, g.companyId)
+  // Who Gary already emailed, by address — shown on the prospect rows.
+  const { data: coldRows } = await admin
+    .from('gary_queue')
+    .select('to_email, status, sent_at, bounced_at, reply_kind')
+    .eq('company_id', g.companyId)
+    .eq('audience', 'prospect')
+    .limit(5000)
+  return NextResponse.json({
+    zips: settings.prospectZips,
+    cities,
+    prospects: rows,
+    cold: {
+      dailyCap: fresh.coldDailyCap,
+      pausedAt: fresh.coldPausedAt,
+      pausedReason: fresh.coldPausedReason,
+      customerSending: fresh.customerSending,
+      stats: await coldStats(admin, g.companyId),
+      emailed: coldRows ?? [],
+    },
+  })
 }
 
 export async function POST(request: Request) {
@@ -67,6 +89,14 @@ export async function POST(request: Request) {
         await admin.from('gary_prospects').update({ status: next, updated_at: new Date().toISOString() }).eq('id', body.id).eq('company_id', g.companyId)
         return NextResponse.json({ ok: true, status: next })
       }
+      case 'draft_cold':
+        return NextResponse.json(await draftColdEmails(admin, g.companyId, Number(body.count) || 3))
+      case 'set_cold_cap':
+        await saveGarySettings(admin, g.companyId, g.userId, { coldDailyCap: body.count })
+        return NextResponse.json({ ok: true })
+      case 'resume_cold':
+        await saveGarySettings(admin, g.companyId, g.userId, { coldResume: true })
+        return NextResponse.json({ ok: true })
       case 'set_zips':
         await saveGarySettings(admin, g.companyId, g.userId, { prospectZips: body.zips })
         return NextResponse.json({ ok: true })
