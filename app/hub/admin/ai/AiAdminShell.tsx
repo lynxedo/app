@@ -5,6 +5,7 @@ import GuardianPanel from './GuardianPanel'
 import ResponderPanel from './ResponderPanel'
 import ReceptionistPanel from './ReceptionistPanel'
 import AmberAccountPanel from './AmberAccountPanel'
+import GaryAccountPanel from './GaryAccountPanel'
 import SchedulingPanel from './SchedulingPanel'
 import NeighborhoodMapPanel from './NeighborhoodMapPanel'
 import RoutingPanel from './RoutingPanel'
@@ -72,7 +73,7 @@ type VoiceReceptionistInitial = {
 // 'guardian' and 'assistant' were two tabs describing ONE thing — the bot's
 // identity/brain and the same bot's capabilities. Merged into a single Assistant
 // tab so an admin isn't hunting across two places to configure one assistant.
-type SubTab = 'assistant' | 'responder' | 'receptionist' | 'knowledge' | 'amber'
+type SubTab = 'assistant' | 'responder' | 'receptionist' | 'knowledge' | 'amber' | 'gary'
 
 type BotIdentity = {
   id: string
@@ -133,6 +134,9 @@ export default function AiAdminShell({
         <SubTabButton active={tab === 'amber'} onClick={() => setTab('amber')}>
           Amber&apos;s account
         </SubTabButton>
+        <SubTabButton active={tab === 'gary'} onClick={() => setTab('gary')}>
+          Gary&apos;s account
+        </SubTabButton>
       </div>
 
       {tab === 'assistant' && (
@@ -172,6 +176,7 @@ export default function AiAdminShell({
         </div>
       )}
       {tab === 'amber' && <AmberAccountPanel />}
+      {tab === 'gary' && <GaryAccountPanel />}
       {tab === 'knowledge' && (
         <div className="space-y-6">
           <KnowledgePanel initialDocs={initialDocs} />
