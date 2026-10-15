@@ -133,8 +133,28 @@ async function sweepLeads(admin: Admin, c: CampaignRow, leadSource: string | nul
     return q.order('id', { ascending: true })
   })
 
-  const eligible = await filterByEnrollWindow(admin, c, rows, bizCache, (r) => r.created_at)
+  const inWindow = await filterByEnrollWindow(admin, c, rows, bizCache, (r) => r.created_at)
+  // Leads Amber is texting herself (Admin → AI → Amber's account → New leads)
+  // never get this campaign's first text as well.
+  const amberHas = await amberHasLead(admin, inWindow.map((r) => r.id))
+  const eligible = inWindow.filter((r) => !amberHas.has(r.id))
   return upsertEnrollments(admin, c.company_id, c.id, eligible)
+}
+
+// Lead ids Amber's first-text feature has claimed or texted (lib/amber-lead-text).
+// A 'skipped' row (her switch off for that source, or outside its hours) or a
+// 'failed' one (nothing reached them) does NOT count, so a Drip campaign still
+// covers what she doesn't.
+async function amberHasLead(admin: Admin, leadIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (const part of chunk(leadIds, 200)) {
+    const { data } = await (admin.from('amber_lead_texts') as any)
+      .select('lead_id')
+      .in('lead_id', part)
+      .in('status', ['pending', 'sent'])
+    for (const r of (data ?? []) as Array<{ lead_id: string }>) out.add(r.lead_id)
+  }
+  return out
 }
 
 // Shared: turn lead rows into enrollment upserts at step 0 (idempotent via the
@@ -364,6 +384,17 @@ export async function advanceDripEnrollments(
         await admin
           .from('drip_enrollments')
           .update({ status: 'completed', completed_at: new Date().toISOString() })
+          .eq('id', e.id)
+        continue
+      }
+      // Amber already sent (or is sending) this lead's first text — a lead-source
+      // campaign's opener would be a second "we got your request". Exit quietly.
+      // (The sweep filters these too; this catches a lead enrolled in the
+      // millisecond before Amber's claim row landed.)
+      if (idx === 0 && e.lead_id && campaign.trigger_type !== 'stage_changed' && (await amberHasLead(admin, [e.lead_id])).size) {
+        await admin
+          .from('drip_enrollments')
+          .update({ status: 'exited', paused_reason: 'amber_first_text', completed_at: new Date().toISOString() })
           .eq('id', e.id)
         continue
       }

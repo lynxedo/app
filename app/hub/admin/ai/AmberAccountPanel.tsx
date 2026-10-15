@@ -22,6 +22,48 @@ type Payload = {
   morning: { enabled: boolean; time: string; days: number[]; roomId: string | null }
   rooms: { id: string; name: string; isPrivate: boolean }[]
   runs: RunRow[]
+  leadText: LeadTextSettings
+  leadTexts: LeadTextRow[]
+  replyToTextsOn: boolean
+}
+type LeadSource = 'angi' | 'google'
+type LeadTextMode = 'off' | 'canned' | 'amber'
+type LeadTextWhen = 'any' | 'after_hours' | 'office_hours'
+type LeadTextSettings = { enabled: boolean; sources: Record<LeadSource, { mode: LeadTextMode; when: LeadTextWhen }> }
+type LeadTextRow = {
+  id: string
+  source: LeadSource
+  mode: LeadTextMode
+  status: string
+  reason: string | null
+  body: string | null
+  fell_back: boolean
+  sms_sent: boolean
+  google_sent: boolean
+  est_cost_usd: number | string | null
+  created_at: string
+  leadName: string | null
+}
+
+const LEAD_SOURCE_LABEL: Record<LeadSource, string> = { angi: 'Angi', google: 'Google (Local Services messages)' }
+const LEAD_MODE_LABEL: Record<LeadTextMode, string> = { off: 'Off', canned: 'Canned text', amber: 'Amber writes it' }
+const LEAD_WHEN_LABEL: Record<LeadTextWhen, string> = { any: 'Any hour', after_hours: 'After hours only', office_hours: 'Office hours only' }
+const SKIP_REASON: Record<string, string> = {
+  switched_off: 'feature off',
+  source_off: 'off for this source',
+  office_open: 'office was open',
+  office_closed: 'office was closed',
+  amber_text_unusable_sent_canned: 'sent the canned text instead',
+}
+
+function leadTextResult(r: LeadTextRow): string {
+  if (r.status === 'test') return 'Test (DMed to an admin)'
+  if (r.status === 'skipped') return `Not texted: ${SKIP_REASON[r.reason ?? ''] ?? r.reason ?? ''}`
+  if (r.status === 'pending') return 'Sending…'
+  if (r.status === 'failed') return `Failed: ${r.reason ?? ''}`
+  const how = r.mode === 'amber' && !r.fell_back ? 'Amber’s words' : r.fell_back ? 'Canned (Amber’s failed)' : 'Canned'
+  const where = [r.sms_sent && 'text', r.google_sent && 'Google thread'].filter(Boolean).join(' + ')
+  return `${how}${where ? ` · ${where}` : ''}`
 }
 type RunRow = {
   id: string
@@ -83,6 +125,8 @@ export default function AmberAccountPanel() {
   const [testMsg, setTestMsg] = useState('')
   const [runMsg, setRunMsg] = useState('')
   const [running, setRunning] = useState(false)
+  const [leadTestMsg, setLeadTestMsg] = useState<Partial<Record<LeadSource, string>>>({})
+  const [leadTesting, setLeadTesting] = useState<LeadSource | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -165,6 +209,43 @@ export default function AmberAccountPanel() {
       setRunMsg(e instanceof Error ? e.message : 'The test run failed.')
     } finally {
       setRunning(false)
+    }
+  }
+
+  function setLeadText(patch: { enabled?: boolean; source?: LeadSource; mode?: LeadTextMode; when?: LeadTextWhen }) {
+    if (!data) return
+    const next: LeadTextSettings = { enabled: data.leadText.enabled, sources: { ...data.leadText.sources } }
+    if (patch.enabled !== undefined) next.enabled = patch.enabled
+    if (patch.source) {
+      next.sources[patch.source] = {
+        mode: patch.mode ?? next.sources[patch.source].mode,
+        when: patch.when ?? next.sources[patch.source].when,
+      }
+    }
+    setData({ ...data, leadText: next })
+    void save({ leadText: patch })
+  }
+
+  async function testLeadText(source: LeadSource) {
+    setLeadTesting(source)
+    setLeadTestMsg((m) => ({ ...m, [source]: 'Writing the text for the latest real lead…' }))
+    try {
+      const res = await fetch('/api/admin/amber-account/lead-text-test', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ source }),
+      })
+      const j = (await res.json().catch(() => null)) as { text?: string; costUsd?: number | null; error?: string } | null
+      if (!res.ok) throw new Error(j?.error || `Failed (${res.status})`)
+      setLeadTestMsg((m) => ({
+        ...m,
+        [source]: `Sent to your DMs: “${j?.text ?? ''}”${j?.costUsd != null ? ` (cost about ${money(j.costUsd)})` : ''}`,
+      }))
+      await load()
+    } catch (e) {
+      setLeadTestMsg((m) => ({ ...m, [source]: e instanceof Error ? e.message : 'The test failed.' }))
+    } finally {
+      setLeadTesting(null)
     }
   }
 
@@ -362,6 +443,133 @@ export default function AmberAccountPanel() {
               </p>
               {runMsg && <p className="text-xs text-white/60">{runMsg}</p>}
             </div>
+          </div>
+
+          <div className="space-y-2 border-t border-white/10 pt-4">
+            <p className="text-xs font-medium text-white/70">New leads — first text</p>
+            <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={data.leadText.enabled}
+                onChange={() => setLeadText({ enabled: !data.leadText.enabled })}
+                className="accent-brand"
+              />
+              Text new leads the moment they arrive
+            </label>
+            <p className="text-xs text-white/40">
+              When an Angi or Google lead comes in, Amber texts them right away, signed with her name, and the thread
+              waits in the Txt Queue for whoever picks it up. Off here means no automatic first text from either source
+              (a Drip campaign of your own still runs).
+            </p>
+            {(['angi', 'google'] as LeadSource[]).map((src) => {
+              const cfg = data.leadText.sources[src]
+              const disabled = !data.leadText.enabled
+              return (
+                <div key={src} className={`border border-white/10 rounded-lg p-3 space-y-2 ${disabled ? 'opacity-50' : ''}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-white">{LEAD_SOURCE_LABEL[src]}</p>
+                    <div className="flex rounded-lg border border-white/10 overflow-hidden text-xs">
+                      {(['off', 'canned', 'amber'] as LeadTextMode[]).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setLeadText({ source: src, mode: m })}
+                          className={`px-2.5 py-1 disabled:cursor-not-allowed ${cfg.mode === m ? 'bg-brand text-white' : 'text-white/60 hover:text-white'}`}
+                        >
+                          {LEAD_MODE_LABEL[m]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-white/80">
+                    <label className="flex items-center gap-2">
+                      When
+                      <select
+                        value={cfg.when}
+                        disabled={disabled || cfg.mode === 'off'}
+                        onChange={(e) => setLeadText({ source: src, when: e.target.value as LeadTextWhen })}
+                        className="bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-white disabled:opacity-40"
+                      >
+                        {(['any', 'after_hours', 'office_hours'] as LeadTextWhen[]).map((w) => (
+                          <option key={w} value={w}>
+                            {LEAD_WHEN_LABEL[w]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => testLeadText(src)}
+                      disabled={leadTesting !== null}
+                      className="px-3 py-1 rounded-lg border border-white/15 hover:border-white/30 disabled:opacity-40 text-xs font-medium text-white/80"
+                    >
+                      {leadTesting === src ? 'Writing…' : 'Send me a test'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-white/40">
+                    {cfg.mode === 'amber'
+                      ? 'Amber reads what they asked for and writes one short text about it, using her playbook and pricing rules. She can’t book or look anything up while writing it. If her text can’t be written, the canned one goes instead.'
+                      : cfg.mode === 'canned'
+                        ? 'The same fixed text every time: “Hi [name], this is Amber… we just got your request. Reply here…”'
+                        : src === 'google'
+                          ? 'Amber sends nothing; your Drip campaign for Google leads (if any) still runs.'
+                          : 'No text. The lead still lands in the Txt Queue with the Angi write-up attached.'}
+                    {src === 'google' && cfg.mode !== 'off' && ' The text also goes inside the lead’s own Google thread, which is what Google counts for responsiveness. Any Drip campaign for Google leads skips the leads Amber texts.'}
+                  </p>
+                  <p className="text-xs text-white/40">
+                    “Send me a test” DMs you the text the latest real {src === 'angi' ? 'Angi' : 'Google'} lead would get
+                    {cfg.mode === 'canned' ? '' : ' in Amber’s words'}. Nothing goes to a customer.
+                  </p>
+                  {leadTestMsg[src] && <p className="text-xs text-white/60">{leadTestMsg[src]}</p>}
+                </div>
+              )
+            })}
+            {!data.replyToTextsOn && (
+              <p className="text-xs text-amber-300/80">
+                “Reply to texts” is off (Receptionist tab), so when a lead texts back, a person answers it. Amber only sends
+                the first text.
+              </p>
+            )}
+            {data.replyToTextsOn && (
+              <p className="text-xs text-white/40">
+                When the lead texts back, Amber carries the conversation (Reply to texts is on) until someone claims the
+                thread.
+              </p>
+            )}
+            <p className="text-xs font-medium text-white/60 pt-1">Recent new leads</p>
+            {data.leadTexts.length === 0 ? (
+              <p className="text-xs text-white/40">None yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-white/70">
+                  <thead>
+                    <tr className="text-left text-white/40">
+                      <th className="py-1 pr-3 font-normal">When</th>
+                      <th className="py-1 pr-3 font-normal">Lead</th>
+                      <th className="py-1 pr-3 font-normal">What happened</th>
+                      <th className="py-1 pr-3 font-normal text-right">Cost (est.)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.leadTexts.map((r) => (
+                      <tr key={r.id} className="border-t border-white/5 align-top">
+                        <td className="py-1 pr-3 whitespace-nowrap">{runWhen(r.created_at)}</td>
+                        <td className="py-1 pr-3">
+                          {r.leadName || (r.status === 'test' ? 'Test' : '—')}
+                          <span className="text-white/40"> · {r.source === 'angi' ? 'Angi' : 'Google'}</span>
+                        </td>
+                        <td className="py-1 pr-3" title={r.body ?? ''}>
+                          {leadTextResult(r)}
+                          {r.body && <div className="text-white/40 mt-0.5 line-clamp-2">{r.body}</div>}
+                        </td>
+                        <td className="py-1 pr-3 text-right">{money(r.est_cost_usd)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2 border-t border-white/10 pt-4">
