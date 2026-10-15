@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchNewLsaLeads, googleAdsConfigured, type LsaLead } from '@/lib/google-ads'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
 import { postOfficeAlert } from '@/lib/office-alerts'
+import { claimLeadText, sendLeadFirstText } from '@/lib/amber-lead-text'
 
 // Google Local Services Ads (LSA) lead poller.
 //
@@ -11,7 +12,7 @@ import { postOfficeAlert } from '@/lib/office-alerts'
 // connection + a customer id, it pulls new local_services_lead rows via the
 // Google Ads API and drops each into the SAME destination as the Angi webhook:
 // a `leads` row (Lead Tracker) + first note + unified contacts directory + an
-// alerts-room post. Ingest only — no texting in v1 (drip is a later phase).
+// alerts-room post.
 //
 // Dedup is durable: every processed Google lead id is recorded in
 // `lsa_seen_leads` (keyed on company_id + google_lead_id). That ledger is the
@@ -20,6 +21,11 @@ import { postOfficeAlert } from '@/lib/office-alerts'
 // leads every 5 min; before, dedup keyed only on the leads row, so DELETING a
 // junk lead erased that memory and the next poll re-inserted + re-announced it
 // (a "resurrection loop"). The ledger survives lead deletion, killing the loop.
+//
+// First text (Oct 15 2026): Admin → AI → Amber's account → New leads can text a
+// message lead the moment it lands — canned or in Amber's own words, inside the
+// lead's Google thread AND as a text (lib/amber-lead-text). Off by default for
+// Google, which stays with the Drip campaign until an admin turns it on here.
 //
 // Phone-call leads are SKIPPED by default: an LSA phone-call lead is a live call
 // that already rings the business line and shows up in the Dialer/call log, so a
@@ -72,6 +78,21 @@ function buildNote(lead: LsaLead): string {
   meta.push(`Google lead ID: ${lead.id}`)
   if (meta.length) lines.push('', meta.join(' · '))
   return lines.join('\n')
+}
+
+// Google's service / category ids in plain words for the first text:
+// "irrigation_system_repair_maintenance" → "irrigation system repair",
+// "xcat:service_area_business_lawn_care" → "lawn care". Null when there's neither.
+function humanService(lead: LsaLead): string | null {
+  const raw = lead.serviceId || lead.categoryId
+  if (!raw) return null
+  const words = raw
+    .replace(/^.*:/, '')
+    .replace(/^service_area_business_/, '')
+    .replace(/_repair_maintenance$/, '_repair')
+    .replace(/_/g, ' ')
+    .trim()
+  return words || null
 }
 
 // Record a processed Google lead in the durable ledger. Best-effort + idempotent
@@ -201,12 +222,28 @@ export async function POST(req: Request) {
       // Record durable memory immediately so a later deletion can't resurrect it.
       await recordSeen(admin, companyId, lead, 'created', row.id)
 
+      const note = buildNote(lead)
       await admin.from('lead_notes').insert({
         lead_id: row.id,
         company_id: companyId,
-        note: buildNote(lead),
+        note,
         created_by: 'Google LSA',
       })
+
+      // The first text — claimed inline (so Drip's next sweep sees Amber has this
+      // lead), sent after the response.
+      const leadTextClaim = await claimLeadText(admin, companyId, row.id, 'google')
+      after(() =>
+        sendLeadFirstText(admin, companyId, leadTextClaim, {
+          phone,
+          firstName: first,
+          lastName: last,
+          email: lead.email,
+          service: humanService(lead),
+          note,
+          googleLeadId: lead.id,
+        }).catch((e) => console.warn('[lsa-poll] first text failed', (e as Error).message)),
+      )
 
       // Alerts-room post so someone works the lead fast (speed-to-lead).
       // Headline names the caller + number; the rest goes in the thread.

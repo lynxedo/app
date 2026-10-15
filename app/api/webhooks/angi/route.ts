@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
 import { postOfficeAlert } from '@/lib/office-alerts'
-import { angiAutoText } from '@/lib/angi-auto-text'
+import { claimLeadText, sendLeadFirstText } from '@/lib/amber-lead-text'
 
 // Angi "Standard Lead API" webhook.
 //
@@ -14,7 +14,7 @@ import { angiAutoText } from '@/lib/angi-auto-text'
 // Each lead becomes a row in the Hub Lead Tracker (`leads`, stage 'current',
 // lead_source 'Angi') plus the unified contacts directory, with the questionnaire
 // + comments captured as the lead's first note, then worked in the Txt inbox
-// (auto-text as Amber + thread note, unassigned in the Queue — lib/angi-auto-text).
+// (auto-text as Amber + thread note, unassigned in the Queue — lib/amber-lead-text).
 // Idempotent on Angi's leadOid via leads.external_lead_id (Angi re-POSTs the
 // same lead on retry).
 
@@ -221,22 +221,21 @@ export async function POST(request: Request) {
     email,
   }).catch(() => {}))
 
-  // Work the lead in the Txt inbox like a Google LSA message lead: text the
-  // customer as Amber, pin the Angi write-up to the thread as an internal note,
-  // and leave the thread UNASSIGNED so it shows in the Queue. Best-effort.
+  // Work the lead in the Txt inbox: text the customer as Amber (canned or her own
+  // words, per Admin → AI → Amber's account → New leads), pin the Angi write-up
+  // to the thread as an internal note, and leave the thread UNASSIGNED so it
+  // shows in the Queue. The claim is recorded inline; the send runs after the
+  // response. Best-effort.
+  const leadTextClaim = await claimLeadText(admin, HEROES_COMPANY_ID, lead.id, 'angi')
   after(() =>
-    angiAutoText(admin, HEROES_COMPANY_ID, {
+    sendLeadFirstText(admin, HEROES_COMPANY_ID, leadTextClaim, {
       phone,
       firstName: first,
       lastName: last,
       email,
       service: svc,
       note,
-    })
-      .then((r) => {
-        if (!r.ok) console.warn('[angi] auto-text not sent', r)
-      })
-      .catch((e) => console.warn('[angi] auto-text failed', (e as Error).message))
+    }).catch((e) => console.warn('[angi] first text failed', (e as Error).message))
   )
 
   return NextResponse.json({ ok: true, lead_id: lead.id })

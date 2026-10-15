@@ -260,3 +260,48 @@ export async function fetchNewLsaLeads(admin: Admin, companyId: string): Promise
 
   return { leads, cursor }
 }
+
+// The customer's own words on an LSA message lead — what they typed into Google
+// when they asked for a quote. Used by Amber's first text to a new lead so she
+// can answer what they actually asked for. Best-effort: null on any failure, on a
+// lead with no message (phone call / booking), or when the field isn't readable
+// on this API version — the caller then falls back to the lead's category.
+export async function fetchLsaLeadMessage(admin: Admin, companyId: string, googleLeadId: string): Promise<string | null> {
+  const leadId = digits(googleLeadId)
+  if (!leadId) return null
+  const ctx = await lsaContext(admin, companyId)
+  if (!ctx) return null
+  const query =
+    `SELECT local_services_lead_conversation.message_details.text, ` +
+    `local_services_lead_conversation.participant_type, ` +
+    `local_services_lead_conversation.event_date_time ` +
+    `FROM local_services_lead_conversation ` +
+    `WHERE local_services_lead_conversation.lead = 'customers/${ctx.customerId}/localServicesLeads/${leadId}' ` +
+    `ORDER BY local_services_lead_conversation.event_date_time ASC LIMIT 20`
+  try {
+    const res = await fetch(searchEndpoint(ctx.customerId), {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ query }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      console.warn(`[google-ads] LSA conversation read failed for lead ${leadId}:`, res.status, body.slice(0, 300))
+      return null
+    }
+    const json = (await res.json().catch(() => ({}))) as {
+      results?: Array<{ localServicesLeadConversation?: { participantType?: string; messageDetails?: { text?: string } } }>
+    }
+    const texts = (json.results ?? [])
+      .map((r) => r.localServicesLeadConversation)
+      .filter((c) => c && (c.participantType || '').toUpperCase() === 'CONSUMER')
+      .map((c) => (c?.messageDetails?.text || '').trim())
+      .filter(Boolean)
+    return texts.length ? texts.join('\n').slice(0, 2000) : null
+  } catch (e) {
+    console.warn(`[google-ads] LSA conversation read failed for lead ${leadId}:`, e instanceof Error ? e.message : e)
+    return null
+  }
+}

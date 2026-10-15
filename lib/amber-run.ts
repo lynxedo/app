@@ -147,7 +147,7 @@ export function callLookback(s: MorningSettings, now: Date = new Date()): { hour
 /** Unanswered shared-inbox emails older than this are stale, not "waiting on us". */
 const EMAIL_LOOKBACK_DAYS = 7
 
-function estimateCost(model: string, u: Usage): number | null {
+export function estimateCost(model: string, u: Usage): number | null {
   const p = PRICES[model]
   if (!p) return null
   const usd =
@@ -155,7 +155,7 @@ function estimateCost(model: string, u: Usage): number | null {
   return Math.round(usd * 10000) / 10000
 }
 
-type Usage = { input: number; output: number; cacheRead: number; cacheWrite: number }
+export type Usage = { input: number; output: number; cacheRead: number; cacheWrite: number }
 
 function clipFact(s: string): string {
   return s.length > FACT_CLIP ? `${s.slice(0, FACT_CLIP)}\n…(cut short)` : s

@@ -14,6 +14,14 @@ import {
 } from '@/lib/hub-actions/amber'
 import { amberActionStats } from '@/lib/hub-actions/amber-queue'
 import { getMorningSettings } from '@/lib/amber-run'
+import {
+  LEAD_SOURCES,
+  LEAD_TEXT_MODES,
+  LEAD_TEXT_WHENS,
+  getLeadTextSettings,
+  type LeadTextMode,
+  type LeadTextWhen,
+} from '@/lib/amber-lead-text'
 
 // Admin → AI → Amber's account: what she may do on her own (off / approve /
 // auto per action), who approves, and her track record per action.
@@ -36,7 +44,7 @@ export async function GET() {
   if (!g) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const admin = createAdminClient()
 
-  const [settings, modes, approverIds, stats, actor, { data: profiles }, { data: hubUsers }, morning, { data: rooms }, { data: runs }] = await Promise.all([
+  const [settings, modes, approverIds, stats, actor, { data: profiles }, { data: hubUsers }, morning, { data: rooms }, { data: runs }, leadText, { data: leadTexts }, { data: vrs }] = await Promise.all([
     getAssistantSettings(admin, g.companyId),
     getAmberModes(admin, g.companyId),
     getAmberApproverIds(admin, g.companyId),
@@ -60,6 +68,14 @@ export async function GET() {
       .eq('company_id', g.companyId)
       .order('started_at', { ascending: false })
       .limit(15),
+    getLeadTextSettings(admin, g.companyId),
+    admin
+      .from('amber_lead_texts')
+      .select('id, source, mode, status, reason, body, fell_back, sms_sent, google_sent, est_cost_usd, created_at, lead_id, lead:leads(first_name, last_name)')
+      .eq('company_id', g.companyId)
+      .order('created_at', { ascending: false })
+      .limit(20),
+    admin.from('voice_receptionist_settings').select('text_enabled').eq('company_id', g.companyId).maybeSingle(),
   ])
 
   const meta = new Map(allActionMeta().map((m) => [m.name, m]))
@@ -111,6 +127,14 @@ export async function GET() {
       isPrivate: r.is_private === true,
     })),
     runs: runs ?? [],
+    leadText,
+    leadTexts: ((leadTexts || []) as Array<Record<string, unknown> & { lead?: unknown }>).map((r) => {
+      const l = (Array.isArray(r.lead) ? r.lead[0] : r.lead) as { first_name?: string | null; last_name?: string | null } | null
+      const { lead: _lead, ...rest } = r
+      void _lead
+      return { ...rest, leadName: l ? [l.first_name, l.last_name].filter(Boolean).join(' ') || null : null }
+    }),
+    replyToTextsOn: (vrs as { text_enabled?: boolean | null } | null)?.text_enabled === true,
   })
 }
 
@@ -122,6 +146,7 @@ export async function PUT(request: Request) {
     modes?: Record<string, string>
     approverIds?: unknown
     morning?: { enabled?: unknown; time?: unknown; days?: unknown; roomId?: unknown }
+    leadText?: { enabled?: unknown; source?: unknown; mode?: unknown; when?: unknown }
   } = {}
   try {
     body = await request.json()
@@ -201,6 +226,33 @@ export async function PUT(request: Request) {
         .upsert({ company_id: g.companyId, ...patch }, { onConflict: 'company_id' })
       if (error) return NextResponse.json({ error: 'Could not save the morning summary settings' }, { status: 500 })
     }
+  }
+
+  if (body.leadText) {
+    // One change at a time (the master switch, or one source's mode / hours),
+    // merged onto what's saved so two quick clicks never undo each other.
+    const lt = body.leadText
+    const current = await getLeadTextSettings(admin, g.companyId)
+    const next = { enabled: current.enabled, sources: { ...current.sources } }
+    if (lt.enabled !== undefined) next.enabled = lt.enabled === true
+    if (lt.source !== undefined) {
+      if (!LEAD_SOURCES.includes(lt.source as never)) return NextResponse.json({ error: 'Unknown lead source' }, { status: 400 })
+      const src = lt.source as (typeof LEAD_SOURCES)[number]
+      const s = { ...next.sources[src] }
+      if (lt.mode !== undefined) {
+        if (!LEAD_TEXT_MODES.includes(lt.mode as LeadTextMode)) return NextResponse.json({ error: 'Bad mode' }, { status: 400 })
+        s.mode = lt.mode as LeadTextMode
+      }
+      if (lt.when !== undefined) {
+        if (!LEAD_TEXT_WHENS.includes(lt.when as LeadTextWhen)) return NextResponse.json({ error: 'Bad hours' }, { status: 400 })
+        s.when = lt.when as LeadTextWhen
+      }
+      next.sources[src] = s
+    }
+    const { error } = await admin
+      .from('hub_assistant_settings')
+      .upsert({ company_id: g.companyId, amber_lead_text: next }, { onConflict: 'company_id' })
+    if (error) return NextResponse.json({ error: 'Could not save the new-lead text settings' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

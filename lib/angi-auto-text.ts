@@ -1,8 +1,8 @@
-// Angi lead → Txt Queue auto-responder.
+// New lead → Txt Queue auto-responder (Angi since Jul 2026, Google LSA since
+// Oct 15 2026 — lib/amber-lead-text.ts decides WHETHER and WHAT to send).
 //
-// When a NEW Angi lead arrives (app/api/webhooks/angi), work it in the Txt
-// inbox the same way a Google LSA message lead is worked: the customer gets an
-// immediate text signed as the AI persona (Amber), the Angi write-up (service,
+// When a NEW lead arrives, work it in the Txt inbox: the customer gets an
+// immediate text signed as the AI persona (Amber), the lead write-up (service,
 // comments, questionnaire, fee) is pinned to the thread as an internal note, and
 // the thread is left UNASSIGNED so it shows in the Queue for whoever picks it
 // up. Ownership rules mirror inbound texts: an open thread that already has an
@@ -17,6 +17,10 @@ import { getAiTextBotUserId } from '@/lib/ai-text-identity'
 
 type Admin = ReturnType<typeof createAdminClient>
 
+export type LeadSource = 'angi' | 'google'
+
+const SOURCE_LABEL: Record<LeadSource, string> = { angi: 'Angi', google: 'Google' }
+
 export type AngiAutoTextInput = {
   phone: string | null
   firstName: string | null
@@ -27,20 +31,43 @@ export type AngiAutoTextInput = {
   note: string
 }
 
-export function buildAngiAutoTextBody(firstName: string | null, service: string | null): string {
+export type LeadThreadTextResult = {
+  ok: boolean
+  conversation_id?: string
+  /** A teammate already owns the open thread, so it was left with them. */
+  kept_owner?: boolean
+  skipped?: string
+  error?: string
+}
+
+/** The fixed ("canned") first text. Same words Angi leads have had since July. */
+export function buildCannedLeadTextBody(
+  source: LeadSource,
+  firstName: string | null,
+  service: string | null,
+  persona = 'Amber',
+  companyName = 'Heroes Lawn Care',
+): string {
   const hi = firstName ? `Hi ${firstName}, ` : 'Hi, '
   const svc = service ? ` for ${service}` : ''
   return (
-    `${hi}this is Amber with Heroes Lawn Care — we just got your Angi request${svc}. ` +
+    `${hi}this is ${persona} with ${companyName} — we just got your ${SOURCE_LABEL[source]} request${svc}. ` +
     `Reply here with any details or questions, and a team member will follow up shortly to get you scheduled.`
   )
 }
 
-export async function angiAutoText(
+/**
+ * Find-or-create the contact + direct thread for a new lead, pin the write-up,
+ * send `body` as the AI text bot, and leave the thread in the Queue.
+ * `body: null` = set the thread up but text nothing.
+ */
+export async function leadThreadText(
   admin: Admin,
   companyId: string,
+  source: LeadSource,
   lead: AngiAutoTextInput,
-): Promise<{ ok: boolean; conversation_id?: string; skipped?: string; error?: string }> {
+  body: string | null,
+): Promise<LeadThreadTextResult> {
   const e164 = toE164(lead.phone || '')
   if (!e164) return { ok: false, skipped: 'no_phone' }
 
@@ -61,7 +88,7 @@ export async function angiAutoText(
 
   if (existing) {
     contact = existing as Contact
-    // Fill in blanks from Angi without overwriting a real name/email.
+    // Fill in blanks from the lead without overwriting a real name/email.
     const patch: Record<string, unknown> = {}
     const placeholder = !existing.name || existing.name === e164 || existing.name === existing.phone
     if (placeholder && fullName) {
@@ -87,7 +114,7 @@ export async function angiAutoText(
         email: lead.email,
         do_not_text: false,
         in_directory: true,
-        sources: ['angi'],
+        sources: [source],
       })
       .select('id, phone, name, do_not_text')
       .single()
@@ -128,10 +155,10 @@ export async function angiAutoText(
         contact_id: contact.id,
         kind: 'direct',
         status: 'unassigned',
-        source: 'angi',
+        source,
         last_message_at: now,
         last_inbound_at: now,
-        last_message_preview: `📥 Angi lead${lead.service ? ` — ${lead.service}` : ''}`,
+        last_message_preview: `📥 ${SOURCE_LABEL[source]} lead${lead.service ? ` — ${lead.service}` : ''}`,
         last_message_direction: 'inbound',
       })
       .select('id')
@@ -140,7 +167,7 @@ export async function angiAutoText(
     conversationId = created.id as string
   }
 
-  // ── Internal note: the Angi write-up, on the thread ────────────────────────
+  // ── Internal note: the lead write-up, on the thread ────────────────────────
   await admin.from('txt_notes').insert({
     company_id: companyId,
     conversation_id: conversationId,
@@ -150,7 +177,9 @@ export async function angiAutoText(
 
   // ── Auto-responder, signed as Amber ────────────────────────────────────────
   let sendError: string | undefined
-  if (contact.do_not_text) {
+  if (body === null) {
+    // Nothing to send — the thread + note are set up for whoever picks it up.
+  } else if (contact.do_not_text) {
     sendError = 'do_not_text'
   } else {
     const res = await sendDirectTxtMessage({
@@ -159,7 +188,7 @@ export async function angiAutoText(
       conversationId,
       contact,
       userId: botUserId,
-      body: buildAngiAutoTextBody(lead.firstName, lead.service),
+      body,
     })
     if (!res.ok) sendError = res.error
     else {
@@ -167,7 +196,7 @@ export async function angiAutoText(
     }
   }
 
-  // sendDirectTxtMessage stamps the thread "outbound"; a fresh Angi lead should
+  // sendDirectTxtMessage stamps the thread "outbound"; a fresh lead should
   // read like an inbound item in the Queue (unassigned, unread), so restore that
   // — unless a teammate already owns the thread.
   if (!keepOwner) {
@@ -198,5 +227,7 @@ export async function angiAutoText(
     console.warn('[angi-auto-text] broadcast failed', e)
   }
 
-  return sendError ? { ok: false, conversation_id: conversationId, error: sendError } : { ok: true, conversation_id: conversationId }
+  return sendError
+    ? { ok: false, conversation_id: conversationId, kept_owner: keepOwner, error: sendError }
+    : { ok: true, conversation_id: conversationId, kept_owner: keepOwner }
 }
