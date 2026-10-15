@@ -485,11 +485,14 @@ function ChecksTab() {
       </Section>
 
       <Section title="Waiting to deposit">
-        <p>The <strong className="text-white">Waiting to deposit</strong> tab lists every check that hasn&apos;t been deposited yet, with the total, who sent it and how long ago — so a check can&apos;t quietly go missing. <strong className="text-white">Deposited</strong> shows the ones that are done.</p>
+        <p>The <strong className="text-white">Waiting to deposit</strong> tab lists every check that hasn&apos;t been deposited yet, with the total, how many aren&apos;t posted yet, who sent each one and how long ago — so a check can&apos;t quietly go missing. <strong className="text-white">Deposited</strong> shows the ones that are done.</p>
+        <p className="mt-2"><strong className="text-white">⬇ Download</strong> saves both photos of a check. On a computer they land in your Downloads folder as two files named after the customer and check number (your browser may ask once to allow several downloads). On a phone the share sheet opens — tap <strong className="text-white">Save 2 Images</strong> to put them in your photos.</p>
         <p className="mt-2">If you&apos;re not in the checks and cash room, you see only the checks you sent, so you can tell they arrived.</p>
         <AdminOnly>
-          <p>The people in the <strong className="text-white">checks and cash</strong> room (and admins) see every check. After depositing one, tap <strong className="text-white">✓ Deposited</strong> on it; it moves to the Deposited tab with the date and your name. Tapped the wrong one? Open <strong className="text-white">Deposited</strong> and tap <strong className="text-white">Undo</strong>. <strong className="text-white">Void</strong> is for a check that will never be deposited (bounced, handed back, sent twice).</p>
-          <p>Hub doesn&apos;t record the payment in Jobber — Jobber doesn&apos;t let other apps do that — so still apply the payment to the invoice in Jobber as usual.</p>
+          <p>The people in the <strong className="text-white">checks and cash</strong> room (and admins) see every check and have two buttons on each:</p>
+          <p><strong className="text-sky-300">✓ Posted</strong> — tap it once the payment is applied to the customer&apos;s account in Jobber. Hub can&apos;t do that part for you (Jobber doesn&apos;t let other apps record payments), so this is how everyone knows it&apos;s done. The check stays in Waiting to deposit, marked <em>Posted</em>.</p>
+          <p><strong className="text-emerald-300">✓ Deposited</strong> — tap it after the check is deposited at the bank; it moves to the Deposited tab with the date and your name.</p>
+          <p>They can happen in either order. Tapped the wrong one? <strong className="text-white">undo</strong> beside Posted, or <strong className="text-white">Undo — not deposited yet</strong> on the Deposited tab. <strong className="text-white">Void</strong> is for a check that will never be deposited (bounced, handed back, sent twice).</p>
         </AdminOnly>
       </Section>
     </>
