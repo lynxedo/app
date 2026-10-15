@@ -22,7 +22,11 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
   const [{ data: conv }, { data: members }, { data: me }] = await Promise.all([
     admin.from('conversations').select('id, company_id').eq('id', conversationId).maybeSingle(),
-    admin.from('conversation_members').select('user_id').eq('conversation_id', conversationId).is('archived_at', null),
+    // Every member, archived or not. Archiving a DM only hides it from that person's
+    // list (the next message un-archives it for both) — it is not leaving. Filtering
+    // on it made a DM either person had ever archived read as "not 1-on-1", so Radio
+    // refused it (found Oct 15 2026 testing Ben ↔ Han Solo).
+    admin.from('conversation_members').select('user_id').eq('conversation_id', conversationId),
     admin.from('user_profiles').select('can_access_radio').eq('id', auth.userId).maybeSingle(),
   ])
   if (!conv || (conv as { company_id: string }).company_id !== auth.companyId) {
@@ -32,7 +36,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Radio is not enabled for you' }, { status: 403 })
   }
 
-  // Radio is 1-on-1. Exactly two active members, and the caller is one of them.
+  // Radio is 1-on-1. Exactly two members, and the caller is one of them.
   const ids = ((members ?? []) as { user_id: string }[]).map(m => m.user_id)
   if (ids.length !== 2 || !ids.includes(auth.userId)) {
     return NextResponse.json({ error: 'Radio is for 1-on-1 conversations' }, { status: 400 })
@@ -77,6 +81,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error?.message ?? 'Could not open a channel' }, { status: 500 })
   }
   const session = created as RadioSessionRow
+
+  // A channel is activity in the DM, so it surfaces again for anyone who had it
+  // archived — the same thing a new message does (app/api/hub/messages/route.ts).
+  await admin
+    .from('conversation_members')
+    .update({ archived_at: null })
+    .eq('conversation_id', conversationId)
+    .not('archived_at', 'is', null)
 
   const names = await radioNames(admin, [auth.userId])
   const fromName = names[auth.userId] ?? 'A teammate'
