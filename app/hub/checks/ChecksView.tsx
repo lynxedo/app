@@ -1,9 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import CheckCamera from './CheckCamera'
 
 // Checks — photograph a customer's paper check, front and back, and send it to
 // the "checks and cash" room for Zac to deposit with his bank's mobile deposit.
+//
+// Photos first (Ben, Oct 15 2026): the framed camera (CheckCamera) shoots the
+// front then the back, the photo check reads the customer, amount and check
+// number off the front, and the tech only confirms and taps Send.
 //
 // The photo has to be one a bank app accepts (Zac photographs the photo), so:
 //   • it must be HORIZONTAL — a web page can't lock an iPhone's rotation, so a
@@ -35,8 +40,10 @@ type Side = 'front' | 'back'
 type Review = {
   ok: boolean
   problems: string[]
-  read: { amount_cents?: number; check_number?: string; payer?: string; endorsed?: boolean }
+  read: { amount_cents?: number; check_number?: string; payer?: string; payer_address?: string; endorsed?: boolean }
+  upside_down?: boolean
 }
+type PayerMatch = { id: string; name: string; address: string | null; by: 'address' | 'name' }
 type Shot = {
   previewUrl: string
   width: number
@@ -115,38 +122,39 @@ async function preparePhoto(file: File): Promise<{ blob: Blob; width: number; he
   }
 }
 
+/** Turn a photo over (the photo check found it upside down). */
+async function rotate180(blob: Blob): Promise<Blob | null> {
+  const url = URL.createObjectURL(blob)
+  try {
+    const img = new Image()
+    img.src = url
+    await img.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.translate(canvas.width, canvas.height)
+    ctx.rotate(Math.PI)
+    ctx.drawImage(img, 0, 0)
+    return await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.92))
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+/** "JOHN A SMITH" → "John A Smith" (checks are usually printed in capitals). */
+function titleCase(s: string): string {
+  return s.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase())
+}
+
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
   return (
     <svg className={`${className} animate-spin`} fill="none" viewBox="0 0 24 24" aria-hidden>
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
     </svg>
-  )
-}
-
-/** A sideways phone over a check on a dark surface — the whole instruction at a glance. */
-function HowToShoot({ side }: { side: Side }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex-none w-24 h-14 rounded-md bg-black border border-white/15 flex items-center justify-center">
-        <div className="w-16 h-8 rounded-sm bg-[#e8e4d8] relative">
-          {side === 'front' ? (
-            <>
-              <div className="absolute left-1.5 top-1.5 w-6 h-0.5 bg-black/40" />
-              <div className="absolute right-1.5 top-3 w-3 h-1.5 border border-black/40" />
-              <div className="absolute left-1.5 bottom-1 w-12 h-0.5 bg-black/30" />
-            </>
-          ) : (
-            <div className="absolute left-1 top-1 bottom-1 w-4 border-r border-black/30" />
-          )}
-        </div>
-      </div>
-      <ul className="text-xs text-white/55 leading-relaxed">
-        <li>• Phone <span className="text-white/80 font-medium">sideways</span></li>
-        <li>• Check flat on something <span className="text-white/80 font-medium">dark</span></li>
-        <li>• Straight above, no glare, all 4 corners</li>
-      </ul>
-    </div>
   )
 }
 
@@ -163,7 +171,11 @@ export default function ChecksView() {
   const [memo, setMemo] = useState('')
   const [shots, setShots] = useState<Record<Side, Shot | null>>({ front: null, back: null })
   const [portraitSide, setPortraitSide] = useState<Side | null>(null)
-  const [autoFilled, setAutoFilled] = useState<{ amount?: boolean; checkNo?: boolean }>({})
+  const [autoFilled, setAutoFilled] = useState<{ amount?: boolean; checkNo?: boolean; customer?: boolean }>({})
+  const [matches, setMatches] = useState<PayerMatch[]>([])
+  // The framed camera: which side it is shooting, and whether to go on to the back.
+  const [camera, setCamera] = useState<{ side: Side; thenBack: boolean } | null>(null)
+  const [liveCameraFailed, setLiveCameraFailed] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState<{ posted: boolean } | null>(null)
@@ -171,8 +183,8 @@ export default function ChecksView() {
   const cameraRef = { front: useRef<HTMLInputElement>(null), back: useRef<HTMLInputElement>(null) }
   const pickRef = { front: useRef<HTMLInputElement>(null), back: useRef<HTMLInputElement>(null) }
   // Typed values, read inside the async photo callback without a stale closure.
-  const typedRef = useRef({ amount, checkNo })
-  typedRef.current = { amount, checkNo }
+  const typedRef = useRef({ amount, checkNo, customer })
+  typedRef.current = { amount, checkNo, customer }
 
   // ── Lists ──
   const [rows, setRows] = useState<CheckRow[] | null>(null)
@@ -223,6 +235,7 @@ export default function ChecksView() {
     if (tab !== 'send') { setRows(null); loadList(tab) }
   }, [tab, loadList])
 
+  // A photo from the phone's own camera or the picker: it must already be wide.
   async function onPhoto(side: Side, file: File | undefined) {
     if (!file) return
     setError(null)
@@ -230,48 +243,109 @@ export default function ChecksView() {
     if (prepared === 'portrait') { setPortraitSide(side); return }
     setPortraitSide(null)
     if (!prepared) { setError('Couldn’t open that photo — try taking it again.'); return }
+    await processPhoto(side, prepared)
+  }
 
-    const previewUrl = URL.createObjectURL(prepared.blob)
+  async function upload(side: Side, blob: Blob, review: boolean) {
+    const fd = new FormData()
+    fd.append('side', side)
+    fd.append('photo', new File([blob], `check-${side}.jpg`, { type: 'image/jpeg' }))
+    if (!review) fd.append('review', '0')
+    const r = await fetch('/api/hub/checks/photo', { method: 'POST', body: fd })
+    const j = await r.json()
+    if (!r.ok) throw new Error(j.error || 'Could not save that photo')
+    return j as { path: string; size: number; review?: Review | null; matches?: PayerMatch[] }
+  }
+
+  async function processPhoto(side: Side, prepared: { blob: Blob; width: number; height: number }) {
+    let previewUrl = URL.createObjectURL(prepared.blob)
     setShots(s => {
       if (s[side]?.previewUrl) URL.revokeObjectURL(s[side]!.previewUrl)
       return { ...s, [side]: { previewUrl, width: prepared.width, height: prepared.height, state: 'checking' } }
     })
 
     try {
-      const fd = new FormData()
-      fd.append('side', side)
-      fd.append('photo', new File([prepared.blob], `check-${side}.jpg`, { type: 'image/jpeg' }))
-      const r = await fetch('/api/hub/checks/photo', { method: 'POST', body: fd })
-      const j = await r.json()
-      if (!r.ok) throw new Error(j.error || 'Could not save that photo')
-      const review = j.review as Review | null
-      setShots(s => s[side]?.previewUrl === previewUrl
-        ? { ...s, [side]: { ...s[side]!, state: 'done', path: j.path, size: j.size, review } }
+      const j = await upload(side, prepared.blob, true)
+      const review = j.review ?? null
+      let path = j.path, size = j.size
+
+      // Upside down (the phone was turned the other way) — turn it over and keep that copy.
+      if (review?.upside_down) {
+        const turned = await rotate180(prepared.blob)
+        if (turned) {
+          const k = await upload(side, turned, false)
+          path = k.path; size = k.size
+          const turnedUrl = URL.createObjectURL(turned)
+          const was = previewUrl
+          setShots(s => {
+            if (s[side]?.previewUrl !== was) return s
+            URL.revokeObjectURL(was)
+            return { ...s, [side]: { ...s[side]!, previewUrl: turnedUrl } }
+          })
+          previewUrl = turnedUrl
+        }
+      }
+
+      const doneUrl = previewUrl
+      setShots(s => s[side]?.previewUrl === doneUrl
+        ? { ...s, [side]: { ...s[side]!, state: 'done', path, size, review } }
         : s)
+
       // Fill blank fields from what the check says. Typed values are never overwritten.
-      if (side === 'front' && review?.ok) {
-        const filled: { amount?: boolean; checkNo?: boolean } = {}
-        if (review.read.amount_cents && !typedRef.current.amount.trim()) {
+      if (side === 'front' && review) {
+        const typed = typedRef.current
+        const filled: { amount?: boolean; checkNo?: boolean; customer?: boolean } = {}
+        if (review.read.amount_cents && !typed.amount.trim()) {
           setAmount((review.read.amount_cents / 100).toFixed(2)); filled.amount = true
         }
-        if (review.read.check_number && !typedRef.current.checkNo.trim()) {
+        if (review.read.check_number && !typed.checkNo.trim()) {
           setCheckNo(review.read.check_number); filled.checkNo = true
+        }
+        const found = j.matches ?? []
+        setMatches(found)
+        if (!typed.customer.trim()) {
+          // An address match, or the only name match, is taken; several name
+          // matches wait for the tech to pick one.
+          const pick = found[0] && (found[0].by === 'address' || found.length === 1) ? found[0] : null
+          if (pick) {
+            setCustomer(pick.name); setContactId(pick.id); filled.customer = true
+          } else if (review.read.payer) {
+            setCustomer(titleCase(review.read.payer)); setContactId(null); filled.customer = true
+          }
         }
         setAutoFilled(filled)
       }
     } catch (e) {
-      setShots(s => s[side]?.previewUrl === previewUrl
+      const failedUrl = previewUrl
+      setShots(s => s[side]?.previewUrl === failedUrl
         ? { ...s, [side]: { ...s[side]!, state: 'error', error: e instanceof Error ? e.message : 'Upload failed' } }
         : s)
     }
   }
 
+  // Open the framed camera — or, where it has already failed, the phone's own camera.
+  function openCamera(side: Side, thenBack: boolean) {
+    setError(null); setPortraitSide(null)
+    if (liveCameraFailed) { cameraRef[side].current?.click(); return }
+    setCamera({ side, thenBack })
+  }
+
+  function onShot(photo: { blob: Blob; width: number; height: number }) {
+    if (!camera) return
+    void processPhoto(camera.side, photo)
+    setCamera(camera.side === 'front' && camera.thenBack && !shots.back ? { side: 'back', thenBack: false } : null)
+  }
+
+  // The framed camera isn't available — the tap that got here opens the phone's own.
+  function onCameraFallback() {
+    if (!camera) return
+    cameraRef[camera.side].current?.click()
+    setLiveCameraFailed(true)
+    setCamera(null)
+  }
+
   function retake(side: Side) {
-    setShots(s => {
-      if (s[side]?.previewUrl) URL.revokeObjectURL(s[side]!.previewUrl)
-      return { ...s, [side]: null }
-    })
-    cameraRef[side].current?.click()
+    openCamera(side, false)
   }
 
   const amountCents = parseAmount(amount)
@@ -321,7 +395,7 @@ export default function ChecksView() {
   function resetForm() {
     for (const s of [shots.front, shots.back]) if (s?.previewUrl) URL.revokeObjectURL(s.previewUrl)
     setCustomer(''); setContactId(null); setAmount(''); setCheckNo(''); setMemo('')
-    setShots({ front: null, back: null }); setAutoFilled({}); setPortraitSide(null)
+    setShots({ front: null, back: null }); setAutoFilled({}); setPortraitSide(null); setMatches([])
     setError(null); setSent(null)
   }
 
@@ -346,15 +420,17 @@ export default function ChecksView() {
   // ── Render ─────────────────────────────────────────────────────────────
 
   // A render function, not a component: a component declared in here would be a
-  // new type every render, remounting the file inputs — and a re-render while the
-  // phone's camera is open would drop the photo.
+  // new type every render and remount on every keystroke.
   function photoStep(side: Side) {
     const shot = shots[side]
     const label = side === 'front' ? 'Front' : 'Back'
     return (
-      <div key={side} className="rounded-xl border border-white/10 bg-gray-900/60 p-3.5">
-        <div className="flex items-center justify-between mb-2.5">
-          <span className="text-sm font-semibold text-white/85">{label} of the check</span>
+      <div key={side} className="rounded-xl border border-white/10 bg-gray-900/60 p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-semibold text-white/85">{label}</span>
+          {shot?.state === 'checking' && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-white/55"><Spinner className="w-3.5 h-3.5" /> Checking…</span>
+          )}
           {shot?.state === 'done' && (shot.review?.ok || shot.accepted || shot.review == null) && (
             <span className={`text-xs font-medium ${shot.review?.ok ? 'text-emerald-400' : 'text-amber-300'}`}>
               {shot.review?.ok ? '✓ Looks good' : shot.accepted ? 'Using anyway' : 'Not checked'}
@@ -365,24 +441,18 @@ export default function ChecksView() {
         {!shot && (
           <>
             {portraitSide === side && (
-              <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100">
-                ↻ That photo was taken upright. <b>Turn your phone sideways</b> and take it again — a bank needs it horizontal.
+              <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                ↻ That photo was upright. <b>Turn your phone sideways</b> and take it again.
               </div>
             )}
-            <HowToShoot side={side} />
-            <button
-              type="button"
-              onClick={() => cameraRef[side].current?.click()}
-              className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] font-semibold transition-colors"
-            >
-              📷 Take photo of the {side}
+            <button type="button" onClick={() => openCamera(side, false)}
+              className="w-full aspect-[2.2/1] rounded-lg border-2 border-dashed border-[#f97316]/60 bg-black/40 text-white/80 hover:text-white hover:border-[#f97316] flex flex-col items-center justify-center gap-1 transition-colors">
+              <span className="text-2xl">📷</span>
+              <span className="text-sm font-medium">Photograph the {side}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => pickRef[side].current?.click()}
-              className="mt-1.5 w-full text-xs text-white/45 hover:text-white/70 py-1.5"
-            >
-              or choose a photo you already have
+            <button type="button" onClick={() => pickRef[side].current?.click()}
+              className="mt-1 w-full text-xs text-white/40 hover:text-white/70 py-1">
+              or choose a photo
             </button>
           </>
         )}
@@ -393,30 +463,24 @@ export default function ChecksView() {
             <img
               src={shot.previewUrl}
               alt={`${label} of the check`}
-              className="w-full rounded-lg border border-white/10 bg-black object-contain"
+              className={`w-full rounded-lg border border-white/10 bg-black object-contain ${shot.state === 'checking' ? 'opacity-70' : ''}`}
               style={{ aspectRatio: `${shot.width} / ${shot.height}` }}
             />
 
-            {shot.state === 'checking' && (
-              <div className="mt-2.5 flex items-center gap-2 text-sm text-white/60">
-                <Spinner /> Checking the photo…
-              </div>
-            )}
-
             {shot.state === 'error' && (
-              <div className="mt-2.5 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-sm text-red-200">
+              <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
                 {shot.error} <button type="button" onClick={() => retake(side)} className="underline font-medium ml-1">Retake</button>
               </div>
             )}
 
             {shot.state === 'done' && shot.review == null && (
-              <div className="mt-2.5 text-xs text-amber-200/80">
-                Couldn’t check this photo automatically — look it over yourself before sending.
+              <div className="mt-2 text-xs text-amber-200/80">
+                Couldn’t check this photo automatically — look it over yourself.
               </div>
             )}
 
             {shot.state === 'done' && shot.review && !shot.review.ok && !shot.accepted && (
-              <div className="mt-2.5 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5">
+              <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5">
                 <div className="text-sm font-semibold text-red-200">A bank may reject this photo:</div>
                 <ul className="mt-1 text-sm text-red-100/90 space-y-0.5">
                   {shot.review.problems.map(p => <li key={p}>• {PROBLEM_TEXT[p] ?? p}</li>)}
@@ -436,26 +500,18 @@ export default function ChecksView() {
             )}
 
             {shot.state === 'done' && side === 'back' && shot.review?.read.endorsed === false && (
-              <div className="mt-2.5 text-xs text-amber-200/80">
+              <div className="mt-2 text-xs text-amber-200/80">
                 The back looks blank — if the bank needs it endorsed, sign or stamp it and retake.
               </div>
             )}
 
             {shot.state === 'done' && (shot.review == null || shot.review.ok || shot.accepted) && (
-              <button type="button" onClick={() => retake(side)} className="mt-2 text-xs text-white/45 hover:text-white/75">
+              <button type="button" onClick={() => retake(side)} className="mt-1.5 text-xs text-white/45 hover:text-white/75">
                 Retake
               </button>
             )}
           </div>
         )}
-
-        {/* capture="environment" opens the rear camera directly on a phone (and is
-            ignored on a desktop). The second input is the plain picker, for a
-            scan or a photo already on the device. */}
-        <input ref={cameraRef[side]} type="file" accept="image/*" capture="environment" className="hidden"
-          onChange={e => { onPhoto(side, e.target.files?.[0]); e.target.value = '' }} />
-        <input ref={pickRef[side]} type="file" accept="image/*" className="hidden"
-          onChange={e => { onPhoto(side, e.target.files?.[0]); e.target.value = '' }} />
       </div>
     )
   }
@@ -503,8 +559,54 @@ export default function ChecksView() {
         </main>
       )}
 
-      {tab === 'send' && !sent && (
+      {tab === 'send' && !sent && !front && !back && (
+        <main className="max-w-md mx-auto px-4 md:px-6 py-8">
+          <div className="rounded-2xl border border-white/10 bg-gray-900/60 p-6 text-center">
+            <div className="mx-auto w-48 aspect-[2.2/1] rounded-lg border-[3px] border-[#f97316] bg-black flex items-center justify-center">
+              <div className="w-[82%] h-[70%] rounded-sm bg-[#e8e4d8] relative">
+                <div className="absolute left-2 top-2 w-10 h-1 bg-black/40" />
+                <div className="absolute right-2 top-4 w-6 h-3 border-2 border-black/40" />
+                <div className="absolute left-2 bottom-2 w-24 h-1 bg-black/30" />
+              </div>
+            </div>
+            <h2 className="text-lg font-bold mt-5">Photograph the check</h2>
+            <p className="text-sm text-white/55 mt-1.5 leading-relaxed">
+              Front first, then the back. Lay it flat on something dark, turn your phone sideways and
+              line it up in the orange frame. Hub reads the customer, amount and check number for you.
+            </p>
+            {portraitSide === 'front' && (
+              <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100 text-left">
+                ↻ That photo was taken upright. <b>Turn your phone sideways</b> and take it again — a bank needs it horizontal.
+              </div>
+            )}
+            {error && (
+              <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-sm text-red-200 text-left">{error}</div>
+            )}
+            <button type="button" onClick={() => openCamera('front', true)}
+              className="mt-5 w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] text-base font-semibold">
+              📷 Start
+            </button>
+            <button type="button" onClick={() => pickRef.front.current?.click()}
+              className="mt-2 w-full text-xs text-white/40 hover:text-white/70 py-1.5">
+              or choose photos you already have
+            </button>
+          </div>
+        </main>
+      )}
+
+      {tab === 'send' && !sent && (front || back) && (
         <main className="max-w-xl mx-auto px-4 md:px-6 py-6 space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {photoStep('front')}
+            {photoStep('back')}
+          </div>
+
+          {front?.state === 'checking' && (
+            <div className="flex items-center gap-2 text-sm text-white/60">
+              <Spinner /> Reading the check…
+            </div>
+          )}
+
           {/* Customer */}
           <div className="relative">
             <label htmlFor="ck-customer" className="block text-sm font-medium text-white/80 mb-1.5">
@@ -513,14 +615,36 @@ export default function ChecksView() {
             <input
               id="ck-customer"
               value={customer}
-              onChange={e => { setCustomer(e.target.value); setContactId(null); setShowHits(true) }}
+              onChange={e => { setCustomer(e.target.value); setContactId(null); setShowHits(true); setAutoFilled(a => ({ ...a, customer: false })) }}
               onFocus={() => setShowHits(true)}
               onBlur={() => setTimeout(() => setShowHits(false), 150)}
-              placeholder="Start typing a name"
+              placeholder={front?.state === 'checking' ? 'Reading the check…' : 'Start typing a name'}
               autoComplete="off"
               className={FIELD}
             />
-            {contactId && <p className="text-xs text-emerald-400/90 mt-1">✓ Linked to their customer file</p>}
+            {contactId && (
+              <p className="text-xs text-emerald-400/90 mt-1">
+                ✓ {autoFilled.customer ? 'Matched to their customer file from the check' : 'Linked to their customer file'}
+              </p>
+            )}
+            {!contactId && matches.length > 0 && (
+              <div className="mt-2">
+                <div className="text-xs text-white/50 mb-1.5">Which customer is it?</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {matches.map(m => (
+                    <button key={m.id} type="button"
+                      onClick={() => { setCustomer(m.name); setContactId(m.id); setAutoFilled(a => ({ ...a, customer: true })) }}
+                      className="text-left px-3 py-1.5 rounded-lg border border-white/15 bg-gray-900 hover:border-brand/60 hover:bg-white/5">
+                      <div className="text-sm text-white">{m.name}</div>
+                      {m.address && <div className="text-[11px] text-white/40">{m.address}</div>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!contactId && matches.length === 0 && autoFilled.customer && (
+              <p className="text-xs text-white/40 mt-1">Read from the check — not found in Contacts. Type to search, or send it as written.</p>
+            )}
             {showHits && hits.length > 0 && (
               <div className="absolute z-20 left-0 right-0 mt-1 rounded-lg border border-white/10 bg-gray-900 shadow-xl overflow-hidden">
                 {hits.map(h => (
@@ -583,10 +707,6 @@ export default function ChecksView() {
             </div>
           )}
 
-          {/* Photos */}
-          {photoStep('front')}
-          {photoStep('back')}
-
           <div>
             <label htmlFor="ck-memo" className="block text-sm font-medium text-white/80 mb-1.5">
               Note <span className="text-white/35 font-normal">(optional)</span>
@@ -600,17 +720,46 @@ export default function ChecksView() {
           )}
 
           <button type="button" onClick={send} disabled={!canSend}
-            className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            className="w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] text-base font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
             {sending && <Spinner />}
-            {sending ? 'Sending…' : `Send${amountCents ? ` ${money(amountCents)}` : ''} to checks and cash`}
+            {sending ? 'Sending…' : `Looks right — send${amountCents ? ` ${money(amountCents)}` : ''}`}
           </button>
           {!canSend && !sending && (
             <p className="text-xs text-white/35 text-center -mt-2">
-              {!customer.trim() ? 'Add the customer.' : !amountCents ? 'Add the amount.'
-                : !front || !back ? 'Take both photos.' : 'Finish the photos above.'}
+              {front?.state === 'checking' || back?.state === 'checking' ? 'Checking the photos…'
+                : !front || !back ? 'Photograph both sides.'
+                : !sideReady(front) || !sideReady(back) ? 'Retake or “use anyway” on the photo above.'
+                : !customer.trim() ? 'Add the customer.' : 'Add the amount.'}
             </p>
           )}
+          <button type="button" onClick={resetForm} className="w-full text-xs text-white/35 hover:text-white/60 -mt-2">
+            Start over
+          </button>
         </main>
+      )}
+
+      {/* The phone's own camera (capture="environment" — ignored on a desktop) and
+          the plain picker, for when the framed camera isn't available or for a
+          scan already on the device. Always mounted, so a re-render while the
+          phone's camera is open can't drop the photo. */}
+      {(['front', 'back'] as const).map(side => (
+        <span key={side} className="hidden">
+          <input ref={cameraRef[side]} type="file" accept="image/*" capture="environment"
+            onChange={e => { onPhoto(side, e.target.files?.[0]); e.target.value = '' }} />
+          <input ref={pickRef[side]} type="file" accept="image/*"
+            onChange={e => { onPhoto(side, e.target.files?.[0]); e.target.value = '' }} />
+        </span>
+      ))}
+
+      {camera && (
+        <CheckCamera
+          key="camera"
+          side={camera.side}
+          onShot={onShot}
+          onClose={() => setCamera(null)}
+          onFallback={onCameraFallback}
+          notice={camera.side === 'back' && shots.front ? '✓ Front done — flip the check over' : undefined}
+        />
       )}
 
       {tab !== 'send' && (
