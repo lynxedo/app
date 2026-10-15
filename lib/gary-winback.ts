@@ -37,6 +37,9 @@ type Admin = SupabaseClient<any, any, any>
 
 export type WinbackChannel = 'text' | 'email' | 'call'
 export type WinbackSkip =
+  | 'gary_waiting'
+  | 'gary_emailed'
+  | 'gary_turned_down'
   | 'pet_waste_only'
   | 'no_service'
   | 'not_gary_service'
@@ -50,6 +53,9 @@ export type WinbackSkip =
   | 'no_way_to_reach'
 
 export const WINBACK_SKIP_LABEL: Record<WinbackSkip, string> = {
+  gary_waiting: 'Gary’s email is waiting for approval',
+  gary_emailed: 'Gary already emailed them',
+  gary_turned_down: 'A person turned down Gary’s email',
   pet_waste_only: 'Pet waste only',
   no_service: 'No service recorded',
   not_gary_service: 'Not a Gary service',
@@ -207,11 +213,17 @@ type Person = {
 
 // ── the builder ────────────────────────────────────────────────────────────
 
-export async function buildWinbackPreview(admin: Admin, companyId: string, settings: GarySettings): Promise<WinbackPreview> {
+export async function buildWinbackPreview(
+  admin: Admin,
+  companyId: string,
+  settings: GarySettings,
+  // At approval time the email being approved must not count as "Gary already wrote".
+  opts: { ignoreQueueId?: string } = {},
+): Promise<WinbackPreview> {
   const now = Date.now()
   const since = new Date(now - settings.recentTouchDays * 86_400_000).toISOString()
 
-  const [leads, quotes, allQuotes, clients, contacts, jobs, suppressions] = await Promise.all([
+  const [leads, quotes, allQuotes, clients, contacts, jobs, suppressions, garyItems] = await Promise.all([
     readAll<LeadRow>('leads', () =>
       admin
         .from('leads')
@@ -267,6 +279,18 @@ export async function buildWinbackPreview(admin: Admin, companyId: string, setti
     readAll<{ email: string }>('email_suppressions', () =>
       admin.from('email_suppressions').select('email').eq('company_id', companyId).order('id'),
     ),
+    // Gary's own emails — waiting, sent, or turned down by a person. Expired,
+    // failed and withdrawn ones don't count: nothing reached the customer.
+    readAll<{ id: string; person_key: string; to_email: string; status: string; sent_at: string | null; decided_at: string | null }>(
+      'gary_queue',
+      () =>
+        admin
+          .from('gary_queue')
+          .select('id, person_key, to_email, status, sent_at, decided_at')
+          .eq('company_id', companyId)
+          .in('status', ['pending', 'sending', 'sent', 'rejected'])
+          .order('id'),
+    ),
   ])
 
   // Indexes
@@ -307,6 +331,21 @@ export async function buildWinbackPreview(admin: Admin, companyId: string, setti
     wonByClient.set(q.client_external_id, [...(wonByClient.get(q.client_external_id) ?? []), q])
   }
   const suppressed = new Set(suppressions.map((s) => em(s.email)).filter(Boolean) as string[])
+  // Strongest state wins: waiting > sent > turned down. Matched by person key AND
+  // by address, so a person whose key changes (a phone added later) is still known.
+  const GARY_RANK: Record<string, number> = { pending: 3, sending: 3, sent: 2, rejected: 1 }
+  const garyByKey = new Map<string, (typeof garyItems)[number]>()
+  const garyByEmail = new Map<string, (typeof garyItems)[number]>()
+  for (const g of garyItems) {
+    if (g.id === opts.ignoreQueueId) continue
+    const k = garyByKey.get(g.person_key)
+    if (!k || GARY_RANK[g.status] > GARY_RANK[k.status]) garyByKey.set(g.person_key, g)
+    const e = em(g.to_email)
+    if (e) {
+      const prev = garyByEmail.get(e)
+      if (!prev || GARY_RANK[g.status] > GARY_RANK[prev.status]) garyByEmail.set(e, g)
+    }
+  }
 
   // ── gather people ──
   const people = new Map<string, Person>()
@@ -512,6 +551,16 @@ export async function buildWinbackPreview(admin: Admin, companyId: string, setti
       row.skip = why
       row.skipDetail = detail
       rows.push(row)
+    }
+
+    const fromKey = garyByKey.get(p.key)
+    const fromEmail = p.email ? garyByEmail.get(p.email) : undefined
+    const gary = [fromKey, fromEmail].filter(Boolean).sort((a, b) => GARY_RANK[b!.status] - GARY_RANK[a!.status])[0]
+    if (gary) {
+      if (gary.status === 'pending' || gary.status === 'sending') skip('gary_waiting')
+      else if (gary.status === 'sent') skip('gary_emailed', shortDate(gary.sent_at))
+      else skip('gary_turned_down', shortDate(gary.decided_at))
+      continue
     }
 
     if (services.length === 0) {

@@ -1,10 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import GaryEmailsSection, { type GaryQueueItem } from './GaryEmailsSection'
 
 // Admin → AI → Gary's account. Gary is the outbound sales agent (PRD in Drive:
 // Reference/PRDs/GARY_OUTBOUND_SALES_PRD.md). Session 1 = his identity, the
-// settings his list reads, and a PREVIEW of who he'd contact — he sends nothing.
+// settings his list reads, and a PREVIEW of who he'd contact. Session 2 = his
+// emails: he writes, an approver approves, it sends from the team mailbox.
 // Settings autosave (Ben: admin toggles autosave) and the list rebuilds after.
 
 type Channel = 'text' | 'email' | 'call'
@@ -26,7 +28,12 @@ type Row = {
 type Payload = {
   bot: { id: string; name: string; hasAvatar: boolean } | null
   signature: string
-  settings: { services: string[]; recentTouchDays: number }
+  settings: { services: string[]; recentTouchDays: number; approverIds: string[]; dailyEmailCap: number }
+  people: { id: string; name: string }[]
+  isApprover: boolean
+  sentToday: number
+  pending: GaryQueueItem[]
+  recent: GaryQueueItem[]
   serviceChoices: { key: string; label: string }[]
   skipLabels: Record<string, string>
   preview: {
@@ -121,6 +128,20 @@ export default function GaryAccountPanel() {
     void save({ services: next })
   }
 
+  function toggleApprover(id: string) {
+    if (!data) return
+    const cur = data.settings.approverIds
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+    setData({ ...data, settings: { ...data.settings, approverIds: next } })
+    void save({ approverIds: next })
+  }
+
+  function setCap(n: number) {
+    if (!data) return
+    setData({ ...data, settings: { ...data.settings, dailyEmailCap: n } })
+    void save({ dailyEmailCap: n })
+  }
+
   function setDays(n: number) {
     if (!data) return
     setData({ ...data, settings: { ...data.settings, recentTouchDays: n } })
@@ -204,9 +225,9 @@ export default function GaryAccountPanel() {
       </div>
 
       <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-100/90">
-        <strong className="text-white">Gary doesn&apos;t send anything yet.</strong> Below is who he <em>would</em> contact,
-        why, and how. Next up: Gary writes the emails and a person approves each one before it goes out from the team
-        mailbox.
+        <strong className="text-white">Nothing goes out without a person.</strong> Gary writes each email; an approver reads
+        it, edits it if they like, and taps <em>Approve &amp; send</em>. It then goes out from the team mailbox. Texts and
+        follow-up emails come later.
       </div>
 
       {loadErr && <p className="text-xs text-red-400">{loadErr}</p>}
@@ -217,6 +238,67 @@ export default function GaryAccountPanel() {
           {!data.bot && (
             <p className="text-xs text-amber-300/80">This company has no Gary user in the Hub yet.</p>
           )}
+
+          <GaryEmailsSection
+            pending={data.pending}
+            recent={data.recent}
+            isApprover={data.isApprover}
+            sentToday={data.sentToday}
+            dailyCap={data.settings.dailyEmailCap}
+            serviceLabel={serviceLabel}
+            hasBot={Boolean(data.bot)}
+            readyByEmail={data.preview.counts.byChannel.email}
+            onChanged={async () => {
+              setLoading(true)
+              await load()
+            }}
+          />
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-white/70">Who approves Gary&apos;s emails</p>
+            {data.people.length === 0 ? (
+              <p className="text-xs text-white/40">No one with AI admin access yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {data.people.map((p) => {
+                  const on = data.settings.approverIds.includes(p.id)
+                  return (
+                    <label
+                      key={p.id}
+                      className={`flex items-center gap-2 text-sm rounded-lg border px-2.5 py-1 cursor-pointer ${on ? 'border-brand/60 text-white' : 'border-white/10 text-white/50'}`}
+                    >
+                      <input type="checkbox" checked={on} onChange={() => toggleApprover(p.id)} className="accent-brand" />
+                      {p.name}
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+            <p className="text-xs text-white/40">
+              Only people with AI admin access can be picked. With nobody ticked, company admins approve.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-white/70">Daily limit</p>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-white/80">
+              Gary sends at most
+              <select
+                value={data.settings.dailyEmailCap}
+                onChange={(e) => setCap(Number(e.target.value))}
+                className="bg-transparent border border-white/15 rounded px-2 py-1 text-sm"
+              >
+                {[...new Set([5, 10, 20, 30, 50, data.settings.dailyEmailCap])]
+                  .sort((a, b) => a - b)
+                  .map((n) => (
+                    <option key={n} value={n} className="bg-gray-900">
+                      {n}
+                    </option>
+                  ))}
+              </select>
+              emails a day from the team mailbox
+            </div>
+          </div>
 
           <div className="space-y-2">
             <p className="text-xs font-medium text-white/70">What Gary may sell</p>
