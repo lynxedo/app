@@ -122,6 +122,7 @@ export async function GET(
     ...notes.map((n) => n.created_by),
     ...events.map((e) => e.actor_user_id),
     ...events.map((e) => e.target_user_id),
+    ...messages.map((m) => (m as { sent_by_user_id?: string | null }).sent_by_user_id ?? null),
   ])
 
   // The caller's own in-progress reply draft for this thread (resume support).
@@ -139,7 +140,12 @@ export async function GET(
   return NextResponse.json({
     thread: { ...thread, assignee_name: thread.assigned_to_user_id ? names[thread.assigned_to_user_id] || null : null },
     customer,
-    messages,
+    // Who on the team sent each outbound message from Hub — the reader names the
+    // person, not just the shared mailbox.
+    messages: messages.map((m) => {
+      const by = (m as { sent_by_user_id?: string | null }).sent_by_user_id
+      return { ...m, sent_by_name: by ? names[by] || null : null }
+    }),
     myDraft,
     members: members.map((m) => ({ ...m, display_name: names[m.user_id] || null })),
     notes: notes.map((n) => ({ ...n, created_by_name: n.created_by ? names[n.created_by] || null : null })),

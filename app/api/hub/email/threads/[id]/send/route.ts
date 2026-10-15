@@ -81,22 +81,25 @@ export async function POST(
 
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status || 502 })
 
+  // Replying to an unclaimed shared thread claims it for the sender — an answered
+  // thread must not sit in the Queue looking untouched. Scheduled replies count too
+  // (the thread is handled). Never takes a thread someone already holds: the update
+  // is conditional on it still being unassigned, so a race with a Claim can't steal it.
+  const claimed =
+    threadRow.is_shared && !threadRow.assigned_to_user_id && perms.canClaim
+      ? await claimOnReply(admin, id, threadRow.company_id, user.id)
+      : false
+
   // Scheduled: nothing has been sent yet — skip the "reply sent" fan-out.
   if (result.scheduled) {
-    return NextResponse.json({ ok: true, scheduled: true, scheduledAt: result.scheduledAt })
+    if (claimed) after(() => broadcastUpdate(admin, threadRow.company_id, id))
+    return NextResponse.json({ ok: true, scheduled: true, scheduledAt: result.scheduledAt, claimed })
   }
 
   const companyId = threadRow.company_id
   after(async () => {
     // Realtime nudge for anyone watching the shared inbox.
-    try {
-      const ch = admin.channel('inbox:' + companyId)
-      await ch.subscribe()
-      await ch.send({ type: 'broadcast', event: 'update', payload: { thread_id: id } })
-      await admin.removeChannel(ch)
-    } catch (err) {
-      console.warn('[inbox:send] broadcast failed', err)
-    }
+    await broadcastUpdate(admin, companyId, id)
 
     // Notify collaborators (assignee + members) other than the sender that a reply went out.
     if (threadRow.is_shared) {
@@ -130,5 +133,53 @@ export async function POST(
     }
   })
 
-  return NextResponse.json({ ok: true, messageId: result.messageId })
+  return NextResponse.json({ ok: true, messageId: result.messageId, claimed })
+}
+
+type AdminClient = ReturnType<typeof createAdminClient>
+
+/** Seat the sender as owner — the same rows POST /claim writes. Returns whether it claimed. */
+async function claimOnReply(admin: AdminClient, threadId: string, companyId: string, userId: string) {
+  try {
+    const { data: rows, error } = await admin
+      .from('inbox_threads')
+      .update({ assigned_to_user_id: userId, status: 'assigned', updated_at: new Date().toISOString() })
+      .eq('id', threadId)
+      .is('assigned_to_user_id', null)
+      .neq('status', 'closed')
+      .select('id')
+    if (error || !rows || rows.length === 0) return false
+
+    await admin.from('inbox_thread_members').delete().eq('thread_id', threadId).eq('role', 'owner')
+    await admin.from('inbox_thread_members').delete().eq('thread_id', threadId).eq('user_id', userId)
+    await admin.from('inbox_thread_members').insert({
+      thread_id: threadId,
+      user_id: userId,
+      role: 'owner',
+      added_by: userId,
+    })
+    await admin.from('inbox_thread_events').insert({
+      company_id: companyId,
+      thread_id: threadId,
+      event_type: 'claimed',
+      actor_user_id: userId,
+      target_user_id: userId,
+      detail: { via: 'reply' },
+    })
+    return true
+  } catch (err) {
+    console.warn('[inbox:send] claim-on-reply failed', err)
+    return false
+  }
+}
+
+async function broadcastUpdate(admin: AdminClient, companyId: string, threadId: string) {
+  try {
+    const ch = admin.channel('inbox:' + companyId)
+    await ch.subscribe()
+    await ch.send({ type: 'broadcast', event: 'update', payload: { thread_id: threadId } })
+    await admin.removeChannel(ch)
+  } catch (err) {
+    console.warn('[inbox:send] broadcast failed', err)
+  }
 }

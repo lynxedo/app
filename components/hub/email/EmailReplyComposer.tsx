@@ -407,7 +407,9 @@ export default function EmailReplyComposer({
     const originalHtml =
       referenceMessage.body_html ||
       textToHtmlParagraphs(referenceMessage.body_text || referenceMessage.snippet || '')
-    return `${finalizeEmailHtml(topHtml)}${header}${hr}${originalHtml}`
+    // The wrapper marks where the quoted history starts, so our own reader can
+    // tuck it behind ••• (see prepareEmailHtml's QUOTE_START_SELECTORS).
+    return `${finalizeEmailHtml(topHtml)}<div class="lynxedo_quote">${header}${hr}${originalHtml}</div>`
   }
 
   function buildOutboundText(topText: string): string {
