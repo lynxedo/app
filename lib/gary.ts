@@ -48,6 +48,8 @@ export type GarySettings = {
   dailyEmailCap: number
   /** Off = nothing reaches a real customer (tests still go to the approver). */
   customerSending: boolean
+  /** Days after the FIRST message that follow-up 2 and the last try (3) are due. */
+  followUpDays: [number, number]
 }
 
 const DEFAULTS: GarySettings = {
@@ -57,6 +59,15 @@ const DEFAULTS: GarySettings = {
   approverIds: [],
   dailyEmailCap: 20,
   customerSending: false,
+  followUpDays: [7, 21],
+}
+
+/** [follow-up 2, last try] in days after the first message; null if invalid. */
+function cleanFollowUpDays(v: unknown): [number, number] | null {
+  if (!Array.isArray(v) || v.length !== 2) return null
+  const [a, b] = v.map((x) => Math.round(Number(x)))
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a < 1 || a > 60 || b <= a || b > 90) return null
+  return [a, b]
 }
 
 function cleanServices(v: unknown): GaryService[] {
@@ -67,7 +78,7 @@ function cleanServices(v: unknown): GaryService[] {
 export async function getGarySettings(admin: Admin, companyId: string): Promise<GarySettings> {
   const { data, error } = await admin
     .from('gary_settings')
-    .select('bot_user_id, services, recent_touch_days, approver_ids, daily_email_cap, customer_sending')
+    .select('bot_user_id, services, recent_touch_days, approver_ids, daily_email_cap, customer_sending, follow_up_days')
     .eq('company_id', companyId)
     .maybeSingle()
   if (error) throw new Error(`gary_settings: ${error.message}`)
@@ -79,6 +90,7 @@ export async function getGarySettings(admin: Admin, companyId: string): Promise<
     approverIds: Array.isArray(data.approver_ids) ? data.approver_ids : [],
     dailyEmailCap: Number.isFinite(data.daily_email_cap) ? data.daily_email_cap : DEFAULTS.dailyEmailCap,
     customerSending: data.customer_sending === true,
+    followUpDays: cleanFollowUpDays(data.follow_up_days) ?? DEFAULTS.followUpDays,
   }
 }
 
@@ -86,7 +98,14 @@ export async function saveGarySettings(
   admin: Admin,
   companyId: string,
   userId: string,
-  patch: { services?: unknown; recentTouchDays?: unknown; approverIds?: string[]; dailyEmailCap?: unknown; customerSending?: unknown },
+  patch: {
+    services?: unknown
+    recentTouchDays?: unknown
+    approverIds?: string[]
+    dailyEmailCap?: unknown
+    customerSending?: unknown
+    followUpDays?: unknown
+  },
 ): Promise<void> {
   const row: Record<string, unknown> = { company_id: companyId, updated_at: new Date().toISOString(), updated_by: userId }
   if (patch.services !== undefined) row.services = cleanServices(patch.services)
@@ -96,6 +115,11 @@ export async function saveGarySettings(
     row.recent_touch_days = n
   }
   if (patch.customerSending !== undefined) row.customer_sending = patch.customerSending === true
+  if (patch.followUpDays !== undefined) {
+    const days = cleanFollowUpDays(patch.followUpDays)
+    if (!days) throw new Error('Follow-up days must be 1–60, and the last try later than the first follow-up (up to 90)')
+    row.follow_up_days = days
+  }
   // The route validates approverIds against the people who may approve.
   if (patch.approverIds !== undefined) row.approver_ids = patch.approverIds
   if (patch.dailyEmailCap !== undefined) {

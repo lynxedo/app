@@ -9,6 +9,7 @@ import { useState } from 'react'
 export type GaryQueueItem = {
   id: string
   channel: 'email' | 'text'
+  touch: number
   to_email: string | null
   to_phone: string | null
   to_name: string | null
@@ -77,6 +78,8 @@ export default function GaryEmailsSection({
   hasBot,
   readyByEmail,
   readyByText,
+  followUpsDue,
+  followUpsUpcoming,
   onChanged,
 }: {
   pending: GaryQueueItem[]
@@ -89,12 +92,14 @@ export default function GaryEmailsSection({
   hasBot: boolean
   readyByEmail: number
   readyByText: number
+  followUpsDue: number
+  followUpsUpcoming: number
   onChanged: () => Promise<void>
 }) {
   const [count, setCount] = useState(5)
-  const [channel, setChannel] = useState<'email' | 'text'>('email')
-  const what = channel === 'text' ? 'text' : 'email'
-  const ready = channel === 'text' ? readyByText : readyByEmail
+  const [channel, setChannel] = useState<'email' | 'text' | 'followup'>('email')
+  const what = channel === 'text' ? 'text' : channel === 'followup' ? 'follow-up' : 'email'
+  const ready = channel === 'text' ? readyByText : channel === 'followup' ? followUpsDue : readyByEmail
   const [drafting, setDrafting] = useState(false)
   const [draftMsg, setDraftMsg] = useState('')
   const [showRecent, setShowRecent] = useState(false)
@@ -165,7 +170,7 @@ export default function GaryEmailsSection({
         </select>
         <select
           value={channel}
-          onChange={(e) => setChannel(e.target.value === 'text' ? 'text' : 'email')}
+          onChange={(e) => setChannel(e.target.value === 'text' ? 'text' : e.target.value === 'followup' ? 'followup' : 'email')}
           className="bg-transparent border border-white/15 rounded px-2 py-1 text-sm"
           disabled={drafting}
         >
@@ -174,6 +179,9 @@ export default function GaryEmailsSection({
           </option>
           <option value="text" className="bg-gray-900">
             text{count === 1 ? '' : 's'}
+          </option>
+          <option value="followup" className="bg-gray-900">
+            follow-up{count === 1 ? '' : 's'}
           </option>
         </select>
         <button
@@ -185,13 +193,16 @@ export default function GaryEmailsSection({
           {drafting ? 'Writing…' : 'Write'}
         </button>
         <span className="text-xs text-white/40">
-          {ready} people ready for {channel === 'text' ? 'a text' : 'an email'}
+          {channel === 'followup'
+            ? `${ready} follow-up${ready === 1 ? '' : 's'} due${followUpsUpcoming ? `, ${followUpsUpcoming} coming up` : ''}`
+            : `${ready} people ready for ${channel === 'text' ? 'a text' : 'an email'}`}
         </span>
       </div>
       {draftMsg && <p className="text-xs text-white/60">{draftMsg}</p>}
       <p className="text-xs text-white/40">
         Writing sends nothing. Each message waits here for an approver; ones nobody decides on expire after 7 days.
-        Texts only go to people we&apos;ve texted before from Txt, into that same thread.
+        Texts only go to people we&apos;ve texted before from Txt, into that same thread. Follow-ups go to people who
+        haven&apos;t replied, the same way Gary first reached them (an email follow-up is a reply in the same thread).
       </p>
 
       {flash && <p className="text-xs text-emerald-300/90">{flash}</p>}
@@ -224,7 +235,10 @@ export default function GaryEmailsSection({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm text-white">
                       {r.to_name || r.to_email || r.to_phone}{' '}
-                      <span className="text-white/40 text-xs">· {r.channel === 'text' ? 'Text' : r.subject}</span>
+                      <span className="text-white/40 text-xs">
+                        · {r.channel === 'text' ? 'Text' : r.subject}
+                        {r.touch > 1 ? ` · ${r.touch === 3 ? 'last try' : 'follow-up'}` : ''}
+                      </span>
                     </span>
                     <span className={`text-xs rounded px-2 py-0.5 ${STATUS_STYLE[r.status] ?? 'bg-white/5 text-white/60'}`}>
                       {STATUS_LABEL[r.status] ?? r.status}
@@ -322,6 +336,11 @@ function PendingCard({
     <div className="border border-white/10 rounded-lg p-3 space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm text-white">
+          {item.touch > 1 && (
+            <span className="mr-2 rounded px-1.5 py-0.5 text-[11px] bg-violet-500/15 text-violet-300">
+              {item.touch === 3 ? 'Last try (3 of 3)' : 'Follow-up (2 of 3)'}
+            </span>
+          )}
           {isText ? 'Text to' : 'To'} {item.to_name ? `${item.to_name} ` : ''}
           <span className="text-white/50">{isText ? item.to_phone : `<${item.to_email}>`}</span>
         </p>
@@ -340,7 +359,7 @@ function PendingCard({
           ))}
         </ul>
       )}
-      {!isText && (
+      {!isText && item.touch === 1 && (
       <input
         value={subject}
         onChange={(e) => setSubject(e.target.value)}
