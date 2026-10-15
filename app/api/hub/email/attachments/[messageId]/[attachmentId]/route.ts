@@ -84,7 +84,9 @@ export async function GET(
   const headers = new Headers({
     'Content-Type': contentType,
     'Content-Disposition': contentDisposition(filename),
-    'Cache-Control': 'private, no-store',
+    // An attachment never changes under its id, and pictures pasted into an email
+    // body load from here on every open — let the browser keep its private copy.
+    'Cache-Control': 'private, max-age=86400',
     // Force the browser to honor our Content-Type instead of sniffing the bytes,
     // so a mislabeled attachment can't be reinterpreted as active content.
     'X-Content-Type-Options': 'nosniff',

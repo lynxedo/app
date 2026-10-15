@@ -47,7 +47,14 @@ type NylasMessage = {
   unread?: boolean
   starred?: boolean
   folders?: string[]
-  attachments?: Array<{ id: string; filename?: string; content_type?: string; size?: number; is_inline?: boolean }>
+  attachments?: Array<{
+    id: string
+    filename?: string
+    content_type?: string
+    size?: number
+    is_inline?: boolean
+    content_id?: string
+  }>
 }
 type NylasFolder = {
   id: string
@@ -184,6 +191,7 @@ function mapMessage(m: NylasMessage, selfEmails: Set<string>): MailMessage {
       contentType: a.content_type,
       size: a.size,
       isInline: a.is_inline,
+      contentId: a.content_id,
     })),
     providerFolderIds: m.folders || [],
   }

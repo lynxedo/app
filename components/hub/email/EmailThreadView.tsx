@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { subscribeSharedBroadcast } from '@/lib/realtime-shared-channel'
@@ -11,6 +11,11 @@ import ShareMenu from './ShareMenu'
 import EmailReplyComposer from './EmailReplyComposer'
 import {
   messageTime,
+  dayLabel,
+  fullMessageTime,
+  agoLabel,
+  initials,
+  prepareEmailHtml,
   participantName,
   firstName,
   fileSize,
@@ -20,6 +25,7 @@ import {
   LIGHT_SURFACE_STYLE,
   type ThreadDetail,
   type EmailMessage,
+  type ThreadNote,
   type WaitingState,
   type InboxTag,
 } from './emailFormat'
@@ -128,7 +134,13 @@ export default function EmailThreadView({
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false)
   const [followUpMenuOpen, setFollowUpMenuOpen] = useState(false)
   const [busyAction, setBusyAction] = useState(false)
+  // The internal-note composer at the foot of the conversation (notes themselves
+  // always show in the timeline, at the moment they were written).
   const [showNotes, setShowNotes] = useState(false)
+  const noteComposerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (showNotes) noteComposerRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [showNotes])
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   // Phase 3B — teammates to @mention/notify when this note is posted.
@@ -556,6 +568,27 @@ export default function EmailThreadView({
   const { thread, messages, members, notes, permissions, customer } = detail
   const isClosed = thread.status === 'closed'
   const subject = thread.subject || '(no subject)'
+
+  const allExpanded = messages.length > 0 && messages.every((m) => expanded.has(m.id))
+  function toggleExpandAll() {
+    const last = messages[messages.length - 1]
+    setExpanded(allExpanded ? new Set(last ? [last.id] : []) : new Set(messages.map((m) => m.id)))
+  }
+
+  // One time-ordered conversation: emails and internal notes interleaved, with a
+  // divider wherever the day changes. Notes come back only to people allowed to
+  // read them (RLS), so an empty list simply shows none.
+  type TimelineItem =
+    | { kind: 'message'; at: number; message: EmailMessage }
+    | { kind: 'note'; at: number; note: ThreadNote }
+  const stamp = (iso: string | null | undefined) => {
+    const t = iso ? new Date(iso).getTime() : NaN
+    return Number.isNaN(t) ? 0 : t
+  }
+  const timeline: TimelineItem[] = [
+    ...messages.map((m) => ({ kind: 'message' as const, at: stamp(m.message_date), message: m })),
+    ...notes.map((n) => ({ kind: 'note' as const, at: stamp(n.created_at), note: n })),
+  ].sort((a, b) => a.at - b.at)
   const memberIds = members.map((m) => m.user_id)
 
   // Resolve this thread's applied tag ids → catalog rows for the chips (skip any
@@ -635,6 +668,7 @@ export default function EmailThreadView({
             <div className="text-xs text-gray-500 truncate mt-0.5">
               {participantName(thread.from_name, thread.from_email)}
               {thread.from_email && thread.from_name ? ` · ${thread.from_email}` : ''}
+              {messages.length > 1 ? ` · ${messages.length} messages` : ''}
             </div>
             {/* Customer file — the same jump the Txt thread offers, so a reply
                 can be written with the account's history in reach. Rendered only
@@ -711,45 +745,9 @@ export default function EmailThreadView({
           </div>
         )}
 
-        {/* Action bar */}
+        {/* Action bar — thread handling. Reply / Reply all / Forward live at the
+            foot of the conversation (and on each open message), Gmail-style. */}
         <div className="flex items-center gap-1.5 flex-wrap mt-2">
-          {resumeDraftMode && !isClosed && (
-            <button
-              type="button"
-              onClick={() => setComposerMode(resumeDraftMode)}
-              className="text-xs px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-[#fff] font-medium"
-              title="You have an unsent reply saved on this conversation"
-            >
-              ✎ Resume draft
-            </button>
-          )}
-          {permissions.canReply && !isClosed && (
-            <button
-              type="button"
-              onClick={() => setComposerMode('reply')}
-              className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[#fff] font-medium"
-            >
-              ↩ Reply
-            </button>
-          )}
-          {permissions.canReply && !isClosed && (
-            <button
-              type="button"
-              onClick={() => setComposerMode('reply-all')}
-              className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-700"
-            >
-              ↩↩ Reply All
-            </button>
-          )}
-          {permissions.canReply && (
-            <button
-              type="button"
-              onClick={() => setComposerMode('forward')}
-              className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-700"
-            >
-              ➜ Forward
-            </button>
-          )}
           {permissions.canClaim && !isClosed && thread.assigned_to_user_id !== currentUserId && (
             <button
               type="button"
@@ -821,7 +819,7 @@ export default function EmailThreadView({
                 className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
                 title="Tag this thread (type / outcome)"
               >
-                🏷 Tag ▾
+                🏷 Tags ▾
               </button>
               {tagMenuOpen && (
                 <TagMenu
@@ -956,62 +954,112 @@ export default function EmailThreadView({
                 {firstName(m.display_name)}
               </span>
             ))}
+          {messages.length > 1 && (
+            <button
+              type="button"
+              onClick={toggleExpandAll}
+              className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 ml-auto"
+            >
+              {allExpanded ? 'Collapse all' : 'Expand all'}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Body: message stream + optional notes rail */}
-      <div className="flex-1 flex min-h-0">
-        <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4">
-          <div className="max-w-3xl mx-auto w-full space-y-3">
-            {messages.length === 0 && (
-              <div className="text-center text-gray-400 text-sm py-8">No messages yet.</div>
-            )}
-            {messages.map((m) => (
-              <MessageCard
-                key={m.id}
-                message={m}
-                expanded={expanded.has(m.id)}
-                onToggle={() => toggleExpanded(m.id)}
-              />
-            ))}
-
-            {/* Notes shown inline on mobile (the desktop rail is hidden < md). */}
-            {showNotes && (
-              <div className="md:hidden pt-2">
-                <NotesPanel
-                  notes={notes}
-                  canNote={permissions.canNote}
-                  noteText={noteText}
-                  setNoteText={setNoteText}
-                  onSave={saveNote}
-                  saving={savingNote}
-                  mentionCandidates={mentionCandidates}
-                  mentionIds={mentionIds}
-                  onToggleMention={toggleMention}
-                />
+      {/* Body: one conversation, oldest at the top — earlier emails fold to a single
+          line, the newest is open, and notes sit where they were written. */}
+      <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 min-h-0">
+        <div className="max-w-4xl mx-auto w-full">
+          {messages.length === 0 && (
+            <div className="text-center text-gray-400 text-sm py-8">No messages yet.</div>
+          )}
+          {timeline.map((item, i) => {
+            const prevAt = i > 0 ? timeline[i - 1].at : null
+            const day = item.at ? dayLabel(new Date(item.at).toISOString()) : ''
+            const prevDay = prevAt ? dayLabel(new Date(prevAt).toISOString()) : ''
+            const showDay = !!day && day !== prevDay
+            return (
+              <div key={item.kind === 'message' ? item.message.id : `note-${item.note.id}`}>
+                {showDay && (
+                  <div
+                    className={`flex items-center gap-3 mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 ${
+                      i === 0 ? '' : 'mt-4'
+                    }`}
+                  >
+                    <div className="flex-1 h-px bg-gray-300" />
+                    <span>{day}</span>
+                    <div className="flex-1 h-px bg-gray-300" />
+                  </div>
+                )}
+                {item.kind === 'message' ? (
+                  <MessageCard
+                    message={item.message}
+                    expanded={expanded.has(item.message.id)}
+                    onToggle={() => toggleExpanded(item.message.id)}
+                    onReply={permissions.canReply && !isClosed ? () => setComposerMode('reply') : undefined}
+                  />
+                ) : (
+                  <NoteItem note={item.note} />
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            )
+          })}
 
-        {showNotes && (
-          <div className="hidden md:flex flex-col w-72 border-l border-gray-200 bg-white min-h-0">
-            <div className="px-3 py-2 border-b border-gray-200 text-xs text-amber-700 bg-amber-50">
-              Internal notes (not sent to the customer)
+          {/* Reply bar — Gmail-style, at the foot of the conversation. */}
+          {(permissions.canReply || permissions.canNote) && (
+            <div className="flex flex-wrap items-center gap-2 mt-4">
+              {resumeDraftMode && !isClosed && (
+                <button
+                  type="button"
+                  onClick={() => setComposerMode(resumeDraftMode)}
+                  className="inline-flex items-center gap-2 min-h-[40px] px-4 rounded-full bg-amber-500 hover:bg-amber-400 text-[#fff] text-sm font-medium"
+                  title="You have an unsent reply saved on this conversation"
+                >
+                  ✎ Resume draft
+                </button>
+              )}
+              {permissions.canReply && !isClosed && (
+                <ReplyPill label="Reply" icon="reply" onClick={() => setComposerMode('reply')} />
+              )}
+              {permissions.canReply && !isClosed && (
+                <ReplyPill label="Reply all" icon="reply-all" onClick={() => setComposerMode('reply-all')} />
+              )}
+              {permissions.canReply && (
+                <ReplyPill label="Forward" icon="forward" onClick={() => setComposerMode('forward')} />
+              )}
+              {permissions.canNote && (
+                <button
+                  type="button"
+                  onClick={() => setShowNotes((v) => !v)}
+                  className={`inline-flex items-center gap-2 min-h-[40px] px-4 rounded-full border text-sm ${
+                    showNotes
+                      ? 'bg-amber-100 border-amber-300 text-amber-900'
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Add internal note
+                </button>
+              )}
             </div>
-            <NotesPanel
-              notes={notes}
-              canNote={permissions.canNote}
-              noteText={noteText}
-              setNoteText={setNoteText}
-              onSave={saveNote}
-              saving={savingNote}
-              mentionCandidates={mentionCandidates}
-              mentionIds={mentionIds}
-              onToggleMention={toggleMention}
-            />
-          </div>
-        )}
+          )}
+          {permissions.canReply && permissions.canClaim && !thread.assigned_to_user_id && (
+            <p className="mt-2 text-xs text-gray-500">Replying claims this conversation for you, so it leaves the Queue.</p>
+          )}
+
+          {showNotes && permissions.canNote && (
+            <div className="mt-3" ref={noteComposerRef}>
+              <NoteComposer
+                noteText={noteText}
+                setNoteText={setNoteText}
+                onSave={saveNote}
+                saving={savingNote}
+                mentionCandidates={mentionCandidates}
+                mentionIds={mentionIds}
+                onToggleMention={toggleMention}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Quiet footer when no reply action is visible in the action bar at all. */}
@@ -1079,128 +1127,321 @@ function EmailBodyFrame({ html }: { html: string }) {
   )
 }
 
-/** A single email message — collapsible header + sandboxed body + attachments. */
+// Avatar colors are inline hex, not Tailwind classes: the Hub themes remap the
+// Tailwind palette, and these two must read the same on every theme.
+const TEAM_AVATAR = '#1f7a55'
+const CUSTOMER_AVATAR = '#2f5fb3'
+
+function recipientNames(list: EmailMessage['to_recipients'] | null | undefined): string {
+  return (list || [])
+    .map((r) => (r.name || '').trim() || r.email)
+    .filter(Boolean)
+    .join(', ')
+}
+
+function recipientFull(list: EmailMessage['to_recipients'] | null | undefined): string {
+  return (list || [])
+    .map((r) => ((r.name || '').trim() ? `${r.name!.trim()} <${r.email}>` : r.email))
+    .filter(Boolean)
+    .join(', ')
+}
+
+/**
+ * One email in the conversation, Gmail-style. Closed: a single line (who, the
+ * first words, when). Open: sender + "to …" (tap for the full From/To/Cc/Date),
+ * the body with any quoted earlier messages tucked behind •••, and attachments.
+ */
 function MessageCard({
   message,
   expanded,
   onToggle,
+  onReply,
 }: {
   message: EmailMessage
   expanded: boolean
   onToggle: () => void
+  onReply?: () => void
 }) {
+  const [showQuoted, setShowQuoted] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
+
   const isOutbound = message.direction === 'outbound'
   const who = isOutbound
-    ? message.from_name || 'You'
+    ? message.sent_by_name || message.from_name || 'Our team'
     : participantName(message.from_name, message.from_email)
-  const toLine = (message.to_recipients || [])
-    .map((r) => r.name || r.email)
-    .filter(Boolean)
-    .join(', ')
+  const toNames = recipientNames(message.to_recipients)
+  const ccNames = recipientNames(message.cc_recipients)
+  const toLine = [toNames && `to ${toNames}`, ccNames && `cc ${ccNames}`].filter(Boolean).join(', ')
 
-  return (
-    <div
-      className={`rounded-lg border overflow-hidden transition-shadow ${
-        expanded
-          ? `shadow-sm ${isOutbound ? 'border-emerald-200 bg-emerald-50/60' : 'border-gray-200 bg-white'}`
-          : `${isOutbound ? 'border-emerald-100 bg-emerald-50/25' : 'border-gray-100 bg-gray-50/60'}`
-      }`}
+  // Prepared only once the message is open (DOM parse of the body).
+  const prepared = useMemo(
+    () => (expanded && message.body_html ? prepareEmailHtml(message.body_html, message.id, message.attachments) : null),
+    [expanded, message.body_html, message.id, message.attachments]
+  )
+  const embedded = new Set(prepared?.embeddedAttachmentIds || [])
+  const chips = (message.attachments || []).filter((a) => !embedded.has(a.id))
+  const hasFileAttachment = (message.attachments || []).some((a) => !a.isInline)
+
+  const avatar = (size: number) => (
+    <span
+      aria-hidden
+      className="flex-none rounded-full flex items-center justify-center font-semibold text-[#fff]"
+      style={{
+        width: size,
+        height: size,
+        fontSize: size >= 40 ? 14 : 12,
+        background: isOutbound ? TEAM_AVATAR : CUSTOMER_AVATAR,
+      }}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-gray-100/70 cursor-pointer"
-      >
-        <span
-          aria-hidden
-          className={`flex-none text-gray-300 text-[10px] pt-1 transition-transform duration-150 ${
-            expanded ? 'rotate-90 text-gray-400' : ''
-          }`}
+      {initials(who)}
+    </span>
+  )
+
+  if (!expanded) {
+    return (
+      <div className="mb-2 rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={false}
+          className="w-full text-left flex items-center gap-3 px-4 py-2.5 min-h-[52px] hover:bg-gray-50 cursor-pointer"
         >
-          ▶
-        </span>
-        <div className="min-w-0 flex-1 flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="text-sm font-medium truncate text-gray-900">
-              {isOutbound && <span className="text-emerald-600">↩ </span>}
+          {avatar(32)}
+          <span className="flex-none w-36 sm:w-44 truncate text-sm font-semibold text-gray-900">{who}</span>
+          <span className="flex-1 min-w-0 truncate text-sm text-gray-500">{message.snippet || ''}</span>
+          {hasFileAttachment && (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-none text-gray-400" role="img" aria-label="Has attachment">
+              <path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" />
+            </svg>
+          )}
+          <span className="flex-none text-xs text-gray-500 whitespace-nowrap">{messageTime(message.message_date)}</span>
+        </button>
+      </div>
+    )
+  }
+
+  const ago = agoLabel(message.message_date)
+  return (
+    <article className="mb-2 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-start gap-3 px-4 pt-4">
+        {avatar(40)}
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded
+              title="Fold this message"
+              className="text-[15px] font-semibold text-gray-900 hover:underline cursor-pointer"
+            >
               {who}
-              {message.from_email && !isOutbound && (
-                <span className="text-gray-400 font-normal"> · {message.from_email}</span>
-              )}
-            </div>
-            {toLine && <div className="text-[11px] text-gray-400 truncate">to {toLine}</div>}
-            {!expanded && message.snippet && (
-              <div className="text-[11px] text-gray-400 truncate mt-0.5">{message.snippet}</div>
+            </button>
+            {message.from_email && (
+              <span className="text-xs text-gray-500 truncate">&lt;{message.from_email}&gt;</span>
+            )}
+            {isOutbound && (
+              <span className="text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                TEAM
+              </span>
             )}
           </div>
-          <span className="text-[10px] text-gray-400 flex-none whitespace-nowrap">
-            {messageTime(message.message_date)}
+          {toLine && (
+            <button
+              type="button"
+              onClick={() => setShowDetails((v) => !v)}
+              aria-expanded={showDetails}
+              className="mt-0.5 inline-flex items-center gap-1 max-w-full text-xs text-gray-500 hover:text-gray-800"
+            >
+              <span className="truncate">{toLine}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`flex-none transition-transform ${showDetails ? 'rotate-180' : ''}`}>
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+          )}
+          {showDetails && (
+            <dl className="mt-2 max-w-lg grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg border border-gray-200 px-3 py-2 text-xs">
+              <dt className="text-gray-500">From</dt>
+              <dd className="text-gray-900 break-words">
+                {message.from_name ? `${message.from_name} <${message.from_email || ''}>` : message.from_email}
+              </dd>
+              <dt className="text-gray-500">To</dt>
+              <dd className="text-gray-900 break-words">{recipientFull(message.to_recipients) || '—'}</dd>
+              {ccNames && (
+                <>
+                  <dt className="text-gray-500">Cc</dt>
+                  <dd className="text-gray-900 break-words">{recipientFull(message.cc_recipients)}</dd>
+                </>
+              )}
+              <dt className="text-gray-500">Date</dt>
+              <dd className="text-gray-900">{fullMessageTime(message.message_date)}</dd>
+              {isOutbound && message.sent_by_name && (
+                <>
+                  <dt className="text-gray-500">Sent by</dt>
+                  <dd className="text-gray-900">{message.sent_by_name}, from Hub</dd>
+                </>
+              )}
+            </dl>
+          )}
+        </div>
+        <div className="flex-none flex items-center gap-1">
+          <span className="hidden sm:inline text-xs text-gray-500 whitespace-nowrap">
+            {fullMessageTime(message.message_date)}
+            {ago ? ` (${ago})` : ''}
           </span>
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="px-3 pb-3">
-          {message.body_html ? (
-            // Untrusted external HTML — locked-down sandbox (scripts blocked). Auto-sizes
-            // to content so there's no empty box / no box-in-a-box scroll. See EmailBodyFrame.
-            <EmailBodyFrame html={message.body_html} />
-          ) : (
-            <div className="text-sm text-gray-800 whitespace-pre-wrap break-words">
-              {message.snippet || '(no content)'}
-            </div>
-          )}
-
-          {message.attachments?.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {message.attachments.map((raw) => {
-                const a = attachmentMeta(raw)
-                // A just-sent outbound attachment can still be keyed by its R2 staging
-                // key (contains slashes) until the next sync re-mirrors it with the
-                // provider id — that isn't downloadable via the [messageId]/[attachmentId]
-                // route, so show a non-clickable chip instead of a link that 404s.
-                const downloadable = !!a.id && !a.id.includes('/')
-                const inner = (
-                  <>
-                    <span aria-hidden>📎</span>
-                    <span className="max-w-[160px] truncate">{a.filename}</span>
-                    <span className="text-gray-400">{fileSize(a.size)}</span>
-                  </>
-                )
-                return downloadable ? (
-                  <a
-                    key={a.id}
-                    href={`/api/hub/email/attachments/${message.id}/${encodeURIComponent(a.id)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-50 border border-gray-200 text-[11px] text-gray-700 hover:bg-gray-100 hover:border-gray-300"
-                    title={`${a.filename}${a.contentType ? ` · ${a.contentType}` : ''}`}
-                  >
-                    {inner}
-                  </a>
-                ) : (
-                  <span
-                    key={a.id || a.filename}
-                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-50 border border-gray-200 text-[11px] text-gray-400"
-                    title="Available once this message finishes syncing"
-                  >
-                    {inner}
-                  </span>
-                )
-              })}
-            </div>
+          {onReply && (
+            <button
+              type="button"
+              onClick={onReply}
+              aria-label="Reply"
+              title="Reply"
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-gray-600 hover:bg-gray-100"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M9 14L4 9l5-5" />
+                <path d="M4 9h11a5 5 0 0 1 5 5v6" />
+              </svg>
+            </button>
           )}
         </div>
-      )}
+      </div>
+      <div className="sm:hidden px-4 pt-1 text-xs text-gray-500">
+        {fullMessageTime(message.message_date)}
+        {ago ? ` (${ago})` : ''}
+      </div>
+
+      <div className="px-4 sm:pl-[68px] pr-4 pt-3 pb-4">
+        {prepared ? (
+          // Untrusted external HTML — locked-down sandbox (scripts blocked). Auto-sizes
+          // to content so there's no empty box / no box-in-a-box scroll. See EmailBodyFrame.
+          <EmailBodyFrame html={showQuoted || !prepared.trimmed ? prepared.full : prepared.trimmed} />
+        ) : (
+          <div className="text-sm text-gray-800 whitespace-pre-wrap break-words">
+            {message.body_text || message.snippet || '(no content)'}
+          </div>
+        )}
+
+        {prepared?.trimmed && (
+          <button
+            type="button"
+            onClick={() => setShowQuoted((v) => !v)}
+            aria-expanded={showQuoted}
+            aria-label={showQuoted ? 'Hide the earlier messages quoted in this email' : 'Show the earlier messages quoted in this email'}
+            title={showQuoted ? 'Hide trimmed content' : 'Show trimmed content'}
+            className="mt-2 h-6 px-2.5 rounded-md border border-gray-300 bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm leading-none tracking-widest"
+          >
+            •••
+          </button>
+        )}
+
+        {chips.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            {chips.map((raw) => {
+              const a = attachmentMeta(raw)
+              // A just-sent outbound attachment can still be keyed by its R2 staging
+              // key (contains slashes) until the next sync re-mirrors it with the
+              // provider id — that isn't downloadable via the [messageId]/[attachmentId]
+              // route, so show a non-clickable chip instead of a link that 404s.
+              const downloadable = !!a.id && !a.id.includes('/')
+              const inner = (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="flex-none text-gray-500">
+                    <path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" />
+                  </svg>
+                  <span className="max-w-[200px] truncate font-medium">{a.filename}</span>
+                  <span className="text-gray-500">{fileSize(a.size)}</span>
+                </>
+              )
+              return downloadable ? (
+                <a
+                  key={a.id}
+                  href={`/api/hub/email/attachments/${message.id}/${encodeURIComponent(a.id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-800 hover:bg-gray-50 hover:border-gray-300"
+                  title={`${a.filename}${a.contentType ? ` · ${a.contentType}` : ''}`}
+                >
+                  {inner}
+                </a>
+              ) : (
+                <span
+                  key={a.id || a.filename}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-400"
+                  title="Available once this message finishes syncing"
+                >
+                  {inner}
+                </span>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </article>
+  )
+}
+
+/** An internal note, in the conversation where it was written. */
+function NoteItem({ note }: { note: ThreadNote }) {
+  return (
+    <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-dashed border-amber-400 bg-amber-50 px-4 py-2.5">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="flex-none mt-0.5 text-amber-800">
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      </svg>
+      <div className="min-w-0">
+        <div className="text-xs text-amber-900">
+          <strong>{note.created_by_name || 'Someone'}</strong> left an internal note · {messageTime(note.created_at)} ·{' '}
+          <em>the customer never sees this</em>
+        </div>
+        <div className="mt-0.5 text-sm text-gray-900 whitespace-pre-wrap break-words">{note.body}</div>
+      </div>
     </div>
   )
 }
 
-/** Internal-notes list + composer (shared between the desktop rail + mobile). */
-function NotesPanel({
-  notes,
-  canNote,
+/** Reply / Reply all / Forward pill at the foot of the conversation. */
+function ReplyPill({
+  label,
+  icon,
+  onClick,
+}: {
+  label: string
+  icon: 'reply' | 'reply-all' | 'forward'
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-2 min-h-[40px] px-4 rounded-full border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-800"
+    >
+      <svg width={icon === 'reply-all' ? 18 : 16} height="16" viewBox={icon === 'reply-all' ? '0 0 28 24' : '0 0 24 24'} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        {icon === 'reply' && (
+          <>
+            <path d="M9 14L4 9l5-5" />
+            <path d="M4 9h11a5 5 0 0 1 5 5v6" />
+          </>
+        )}
+        {icon === 'reply-all' && (
+          <>
+            <path d="M13 14L8 9l5-5" />
+            <path d="M8 14L3 9l5-5" />
+            <path d="M8 9h11a5 5 0 0 1 5 5v6" />
+          </>
+        )}
+        {icon === 'forward' && (
+          <>
+            <path d="M15 14l5-5-5-5" />
+            <path d="M20 9H9a5 5 0 0 0-5 5v6" />
+          </>
+        )}
+      </svg>
+      {label}
+    </button>
+  )
+}
+
+/** The internal-note composer (staff only), opened from "Add internal note". */
+function NoteComposer({
   noteText,
   setNoteText,
   onSave,
@@ -1209,8 +1450,6 @@ function NotesPanel({
   mentionIds,
   onToggleMention,
 }: {
-  notes: ThreadDetail['notes']
-  canNote: boolean
   noteText: string
   setNoteText: (v: string) => void
   onSave: () => void
@@ -1220,45 +1459,27 @@ function NotesPanel({
   onToggleMention: (id: string) => void
 }) {
   return (
-    <>
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-        {notes.length === 0 && <div className="text-xs text-gray-400">No notes yet.</div>}
-        {notes.map((n) => (
-          <div key={n.id} className="bg-amber-50 border border-amber-200 rounded-md p-2">
-            <div className="text-xs whitespace-pre-wrap break-words text-gray-800">{n.body}</div>
-            <div className="text-[10px] text-gray-400 mt-1">
-              {firstName(n.created_by_name) || 'Someone'} · {messageTime(n.created_at)}
-            </div>
-          </div>
-        ))}
-      </div>
-      {canNote && (
-        <div className="p-2 border-t border-gray-200 space-y-2 bg-white">
-          {/* Phase 3B — @mention teammates to notify when this note posts. */}
-          <MentionField
-            candidates={mentionCandidates}
-            selectedIds={mentionIds}
-            onToggle={onToggleMention}
-          />
-          <textarea
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="Add a note (staff only)…"
-            rows={2}
-            className="w-full px-2 py-1.5 rounded-md bg-white border border-gray-300 text-xs text-gray-900 placeholder-gray-400 resize-none focus:outline-none focus:border-gray-400"
-            style={{ fontSize: 16 }}
-          />
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={!noteText.trim() || saving}
-            className="w-full px-2 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-[#fff] text-xs disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Save note'}
-          </button>
-        </div>
-      )}
-    </>
+    <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2">
+      <div className="text-xs text-amber-900">Internal note — only your team sees this, never the customer.</div>
+      {/* Phase 3B — @mention teammates to notify when this note posts. */}
+      <MentionField candidates={mentionCandidates} selectedIds={mentionIds} onToggle={onToggleMention} />
+      <textarea
+        value={noteText}
+        onChange={(e) => setNoteText(e.target.value)}
+        placeholder="Add a note (staff only)…"
+        rows={3}
+        className="w-full px-3 py-2 rounded-lg bg-white border border-amber-200 text-gray-900 placeholder-gray-400 resize-y focus:outline-none focus:border-amber-400"
+        style={{ fontSize: 16 }}
+      />
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={!noteText.trim() || saving}
+        className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-[#fff] text-sm font-medium disabled:opacity-50"
+      >
+        {saving ? 'Saving…' : 'Save note'}
+      </button>
+    </div>
   )
 }
 

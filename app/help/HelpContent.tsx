@@ -1607,11 +1607,22 @@ function InboxTab() {
 
       <Section title="Handling an email">
         <Step n={1}>Open a thread. If it&apos;s in the Queue, tap <strong className="text-white">Claim</strong> to take it — or <strong className="text-white">Assign</strong> it to a teammate (managers).</Step>
-        <Step n={2}>Reply and tap <strong className="text-white">Send</strong>. It goes out as the shared mailbox with your signature (set yours in <strong className="text-white">Settings → Account → Email Inbox</strong>). Use <strong className="text-white">Reply All</strong> or <strong className="text-white">Forward</strong> from the action bar as needed.</Step>
+        <Step n={2}>Tap <strong className="text-white">Reply</strong>, <strong className="text-white">Reply all</strong> or <strong className="text-white">Forward</strong> at the bottom of the conversation (or the reply arrow on an open message), then <strong className="text-white">Send</strong>. It goes out as the shared mailbox with your signature (set yours in <strong className="text-white">Settings → Account → Email Inbox</strong>). <strong className="text-white">Replying to an unclaimed email claims it for you</strong>, so it leaves the Queue — it never takes an email a teammate already has.</Step>
         <Step n={3}>When it&apos;s handled, tap <strong className="text-white">Close</strong>. If the customer writes back, it reopens automatically.</Step>
         <p className="mt-3"><strong className="text-white">AI help:</strong> <strong className="text-white">Suggest Reply</strong> drafts a response from the conversation; <strong className="text-white">✨ Polish</strong> cleans up wording in a draft you&apos;ve started.</p>
-        <p className="mt-3"><strong className="text-white">Internal notes</strong> (managers) leave context on a thread the customer never sees.</p>
+        <p className="mt-3"><strong className="text-white">Internal notes</strong> (managers) leave context on a thread the customer never sees. Tap <strong className="text-white">Add internal note</strong> at the bottom of the conversation; notes show in yellow, in the timeline at the moment they were written.</p>
         <p className="mt-3"><strong className="text-white">👤 Customer file.</strong> When the person you&apos;re emailing is in your <Link href="/hub/contacts" className="text-sky-400 hover:underline">Contacts</Link> directory, a <strong className="text-white">👤 Customer file</strong> link appears under the subject line — one tap opens their full account page (property, programs, balance, history) so you can answer without leaving the thread and coming back. It only shows when we can match the address to a contact, so vendor and newsletter mail simply won&apos;t have one.</p>
+      </Section>
+
+      <Section title="Reading a conversation">
+        <p>A conversation reads top to bottom, oldest first, like Gmail:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Earlier emails fold to one line</strong> — who sent it, the first words, and when. Tap a line to open it; tap the sender&apos;s name to fold it again. <strong className="text-white">Expand all</strong> opens every email at once.</li>
+          <li><strong className="text-white">Day dividers</strong> (&ldquo;Monday, October 12&rdquo;) show when things happened. Blue circles are the customer; green circles marked <strong className="text-white">TEAM</strong> are us, with the name of the teammate who sent it.</li>
+          <li>Tap the <strong className="text-white">to … ▾</strong> line under a name to see the full From, To, Cc and date.</li>
+          <li>The copy of the earlier conversation that every reply carries underneath is tucked behind a <strong className="text-white">•••</strong> button — tap it to see it.</li>
+          <li><strong className="text-white">Links open in a new browser tab</strong>, and pictures pasted into an email show right in it.</li>
+        </ul>
       </Section>
 
       <Section title="Drafts — nothing gets lost">

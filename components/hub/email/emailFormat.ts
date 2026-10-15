@@ -175,6 +175,9 @@ export type MessageAttachment = {
   content_type?: string | null
   contentType?: string | null
   size?: number | null
+  isInline?: boolean | null
+  /** The MIME Content-ID a body's `<img src="cid:…">` points at (synced since Oct 2026). */
+  contentId?: string | null
 }
 
 /** Normalize either attachment key spelling into one display shape. */
@@ -216,6 +219,8 @@ export type EmailMessage = {
   snippet: string | null
   message_date: string | null
   sent_by_user_id: string | null
+  /** The teammate who sent it from Hub (resolved by GET /threads/{id}). */
+  sent_by_name?: string | null
   has_attachments: boolean
   attachments: MessageAttachment[]
 }
@@ -298,6 +303,56 @@ export function waitedFor(iso: string | null | undefined): string {
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs}h`
   return `${Math.floor(hrs / 24)}d`
+}
+
+/** Day-divider label in a conversation: "Today" / "Yesterday" / "Monday, October 12" (+ year when not this year). */
+export function dayLabel(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const now = new Date()
+  if (d.toDateString() === now.toDateString()) return 'Today'
+  const y = new Date(now)
+  y.setDate(now.getDate() - 1)
+  if (d.toDateString() === y.toDateString()) return 'Yesterday'
+  return d.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
+  })
+}
+
+/** Full timestamp on an open message: "Wed, Oct 14, 7:51 AM" (+ year when not this year). */
+export function fullMessageTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+  })
+}
+
+/** "just now" / "5 minutes ago" / "3 hours ago" / "2 days ago" — beside a full timestamp. */
+export function agoLabel(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const mins = Math.max(0, Math.floor((Date.now() - d.getTime()) / 60000))
+  if (mins < 1) return 'just now'
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'} ago`
+  if (mins < 60) return plural(mins, 'minute')
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return plural(hrs, 'hour')
+  const days = Math.floor(hrs / 24)
+  if (days < 30) return plural(days, 'day')
+  return ''
 }
 
 /** Display name for the customer on a thread: from_name, else the email. */
@@ -508,4 +563,123 @@ export function reSubjectDisplay(subject: string | null | undefined): string {
   const base = (subject || '').trim()
   if (/^re\s*:/i.test(base)) return base
   return base ? `Re: ${base}` : 'Re:'
+}
+
+// ─── Reading-pane preparation of an email body ──────────────────────────────
+
+/** Where a quoted earlier message starts, per mail client. The first match (in
+ *  document order) and everything after it is the "trimmed content" a reader
+ *  hides behind •••, the way Gmail does. `.lynxedo_quote` is our own composer's. */
+const QUOTE_START_SELECTORS = [
+  '.lynxedo_quote',
+  '#appendonsend', // Outlook desktop (empty marker right before the quote)
+  '#divRplyFwdMsg', // Outlook web / new Outlook
+  '#mail-editor-reference-message-container', // Outlook for iOS/Android
+  '.gmail_quote',
+  '.gmail_extra',
+  '.yahoo_quoted',
+  '.moz-cite-prefix', // Thunderbird
+  'blockquote[type="cite"]', // Apple Mail
+  // Outlook desktop's "From: … Sent: …" header block.
+  'div[style*="border-top:solid #E1E1E1" i]',
+  'div[style*="border-top: solid #E1E1E1" i]',
+  'div[style*="border-top:solid #B5C4DF" i]',
+].join(',')
+
+export type PreparedEmailHtml = {
+  /** The whole message, ready for the sandboxed frame. */
+  full: string
+  /** The message without its quoted history, or null when there is none to hide. */
+  trimmed: string | null
+  /** Attachment ids now shown inside the body (pasted pictures, logos) — not repeated as chips. */
+  embeddedAttachmentIds: string[]
+}
+
+function attachmentUrl(messageId: string, attachmentId: string): string {
+  return `/api/hub/email/attachments/${messageId}/${encodeURIComponent(attachmentId)}`
+}
+
+function stripAngle(s: string): string {
+  return s.trim().replace(/^</, '').replace(/>$/, '').toLowerCase()
+}
+
+/**
+ * Make a stored email body readable in the reading pane:
+ *  - every link opens in a NEW browser tab (`<base target="_blank">`) — without
+ *    it, a link with no target tried to load the site inside the email frame,
+ *    which most sites refuse, so the click did nothing;
+ *  - pictures pasted into the email (`<img src="cid:…">`) point at our attachment
+ *    download route, so they show instead of a broken image;
+ *  - the quoted earlier messages are split off so the reader can hide them.
+ *
+ * Parsing uses DOMParser, whose documents are inert (no script runs, nothing
+ * loads), and the result still renders only inside the scripts-off sandbox.
+ */
+export function prepareEmailHtml(
+  html: string,
+  messageId: string,
+  attachments: MessageAttachment[] | null | undefined
+): PreparedEmailHtml {
+  const BASE = '<base target="_blank">'
+  if (typeof DOMParser === 'undefined') {
+    return { full: BASE + html, trimmed: null, embeddedAttachmentIds: [] }
+  }
+
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const base = doc.createElement('base')
+  base.setAttribute('target', '_blank')
+  doc.head.prepend(base)
+
+  // cid: pictures → attachment URLs. Match on the Content-ID when it was synced,
+  // else on the filename Outlook bakes into the cid ("image001.jpg@01DD…"), else
+  // take the next unused picture attachment in order (older rows carry no
+  // Content-ID; senders put inline pictures in body order).
+  const atts = (attachments || []).filter((a) => a && a.id && !a.id.includes('/'))
+  const isImage = (a: MessageAttachment) => /^image\//i.test(a.contentType || a.content_type || '')
+  const used = new Set<string>()
+  const pick = (cid: string): MessageAttachment | undefined => {
+    const c = stripAngle(cid)
+    const free = atts.filter((a) => !used.has(a.id))
+    return (
+      free.find((a) => a.contentId && stripAngle(a.contentId) === c) ||
+      free.find((a) => {
+        const f = (a.filename || '').toLowerCase()
+        return !!f && (c === f || c.startsWith(f + '@'))
+      }) ||
+      free.find((a) => isImage(a) && a.isInline && !a.contentId)
+    )
+  }
+  const embedded: string[] = []
+  doc.querySelectorAll('img[src^="cid:" i]').forEach((img) => {
+    const src = img.getAttribute('src') || ''
+    const att = pick(src.slice(4))
+    if (!att) return
+    used.add(att.id)
+    // A sent-as-attachment photo the body also shows keeps its chip; only true
+    // inline pieces (signature logos, pasted pictures) drop out of the chip row.
+    if (att.isInline) embedded.push(att.id)
+    img.setAttribute('src', attachmentUrl(messageId, att.id))
+  })
+
+  const serialize = () => '<!doctype html>' + doc.documentElement.outerHTML
+  const full = serialize()
+
+  let trimmed: string | null = null
+  const start = doc.body.querySelector(QUOTE_START_SELECTORS)
+  if (start) {
+    const prev = start.previousElementSibling
+    if (prev && prev.tagName === 'HR') prev.remove() // Outlook web's separator line
+    let cur: Node = start
+    while (cur !== doc.body && cur.parentNode) {
+      const parent: Node = cur.parentNode
+      while (cur.nextSibling) parent.removeChild(cur.nextSibling)
+      cur = parent
+    }
+    start.remove()
+    // Only hide history when something of the new message is left to read.
+    const leftover = (doc.body.textContent || '').trim().length > 0 || !!doc.body.querySelector('img')
+    if (leftover) trimmed = serialize()
+  }
+
+  return { full, trimmed, embeddedAttachmentIds: embedded }
 }

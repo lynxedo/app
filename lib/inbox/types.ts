@@ -10,6 +10,8 @@ export type MailAttachment = {
   contentType?: string
   size?: number
   isInline?: boolean
+  /** MIME Content-ID — what a body's `<img src="cid:…">` refers to. */
+  contentId?: string
 }
 
 export type MailDirection = 'inbound' | 'outbound'
