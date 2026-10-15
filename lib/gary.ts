@@ -42,12 +42,18 @@ export type GarySettings = {
   botUserId: string | null
   services: GaryService[]
   recentTouchDays: number
+  /** Who may approve Gary's emails. Empty → company admins. */
+  approverIds: string[]
+  /** Most emails Gary may send in one Central-time day. */
+  dailyEmailCap: number
 }
 
 const DEFAULTS: GarySettings = {
   botUserId: null,
   services: [...GARY_SERVICES],
   recentTouchDays: 30,
+  approverIds: [],
+  dailyEmailCap: 20,
 }
 
 function cleanServices(v: unknown): GaryService[] {
@@ -58,15 +64,17 @@ function cleanServices(v: unknown): GaryService[] {
 export async function getGarySettings(admin: Admin, companyId: string): Promise<GarySettings> {
   const { data, error } = await admin
     .from('gary_settings')
-    .select('bot_user_id, services, recent_touch_days')
+    .select('bot_user_id, services, recent_touch_days, approver_ids, daily_email_cap')
     .eq('company_id', companyId)
     .maybeSingle()
   if (error) throw new Error(`gary_settings: ${error.message}`)
-  if (!data) return { ...DEFAULTS, services: [...DEFAULTS.services] }
+  if (!data) return { ...DEFAULTS, services: [...DEFAULTS.services], approverIds: [] }
   return {
     botUserId: data.bot_user_id ?? null,
     services: cleanServices(data.services),
     recentTouchDays: Number.isFinite(data.recent_touch_days) ? data.recent_touch_days : DEFAULTS.recentTouchDays,
+    approverIds: Array.isArray(data.approver_ids) ? data.approver_ids : [],
+    dailyEmailCap: Number.isFinite(data.daily_email_cap) ? data.daily_email_cap : DEFAULTS.dailyEmailCap,
   }
 }
 
@@ -74,7 +82,7 @@ export async function saveGarySettings(
   admin: Admin,
   companyId: string,
   userId: string,
-  patch: { services?: unknown; recentTouchDays?: unknown },
+  patch: { services?: unknown; recentTouchDays?: unknown; approverIds?: string[]; dailyEmailCap?: unknown },
 ): Promise<void> {
   const row: Record<string, unknown> = { company_id: companyId, updated_at: new Date().toISOString(), updated_by: userId }
   if (patch.services !== undefined) row.services = cleanServices(patch.services)
@@ -82,6 +90,13 @@ export async function saveGarySettings(
     const n = Math.round(Number(patch.recentTouchDays))
     if (!Number.isFinite(n) || n < 1 || n > 365) throw new Error('Days must be between 1 and 365')
     row.recent_touch_days = n
+  }
+  // The route validates approverIds against the people who may approve.
+  if (patch.approverIds !== undefined) row.approver_ids = patch.approverIds
+  if (patch.dailyEmailCap !== undefined) {
+    const n = Math.round(Number(patch.dailyEmailCap))
+    if (!Number.isFinite(n) || n < 1 || n > 200) throw new Error('The daily limit must be between 1 and 200')
+    row.daily_email_cap = n
   }
   const { error } = await admin.from('gary_settings').upsert(row, { onConflict: 'company_id' })
   if (error) throw new Error(error.message)
@@ -155,4 +170,11 @@ export function readServices(texts: (string | null | undefined)[], deptCodes: st
   if (codes.includes('WF') && !found.has('lawn_health') && !found.has('aeration')) found.add('lawn_health')
 
   return { services: GARY_SERVICES.filter((s) => found.has(s)), excluded: [...excluded] }
+}
+
+/** May this person approve Gary's emails? The picked approvers, else company admins. */
+export async function isGaryApprover(admin: Admin, companyId: string, userId: string, settings: GarySettings): Promise<boolean> {
+  if (settings.approverIds.length) return settings.approverIds.includes(userId)
+  const { data } = await admin.from('user_profiles').select('role, company_id').eq('id', userId).maybeSingle()
+  return data?.role === 'admin' && data?.company_id === companyId
 }
