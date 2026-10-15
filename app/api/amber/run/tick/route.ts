@@ -1,8 +1,9 @@
 import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { companiesDueForMorning, runMorningSummary } from '@/lib/amber-run'
+import { checkGaryRepliesAllCompanies } from '@/lib/gary-replies'
 
-// Amber's scheduled runs — called by the VPS cron every 5 minutes:
+// Amber's scheduled runs (and Gary's reply check) — called by the VPS cron every 5 minutes:
 //   */5 * * * * curl -s -X POST https://lynxedo.com/api/amber/run/tick -H "x-cron-secret: $CRON_SECRET"
 //
 // A tick only starts what is due (company's time reached, a chosen weekday, not
@@ -31,5 +32,9 @@ export async function POST(request: Request) {
       }
     })
   }
+  // Gary: notice replies to what he sent ("Gary needs a human" → Office Alerts).
+  after(async () => {
+    await checkGaryRepliesAllCompanies(admin).catch((e) => console.error('[gary-replies] tick failed', e))
+  })
   return NextResponse.json({ ok: true, due: due.length })
 }

@@ -12,6 +12,7 @@ import {
 } from '@/lib/gary'
 import { WINBACK_SKIP_LABEL, buildWinbackPreview } from '@/lib/gary-winback'
 import { GARY_QUEUE_COLUMNS, expireStaleGaryEmails, garySentToday } from '@/lib/gary-email'
+import { checkGaryReplies } from '@/lib/gary-replies'
 
 // Admin → AI → Gary's account. Session 1: identity, settings, the preview list.
 // Session 2: the emails Gary writes, waiting for an approver, and what was sent.
@@ -51,6 +52,9 @@ export async function GET() {
 
   try {
     await expireStaleGaryEmails(admin, g.companyId)
+    // The prod tick does this every 5 minutes; doing it here too means the page
+    // is never behind (and staging, which has no tick, still sees replies).
+    await checkGaryReplies(admin, g.companyId).catch((e) => console.error('[gary-account] reply check failed', e))
     const settings = await getGarySettings(admin, g.companyId)
     const [bot, preview, people, isApprover, sentToday, { data: pending }, { data: recent }] = await Promise.all([
       getGaryBot(admin, g.companyId, settings.botUserId),
