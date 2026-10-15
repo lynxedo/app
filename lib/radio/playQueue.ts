@@ -66,6 +66,8 @@ const DECODE_WAIT_MS = 3000
 const MAX_GAPS_WITHOUT_END = 3
 /** How long a stream frozen by the OS (not by us) is nudged before we stop waiting on it. */
 const STALL_LIMIT_MS = 3000
+/** The longest one piece may take on the old player before it's given up on. */
+const PLAY_LIMIT_MS = 12_000
 
 /** iOS won't play audio that isn't rooted in a user gesture. Call this from a tap —
  *  Accept, opening the channel, a press of the talk button, or any tap on the page
@@ -114,7 +116,7 @@ export type PlayQueueEvents = {
 
 /** A piece lined up in the stream, kept until it has played so that, if the OS
  *  freezes the stream under it, it can still be played the old way. */
-type Scheduled = { src: AudioBufferSourceNode; blob: Blob; end: number }
+type Scheduled = { src: AudioBufferSourceNode; blob: Blob; start: number; end: number }
 
 export class RadioPlayQueue {
   private pieces = new Map<string, Map<number, string>>()   // transmissionId -> seq -> pieceId
@@ -177,7 +179,9 @@ export class RadioPlayQueue {
     // exactly where it stopped once the call ends.
     const c = sharedContext
     if (paused) {
-      if (c && isRunning(c)) void c.suspend().catch(() => {})
+      // Always, even if it reads suspended — a resume may be in flight (a tap, the
+      // queue before this one) and would otherwise land mid-call.
+      if (c) void c.suspend().catch(() => {})
       this.current?.pause()
       return
     }
@@ -218,11 +222,12 @@ export class RadioPlayQueue {
     this.currentFinish?.()                  // settle the old player's promise so nothing waits on it
     this.current = null
     this.pieces.clear(); this.totals.clear(); this.order = []; this.cursor.clear()
-    // A queue stopped mid-call must not leave the shared stream held for the next one.
+    // A queue stopped mid-call hands the hold on: the stream stays suspended (the
+    // next queue's setPaused / readyStream / a tap resumes it when there's no call),
+    // but this queue's claim on it is let go. Resuming here could land mid-call.
     if (this.paused) {
       this.paused = false
       streamHeld = false
-      if (sharedContext) void sharedContext.resume().catch(() => {})
     }
   }
 
@@ -352,12 +357,15 @@ export class RadioPlayQueue {
         await Promise.race([c.resume().catch(() => {}), sleep(500)])
         if (!isRunning(c)) return false
       }
+      if (this.stopped) return true                 // stopped during that wait — start nothing
+      // On a call, the stream must be frozen before anything goes in it.
+      if (this.paused && isRunning(c)) await c.suspend().catch(() => {})
       const src = c.createBufferSource()
       src.buffer = buf
       src.connect(c.destination)
       const when = Math.max(c.currentTime + SCHEDULE_LEAD_S, this.playhead)
       src.start(when)
-      const entry: Scheduled = { src, blob, end: when + buf.duration }
+      const entry: Scheduled = { src, blob, start: when, end: when + buf.duration }
       this.scheduled.push(entry)
       this.playhead = entry.end
       src.onended = () => { this.scheduled = this.scheduled.filter(e => e !== entry) }
@@ -387,12 +395,15 @@ export class RadioPlayQueue {
   private async rescueFrozen(): Promise<void> {
     const c = sharedContext
     const now = c ? c.currentTime : 0
-    const unplayed = this.scheduled.filter(e => e.end > now + 0.01).map(e => e.blob)
+    // A piece frozen part-way picks up where it stopped, not from its start.
+    const unplayed = this.scheduled
+      .filter(e => e.end > now + 0.01)
+      .map(e => ({ blob: e.blob, from: Math.max(0, now - e.start) }))
     this.stopScheduled()
-    for (const blob of unplayed) {
+    for (const { blob, from } of unplayed) {
       if (this.stopped) return
       const url = URL.createObjectURL(blob)
-      try { await this.playSrc(url) } finally { URL.revokeObjectURL(url) }
+      try { await this.playSrc(url, from) } finally { URL.revokeObjectURL(url) }
     }
   }
 
@@ -409,14 +420,31 @@ export class RadioPlayQueue {
     }
   }
 
-  private playSrc(src: string): Promise<void> {
+  private playSrc(src: string, fromSeconds = 0): Promise<void> {
     return new Promise(resolve => {
       if (this.stopped) { resolve(); return }
       const a = new Audio(src)
       this.current = a
       let done = false
-      const finish = () => { if (done) return; done = true; if (this.current === a) this.current = null; this.currentFinish = null; resolve() }
+      let limit: ReturnType<typeof setTimeout> | null = null
+      const finish = () => {
+        if (done) return
+        done = true
+        if (limit) clearTimeout(limit)
+        if (this.current === a) this.current = null
+        this.currentFinish = null
+        resolve()
+      }
       this.currentFinish = finish
+      // A play() the OS leaves hanging (an interruption) must not hold the channel:
+      // no piece is longer than 5 s, so after this long it's given up on. Time on a
+      // call doesn't count — the limit is re-armed each time the piece is started.
+      const arm = () => {
+        if (limit) clearTimeout(limit)
+        limit = setTimeout(() => { if (!this.paused) { a.pause(); finish() } else arm() }, PLAY_LIMIT_MS)
+      }
+      arm()
+      if (fromSeconds > 0) a.addEventListener('loadedmetadata', () => { try { a.currentTime = fromSeconds } catch { /* plays from the start */ } }, { once: true })
       a.onended = finish
       // A piece that won't play must not stall the queue — the next one is already here.
       a.onerror = finish
