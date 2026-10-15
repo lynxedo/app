@@ -8,7 +8,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 //
 // hub_status_sample() reads every person's current dot colour and opens a new
 // hub_status_intervals row for anyone whose colour changed since the last tick.
-// The colour is derived (clock-in, 2h activity), so it has to be sampled —
+// The colour is derived (clock-in, 15-min activity), so it has to be sampled —
 // nothing writes to the database when an hourly person's dot goes grey.
 export async function POST(request: Request) {
   const secret = request.headers.get('x-cron-secret')

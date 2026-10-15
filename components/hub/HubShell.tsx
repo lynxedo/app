@@ -33,6 +33,7 @@ import RadioBar from './radio/RadioBar'
 import ConversationPopoutProvider from './popout/ConversationPopoutProvider'
 import { BetaFlagsProvider } from './BetaFlagsContext'
 import OnCallPresenceProvider from './OnCallPresenceProvider'
+import HubActivityPinger from './HubActivityPinger'
 import { WorkspaceTabsProvider, useWorkspaceTabsState, type WorkspaceTab, type TabCatalogId } from './workspace/WorkspaceTabsContext'
 import WorkspaceTabStrip from './workspace/WorkspaceTabStrip'
 import WorkspaceTabErrorBoundary from './workspace/WorkspaceTabErrorBoundary'
@@ -1423,6 +1424,7 @@ export default function HubShell({
   // they only observe teammates' dots).
   const withPresence = (
     <OnCallPresenceProvider companyId={companyId} currentUserId={currentUserId}>
+      <HubActivityPinger />
       {shell}
     </OnCallPresenceProvider>
   )

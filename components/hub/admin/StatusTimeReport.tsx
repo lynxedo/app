@@ -161,7 +161,7 @@ export default function StatusTimeReport() {
         </div>
 
         <p className="text-xs text-gray-500 mt-4">
-          Green means the dot was showing Available: an hourly person who was clocked in, or anyone else active in Hub in the last 2 hours.
+          Green means the dot was showing Available: an hourly person who was clocked in, or anyone else who clicked, typed or was on a call in Hub within the last 15 minutes (before Oct 15, 2026 the rule was 2 hours after opening Hub or sending a chat message).
           Yellow and Red are the Busy and Do Not Disturb statuses people set themselves.
         </p>
       </div>

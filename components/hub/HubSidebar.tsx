@@ -9,6 +9,7 @@ import type { HubUser } from './MessageFeed'
 import { useWorkspaceTabs } from './workspace/WorkspaceTabsContext'
 import StatusPicker, { StatusDot } from './StatusPicker'
 import { useOnCallUsers } from './OnCallPresenceProvider'
+import { HUB_ACTIVE_WINDOW_MS, HUB_ACTIVITY_EVENT } from '@/lib/hub-idle'
 import { CatalogIcon, LockIcon } from './railCatalog'
 import { useConfirm, Spinner, EmptyState } from '@/components/ui'
 import {
@@ -495,12 +496,19 @@ export default function HubSidebar({
     return () => { supabase.removeChannel(channel); statusChannelRef.current = null }
   }, [])
 
-  // Client-side 2h idle timer for salaried/activity-path users. Each Hub
-  // navigation resets the timer; when it fires, broadcast 'offline' so other
-  // people's sidebars drop the user's dot to gray without waiting for a
+  // Client-side idle timer for salaried/activity-path users (the 15-minute
+  // rule, lib/hub-idle.ts). Each Hub navigation, and each activity ping from
+  // HubActivityPinger, resets the timer; when it fires, broadcast 'offline' so
+  // other people's sidebars drop the user's dot to gray without waiting for a
   // refetch. Skipped for hourly users — their dot is driven by clock state.
   // Manual dnd/busy is unaffected (broadcast handler only patches
   // effective_status, and the next conversations refetch reconciles).
+  const [activityTick, setActivityTick] = useState(0)
+  useEffect(() => {
+    const onActivity = () => setActivityTick(t => t + 1)
+    window.addEventListener(HUB_ACTIVITY_EVENT, onActivity)
+    return () => window.removeEventListener(HUB_ACTIVITY_EVENT, onActivity)
+  }, [])
   useEffect(() => {
     if (myPresenceMode !== 'activity') return
     if (!currentUserStatus || currentUserStatus === 'available') {
@@ -535,9 +543,9 @@ export default function HubSidebar({
         newParticipants[i] = { ...oldP, effective_status: 'offline' }
         return { ...c, participants: newParticipants }
       }))
-    }, 2 * 60 * 60 * 1000)
+    }, HUB_ACTIVE_WINDOW_MS)
     return () => clearTimeout(id)
-  }, [pathname, currentUserId, currentUserStatus, myPresenceMode])
+  }, [pathname, activityTick, currentUserId, currentUserStatus, myPresenceMode])
 
   const handleOwnStatusChanged = useCallback((newStatus: string | null) => {
     // Patch own conversations state so the self-DM dot flips immediately —

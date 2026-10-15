@@ -735,7 +735,7 @@ function HubTab() {
         <p className="font-medium text-white mt-3">How auto-presence works</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Field techs (hourly):</strong> your dot is green when you&apos;re clocked in and gray when you&apos;re clocked out. The dot flips the moment you punch in or out, no matter which device you use.</li>
-          <li><strong className="text-white">Office (salary):</strong> your dot is green while you&apos;re active in Hub. After 2 hours with no Hub activity it drops to gray; it flips back to green the next time you open Hub.</li>
+          <li><strong className="text-white">Office (salary):</strong> your dot is green while you&apos;re using Hub — any click, tap or keypress counts, and so does being on a call. After 15 minutes with none of that it drops to gray; it flips back to green the moment you do something in Hub again. Reading without touching anything doesn&apos;t count.</li>
         </ul>
         <p className="mt-3">Setting Busy or DND yourself always wins — they show no matter what the automatic state would have been. Clear them when you&apos;re done and the dot goes back to the automatic color.</p>
         <p className="mt-3">Where you&apos;ll see the dot: replaces the 💬 next to each solo DM in your sidebar, and shows up next to the name at the top of the conversation when you&apos;re inside a DM. Both update live — when a teammate changes status or clocks in/out, every dot flips without a refresh.</p>
@@ -948,7 +948,7 @@ function HubTab() {
 
       <Section title="Status Time (who was Green, Yellow, Red)">
         <p>Admins and Hub admins can see how long each person&apos;s status dot was <strong className="text-white">Green / Available</strong>, <strong className="text-white">Yellow / Busy</strong>, <strong className="text-white">Red / Do Not Disturb</strong> or <strong className="text-white">Offline</strong>. Open <code className="text-green-400">/admin/hub → Status Time</code>, then pick Today, Yesterday, This week, Last 7 days, Last 30 days, or your own dates (Central time).</p>
-        <p>Hub checks everyone&apos;s dot once a minute, so totals are accurate to about a minute. Green is whatever the dot showed: an hourly person counts as Green only while clocked in, and anyone else while they&apos;ve been active in Hub in the last 2 hours. Busy and Do Not Disturb count for as long as the person leaves them on, even after they go home.</p>
+        <p>Hub checks everyone&apos;s dot once a minute, so totals are accurate to about a minute. Green is whatever the dot showed: an hourly person counts as Green only while clocked in, and anyone else while they&apos;ve clicked, typed or been on a call in Hub within the last 15 minutes. Days before Oct 15, 2026 used the old rule (green for 2 hours after opening Hub or sending a chat message), so they read higher. Busy and Do Not Disturb count for as long as the person leaves them on, even after they go home.</p>
         <p>Tracking started September 28, 2026. Nothing before that was recorded, so earlier dates show blank.</p>
       </Section>
 

@@ -22,6 +22,7 @@ import HubWarmResume from '@/components/hub/HubWarmResume'
 import { UpdateNotifier } from '@/components/hub/UpdateNotifier'
 import { ToastProvider, ConfirmProvider } from '@/components/ui'
 import { markActive } from '@/lib/hub-activity'
+import { HUB_ACTIVE_WINDOW_MS } from '@/lib/hub-idle'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 import { resolveLayout, reconcileSeededApps } from '@/lib/hub-layout'
 import { getBetaFlags } from '@/lib/beta-flags'
@@ -114,10 +115,11 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   // offline → available). Within an active session this is a no-op, which
   // matters because the broadcast does multiple Realtime round-trips and
   // adds noticeable latency to every Hub page navigation (especially on
-  // mobile cellular). 5-minute threshold matches typical "still around" feel.
+  // mobile cellular). Threshold = the presence window (15 min), the point the
+  // dot actually went gray.
   {
     const prev = meResult.data?.last_active_at
-    const wasIdle = !prev || (Date.now() - new Date(prev).getTime()) > 5 * 60 * 1000
+    const wasIdle = !prev || (Date.now() - new Date(prev).getTime()) > HUB_ACTIVE_WINDOW_MS
     if (wasIdle) {
       await broadcastPresenceForUser(user.id)
     }

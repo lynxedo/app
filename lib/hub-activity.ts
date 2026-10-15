@@ -4,7 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // Best-effort, non-blocking — callers do not await this. Errors are swallowed.
 // Used by the salaried/unlinked-user presence path: anyone whose pay_type is not
 // 'hourly' (or who has no employees row) shows 🟢 when last_active_at is within
-// the last 2 hours, otherwise ⚫.
+// the last 15 minutes (HUB_ACTIVE_WINDOW_MIN), otherwise ⚫. Interaction pings
+// go through POST /api/hub/active instead.
 export function markActive(userId: string): void {
   if (!userId) return
   const admin = createAdminClient()
