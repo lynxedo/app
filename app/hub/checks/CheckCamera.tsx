@@ -59,7 +59,7 @@ function guideRect(w: number, h: number) {
     gw = Math.min(w * 0.74, h * 0.74 * CHECK_ASPECT)
     gh = gw / CHECK_ASPECT
   } else {
-    gh = Math.min(h * 0.66, w * 0.8 * CHECK_ASPECT)
+    gh = Math.min(h * 0.6, w * 0.8 * CHECK_ASPECT)
     gw = gh / CHECK_ASPECT
   }
   return { x: (w - gw) / 2, y: (h - gh) / 2, w: gw, h: gh, landscape }
@@ -166,23 +166,23 @@ export default function CheckCamera({ side, onShot, onClose, onFallback, notice 
             </div>
           </div>
 
-          <div className="absolute top-0 inset-x-0 pt-[max(env(safe-area-inset-top),12px)] px-14 text-center pointer-events-none flex flex-col items-center gap-1.5">
+          <div className="absolute top-0 inset-x-0 pt-[max(env(safe-area-inset-top),12px)] px-12 text-center pointer-events-none flex flex-col items-center gap-1.5">
             {notice && (
               <div className="mt-1 px-3 py-1.5 rounded-full bg-emerald-600/90 text-[#fff] text-sm font-medium">{notice}</div>
             )}
             {!g.landscape && (
-              <div className="inline-flex items-center gap-2 mt-1 px-3 py-1.5 rounded-full bg-black/60 text-[#fff] text-sm">
+              <div className="inline-flex items-center gap-2 mt-1 px-3 py-1.5 rounded-full bg-black/60 text-[#fff] text-sm whitespace-nowrap">
                 <span className="text-lg leading-none">↺</span> Turn your phone sideways
               </div>
             )}
-            <div className="px-3 py-1 rounded-full bg-black/50 text-[#fff]/80 text-xs">Dark background · flat · no glare</div>
+            <div className="px-3 py-1 rounded-full bg-black/50 text-[#fff]/80 text-xs whitespace-nowrap">Dark background · flat · no glare</div>
           </div>
 
           <button
             type="button"
             onClick={shoot}
             aria-label={`Take photo of the ${side}`}
-            className={`absolute w-[74px] h-[74px] rounded-full border-4 border-white bg-white/25 active:bg-white/60 transition-colors ${
+            className={`absolute w-[74px] h-[74px] rounded-full border-4 border-[#fff] bg-[#fff]/25 active:bg-[#fff]/60 shadow-[0_0_0_2px_rgba(0,0,0,0.35)] transition-colors ${
               g.landscape
                 ? 'right-[max(env(safe-area-inset-right),16px)] top-1/2 -translate-y-1/2'
                 : 'bottom-[max(env(safe-area-inset-bottom),20px)] left-1/2 -translate-x-1/2'
@@ -214,7 +214,7 @@ export default function CheckCamera({ side, onShot, onClose, onFallback, notice 
         </div>
       )}
 
-      {flash && <div className="absolute inset-0 bg-white/80 pointer-events-none" />}
+      {flash && <div className="absolute inset-0 bg-[#fff]/80 pointer-events-none" />}
 
       <button
         type="button"
