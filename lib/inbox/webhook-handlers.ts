@@ -175,7 +175,12 @@ async function handleMessageUpsert(
   }
 
   const threadDbId = await withRetry(
-    () => mirrorThreadById(admin, account, providerThreadId, { applyRules: true }),
+    () =>
+      mirrorThreadById(admin, account, providerThreadId, {
+        applyRules: true,
+        // A brand-new message: fetch it even if the thread summary hasn't caught up.
+        forceMessages: n.type === 'message.created',
+      }),
     'mirrorThreadById'
   )
 
