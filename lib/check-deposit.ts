@@ -184,6 +184,9 @@ const NAME_NOISE = new Set(['and', 'or', 'mr', 'mrs', 'ms', 'dr', 'jr', 'sr', 'i
  * first; then the printed name — every word of it, falling back to the last
  * name. "JOHN & MARY SMITH" finds Mary Smith; "Smith Family Trust" finds the
  * Smiths. A suggestion only: the tech confirms or changes it before sending.
+ *
+ * Addresses live on the Jobber properties mirror (txt_contacts carries none for
+ * Jobber customers), joined by the Jobber client id.
  */
 export async function matchPayer(
   admin: SupabaseAdmin,
@@ -191,28 +194,32 @@ export async function matchPayer(
   payer: string | undefined,
   address: string | undefined,
 ): Promise<PayerMatch[]> {
-  type Row = { id: string; name: string | null; address_line1: string | null; city: string | null }
-  const base = () => admin
+  type Contact = { id: string; name: string | null; jobber_client_id: string | null }
+  const contacts = () => admin
     .from('txt_contacts')
-    .select('id, name, address_line1, city')
+    .select('id, name, jobber_client_id')
     .eq('company_id', companyId)
     .is('deleted_at', null)
     .is('archived_at', null)
     .neq('name', '')
     .limit(8)
-  const out: PayerMatch[] = []
-  const add = (rows: Row[] | null, by: PayerMatch['by']) => {
-    for (const r of rows ?? []) {
-      if (!r.name || out.some(o => o.id === r.id)) continue
-      out.push({ id: r.id, name: r.name, address: [r.address_line1, r.city].filter(Boolean).join(', ') || null, by })
-    }
+  const found: { c: Contact; by: PayerMatch['by'] }[] = []
+  const add = (rows: Contact[] | null, by: PayerMatch['by']) => {
+    for (const c of rows ?? []) if (c.name && !found.some(f => f.c.id === c.id)) found.push({ c, by })
   }
 
-  // "123 Oak Hollow Dr" → number + first street word: "123 Oak%".
+  // "123 Oak Hollow Dr" → house number + first street word: "123 Oak%".
   const m = address?.match(/^\s*(\d+[a-z]?)\s+([a-z0-9]+)/i)
   if (m) {
-    const { data } = await base().ilike('address_line1', `${m[1]} ${m[2]}%`)
-    add(data as Row[] | null, 'address')
+    const { data: props } = await admin
+      .from('properties')
+      .select('client_external_id')
+      .eq('company_id', companyId)
+      .is('deleted_at', null)
+      .ilike('address_line1', `${m[1]} ${m[2]}%`)
+      .limit(8)
+    const ids = [...new Set((props ?? []).map(p => p.client_external_id).filter(Boolean))] as string[]
+    if (ids.length) add((await contacts().in('jobber_client_id', ids)).data as Contact[] | null, 'address')
   }
 
   const words = (payer ?? '')
@@ -221,14 +228,35 @@ export async function matchPayer(
     .split(/\s+/)
     .filter(w => w.length > 1 && !NAME_NOISE.has(w))
   if (words.length) {
-    const last = words[words.length - 1]
     // Every-word match first (narrow), then last name alone (wide).
-    let q = base()
+    let q = contacts()
     for (const w of words) q = q.ilike('name', ilikeSearchPattern(w))
-    add((await q).data as Row[] | null, 'name')
-    if (out.length < 5) add((await base().ilike('name', ilikeSearchPattern(last))).data as Row[] | null, 'name')
+    add((await q).data as Contact[] | null, 'name')
+    if (found.length < 5) add((await contacts().ilike('name', ilikeSearchPattern(words[words.length - 1]))).data as Contact[] | null, 'name')
   }
-  return out.slice(0, 5)
+
+  const top = found.slice(0, 5)
+  // An address under each name, so the tech can tell two Smiths apart.
+  const clientIds = top.map(f => f.c.jobber_client_id).filter(Boolean) as string[]
+  const addr: Record<string, string> = {}
+  if (clientIds.length) {
+    const { data: props } = await admin
+      .from('properties')
+      .select('client_external_id, address_line1, city, is_billing_address')
+      .eq('company_id', companyId)
+      .is('deleted_at', null)
+      .in('client_external_id', clientIds)
+    for (const p of props ?? []) {
+      if (!p.address_line1 || (addr[p.client_external_id] && p.is_billing_address)) continue
+      addr[p.client_external_id] = [p.address_line1, p.city].filter(Boolean).join(', ')
+    }
+  }
+  return top.map(({ c, by }) => ({
+    id: c.id,
+    name: c.name as string,
+    address: (c.jobber_client_id && addr[c.jobber_client_id]) || null,
+    by,
+  }))
 }
 
 // ── Where checks are posted ───────────────────────────────────────────────
