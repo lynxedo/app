@@ -33,6 +33,12 @@ const SCHEDULE_LEAD_S = 0.08
 
 let audioUnlocked = false
 let sharedContext: AudioContext | null = null
+/** True while a queue has the stream suspended for a phone call. A tap during the
+ *  call (mute, the keypad) must NOT resume it — that would play radio over the customer. */
+let streamHeld = false
+/** The stream has run at least once (a gesture started it). Until then, lining audio
+ *  up in it is a bet that it will start without a tap — not one we take. */
+let streamHasRun = false
 
 /** One AudioContext for the page, made on first need. Null where there's no Web Audio. */
 function radioAudioContext(): AudioContext | null {
@@ -47,10 +53,19 @@ function radioAudioContext(): AudioContext | null {
 
 /** 'interrupted' is iOS's own state (a call took the audio), missing from the DOM types. */
 function isRunning(c: AudioContext): boolean {
-  return (c.state as string) === 'running'
+  const running = (c.state as string) === 'running'
+  if (running) streamHasRun = true
+  return running
 }
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+/** A decode that hasn't answered in this long is treated as failed (old player). */
+const DECODE_WAIT_MS = 3000
+/** With no end marker, this many missing pieces in a row means the sender is gone —
+ *  retire the transmission instead of skipping a seq every few seconds forever. */
+const MAX_GAPS_WITHOUT_END = 3
+/** How long a stream frozen by the OS (not by us) is nudged before we stop waiting on it. */
+const STALL_LIMIT_MS = 3000
 
 /** iOS won't play audio that isn't rooted in a user gesture. Call this from a tap —
  *  Accept, opening the channel, a press of the talk button, or any tap on the page
@@ -62,7 +77,7 @@ export function unlockRadioAudio(): void {
   // inside a gesture, and iOS stops it after an interruption — so every tap tries
   // again while it isn't running. Cheap when it is.
   const c = radioAudioContext()
-  if (c && !isRunning(c)) {
+  if (c && !isRunning(c) && !streamHeld) {
     void c.resume().catch(() => { /* the next tap tries again */ })
     try {
       // A one-sample silent buffer started inside the gesture is what WebKit wants.
@@ -97,16 +112,25 @@ export type PlayQueueEvents = {
   onGap?: (transmissionId: string, seq: number) => void
 }
 
+/** A piece lined up in the stream, kept until it has played so that, if the OS
+ *  freezes the stream under it, it can still be played the old way. */
+type Scheduled = { src: AudioBufferSourceNode; blob: Blob; end: number }
+
 export class RadioPlayQueue {
   private pieces = new Map<string, Map<number, string>>()   // transmissionId -> seq -> pieceId
   private totals = new Map<string, number>()                // transmissionId -> piece count (end marker)
   private order: string[] = []                              // transmissions awaiting playback, in arrival order
+  /** Transmissions already played out. A late piece or a repeated end marker for one
+   *  of these must not start it again (lock their button, chirp, then skip forever). */
+  private finished = new Set<string>()
+  /** transmissionId → the next seq to play; anything below it arrived too late. */
+  private cursor = new Map<string, number>()
   private playing = false
   private current: HTMLAudioElement | null = null
   /** pieceId → the downloaded audio (null = download failed, use the direct link). */
   private prefetched = new Map<string, Promise<Blob | null>>()
   /** Pieces handed to the stream and not yet finished. */
-  private sources = new Set<AudioBufferSourceNode>()
+  private scheduled: Scheduled[] = []
   /** Stream time at which the audio lined up so far runs out — where the next piece starts. */
   private playhead = 0
   /** Moves the queue past the current piece — kept so a resume that fails can't stall it. */
@@ -120,6 +144,8 @@ export class RadioPlayQueue {
   unlock(): void { unlockRadioAudio() }
 
   add(p: Incoming): void {
+    if (this.stopped || this.finished.has(p.transmissionId)) return
+    if (p.seq < (this.cursor.get(p.transmissionId) ?? 1)) return   // its turn has passed (skipped as a gap)
     let m = this.pieces.get(p.transmissionId)
     if (!m) { m = new Map(); this.pieces.set(p.transmissionId, m); this.order.push(p.transmissionId) }
     m.set(p.seq, p.pieceId)
@@ -129,6 +155,7 @@ export class RadioPlayQueue {
 
   /** The end marker: this transmission has exactly `pieceCount` pieces. */
   end(transmissionId: string, pieceCount: number | null): void {
+    if (this.stopped || this.finished.has(transmissionId)) return
     if (!this.pieces.has(transmissionId)) {
       // The end marker beat every piece — a hold that produced nothing, or one whose
       // uploads all failed. Register it so pump() can retire it rather than hang.
@@ -145,6 +172,7 @@ export class RadioPlayQueue {
   setPaused(paused: boolean): void {
     if (this.paused === paused) return
     this.paused = paused
+    streamHeld = paused
     // The stream freezes in place — its clock stops, so what's lined up plays from
     // exactly where it stopped once the call ends.
     const c = sharedContext
@@ -184,13 +212,24 @@ export class RadioPlayQueue {
   /** Stop everything — the channel closed, or the screen is going away. */
   stop(): void {
     this.stopped = true
-    for (const id of [...this.prefetched.keys()]) this.release(id)
-    for (const src of this.sources) { try { src.stop() } catch { /* already ended */ } }
-    this.sources.clear()
+    this.prefetched.clear()
+    this.stopScheduled()
+    if (this.current) { this.current.pause(); this.current.src = '' }
+    this.currentFinish?.()                  // settle the old player's promise so nothing waits on it
+    this.current = null
+    this.pieces.clear(); this.totals.clear(); this.order = []; this.cursor.clear()
+    // A queue stopped mid-call must not leave the shared stream held for the next one.
+    if (this.paused) {
+      this.paused = false
+      streamHeld = false
+      if (sharedContext) void sharedContext.resume().catch(() => {})
+    }
+  }
+
+  private stopScheduled(): void {
+    for (const s of this.scheduled) { try { s.src.stop() } catch { /* already ended */ } }
+    this.scheduled = []
     this.playhead = 0
-    if (this.current) { this.current.pause(); this.current.src = ''; this.current = null }
-    this.pieces.clear(); this.totals.clear(); this.order = []
-    this.playing = false
   }
 
   private async pump(): Promise<void> {
@@ -199,10 +238,18 @@ export class RadioPlayQueue {
     try {
       while (!this.stopped && this.order.length) {
         const id = this.order[0]
-        await this.playTransmission(id)
+        try {
+          await this.playTransmission(id)
+        } catch {
+          // Whatever went wrong, the transmission is retired and the far end's
+          // button released — a stuck "Mike is talking" is the one unacceptable outcome.
+          this.stopScheduled()
+        }
         this.order.shift()
         this.pieces.delete(id)
         this.totals.delete(id)
+        this.cursor.delete(id)
+        this.finished.add(id)
         if (!this.stopped) this.events.onFinish?.(id)
       }
     } finally {
@@ -215,12 +262,16 @@ export class RadioPlayQueue {
     const c = await this.readyStream()
     let seq = 1
     let waitedSince = 0
+    let gapsInARow = 0
+    let frozenSince = 0
     for (;;) {
+      this.cursor.set(id, seq)
       if (this.stopped) return
       if (this.paused) {
         // Time spent on a call is not time a piece was missing — don't let it
         // count toward the gap tolerance and skip words that are already here.
         waitedSince = 0
+        frozenSince = 0
         await sleep(200)
         continue
       }
@@ -230,27 +281,37 @@ export class RadioPlayQueue {
       const pieceId = this.pieces.get(id)?.get(seq)
       if (pieceId) {
         waitedSince = 0
+        gapsInARow = 0
         if (!c || !(await this.schedule(c, pieceId))) {
           // The old way, for this piece: after whatever is already lined up.
           await this.drain(c)
           await this.playOne(pieceId)
-          if (c) this.playhead = 0
         }
         seq++
         continue
       }
 
-      // Nothing for this seq yet. While earlier audio is still playing it isn't a
-      // gap — they're still talking. Count only once the lined-up audio runs out.
-      if (c && this.playhead - c.currentTime > 0.05) { waitedSince = 0; await sleep(120); continue }
-      if (total !== undefined && seq > total) break
+      // Nothing for this seq yet. While earlier audio is still PLAYING it isn't a
+      // gap — they're still talking. A stream the OS has frozen isn't playing: nudge
+      // it, and if it stays frozen, play what's lined up the old way and move on.
+      if (c && this.playhead - c.currentTime > 0.05) {
+        if (isRunning(c)) { frozenSince = 0; waitedSince = 0; await sleep(120); continue }
+        void c.resume().catch(() => {})
+        if (!frozenSince) frozenSince = Date.now()
+        if (Date.now() - frozenSince < STALL_LIMIT_MS) { await sleep(120); continue }
+        await this.rescueFrozen()
+        frozenSince = 0
+      }
       if (!waitedSince) waitedSince = Date.now()
       if (Date.now() - waitedSince > GAP_TOLERANCE_MS) {
         this.events.onGap?.(id, seq)
         waitedSince = 0
         seq++
+        gapsInARow++
         // A gap past the end marker's count means the tail never landed — stop.
         if (total !== undefined && seq > total) break
+        // No end marker and nothing for a while: they've gone. Don't spin forever.
+        if (total === undefined && gapsInARow >= MAX_GAPS_WITHOUT_END) break
         continue
       }
       await sleep(120)
@@ -264,54 +325,74 @@ export class RadioPlayQueue {
   private async readyStream(): Promise<AudioContext | null> {
     const c = radioAudioContext()
     if (!c) return null
-    if (this.paused || isRunning(c)) return c
+    if (isRunning(c)) return c
+    // Suspended by our own call-pause and known to work: it resumes when the call ends.
+    if (this.paused) return streamHasRun ? c : null
     await Promise.race([c.resume().catch(() => {}), sleep(500)])
     return isRunning(c) ? c : null
   }
 
   /** Decode one piece and line it up to start the instant the audio before it ends.
-   *  False when it can't go in the stream — the caller plays it the old way. */
+   *  False when it can't go in the stream — the caller plays it the old way. Never throws. */
   private async schedule(c: AudioContext, pieceId: string): Promise<boolean> {
-    const blob = await this.blobFor(pieceId)
-    if (!blob || this.stopped) return false
-    let buf: AudioBuffer
-    try { buf = await c.decodeAudioData(await blob.arrayBuffer()) } catch { return false }
-    if (this.stopped) return true
-    if (!this.paused && !isRunning(c)) {
-      // iOS stopped the stream (an interruption, the app going to the back). Try to
-      // start it again; if it won't, this piece goes the old way.
-      await Promise.race([c.resume().catch(() => {}), sleep(500)])
-      if (!isRunning(c)) return false
+    try {
+      const blob = await this.blobFor(pieceId)
+      if (!blob || this.stopped) return false
+      const data = await blob.arrayBuffer()
+      // The promise form; old WebKit only had callbacks (and would resolve undefined).
+      const buf = await Promise.race([
+        c.decodeAudioData(data).catch(() => null),
+        sleep(DECODE_WAIT_MS).then(() => null),
+      ])
+      if (!buf || !(buf.duration > 0)) return false
+      if (this.stopped) return true
+      if (!this.paused && !isRunning(c)) {
+        // iOS stopped the stream (an interruption, the app going to the back). Try to
+        // start it again; if it won't, this piece goes the old way.
+        await Promise.race([c.resume().catch(() => {}), sleep(500)])
+        if (!isRunning(c)) return false
+      }
+      const src = c.createBufferSource()
+      src.buffer = buf
+      src.connect(c.destination)
+      const when = Math.max(c.currentTime + SCHEDULE_LEAD_S, this.playhead)
+      src.start(when)
+      const entry: Scheduled = { src, blob, end: when + buf.duration }
+      this.scheduled.push(entry)
+      this.playhead = entry.end
+      src.onended = () => { this.scheduled = this.scheduled.filter(e => e !== entry) }
+      this.release(pieceId)
+      return true
+    } catch {
+      return false
     }
-    const src = c.createBufferSource()
-    src.buffer = buf
-    src.connect(c.destination)
-    const when = Math.max(c.currentTime + SCHEDULE_LEAD_S, this.playhead)
-    src.start(when)
-    this.playhead = when + buf.duration
-    this.sources.add(src)
-    src.onended = () => { this.sources.delete(src) }
-    this.release(pieceId)
-    return true
   }
 
   /** Wait for everything lined up in the stream to finish playing. */
   private async drain(c: AudioContext | null): Promise<void> {
     if (!c) return
-    let stalled = 0
+    let frozenSince = 0
     while (!this.stopped && c.currentTime < this.playhead - 0.01) {
-      if (!this.paused && !isRunning(c)) {
-        // Frozen and not by us — nudge it, but never hang the channel on it: after
-        // ~3 s give up on what's lined up rather than lock their button for good.
-        void c.resume().catch(() => {})
-        if (++stalled > 30) {
-          for (const src of this.sources) { try { src.stop() } catch { /* ended */ } }
-          this.sources.clear()
-          this.playhead = 0
-          return
-        }
-      } else stalled = 0
+      if (this.paused || isRunning(c)) { frozenSince = 0; await sleep(100); continue }
+      // Frozen, and not by us — nudge it, but never hang the channel on it.
+      void c.resume().catch(() => {})
+      if (!frozenSince) frozenSince = Date.now()
+      if (Date.now() - frozenSince > STALL_LIMIT_MS) { await this.rescueFrozen(); return }
       await sleep(100)
+    }
+  }
+
+  /** The OS froze the stream with words still in it. Play those the old way, in
+   *  order, rather than lose them, and start the stream afresh next time. */
+  private async rescueFrozen(): Promise<void> {
+    const c = sharedContext
+    const now = c ? c.currentTime : 0
+    const unplayed = this.scheduled.filter(e => e.end > now + 0.01).map(e => e.blob)
+    this.stopScheduled()
+    for (const blob of unplayed) {
+      if (this.stopped) return
+      const url = URL.createObjectURL(blob)
+      try { await this.playSrc(url) } finally { URL.revokeObjectURL(url) }
     }
   }
 
@@ -330,15 +411,18 @@ export class RadioPlayQueue {
 
   private playSrc(src: string): Promise<void> {
     return new Promise(resolve => {
+      if (this.stopped) { resolve(); return }
       const a = new Audio(src)
       this.current = a
       let done = false
-      const finish = () => { if (done) return; done = true; this.current = null; this.currentFinish = null; resolve() }
+      const finish = () => { if (done) return; done = true; if (this.current === a) this.current = null; this.currentFinish = null; resolve() }
       this.currentFinish = finish
       a.onended = finish
       // A piece that won't play must not stall the queue — the next one is already here.
       a.onerror = finish
-      // …except when a pause (a call starting) is what interrupted the play() — that
+      // On a call: don't start it — setPaused(false) plays `current` when the call ends.
+      if (this.paused) return
+      // …and when a pause (a call starting) is what interrupted the play(), that
       // piece is resumed by setPaused(false), not skipped.
       a.play().catch(() => { if (!this.paused) finish() })
     })
