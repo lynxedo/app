@@ -52,6 +52,11 @@ export type GarySettings = {
   followUpDays: [number, number]
   /** Where Gary looks for commercial prospects (5-digit ZIPs). */
   prospectZips: string[]
+  /** Cold emails to prospects: their own small daily limit ("a handful", Ben). */
+  coldDailyCap: number
+  /** Set automatically on a complaint or too many bounces; a person resumes. */
+  coldPausedAt: string | null
+  coldPausedReason: string | null
 }
 
 const DEFAULTS: GarySettings = {
@@ -63,6 +68,9 @@ const DEFAULTS: GarySettings = {
   customerSending: false,
   followUpDays: [7, 21],
   prospectZips: [],
+  coldDailyCap: 5,
+  coldPausedAt: null,
+  coldPausedReason: null,
 }
 
 /** Unique 5-digit ZIPs, in the order given (max 100). */
@@ -87,7 +95,7 @@ function cleanServices(v: unknown): GaryService[] {
 export async function getGarySettings(admin: Admin, companyId: string): Promise<GarySettings> {
   const { data, error } = await admin
     .from('gary_settings')
-    .select('bot_user_id, services, recent_touch_days, approver_ids, daily_email_cap, customer_sending, follow_up_days, prospect_zips')
+    .select('bot_user_id, services, recent_touch_days, approver_ids, daily_email_cap, customer_sending, follow_up_days, prospect_zips, cold_daily_cap, cold_paused_at, cold_paused_reason')
     .eq('company_id', companyId)
     .maybeSingle()
   if (error) throw new Error(`gary_settings: ${error.message}`)
@@ -101,6 +109,9 @@ export async function getGarySettings(admin: Admin, companyId: string): Promise<
     customerSending: data.customer_sending === true,
     followUpDays: cleanFollowUpDays(data.follow_up_days) ?? DEFAULTS.followUpDays,
     prospectZips: cleanZips(data.prospect_zips),
+    coldDailyCap: Number.isFinite(data.cold_daily_cap) ? data.cold_daily_cap : DEFAULTS.coldDailyCap,
+    coldPausedAt: data.cold_paused_at ?? null,
+    coldPausedReason: data.cold_paused_reason ?? null,
   }
 }
 
@@ -116,6 +127,9 @@ export async function saveGarySettings(
     customerSending?: unknown
     followUpDays?: unknown
     prospectZips?: unknown
+    coldDailyCap?: unknown
+    /** true = a person clears an automatic pause. */
+    coldResume?: unknown
   },
 ): Promise<void> {
   const row: Record<string, unknown> = { company_id: companyId, updated_at: new Date().toISOString(), updated_by: userId }
@@ -126,6 +140,15 @@ export async function saveGarySettings(
     row.recent_touch_days = n
   }
   if (patch.customerSending !== undefined) row.customer_sending = patch.customerSending === true
+  if (patch.coldDailyCap !== undefined) {
+    const n = Math.round(Number(patch.coldDailyCap))
+    if (!Number.isFinite(n) || n < 1 || n > 25) throw new Error('The cold-email limit must be between 1 and 25 a day')
+    row.cold_daily_cap = n
+  }
+  if (patch.coldResume === true) {
+    row.cold_paused_at = null
+    row.cold_paused_reason = null
+  }
   if (patch.prospectZips !== undefined) {
     const zips = cleanZips(patch.prospectZips)
     if (!zips.length) throw new Error('Give Gary at least one 5-digit ZIP code to look in')

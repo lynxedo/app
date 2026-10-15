@@ -29,17 +29,21 @@ const LOOKBACK_DAYS = 60
 // Tuesday, can you come Friday?"); the phrases count at the start.
 const OPT_OUT =
   /^\W*(stop|stopall|unsubscribe|cancel|end|quit)\W*$|^\W*(unsubscribe|remove me|take me off|do not (contact|email|text|message)|don'?t (contact|email|text|message))\b/i
+// A complaint — someone annoyed at being emailed. On a cold email it pulls the brake.
+const COMPLAINT =
+  /\b(spam|spamming|scam|report(ed|ing)? (you|this)|stop (emailing|e-mailing|contacting|spamming)|how did you get (my|this) (email|address|info)|unsolicited|harass)/i
 const DECLINE = /^\W*(no thanks?|no thank you|not interested|nope|we'?re good|i'?m good|all set|no,? (we|i) (went|found|hired|are good|am good))\b/i
 
 type SentRow = {
   id: string
   first_id: string | null
+  audience: 'winback' | 'prospect'
   channel: 'email' | 'text'
   to_name: string | null
   to_email: string | null
   to_phone: string | null
   subject: string
-  context: { services?: GaryService[] } | null
+  context: { services?: GaryService[]; manager_company?: string; properties?: { name: string }[] } | null
   sent_at: string
   inbox_thread_id: string | null
   conversation_id: string | null
@@ -63,7 +67,7 @@ export async function checkGaryReplies(admin: Admin, companyId: string): Promise
   const since = new Date(Date.now() - LOOKBACK_DAYS * 86_400_000).toISOString()
   const { data } = await admin
     .from('gary_queue')
-    .select('id, first_id, channel, to_name, to_email, to_phone, subject, context, sent_at, inbox_thread_id, conversation_id')
+    .select('id, first_id, audience, channel, to_name, to_email, to_phone, subject, context, sent_at, inbox_thread_id, conversation_id')
     .eq('company_id', companyId)
     .eq('status', 'sent')
     .is('replied_at', null)
@@ -111,7 +115,7 @@ export async function checkGaryReplies(admin: Admin, companyId: string): Promise
         link = `${base}/hub/txt/${r.conversation_id}`
       }
 
-      const kind = OPT_OUT.test(words) ? 'opted_out' : DECLINE.test(words) ? 'declined' : 'reply'
+      const kind = COMPLAINT.test(words) ? 'complaint' : OPT_OUT.test(words) ? 'opted_out' : DECLINE.test(words) ? 'declined' : 'reply'
       // Claim the reply — exactly one checker acts on it.
       const { data: claimed } = await admin
         .from('gary_queue')
@@ -132,18 +136,25 @@ export async function checkGaryReplies(admin: Admin, companyId: string): Promise
         .or(`id.eq.${chainId},first_id.eq.${chainId}`)
         .is('replied_at', null)
 
-      if (kind === 'opted_out' && r.channel === 'email' && r.to_email) {
-        await suppressEmail(admin, companyId, r.to_email, 'unsubscribe')
+      if ((kind === 'opted_out' || kind === 'complaint') && r.channel === 'email' && r.to_email) {
+        await suppressEmail(admin, companyId, r.to_email, kind === 'complaint' ? 'complaint' : 'unsubscribe')
+      }
+      if (kind === 'complaint' && r.audience === 'prospect') {
+        const { pauseColdEmails } = await import('@/lib/gary-cold')
+        await pauseColdEmails(admin, companyId, `${r.to_name || r.to_email} complained about a cold email (“${words.slice(0, 80)}”)`)
       }
       if (kind !== 'reply') continue
 
       const who = r.to_name || r.to_email || r.to_phone || 'A customer'
-      const about = (r.context?.services ?? []).map((s) => GARY_SERVICE_LABEL[s]).filter(Boolean).join(', ')
+      const about =
+        r.audience === 'prospect'
+          ? `${r.context?.manager_company ? `${r.context.manager_company} — ` : ''}${(r.context?.properties ?? []).slice(0, 4).map((p) => p.name).join(', ')}`
+          : (r.context?.services ?? []).map((s) => GARY_SERVICE_LABEL[s]).filter(Boolean).join(', ')
       const posted = await postOfficeAlert(admin, companyId, {
-        title: `🧑‍💼 Gary needs a human: ${who} replied to Gary's ${r.channel === 'text' ? 'text' : 'email'}`,
+        title: `🧑‍💼 Gary needs a human: ${who} replied to Gary's ${r.audience === 'prospect' ? 'cold email (a commercial prospect)' : r.channel === 'text' ? 'text' : 'email'}`,
         details: [
           words ? `They said: “${words}”` : null,
-          about ? `Gary wrote to them about: ${about}` : null,
+          about ? (r.audience === 'prospect' ? `Gary wrote to them about: ${about}` : `Gary wrote to them about: ${about}`) : null,
           r.channel === 'email' ? `It's in the Inbox Queue: ${link}` : `It's in Txt: ${link}`,
           'Gary won’t answer it. Please take it from here.',
         ],
@@ -156,11 +167,17 @@ export async function checkGaryReplies(admin: Admin, companyId: string): Promise
   return out
 }
 
-/** Every company with Gary set up (prod tick). */
+/** Every company with Gary set up (prod tick): replies, then bounce notices. */
 export async function checkGaryRepliesAllCompanies(admin: Admin): Promise<void> {
+  const { checkGaryBounces } = await import('@/lib/gary-cold')
   const { data } = await admin.from('gary_settings').select('company_id')
   for (const row of (data ?? []) as { company_id: string }[]) {
     const res = await checkGaryReplies(admin, row.company_id)
     if (res.replies) console.log('[gary-replies]', row.company_id, res)
+    const b = await checkGaryBounces(admin, row.company_id).catch((e) => {
+      console.error('[gary-cold] bounce check failed', row.company_id, e)
+      return null
+    })
+    if (b?.bounced) console.log('[gary-cold] bounces', row.company_id, b)
   }
 }

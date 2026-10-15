@@ -33,7 +33,30 @@ type Prospect = {
   est_cost_usd: number | string | null
 }
 
-type Payload = { zips: string[]; cities: string[]; prospects: Prospect[] }
+type ColdStats = {
+  targets: number
+  waiting: number
+  sentToday: number
+  sent7: number
+  bounces7: number
+  complaints7: number
+  optOuts7: number
+  replies7: number
+  sentAll: number
+}
+type Payload = {
+  zips: string[]
+  cities: string[]
+  prospects: Prospect[]
+  cold: {
+    dailyCap: number
+    pausedAt: string | null
+    pausedReason: string | null
+    customerSending: boolean
+    stats: ColdStats
+    emailed: { to_email: string | null; status: string; sent_at: string | null; bounced_at: string | null; reply_kind: string | null }[]
+  }
+}
 type View = 'hoa' | 'apartment' | 'managers'
 
 const money = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`
@@ -62,6 +85,7 @@ export default function GaryProspectsSection() {
   const [editingZips, setEditingZips] = useState(false)
   const [hideCustomers, setHideCustomers] = useState(true)
   const [onlyRead, setOnlyRead] = useState(false)
+  const [coldCount, setColdCount] = useState(3)
 
   const load = useCallback(async () => {
     try {
@@ -140,6 +164,24 @@ export default function GaryProspectsSection() {
     })
   }, [prospects, view, query, hideCustomers, onlyRead])
 
+  // What Gary did with each manager address (newest wins).
+  const emailedBy = useMemo(() => {
+    const m = new Map<string, Payload['cold']['emailed'][number]>()
+    for (const e of data?.cold.emailed ?? []) if (e.to_email) m.set(e.to_email.toLowerCase(), e)
+    return m
+  }, [data])
+  const emailedLabel = (p: Prospect): string | null => {
+    const e = emailedBy.get((p.manager_email || p.email || '').toLowerCase())
+    if (!e) return null
+    if (e.bounced_at) return 'Gary’s email bounced'
+    if (e.reply_kind === 'reply') return 'They replied to Gary'
+    if (e.reply_kind) return 'Not interested / opted out'
+    if (e.status === 'sent') return `Gary emailed them${e.sent_at ? ` ${new Date(e.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}`
+    if (e.status === 'pending') return 'Gary’s email is waiting for approval'
+    if (e.status === 'rejected') return 'Gary’s email was turned down'
+    return null
+  }
+
   const cities = data?.cities ?? []
   const pickedCity = city || cities[0] || ''
 
@@ -148,8 +190,8 @@ export default function GaryProspectsSection() {
       <div>
         <h2 className="text-sm font-semibold text-white">Prospects</h2>
         <p className="text-xs text-white/50 mt-0.5">
-          HOAs, apartment complexes, and the companies that manage them, in your area, from free sources. This only
-          finds and organizes them; Gary doesn&apos;t contact anyone from here.
+          HOAs, apartment complexes, and the companies that manage them, in your area, from free sources. Gary can write
+          each manager a short cold email; every one waits for an approver.
         </p>
       </div>
 
@@ -284,6 +326,93 @@ export default function GaryProspectsSection() {
             </div>
           </div>
           {msg && <p className="text-xs text-white/60">{msg}</p>}
+
+          <div className={`rounded-lg border p-3 space-y-2 ${data.cold.pausedAt ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/10'}`}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm text-white">Reach out (cold emails to managers)</p>
+              <p className="text-xs text-white/50">
+                Sent today {data.cold.stats.sentToday} of {data.cold.dailyCap} · {data.cold.stats.waiting} waiting for approval
+              </p>
+            </div>
+            {data.cold.pausedAt && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-amber-200">
+                <span>⏸ Paused: {data.cold.pausedReason || 'by the brake'}.</span>
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void act('resume_cold', {}, 'Resuming…', () => 'Cold emails resumed.')}
+                  className="rounded border border-amber-400/40 px-2 py-0.5 hover:text-white"
+                >
+                  Resume
+                </button>
+              </div>
+            )}
+            {!data.cold.customerSending && (
+              <p className="text-xs text-white/50">
+                Sending to customers is switched off (Win-back &amp; messages), so approved cold emails won&apos;t go out yet.
+                Writing and <em>Send me a test</em> still work.
+              </p>
+            )}
+            <p className="text-xs text-white/50">
+              One email per manager contact, naming the places they run near us, from the team mailbox. Gary stops by
+              himself after 1 complaint or 2 bounces in a week.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-white/80">
+              <span>Write the next</span>
+              <select
+                value={coldCount}
+                onChange={(e) => setColdCount(Number(e.target.value))}
+                className="bg-transparent border border-white/15 rounded px-2 py-1 text-sm"
+                disabled={busy !== null}
+              >
+                {[1, 3, 5].map((n) => (
+                  <option key={n} value={n} className="bg-gray-900">
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <span>cold email{coldCount === 1 ? '' : 's'}</span>
+              <button
+                type="button"
+                disabled={busy !== null || !!data.cold.pausedAt || data.cold.stats.targets === 0}
+                onClick={() =>
+                  void act('draft_cold', { count: coldCount }, `Gary is writing ${coldCount} cold email${coldCount === 1 ? '' : 's'}…`, (j) => {
+                    const skipped = (j as unknown as { skipped?: { name: string; why: string }[] }).skipped ?? []
+                    return `Gary wrote ${j.drafted} (about ${money(j.costUsd)}). They wait under Win-back & messages for approval.${skipped.length ? ` ${skipped.map((x) => `${x.name}: ${x.why}`).join('; ')}` : ''}`
+                  })
+                }
+                className="rounded-lg bg-brand px-3 py-1 text-sm text-white disabled:opacity-40"
+              >
+                {busy === 'draft_cold' ? 'Writing…' : 'Write'}
+              </button>
+              <span className="text-xs text-white/40">{data.cold.stats.targets} manager contacts ready</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
+              <span>At most</span>
+              <select
+                value={data.cold.dailyCap}
+                onChange={(e) =>
+                  void act('set_cold_cap', { count: Number(e.target.value) }, 'Saving…', () => 'Saved.')
+                }
+                className="bg-transparent border border-white/15 rounded px-1.5 py-0.5"
+                disabled={busy !== null}
+              >
+                {[...new Set([1, 3, 5, 8, 10, data.cold.dailyCap])]
+                  .sort((a, b) => a - b)
+                  .map((n) => (
+                    <option key={n} value={n} className="bg-gray-900">
+                      {n}
+                    </option>
+                  ))}
+              </select>
+              <span>cold emails a day.</span>
+              <span className="text-white/40">
+                Last 7 days: {data.cold.stats.sent7} sent · {data.cold.stats.replies7} replied · {data.cold.stats.bounces7} bounced ·{' '}
+                {data.cold.stats.complaints7} complaints · {data.cold.stats.optOuts7} opted out
+              </span>
+            </div>
+          </div>
+
           <p className="text-xs text-white/40">
             Spent finding prospects so far: about {money(spent)}. {customers} match a current customer (hidden below unless
             you un-tick it).
@@ -404,6 +533,7 @@ export default function GaryProspectsSection() {
                   )}
                   {p.phone && <p className="text-xs text-white/50">Phone: {p.phone}</p>}
                   {p.research_error && <p className="text-xs text-amber-300/80">{p.research_error}</p>}
+                  {emailedLabel(p) && <p className="text-xs text-sky-300/80">{emailedLabel(p)}</p>}
                   <p className="text-xs text-white/40 flex flex-wrap gap-3">
                     {p.source_url && (
                       <a href={p.source_url} target="_blank" rel="noopener noreferrer" className="hover:underline">
@@ -428,7 +558,7 @@ export default function GaryProspectsSection() {
           )}
           <p className="text-xs text-white/40">
             Apartments come from web search, so check one before you rely on it (each links to the page Gary found it on).
-            Reaching out to prospects is a later step; nothing here sends anything.
+            Cold emails only go out after an approver taps Approve &amp; send, and only while sending is switched on.
           </p>
         </>
       )}

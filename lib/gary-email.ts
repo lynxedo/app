@@ -44,11 +44,13 @@ import { WINBACK_SKIP_LABEL, buildWinbackPreview, type WinbackRow } from '@/lib/
 type Admin = SupabaseClient<any, any, any>
 
 export const GARY_QUEUE_COLUMNS =
-  'id, person_key, channel, touch, first_id, to_email, to_phone, contact_id, conversation_id, to_name, subject, body, context, status, edited, est_cost_usd, decided_by, decided_at, reject_note, withdrawn_reason, sent_at, inbox_thread_id, error, expires_at, created_at, replied_at, reply_kind, reply_snippet'
+  'id, person_key, audience, bounced_at, channel, touch, first_id, to_email, to_phone, contact_id, conversation_id, to_name, subject, body, context, status, edited, est_cost_usd, decided_by, decided_at, reject_note, withdrawn_reason, sent_at, inbox_thread_id, error, expires_at, created_at, replied_at, reply_kind, reply_snippet'
 
 export type GaryQueueItem = {
   id: string
   person_key: string
+  audience: 'winback' | 'prospect'
+  bounced_at: string | null
   channel: 'email' | 'text'
   touch: number
   first_id: string | null
@@ -59,7 +61,13 @@ export type GaryQueueItem = {
   to_name: string | null
   subject: string
   body: string
-  context: { services?: GaryService[]; sources?: WinbackRow['sources'] }
+  context: {
+    services?: GaryService[]
+    sources?: WinbackRow['sources']
+    // Cold emails: the manager and the places they run near us.
+    manager_company?: string
+    properties?: { id: string; name: string; kind: 'hoa' | 'apartment'; city: string | null }[]
+  }
   status: string
   edited: boolean
   est_cost_usd: number | string | null
@@ -115,7 +123,7 @@ export function garyEmailProblem(text: string, instructions: string, ourNumbers:
 
 // ── writing ────────────────────────────────────────────────────────────────
 
-function todayLine(now = new Date()): string {
+export function todayLine(now = new Date()): string {
   const spoken = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Chicago',
     weekday: 'long',
@@ -137,7 +145,7 @@ function firstNameOf(name: string): string | null {
   return first.charAt(0).toUpperCase() + first.slice(1)
 }
 
-function systemText(system: Awaited<ReturnType<typeof buildGuardianSystem>>): string {
+export function systemText(system: Awaited<ReturnType<typeof buildGuardianSystem>>): string {
   return typeof system === 'string' ? system : system.map((b) => b.text).join('\n')
 }
 
@@ -394,7 +402,8 @@ export async function garyFollowUpsDue(
 
   const out = { due: [] as FollowUpDue[], upcoming: 0, finished: 0 }
   for (const first of rows) {
-    if (first.touch !== 1 || first.status !== 'sent' || !first.sent_at) continue
+    // Prospects get one cold email for now; follow-ups are for win-back sequences.
+    if (first.audience !== 'winback' || first.touch !== 1 || first.status !== 'sent' || !first.sent_at) continue
     const chain = [first, ...(byFirst.get(first.id) ?? [])].sort((a, b) => a.touch - b.touch || a.created_at.localeCompare(b.created_at))
     if (chain.some((r) => r.replied_at) || chain.some((r) => ['pending', 'sending', 'rejected', 'withdrawn'].includes(r.status))) continue
     const last = Math.max(...chain.filter((r) => r.status === 'sent').map((r) => r.touch))
@@ -507,6 +516,8 @@ export function renderGaryEmailHtml(opts: {
   companyName: string
   physicalAddress: string | null
   services: GaryService[]
+  /** Why they're getting it — a prospect never "asked"; replaces the default line. */
+  why?: string
 }): string {
   const paras = opts.body
     .split(/\n{2,}/)
@@ -520,12 +531,12 @@ export function renderGaryEmailHtml(opts: {
   const address = opts.physicalAddress ? `<br>${esc(opts.physicalAddress.replace(/\s*\n\s*/g, ', '))}` : ''
   return (
     `${paras}<p style="margin:16px 0 0 0;">${esc(GARY_SIGNATURE)}</p>` +
-    `<p style="margin:24px 0 0 0;font-size:12px;color:#888888;">You're getting this because you asked ${esc(opts.companyName)} about ${esc(about)}. ` +
+    `<p style="margin:24px 0 0 0;font-size:12px;color:#888888;">${opts.why ? esc(opts.why) : `You're getting this because you asked ${esc(opts.companyName)} about ${esc(about)}.`} ` +
     `If you'd rather not hear from Gary again, <a href="${esc(opts.unsubscribeLink)}" style="color:#888888;">unsubscribe here</a>.${address}</p>`
   )
 }
 
-async function buildHtml(admin: Admin, companyId: string, body: string, toEmail: string, services: GaryService[]): Promise<string> {
+export async function buildHtml(admin: Admin, companyId: string, body: string, toEmail: string, services: GaryService[], why?: string): Promise<string> {
   const [{ data: es }, { data: company }] = await Promise.all([
     admin.from('email_settings').select('physical_address').eq('company_id', companyId).maybeSingle(),
     admin.from('companies').select('name').eq('id', companyId).maybeSingle(),
@@ -536,12 +547,13 @@ async function buildHtml(admin: Admin, companyId: string, body: string, toEmail:
     companyName: (company?.name as string | undefined)?.trim() || 'us',
     physicalAddress: (es?.physical_address as string | undefined) || null,
     services,
+    why,
   })
 }
 
 /** Closed + unassigned: out of everyone's way until the customer replies, which
  *  reopens it into the Queue (lib/inbox/sync.ts). */
-async function closeSentThread(admin: Admin, companyId: string, threadId: string, botId: string): Promise<void> {
+export async function closeSentThread(admin: Admin, companyId: string, threadId: string, botId: string): Promise<void> {
   await admin
     .from('inbox_threads')
     .update({ status: 'closed', assigned_to_user_id: null, updated_at: new Date().toISOString() })
@@ -553,7 +565,7 @@ async function closeSentThread(admin: Admin, companyId: string, threadId: string
 // ── deciding ───────────────────────────────────────────────────────────────
 
 /** Central-time midnight today, as an ISO instant. */
-function centralDayStart(now = new Date()): string {
+export function centralDayStart(now = new Date()): string {
   const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
   // Find the UTC instant whose Central wall clock is ymd 00:00 (offset is −5 or −6).
   for (const off of [5, 6]) {
@@ -653,7 +665,14 @@ export async function decideGaryEmail(
     }
     const to = (d.toEmail || '').trim()
     if (!to.includes('@')) return { ok: false, status: 400, error: 'Your account has no email address to send a test to.' }
-    const html = await buildHtml(admin, companyId, body, to, (item.context?.services ?? []) as GaryService[])
+    const html = await buildHtml(
+      admin,
+      companyId,
+      body,
+      to,
+      (item.context?.services ?? []) as GaryService[],
+      item.audience === 'prospect' ? (await import('@/lib/gary-cold')).COLD_WHY : undefined,
+    )
     const sent = await sendInboxNew(admin, { account: account!, userId: bot.id, to: [{ email: to }], subject: `[Test] ${subject}`, bodyHtml: html })
     if (!sent.ok) return { ok: false, status: 502, error: `The mailbox wouldn't send it: ${sent.error}` }
     const tid = 'threadId' in sent ? sent.threadId ?? null : null
@@ -666,6 +685,21 @@ export async function decideGaryEmail(
       ok: false,
       status: 409,
       error: 'Sending to customers is switched off on this page, so nothing went out. Send me a test still works.',
+    }
+  }
+
+  // Cold emails to prospects: paused by the brake, or over their own small limit.
+  const cold = item.audience === 'prospect' ? await import('@/lib/gary-cold') : null
+  if (cold) {
+    if (settings.coldPausedAt) {
+      return { ok: false, status: 409, error: `Cold emails are paused: ${settings.coldPausedReason || 'see the Prospects page'}. Nothing went out.` }
+    }
+    if ((await cold.coldSentToday(admin, companyId)) >= settings.coldDailyCap) {
+      return {
+        ok: false,
+        status: 429,
+        error: `Gary has sent today’s ${settings.coldDailyCap} cold emails. It waits here; approve it tomorrow.`,
+      }
     }
   }
 
@@ -697,6 +731,33 @@ export async function decideGaryEmail(
   const withdraw = async (reason: string) => {
     await admin.from('gary_queue').update({ status: 'withdrawn', withdrawn_reason: reason }).eq('id', item.id)
     return { ok: false as const, status: 409, error: `Not sent: ${reason}. Nothing went out.` }
+  }
+
+  if (cold) {
+    const problem = await cold.coldStillOk(admin, companyId, settings, item)
+    if (problem) return withdraw(problem)
+    const toEmail = item.to_email as string
+    const html = await buildHtml(admin, companyId, body, toEmail, (item.context?.services ?? settings.services) as GaryService[], cold.COLD_WHY)
+    const sent = await sendInboxNew(admin, {
+      account: account!,
+      userId: bot.id,
+      to: [{ email: toEmail, ...(item.to_name ? { name: item.to_name } : {}) }],
+      subject,
+      bodyHtml: html,
+    })
+    if (!sent.ok) {
+      await admin.from('gary_queue').update({ status: 'failed', error: sent.error.slice(0, 500) }).eq('id', item.id)
+      return { ok: false, status: 502, error: `The mailbox wouldn't send it: ${sent.error}` }
+    }
+    const threadId = 'threadId' in sent ? sent.threadId ?? null : null
+    if (threadId) await closeSentThread(admin, companyId, threadId, bot.id)
+    const { data: final } = await admin
+      .from('gary_queue')
+      .update({ status: 'sent', sent_at: new Date().toISOString(), inbox_thread_id: threadId, provider_message_id: 'messageId' in sent ? sent.messageId : null })
+      .eq('id', item.id)
+      .select(GARY_QUEUE_COLUMNS)
+      .maybeSingle()
+    return { ok: true, item: (final ?? claimed) as GaryQueueItem, message: `Sent to ${toEmail} from the team mailbox.` }
   }
 
   // Re-check the person against every rule, as of now.
