@@ -228,11 +228,12 @@ export async function matchPayer(
     .split(/\s+/)
     .filter(w => w.length > 1 && !NAME_NOISE.has(w))
   if (words.length) {
-    // Every-word match first (narrow), then last name alone (wide).
     let q = contacts()
     for (const w of words) q = q.ilike('name', ilikeSearchPattern(w))
     add((await q).data as Contact[] | null, 'name')
-    if (found.length < 5) add((await contacts().ilike('name', ilikeSearchPattern(words[words.length - 1]))).data as Contact[] | null, 'name')
+    // Last name alone only when the whole printed name found nobody — otherwise
+    // "Mike Brown" would bring every other Brown along.
+    if (!found.some(f => f.by === 'name')) add((await contacts().ilike('name', ilikeSearchPattern(words[words.length - 1]))).data as Contact[] | null, 'name')
   }
 
   const top = found.slice(0, 5)
