@@ -465,22 +465,23 @@ function ChecksTab() {
       </Section>
 
       <Section title="Sending a check">
-        <Step n={1}>Open <strong className="text-white">Checks</strong> → <strong className="text-white">Send a check</strong>.</Step>
-        <Step n={2}>Type the <strong className="text-white">customer</strong>&apos;s name and pick them from the list — that links the check to their customer file. (Someone not in Contacts? Just type the name.)</Step>
-        <Step n={3}>Enter the <strong className="text-white">amount</strong> and the <strong className="text-white">check number</strong>. If you take the photo first and leave these blank, Hub fills them in from the check — double-check them.</Step>
-        <Step n={4}>Tap <strong className="text-white">Take photo of the front</strong>, then <strong className="text-white">Take photo of the back</strong>.</Step>
-        <Step n={5}>Add a <strong className="text-white">note</strong> if it helps (e.g. &quot;pays two invoices&quot;), then tap <strong className="text-white">Send</strong>. The room gets a notification with both photos.</Step>
+        <Step n={1}>Open <strong className="text-white">Checks</strong> → <strong className="text-white">Send a check</strong> and tap <strong className="text-white">📷 Start</strong>.</Step>
+        <Step n={2}>Lay the check flat on something dark, turn your phone <strong className="text-white">sideways</strong>, and line the check up inside the <strong className="text-orange-300">orange frame</strong>. Tap the round button.</Step>
+        <Step n={3}>The camera goes straight on to the back — flip the check over, line it up, tap again.</Step>
+        <Step n={4}>Hub reads the check and fills in the <strong className="text-white">customer</strong> (matched to their customer file by the name and address printed on the check), the <strong className="text-white">amount</strong> and the <strong className="text-white">check number</strong>. If it found more than one possible customer, tap the right one.</Step>
+        <Step n={5}>Glance over it, add a <strong className="text-white">note</strong> if it helps (e.g. &quot;pays two invoices&quot;), and tap <strong className="text-white">Looks right — send</strong>. The checks and cash room gets it with both photos.</Step>
+        <Note>Everything it fills in can be changed — just type over it. On a phone where the framed camera won&apos;t open, Hub uses the phone&apos;s own camera instead; then hold the phone sideways yourself.</Note>
       </Section>
 
       <Section title="Taking a photo a bank will accept">
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li>Turn your phone <strong className="text-white">sideways</strong>. An upright photo is refused — just turn the phone and take it again.</li>
+          <li>Turn your phone <strong className="text-white">sideways</strong>. The saved photo is always horizontal — even with your phone&apos;s rotation lock on. Turned it the &quot;wrong&quot; way? Hub turns the photo over for you.</li>
           <li>Lay the check <strong className="text-white">flat on something dark</strong> — a truck seat, a dark clipboard, a dark folder.</li>
-          <li>Hold the phone <strong className="text-white">straight above</strong> the check, not at an angle, and close enough that the check fills most of the picture.</li>
-          <li>Get <strong className="text-white">all four corners</strong> in, and move out of direct sun or away from a light that makes glare.</li>
+          <li>Hold the phone <strong className="text-white">straight above</strong> the check, not at an angle, and fill the orange frame.</li>
+          <li>Move out of direct sun or away from a light that makes <strong className="text-white">glare</strong>.</li>
         </ul>
         <p className="mt-2">After each photo Hub shows <strong className="text-emerald-400">✓ Looks good</strong> or a list of what&apos;s wrong (blurry, glare, at an angle, cut off, light background…). Tap <strong className="text-white">Retake</strong> to fix it. If a check just won&apos;t photograph well, <strong className="text-white">Use it anyway</strong> still sends it — the post is marked so the office knows.</p>
-        <Note>Hub also reads the amount and check number off the photo. If they don&apos;t match what you typed, it says so with a one-tap fix — that catches typos before they reach the bank.</Note>
+        <Note>If you type an amount or check number yourself and it doesn&apos;t match what&apos;s on the check, Hub says so with a one-tap fix — that catches typos before they reach the bank.</Note>
       </Section>
 
       <Section title="Waiting to deposit">
