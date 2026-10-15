@@ -6,6 +6,7 @@ import ResponderPanel from './ResponderPanel'
 import ReceptionistPanel from './ReceptionistPanel'
 import AmberAccountPanel from './AmberAccountPanel'
 import GaryAccountPanel from './GaryAccountPanel'
+import GaryProspectsSection from './GaryProspectsSection'
 import SchedulingPanel from './SchedulingPanel'
 import NeighborhoodMapPanel from './NeighborhoodMapPanel'
 import RoutingPanel from './RoutingPanel'
@@ -107,6 +108,8 @@ export default function AiAdminShell({
   // level uses: Scheduling appears at Level 4+, Call routing at Level 5. Seeded
   // from the saved level; ReceptionistPanel reports changes as the admin picks.
   const [rxLevel, setRxLevel] = useState<number>(initialVoiceReceptionist.level)
+  // Gary's tab has two halves: win-back (people who asked before) and prospects.
+  const [garyView, setGaryView] = useState<'winback' | 'prospects'>('winback')
 
   return (
     <div className="space-y-6">
@@ -176,7 +179,28 @@ export default function AiAdminShell({
         </div>
       )}
       {tab === 'amber' && <AmberAccountPanel />}
-      {tab === 'gary' && <GaryAccountPanel />}
+      {tab === 'gary' && (
+        <div className="space-y-4">
+          <div className="flex rounded-lg border border-white/10 overflow-hidden text-sm w-fit">
+            {(
+              [
+                ['winback', 'Win-back & messages'],
+                ['prospects', 'Prospects'],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setGaryView(k)}
+                className={`px-3 py-1.5 ${garyView === k ? 'bg-brand text-white' : 'text-white/60 hover:text-white'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {garyView === 'winback' ? <GaryAccountPanel /> : <GaryProspectsSection />}
+        </div>
+      )}
       {tab === 'knowledge' && (
         <div className="space-y-6">
           <KnowledgePanel initialDocs={initialDocs} />
