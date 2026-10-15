@@ -24,6 +24,8 @@ export interface MailProvider {
   listFolders(): Promise<MailFolder[]>
   moveMessageToFolder(messageId: string, folderId: string): Promise<void>
   setMessageFlags(messageId: string, flags: { unread?: boolean; starred?: boolean }): Promise<void>
+  /** Set flags on every message in a provider thread at once. */
+  setThreadFlags(threadId: string, flags: { unread?: boolean; starred?: boolean }): Promise<void>
   /** Stream an attachment's raw bytes (provider ids). The route proxies these to the client. */
   downloadAttachment(
     attachmentId: string,

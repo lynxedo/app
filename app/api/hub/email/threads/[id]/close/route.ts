@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getInboxThreadPermissions } from '@/lib/inbox/permissions'
+import { markThreadReadInMailbox } from '@/lib/inbox/mark-read'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,6 +54,9 @@ export async function POST(
     } catch (err) {
       console.warn('[inbox:close] broadcast failed', err)
     }
+    // Closed in Hub → read in the mailbox, so Outlook's unread counts (shown beside
+    // each folder in Hub) stop counting handled mail.
+    await markThreadReadInMailbox(admin, id)
   })
 
   return NextResponse.json({ ok: true })
