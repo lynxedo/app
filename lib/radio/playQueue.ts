@@ -16,6 +16,9 @@
 //    a receiver cannot tell a finished sentence from a slow piece.
 
 const GAP_TOLERANCE_MS = 3000
+/** How long a piece's turn waits on its download before falling back to the
+ *  direct link. Normally it finished long ago — it started when the piece arrived. */
+const PREFETCH_WAIT_MS = 4000
 
 let audioUnlocked = false
 
@@ -54,6 +57,8 @@ export class RadioPlayQueue {
   private order: string[] = []                              // transmissions awaiting playback, in arrival order
   private playing = false
   private current: HTMLAudioElement | null = null
+  /** pieceId → the downloaded audio as a blob: URL (null = download failed, use the link). */
+  private prefetched = new Map<string, Promise<string | null>>()
   /** Moves the queue past the current piece — kept so a resume that fails can't stall it. */
   private currentFinish: (() => void) | null = null
   private stopped = false
@@ -68,6 +73,7 @@ export class RadioPlayQueue {
     let m = this.pieces.get(p.transmissionId)
     if (!m) { m = new Map(); this.pieces.set(p.transmissionId, m); this.order.push(p.transmissionId) }
     m.set(p.seq, p.pieceId)
+    this.prefetch(p.pieceId)
     void this.pump()
   }
 
@@ -95,9 +101,27 @@ export class RadioPlayQueue {
     void this.pump()
   }
 
+  /** Start downloading a piece the moment we hear it exists. Pieces arrive while the
+   *  ones before them are still playing, so by its turn it's already here — the
+   *  join between two pieces no longer waits on the network. */
+  private prefetch(pieceId: string): void {
+    if (this.prefetched.has(pieceId)) return
+    this.prefetched.set(pieceId, fetch(`/api/hub/radio/piece/${pieceId}?bytes=1`, { cache: 'no-store' })
+      .then(r => (r.ok ? r.blob() : null))
+      .then(b => (b && b.size > 0 && !this.stopped ? URL.createObjectURL(b) : null))
+      .catch(() => null))
+  }
+
+  private release(pieceId: string): void {
+    const p = this.prefetched.get(pieceId)
+    this.prefetched.delete(pieceId)
+    void p?.then(url => { if (url) URL.revokeObjectURL(url) })
+  }
+
   /** Stop everything — the channel closed, or the screen is going away. */
   stop(): void {
     this.stopped = true
+    for (const id of [...this.prefetched.keys()]) this.release(id)
     if (this.current) { this.current.pause(); this.current.src = ''; this.current = null }
     this.pieces.clear(); this.totals.clear(); this.order = []
     this.playing = false
@@ -160,9 +184,25 @@ export class RadioPlayQueue {
     }
   }
 
-  private playOne(pieceId: string): Promise<void> {
+  private async playOne(pieceId: string): Promise<void> {
+    // Normally already downloaded. If not (a slow download, or it failed), wait a
+    // little, then fall back to the direct link — the pre-prefetch behaviour.
+    const pending = this.prefetched.get(pieceId) ?? Promise.resolve(null)
+    const blobUrl = await Promise.race([
+      pending,
+      new Promise<null>(r => setTimeout(() => r(null), PREFETCH_WAIT_MS)),
+    ])
+    if (this.stopped) { this.release(pieceId); return }
+    try {
+      await this.playSrc(blobUrl ?? `/api/hub/radio/piece/${pieceId}`)
+    } finally {
+      this.release(pieceId)
+    }
+  }
+
+  private playSrc(src: string): Promise<void> {
     return new Promise(resolve => {
-      const a = new Audio(`/api/hub/radio/piece/${pieceId}`)
+      const a = new Audio(src)
       this.current = a
       let done = false
       const finish = () => { if (done) return; done = true; this.current = null; this.currentFinish = null; resolve() }
