@@ -33,6 +33,7 @@ export type CatalogId =
   | 'quotes'        // Quotes (Work Orders PRD Phase 4), gated by canAccessQuotes
   | 'mix-sheet'     // technician tank mix sheet (all users view, admins edit)
   | 'feedback'      // Report an Issue — bug reports + feature requests (all users)
+  | 'checks'        // Checks — photograph a customer's check for deposit (all users)
   | 'people'        // admin-only (Admin → People)
   | 'guardian'      // admin-only (Admin → Guardian)
   | 'products'      // admin-only (Admin → Products)
@@ -166,6 +167,8 @@ const PATHS = {
   mixSheet: 'M4 5h16v14H4zM4 9h16M9 9v10',
   // Report an Issue — a flag on a pole (raise a flag / report an issue).
   feedback: 'M5 3v18M5 4h12l-2.2 3.5L17 11H5',
+  // A paper check: the slip, the amount box, the signature line.
+  checks: 'M3 7h18v10H3zM14.5 10h3.5v2.5h-3.5zM6 10h5M6 14.5h12',
 }
 
 // Reusable icon factory (also used by the Tools sidebar and Hub sidebar
@@ -200,6 +203,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'quotes':        return <I d={PATHS.quotes} />
     case 'mix-sheet':     return <I d={PATHS.mixSheet} />
     case 'feedback':      return <I d={PATHS.feedback} />
+    case 'checks':        return <I d={PATHS.checks} />
     case 'people':        return <I d={PATHS.people} />
     case 'guardian':      return <I d={PATHS.guardian} />
     case 'products':      return <I d={PATHS.products} />
@@ -276,6 +280,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'pricer',      label: 'Pricer',      href: '/hub/pricer', prefixMatch: true, pickable: true, requires: 'canAccessPricer', tabbable: true },
   { id: 'quotes',      label: 'Quotes',      href: '/hub/quotes', prefixMatch: true, pickable: true, requires: 'canAccessQuotes' },
   { id: 'mix-sheet',   label: 'Mix Sheet',   href: '/hub/mix-sheet', prefixMatch: true, pickable: true },
+  { id: 'checks',      label: 'Checks',      href: '/hub/checks', prefixMatch: true, pickable: true },
   { id: 'feedback',    label: 'Report an Issue', href: '/hub/feedback', prefixMatch: true, pickable: true },
 ]
 

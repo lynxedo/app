@@ -56,6 +56,7 @@ const RAIL_BY_PREFIX: Array<[string, RailId]> = [
   ['/hub/timesheet', 'time-records'],
   ['/hub/daily-log', 'daily-log'],
   ['/hub/files', 'files'],
+  ['/hub/checks', 'checks'],
   ['/hub/pages/company-news', 'company-news'],
 ]
 

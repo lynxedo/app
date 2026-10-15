@@ -57,6 +57,7 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
 const TABS = [
   { id: 'hub',          icon: '💬', label: 'Hub' },
   { id: 'feedback',     icon: '🚩', label: 'Report an Issue' },
+  { id: 'checks',       icon: '💵', label: 'Checks' },
   { id: 'hub-assistant', icon: '🤖', label: 'Hub Assistant' },
   { id: 'routing',      icon: '⚡', label: 'Route Optimizer' },
   { id: 'lawn-sizer',   icon: '🌿', label: 'Lawn Sizer' },
@@ -95,6 +96,7 @@ type TabId = typeof TABS[number]['id']
 const TAB_BODY: Record<TabId, () => ReactNode> = {
   'hub': HubTab,
   'feedback': FeedbackTab,
+  'checks': ChecksTab,
   'hub-assistant': HubAssistantTab,
   'routing': RoutingTab,
   'lawn-sizer': LawnSizerTab,
@@ -445,6 +447,49 @@ function FeedbackTab() {
           <li>If it needs a follow-up question, he&apos;ll reach out to you.</li>
         </ul>
         <Note>Tip: send <strong className="text-white">one issue per report</strong> so each can be tracked and fixed on its own.</Note>
+      </Section>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// CHECKS
+// ──────────────────────────────────────────────────────────────────────────
+
+function ChecksTab() {
+  return (
+    <>
+      <Section title="What is Checks?">
+        <p><strong className="text-white">Checks</strong> is how a customer&apos;s paper check gets to the bank. You photograph the front and back in the Hub, and it posts straight to the <strong className="text-white">checks and cash</strong> room, where the check gets deposited with the bank&apos;s mobile deposit. Everyone in the Hub has it — find <strong className="text-white">Checks</strong> in the app menu (tap <em>Apps</em> on mobile if you don&apos;t see it).</p>
+        <Note>The photo is what gets deposited, so a good photo matters. Hub checks every photo for you and tells you in plain words if a bank would reject it.</Note>
+      </Section>
+
+      <Section title="Sending a check">
+        <Step n={1}>Open <strong className="text-white">Checks</strong> → <strong className="text-white">Send a check</strong>.</Step>
+        <Step n={2}>Type the <strong className="text-white">customer</strong>&apos;s name and pick them from the list — that links the check to their customer file. (Someone not in Contacts? Just type the name.)</Step>
+        <Step n={3}>Enter the <strong className="text-white">amount</strong> and the <strong className="text-white">check number</strong>. If you take the photo first and leave these blank, Hub fills them in from the check — double-check them.</Step>
+        <Step n={4}>Tap <strong className="text-white">Take photo of the front</strong>, then <strong className="text-white">Take photo of the back</strong>.</Step>
+        <Step n={5}>Add a <strong className="text-white">note</strong> if it helps (e.g. &quot;pays two invoices&quot;), then tap <strong className="text-white">Send</strong>. The room gets a notification with both photos.</Step>
+      </Section>
+
+      <Section title="Taking a photo a bank will accept">
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li>Turn your phone <strong className="text-white">sideways</strong>. An upright photo is refused — just turn the phone and take it again.</li>
+          <li>Lay the check <strong className="text-white">flat on something dark</strong> — a truck seat, a dark clipboard, a dark folder.</li>
+          <li>Hold the phone <strong className="text-white">straight above</strong> the check, not at an angle, and close enough that the check fills most of the picture.</li>
+          <li>Get <strong className="text-white">all four corners</strong> in, and move out of direct sun or away from a light that makes glare.</li>
+        </ul>
+        <p className="mt-2">After each photo Hub shows <strong className="text-emerald-400">✓ Looks good</strong> or a list of what&apos;s wrong (blurry, glare, at an angle, cut off, light background…). Tap <strong className="text-white">Retake</strong> to fix it. If a check just won&apos;t photograph well, <strong className="text-white">Use it anyway</strong> still sends it — the post is marked so the office knows.</p>
+        <Note>Hub also reads the amount and check number off the photo. If they don&apos;t match what you typed, it says so with a one-tap fix — that catches typos before they reach the bank.</Note>
+      </Section>
+
+      <Section title="Waiting to deposit">
+        <p>The <strong className="text-white">Waiting to deposit</strong> tab lists every check that hasn&apos;t been deposited yet, with the total, who sent it and how long ago — so a check can&apos;t quietly go missing. <strong className="text-white">Deposited</strong> shows the ones that are done.</p>
+        <p className="mt-2">If you&apos;re not in the checks and cash room, you see only the checks you sent, so you can tell they arrived.</p>
+        <AdminOnly>
+          <p>The people in the <strong className="text-white">checks and cash</strong> room (and admins) see every check. After depositing one, tap <strong className="text-white">✓ Deposited</strong> on it; it moves to the Deposited tab with the date and your name. Tapped the wrong one? Open <strong className="text-white">Deposited</strong> and tap <strong className="text-white">Undo</strong>. <strong className="text-white">Void</strong> is for a check that will never be deposited (bounced, handed back, sent twice).</p>
+          <p>Hub doesn&apos;t record the payment in Jobber — Jobber doesn&apos;t let other apps do that — so still apply the payment to the invoice in Jobber as usual.</p>
+        </AdminOnly>
       </Section>
     </>
   )
