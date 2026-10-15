@@ -85,6 +85,27 @@ async function syncFolders(
 // rules act on ARRIVING mail only.
 const RULES_RECENCY_MS = 48 * 60 * 60 * 1000
 
+// A message filed in the mailbox's Sent Items is ours, whatever address it went out
+// under. Direction otherwise keys on the From matching the mailbox's PRIMARY address,
+// so mail sent from an alias (TheWoodlands@ on the hlc105 mailbox) was mirrored as
+// inbound — a blue "customer" bubble, and it could count as a customer reply.
+async function markSentAsOutbound(
+  admin: SupabaseClient,
+  accountId: string,
+  messages: MailMessage[]
+): Promise<MailMessage[]> {
+  const { data } = await admin
+    .from('inbox_folders')
+    .select('provider_folder_id')
+    .eq('account_id', accountId)
+    .eq('system_folder', 'sent')
+  const sent = new Set((data ?? []).map((f) => f.provider_folder_id as string))
+  if (sent.size === 0) return messages
+  return messages.map((m) =>
+    m.direction !== 'outbound' && m.providerFolderIds.some((id) => sent.has(id)) ? { ...m, direction: 'outbound' } : m
+  )
+}
+
 // Upsert a thread's messages into inbox_messages (idempotent on the provider
 // message id). Returns how many rows were written. body_text + sent_by_user_id are
 // intentionally omitted so a re-sync never clobbers Hub-authored values.
@@ -136,7 +157,7 @@ export async function hydrateThreadMessages(
   const account = await getInboxAccountById(admin, accountId)
   if (!account) return 0
   const provider = getMailProvider(account)
-  const messages = await provider.listMessages(providerThreadId)
+  const messages = await markSentAsOutbound(admin, account.id, await provider.listMessages(providerThreadId))
   return upsertMessages(admin, account, threadDbId, messages)
 }
 
@@ -193,9 +214,17 @@ async function mirrorThread(
   const isShared = account.account_type === 'shared'
   const self = (account.email_address || '').toLowerCase()
 
-  // From = first participant that isn't this mailbox (fall back to the first).
+  // From = the outside party. Prefer someone off our own mail domain — staff addresses
+  // (BSimpson@…) and the mailbox's aliases (TheWoodlands@…) share it, and a customer
+  // thread that listed a teammate first showed as "Ben Simpson" (Oct 15 2026). Fall back
+  // to anyone but the mailbox itself (internal-only threads), then the first.
+  const ownDomain = self.includes('@') ? self.split('@')[1] : ''
+  const isOwnDomain = (e: string) => !!ownDomain && e.toLowerCase().endsWith('@' + ownDomain)
   const other =
-    t.participants.find((p) => p.email && p.email.toLowerCase() !== self) || t.participants[0] || null
+    t.participants.find((p) => p.email && !isOwnDomain(p.email)) ||
+    t.participants.find((p) => p.email && p.email.toLowerCase() !== self) ||
+    t.participants[0] ||
+    null
   const fromName = other?.name ?? null
   const fromEmail = other?.email ?? null
 
@@ -318,7 +347,7 @@ async function mirrorThread(
     opts.forceMessages || !existing || !sameInstant(existing.last_message_at as string | null, t.lastMessageAt)
   if (!needMessages) return { mirrored: true, messages: 0, threadDbId }
 
-  const messages = await provider.listMessages(t.providerThreadId)
+  const messages = await markSentAsOutbound(admin, account.id, await provider.listMessages(t.providerThreadId))
   const messageCount = await upsertMessages(admin, account, threadDbId, messages)
 
   // The messages are fresher than the summary: if the newest one is later than what
