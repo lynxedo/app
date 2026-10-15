@@ -144,7 +144,7 @@ export default function CheckCamera({ side, onShot, onClose, onFallback, notice 
   const sideLabel = side === 'front' ? 'FRONT' : 'BACK'
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black text-white select-none" role="dialog" aria-label={`Photograph the ${side} of the check`}>
+    <div className="fixed inset-0 z-[200] bg-black text-[#fff] select-none" role="dialog" aria-label={`Photograph the ${side} of the check`}>
       <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 w-full h-full object-cover" />
 
       {status === 'live' && g && (
@@ -160,7 +160,7 @@ export default function CheckCamera({ side, onShot, onClose, onFallback, notice 
               <span key={c} className={`absolute w-7 h-7 border-[#f97316] rounded-sm -m-[5px] ${c}`} />
             ))}
             <div className={`absolute inset-0 flex items-center justify-center ${g.landscape ? '' : 'rotate-90'}`}>
-              <span className="px-3 py-1 rounded-full bg-black/55 text-sm font-semibold tracking-wide whitespace-nowrap">
+              <span className="px-3 py-1 rounded-full bg-black/55 text-[#fff] text-sm font-semibold tracking-wide whitespace-nowrap">
                 Line up the {sideLabel} of the check
               </span>
             </div>
@@ -168,19 +168,14 @@ export default function CheckCamera({ side, onShot, onClose, onFallback, notice 
 
           <div className="absolute top-0 inset-x-0 pt-[max(env(safe-area-inset-top),12px)] px-14 text-center pointer-events-none flex flex-col items-center gap-1.5">
             {notice && (
-              <div className="mt-1 px-3 py-1.5 rounded-full bg-emerald-600/85 text-sm font-medium">{notice}</div>
+              <div className="mt-1 px-3 py-1.5 rounded-full bg-emerald-600/90 text-[#fff] text-sm font-medium">{notice}</div>
             )}
             {!g.landscape && (
-              <div className="inline-flex items-center gap-2 mt-1 px-3 py-1.5 rounded-full bg-black/60 text-sm">
+              <div className="inline-flex items-center gap-2 mt-1 px-3 py-1.5 rounded-full bg-black/60 text-[#fff] text-sm">
                 <span className="text-lg leading-none">↺</span> Turn your phone sideways
               </div>
             )}
-          </div>
-
-          <div className={`absolute ${g.landscape ? 'left-0 inset-y-0 pl-3 flex items-center' : 'bottom-0 inset-x-0 pb-[max(env(safe-area-inset-bottom),12px)] text-center'} pointer-events-none`}>
-            <span className={`inline-block text-xs text-white/75 bg-black/50 rounded-full px-3 py-1 ${g.landscape ? 'max-w-[7rem] whitespace-normal text-center' : 'mb-28'}`}>
-              Dark background · flat · no glare
-            </span>
+            <div className="px-3 py-1 rounded-full bg-black/50 text-[#fff]/80 text-xs">Dark background · flat · no glare</div>
           </div>
 
           <button
@@ -199,7 +194,7 @@ export default function CheckCamera({ side, onShot, onClose, onFallback, notice 
       )}
 
       {status === 'starting' && (
-        <div className="absolute inset-0 flex items-center justify-center text-white/70 text-sm">Starting the camera…</div>
+        <div className="absolute inset-0 flex items-center justify-center text-[#fff]/70 text-sm">Starting the camera…</div>
       )}
 
       {status === 'unavailable' && (
@@ -225,7 +220,7 @@ export default function CheckCamera({ side, onShot, onClose, onFallback, notice 
         type="button"
         onClick={onClose}
         aria-label="Close camera"
-        className="absolute top-[max(env(safe-area-inset-top),12px)] left-3 w-10 h-10 rounded-full bg-black/60 text-white text-xl flex items-center justify-center"
+        className="absolute top-[max(env(safe-area-inset-top),12px)] left-3 w-10 h-10 rounded-full bg-black/60 text-[#fff] text-2xl flex items-center justify-center"
       >
         ×
       </button>
