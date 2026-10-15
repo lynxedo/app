@@ -11,7 +11,8 @@ import {
   saveGarySettings,
 } from '@/lib/gary'
 import { WINBACK_SKIP_LABEL, buildWinbackPreview } from '@/lib/gary-winback'
-import { GARY_QUEUE_COLUMNS, expireStaleGaryEmails, garySentToday } from '@/lib/gary-email'
+import { GARY_QUEUE_COLUMNS, expireStaleGaryEmails, garyFollowUpsDue, garySentToday } from '@/lib/gary-email'
+import { buildGaryScorecard } from '@/lib/gary-scorecard'
 import { checkGaryReplies } from '@/lib/gary-replies'
 
 // Admin → AI → Gary's account. Session 1: identity, settings, the preview list.
@@ -56,7 +57,7 @@ export async function GET() {
     // is never behind (and staging, which has no tick, still sees replies).
     await checkGaryReplies(admin, g.companyId).catch((e) => console.error('[gary-account] reply check failed', e))
     const settings = await getGarySettings(admin, g.companyId)
-    const [bot, preview, people, isApprover, sentToday, { data: pending }, { data: recent }] = await Promise.all([
+    const [bot, preview, people, isApprover, sentToday, { data: pending }, { data: recent }, followUps, scorecard] = await Promise.all([
       getGaryBot(admin, g.companyId, settings.botUserId),
       buildWinbackPreview(admin, g.companyId, settings),
       approverChoices(admin, g.companyId),
@@ -64,6 +65,8 @@ export async function GET() {
       garySentToday(admin, g.companyId),
       admin.from('gary_queue').select(GARY_QUEUE_COLUMNS).eq('company_id', g.companyId).eq('status', 'pending').order('created_at', { ascending: true }).limit(50),
       admin.from('gary_queue').select(GARY_QUEUE_COLUMNS).eq('company_id', g.companyId).neq('status', 'pending').order('created_at', { ascending: false }).limit(25),
+      garyFollowUpsDue(admin, g.companyId, settings.followUpDays),
+      buildGaryScorecard(admin, g.companyId),
     ])
     const nameById = new Map(people.map((p) => [p.id, p.name]))
     const withDecider = (rows: unknown) =>
@@ -78,7 +81,10 @@ export async function GET() {
         approverIds: settings.approverIds,
         dailyEmailCap: settings.dailyEmailCap,
         customerSending: settings.customerSending,
+        followUpDays: settings.followUpDays,
       },
+      followUps: { due: followUps.due.length, upcoming: followUps.upcoming, finished: followUps.finished },
+      scorecard,
       serviceChoices: GARY_SERVICES.map((s) => ({ key: s, label: GARY_SERVICE_LABEL[s] })),
       skipLabels: WINBACK_SKIP_LABEL,
       people,
@@ -103,6 +109,7 @@ export async function PUT(request: Request) {
     approverIds?: unknown
     dailyEmailCap?: unknown
     customerSending?: unknown
+    followUpDays?: unknown
   } | null
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   const admin = createAdminClient()
@@ -119,6 +126,7 @@ export async function PUT(request: Request) {
       approverIds,
       dailyEmailCap: body.dailyEmailCap,
       customerSending: body.customerSending,
+      followUpDays: body.followUpDays,
     })
     return NextResponse.json({ ok: true })
   } catch (e) {

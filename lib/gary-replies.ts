@@ -13,7 +13,8 @@
 //   • "no thanks" / "not interested"       → declined; Gary simply never writes again
 //   • anything else → "Gary needs a human" in Office Alerts, with what they said
 //     and a link to the thread (Ben, Oct 15 2026 — D10).
-// Gary never answers a reply himself.
+// Gary never answers a reply himself. One reply ends the person's whole sequence
+// (every sent message in it is marked), so follow-ups stop and nobody is alerted twice.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { postOfficeAlert } from '@/lib/office-alerts'
@@ -32,6 +33,7 @@ const DECLINE = /^\W*(no thanks?|no thank you|not interested|nope|we'?re good|i'
 
 type SentRow = {
   id: string
+  first_id: string | null
   channel: 'email' | 'text'
   to_name: string | null
   to_email: string | null
@@ -61,7 +63,7 @@ export async function checkGaryReplies(admin: Admin, companyId: string): Promise
   const since = new Date(Date.now() - LOOKBACK_DAYS * 86_400_000).toISOString()
   const { data } = await admin
     .from('gary_queue')
-    .select('id, channel, to_name, to_email, to_phone, subject, context, sent_at, inbox_thread_id, conversation_id')
+    .select('id, first_id, channel, to_name, to_email, to_phone, subject, context, sent_at, inbox_thread_id, conversation_id')
     .eq('company_id', companyId)
     .eq('status', 'sent')
     .is('replied_at', null)
@@ -120,6 +122,15 @@ export async function checkGaryReplies(admin: Admin, companyId: string): Promise
         .maybeSingle()
       if (!claimed) continue
       out.replies++
+      // One reply ends the whole sequence: mark Gary's other sent messages to them
+      // too, so the same reply never raises a second alert and no follow-up goes.
+      const chainId = r.first_id ?? r.id
+      await admin
+        .from('gary_queue')
+        .update({ replied_at: at, reply_kind: kind, reply_snippet: words.slice(0, 300) || null })
+        .eq('company_id', companyId)
+        .or(`id.eq.${chainId},first_id.eq.${chainId}`)
+        .is('replied_at', null)
 
       if (kind === 'opted_out' && r.channel === 'email' && r.to_email) {
         await suppressEmail(admin, companyId, r.to_email, 'unsubscribe')

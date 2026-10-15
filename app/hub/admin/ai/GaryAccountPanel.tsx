@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import GaryEmailsSection, { type GaryQueueItem } from './GaryEmailsSection'
+import GaryScorecard, { type GaryScorecardData } from './GaryScorecard'
 
 // Admin → AI → Gary's account. Gary is the outbound sales agent (PRD in Drive:
 // Reference/PRDs/GARY_OUTBOUND_SALES_PRD.md). Session 1 = his identity, the
@@ -28,7 +29,16 @@ type Row = {
 type Payload = {
   bot: { id: string; name: string; hasAvatar: boolean } | null
   signature: string
-  settings: { services: string[]; recentTouchDays: number; approverIds: string[]; dailyEmailCap: number; customerSending: boolean }
+  settings: {
+    services: string[]
+    recentTouchDays: number
+    approverIds: string[]
+    dailyEmailCap: number
+    customerSending: boolean
+    followUpDays: [number, number]
+  }
+  followUps: { due: number; upcoming: number; finished: number }
+  scorecard: GaryScorecardData
   people: { id: string; name: string }[]
   isApprover: boolean
   sentToday: number
@@ -140,6 +150,13 @@ export default function GaryAccountPanel() {
     if (!data) return
     setData({ ...data, settings: { ...data.settings, customerSending: on } })
     void save({ customerSending: on })
+  }
+
+  function setFollowUpDays(next: [number, number]) {
+    if (!data) return
+    if (next[1] <= next[0]) next = [next[0], Math.min(90, next[0] + 7)]
+    setData({ ...data, settings: { ...data.settings, followUpDays: next } })
+    void save({ followUpDays: next })
   }
 
   function setCap(n: number) {
@@ -265,6 +282,8 @@ export default function GaryAccountPanel() {
             </span>
           </label>
 
+          <GaryScorecard data={data.scorecard} />
+
           <GaryEmailsSection
             pending={data.pending}
             customerSending={data.settings.customerSending}
@@ -276,6 +295,8 @@ export default function GaryAccountPanel() {
             hasBot={Boolean(data.bot)}
             readyByEmail={data.preview.counts.byChannel.email}
             readyByText={data.preview.counts.byChannel.text}
+            followUpsDue={data.followUps.due}
+            followUpsUpcoming={data.followUps.upcoming}
             onChanged={async () => {
               setLoading(true)
               await load()
@@ -304,6 +325,46 @@ export default function GaryAccountPanel() {
             )}
             <p className="text-xs text-white/40">
               Only people with AI admin access can be picked. With nobody ticked, company admins approve.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-white/70">Follow-ups</p>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-white/80">
+              If they haven&apos;t replied, Gary writes again
+              <select
+                value={data.settings.followUpDays[0]}
+                onChange={(e) => setFollowUpDays([Number(e.target.value), data.settings.followUpDays[1]])}
+                className="bg-transparent border border-white/15 rounded px-2 py-1 text-sm"
+              >
+                {[...new Set([3, 5, 7, 10, 14, data.settings.followUpDays[0]])]
+                  .sort((a, b) => a - b)
+                  .map((n) => (
+                    <option key={n} value={n} className="bg-gray-900">
+                      {n} days
+                    </option>
+                  ))}
+              </select>
+              after his first message, and a last time
+              <select
+                value={data.settings.followUpDays[1]}
+                onChange={(e) => setFollowUpDays([data.settings.followUpDays[0], Number(e.target.value)])}
+                className="bg-transparent border border-white/15 rounded px-2 py-1 text-sm"
+              >
+                {[...new Set([14, 21, 28, 35, 45, data.settings.followUpDays[1]])]
+                  .filter((n) => n > data.settings.followUpDays[0])
+                  .sort((a, b) => a - b)
+                  .map((n) => (
+                    <option key={n} value={n} className="bg-gray-900">
+                      {n} days
+                    </option>
+                  ))}
+              </select>
+              after it. Then he stops.
+            </div>
+            <p className="text-xs text-white/40">
+              A reply, a &ldquo;no thanks&rdquo; or an opt-out ends it straight away. Each follow-up waits for an approver
+              like any other message.
             </p>
           </div>
 

@@ -217,8 +217,11 @@ export async function buildWinbackPreview(
   admin: Admin,
   companyId: string,
   settings: GarySettings,
-  // At approval time the email being approved must not count as "Gary already wrote".
-  opts: { ignoreQueueId?: string } = {},
+  // ignoreQueueId: at approval time the message being approved must not count as
+  //   "Gary already wrote".
+  // followUps: judging a FOLLOW-UP — Gary having written already is expected, so
+  //   the gary_* skips don't apply (every other rule still does).
+  opts: { ignoreQueueId?: string; followUps?: boolean } = {},
 ): Promise<WinbackPreview> {
   const now = Date.now()
   const since = new Date(now - settings.recentTouchDays * 86_400_000).toISOString()
@@ -281,12 +284,12 @@ export async function buildWinbackPreview(
     ),
     // Gary's own emails — waiting, sent, or turned down by a person. Expired,
     // failed and withdrawn ones don't count: nothing reached the customer.
-    readAll<{ id: string; person_key: string; to_email: string; status: string; sent_at: string | null; decided_at: string | null }>(
+    readAll<{ id: string; person_key: string; to_email: string | null; status: string; sent_at: string | null; decided_at: string | null; inbox_thread_id: string | null }>(
       'gary_queue',
       () =>
         admin
           .from('gary_queue')
-          .select('id, person_key, to_email, status, sent_at, decided_at')
+          .select('id, person_key, to_email, status, sent_at, decided_at, inbox_thread_id')
           .eq('company_id', companyId)
           .in('status', ['pending', 'sending', 'sent', 'rejected'])
           .order('id'),
@@ -439,16 +442,20 @@ export async function buildWinbackPreview(
       admin.from('txt_messages').select('contact_id').eq('company_id', companyId).eq('direction', 'outbound').in('contact_id', ids).order('id'),
     )
     for (const m of out) textedBefore.add(m.contact_id)
-    const recent = await readAll<{ contact_id: string; created_at: string }>('txt_messages (recent)', () =>
+    const recent = await readAll<{ contact_id: string; created_at: string; sent_by: string | null }>('txt_messages (recent)', () =>
       admin
         .from('txt_messages')
-        .select('contact_id, created_at')
+        .select('contact_id, created_at, sent_by')
         .eq('company_id', companyId)
         .in('contact_id', ids)
         .gte('created_at', since)
         .order('id'),
     )
-    for (const m of recent) lastTextAt.set(m.contact_id, later(lastTextAt.get(m.contact_id) ?? null, m.created_at) as string)
+    for (const m of recent) {
+      // Gary's own texts aren't "a person talked with them" — they'd block his follow-ups.
+      if (settings.botUserId && m.sent_by === settings.botUserId) continue
+      lastTextAt.set(m.contact_id, later(lastTextAt.get(m.contact_id) ?? null, m.created_at) as string)
+    }
   }
 
   const recentCalls = await readAll<{ contact_id: string | null; from_number: string | null; to_number: string | null; created_at: string }>(
@@ -470,12 +477,15 @@ export async function buildWinbackPreview(
     if (c.contact_id) lastCallByContact.set(c.contact_id, later(lastCallByContact.get(c.contact_id) ?? null, c.created_at) as string)
   }
 
-  const recentThreads = await readAll<{ from_email: string | null; participants: { email?: string }[] | null; last_message_at: string }>(
+  // Threads Gary started don't count either. A reply on one is caught by
+  // lib/gary-replies.ts (replied_at), which stops his follow-ups on its own.
+  const garyThreads = new Set(garyItems.map((g) => g.inbox_thread_id).filter(Boolean) as string[])
+  const recentThreads = await readAll<{ id: string; from_email: string | null; participants: { email?: string }[] | null; last_message_at: string }>(
     'inbox_threads',
     () =>
       admin
         .from('inbox_threads')
-        .select('from_email, participants, last_message_at')
+        .select('id, from_email, participants, last_message_at')
         .eq('company_id', companyId)
         .is('deleted_at', null)
         .gte('last_message_at', since)
@@ -483,6 +493,7 @@ export async function buildWinbackPreview(
   )
   const lastEmailAt = new Map<string, string>()
   for (const t of recentThreads) {
+    if (garyThreads.has(t.id)) continue
     const addrs = new Set<string>()
     const f = em(t.from_email)
     if (f) addrs.add(f)
@@ -556,7 +567,7 @@ export async function buildWinbackPreview(
     const fromKey = garyByKey.get(p.key)
     const fromEmail = p.email ? garyByEmail.get(p.email) : undefined
     const gary = [fromKey, fromEmail].filter(Boolean).sort((a, b) => GARY_RANK[b!.status] - GARY_RANK[a!.status])[0]
-    if (gary) {
+    if (gary && !opts.followUps) {
       if (gary.status === 'pending' || gary.status === 'sending') skip('gary_waiting')
       else if (gary.status === 'sent') skip('gary_emailed', shortDate(gary.sent_at))
       else skip('gary_turned_down', shortDate(gary.decided_at))
