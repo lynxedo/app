@@ -231,9 +231,10 @@ export default function GaryAccountPanel() {
       </div>
 
       <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-100/90">
-        <strong className="text-white">Nothing goes out without a person.</strong> Gary writes each email; an approver reads
-        it, edits it if they like, and taps <em>Approve &amp; send</em>. It then goes out from the team mailbox. Texts and
-        follow-up emails come later.
+        <strong className="text-white">Nothing goes out without a person.</strong> Gary writes each email or text; an
+        approver reads it, edits it if they like, and taps <em>Approve &amp; send</em>. Emails go out from the team
+        mailbox; texts go into the Txt thread we&apos;ve used with that person before. When someone replies, Gary posts
+        <em> Gary needs a human</em> in Office Alerts. He never answers a reply himself.
       </div>
 
       {loadErr && <p className="text-xs text-red-400">{loadErr}</p>}
@@ -274,6 +275,7 @@ export default function GaryAccountPanel() {
             serviceLabel={serviceLabel}
             hasBot={Boolean(data.bot)}
             readyByEmail={data.preview.counts.byChannel.email}
+            readyByText={data.preview.counts.byChannel.text}
             onChanged={async () => {
               setLoading(true)
               await load()
@@ -322,7 +324,7 @@ export default function GaryAccountPanel() {
                     </option>
                   ))}
               </select>
-              emails a day from the team mailbox
+              messages a day (emails and texts together)
             </div>
           </div>
 

@@ -198,6 +198,19 @@ async function evaluateAmberEngagement(
   const { data: thread } = await admin.from('amber_text_threads').select('status').eq('conversation_id', opts.conversationId).maybeSingle()
   if (thread && (thread.status as string) !== 'active') return { engage: false, dial, reason: `thread_${thread.status as string}` }
 
+  // Gary's outreach: a reply to a text Gary sent in the last 30 days is for a
+  // person (lib/gary-replies.ts posts "Gary needs a human"), never for Amber —
+  // even when the thread was archived and the reply reopened it as "new".
+  const garySince = new Date(Date.now() - 30 * 86_400_000).toISOString()
+  const { data: gary } = await admin
+    .from('gary_queue')
+    .select('id')
+    .eq('conversation_id', opts.conversationId)
+    .eq('status', 'sent')
+    .gte('sent_at', garySince)
+    .limit(1)
+  if (gary && gary.length) return { engage: false, dial, reason: 'gary_outreach' }
+
   return { engage: true, dial, reason: 'ok' }
 }
 

@@ -8,7 +8,9 @@ import { useState } from 'react'
 
 export type GaryQueueItem = {
   id: string
-  to_email: string
+  channel: 'email' | 'text'
+  to_email: string | null
+  to_phone: string | null
   to_name: string | null
   subject: string
   body: string
@@ -24,6 +26,15 @@ export type GaryQueueItem = {
   error: string | null
   expires_at: string
   created_at: string
+  replied_at: string | null
+  reply_kind: string | null
+  reply_snippet: string | null
+}
+
+const REPLY_LABEL: Record<string, string> = {
+  reply: 'They replied (sent to Office Alerts)',
+  declined: 'They said no thanks',
+  opted_out: 'They opted out',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -65,6 +76,7 @@ export default function GaryEmailsSection({
   serviceLabel,
   hasBot,
   readyByEmail,
+  readyByText,
   onChanged,
 }: {
   pending: GaryQueueItem[]
@@ -76,9 +88,13 @@ export default function GaryEmailsSection({
   serviceLabel: Map<string, string>
   hasBot: boolean
   readyByEmail: number
+  readyByText: number
   onChanged: () => Promise<void>
 }) {
   const [count, setCount] = useState(5)
+  const [channel, setChannel] = useState<'email' | 'text'>('email')
+  const what = channel === 'text' ? 'text' : 'email'
+  const ready = channel === 'text' ? readyByText : readyByEmail
   const [drafting, setDrafting] = useState(false)
   const [draftMsg, setDraftMsg] = useState('')
   const [showRecent, setShowRecent] = useState(false)
@@ -91,12 +107,12 @@ export default function GaryEmailsSection({
 
   async function draft() {
     setDrafting(true)
-    setDraftMsg(`Gary is writing ${count} email${count === 1 ? '' : 's'}. This takes up to a minute…`)
+    setDraftMsg(`Gary is writing ${count} ${what}${count === 1 ? '' : 's'}. This takes up to a minute…`)
     try {
       const res = await fetch('/api/admin/gary-account/draft', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ count }),
+        body: JSON.stringify({ count, channel }),
       })
       const j = (await res.json().catch(() => null)) as {
         drafted?: number
@@ -105,7 +121,7 @@ export default function GaryEmailsSection({
         error?: string
       } | null
       if (!res.ok) throw new Error(j?.error || `Failed (${res.status})`)
-      const parts = [`Gary wrote ${j?.drafted ?? 0} email${j?.drafted === 1 ? '' : 's'}`]
+      const parts = [`Gary wrote ${j?.drafted ?? 0} ${what}${j?.drafted === 1 ? '' : 's'}`]
       if (j?.costUsd) parts[0] += ` (about ${money(j.costUsd)})`
       if (j?.skipped?.length) parts.push(j.skipped.map((s) => `${s.name}: ${s.why}`).join('; '))
       setDraftMsg(parts.join('. ') + '.')
@@ -120,7 +136,7 @@ export default function GaryEmailsSection({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-xs font-medium text-white/70">Gary&apos;s emails</p>
+        <p className="text-xs font-medium text-white/70">Gary&apos;s emails &amp; texts</p>
         <p className="text-xs text-white/40">
           Sent today: {sentToday} of {dailyCap}
         </p>
@@ -128,8 +144,8 @@ export default function GaryEmailsSection({
 
       {!isApprover && (
         <p className="text-xs text-amber-300/80">
-          You can see Gary&apos;s emails but you aren&apos;t one of his approvers, so you can&apos;t send or turn them
-          down. Approvers are picked below.
+          You can see Gary&apos;s messages but you aren&apos;t one of his approvers, so you can&apos;t send or turn
+          them down. Approvers are picked below.
         </p>
       )}
 
@@ -147,25 +163,40 @@ export default function GaryEmailsSection({
             </option>
           ))}
         </select>
-        <span>email{count === 1 ? '' : 's'}</span>
+        <select
+          value={channel}
+          onChange={(e) => setChannel(e.target.value === 'text' ? 'text' : 'email')}
+          className="bg-transparent border border-white/15 rounded px-2 py-1 text-sm"
+          disabled={drafting}
+        >
+          <option value="email" className="bg-gray-900">
+            email{count === 1 ? '' : 's'}
+          </option>
+          <option value="text" className="bg-gray-900">
+            text{count === 1 ? '' : 's'}
+          </option>
+        </select>
         <button
           type="button"
           onClick={() => void draft()}
-          disabled={drafting || !hasBot || readyByEmail === 0}
+          disabled={drafting || !hasBot || ready === 0}
           className="rounded-lg bg-brand px-3 py-1.5 text-sm text-white disabled:opacity-40"
         >
           {drafting ? 'Writing…' : 'Write'}
         </button>
-        <span className="text-xs text-white/40">{readyByEmail} people ready for an email</span>
+        <span className="text-xs text-white/40">
+          {ready} people ready for {channel === 'text' ? 'a text' : 'an email'}
+        </span>
       </div>
       {draftMsg && <p className="text-xs text-white/60">{draftMsg}</p>}
       <p className="text-xs text-white/40">
-        Writing sends nothing. Each email waits here for an approver. Emails nobody decides on expire after 7 days.
+        Writing sends nothing. Each message waits here for an approver; ones nobody decides on expire after 7 days.
+        Texts only go to people we&apos;ve texted before from Txt, into that same thread.
       </p>
 
       {flash && <p className="text-xs text-emerald-300/90">{flash}</p>}
       {pending.length === 0 ? (
-        <p className="text-xs text-white/40">No emails waiting.</p>
+        <p className="text-xs text-white/40">Nothing waiting.</p>
       ) : (
         <div className="space-y-3">
           {pending.map((item) => (
@@ -192,7 +223,8 @@ export default function GaryEmailsSection({
                 <div key={r.id} className="p-3 space-y-1">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm text-white">
-                      {r.to_name || r.to_email} <span className="text-white/40 text-xs">· {r.subject}</span>
+                      {r.to_name || r.to_email || r.to_phone}{' '}
+                      <span className="text-white/40 text-xs">· {r.channel === 'text' ? 'Text' : r.subject}</span>
                     </span>
                     <span className={`text-xs rounded px-2 py-0.5 ${STATUS_STYLE[r.status] ?? 'bg-white/5 text-white/60'}`}>
                       {STATUS_LABEL[r.status] ?? r.status}
@@ -206,6 +238,8 @@ export default function GaryEmailsSection({
                       r.reject_note && `“${r.reject_note}”`,
                       r.withdrawn_reason && `Not sent: ${r.withdrawn_reason}`,
                       r.error && `Error: ${r.error}`,
+                      r.reply_kind && `${REPLY_LABEL[r.reply_kind] ?? 'Replied'}${r.replied_at ? ` ${when(r.replied_at)}` : ''}`,
+                      r.reply_snippet && `“${r.reply_snippet.slice(0, 140)}”`,
                     ]
                       .filter(Boolean)
                       .join(' · ')}
@@ -239,11 +273,12 @@ function PendingCard({
   const [rejecting, setRejecting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const isText = item.channel === 'text'
   const edited = subject !== item.subject || body !== item.body
 
   async function sendTest() {
     setBusy(true)
-    setMsg('Sending this draft to your own email…')
+    setMsg(item.channel === 'text' ? 'Sending this text to your Hub DMs…' : 'Sending this draft to your own email…')
     try {
       const res = await fetch(`/api/admin/gary-account/queue/${item.id}`, {
         method: 'POST',
@@ -287,8 +322,8 @@ function PendingCard({
     <div className="border border-white/10 rounded-lg p-3 space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm text-white">
-          To {item.to_name ? `${item.to_name} ` : ''}
-          <span className="text-white/50">&lt;{item.to_email}&gt;</span>
+          {isText ? 'Text to' : 'To'} {item.to_name ? `${item.to_name} ` : ''}
+          <span className="text-white/50">{isText ? item.to_phone : `<${item.to_email}>`}</span>
         </p>
         <p className="text-xs text-white/40">
           {(item.context.services ?? []).map((s) => serviceLabel.get(s) ?? s).join(' · ')}
@@ -305,6 +340,7 @@ function PendingCard({
           ))}
         </ul>
       )}
+      {!isText && (
       <input
         value={subject}
         onChange={(e) => setSubject(e.target.value)}
@@ -312,6 +348,7 @@ function PendingCard({
         className="w-full bg-transparent border border-white/15 rounded px-2 py-1.5 text-sm text-white"
         aria-label="Subject"
       />
+      )}
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
@@ -321,8 +358,9 @@ function PendingCard({
         aria-label="Message"
       />
       <p className="text-xs text-white/40">
-        Gary&apos;s sign-off and an unsubscribe line with your address are added when it sends. It goes out from the team
-        mailbox; a reply lands in the Inbox Queue.
+        {isText
+          ? `${body.length} characters. Txt adds “- Gary, Heroes Lawn Care” when it sends, into the thread we’ve texted them from before. A reply lands in Txt and Office Alerts; Amber stays out of it.`
+          : 'Gary’s sign-off and an unsubscribe line with your address are added when it sends. It goes out from the team mailbox; a reply lands in the Inbox Queue and Office Alerts.'}
       </p>
       {canDecide && (
         <div className="flex flex-wrap items-center gap-2">
