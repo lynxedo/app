@@ -14,6 +14,7 @@
 
 import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import type { createAdminClient } from '@/lib/supabase/admin'
+import { ilikeSearchPattern } from '@/lib/search'
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>
 
@@ -50,9 +51,13 @@ export type CheckPhotoReview = {
     amount_cents?: number
     check_number?: string
     payer?: string
+    /** Front only: the payer's street line printed under their name. */
+    payer_address?: string
     /** Back only: something is signed / written in the endorsement area. */
     endorsed?: boolean
   }
+  /** The photo is upside down — the client turns it over and stores it again. */
+  upside_down?: boolean
 }
 
 const SYSTEM = `You check photos of paper checks that a field technician took so the business owner can deposit them with a bank's mobile-deposit app.
@@ -64,7 +69,8 @@ Rules:
 - "angled" means the check is visibly a trapezoid (shot from the side), not merely rotated a few degrees.
 - "background" means the surface around the check is white or light-coloured, so the check's edges blend into it.
 - Report a value ONLY when you can read it with confidence. Omit it otherwise — the technician types it themselves. Never guess a digit.
-- The check number is the number printed at the top right of the check (usually 3–6 digits), NOT the routing or account number along the bottom.`
+- The check number is the number printed at the top right of the check (usually 3–6 digits), NOT the routing or account number along the bottom.
+- The photo may have been taken with the phone turned either way. If the check is upside down, say so with upside_down — that is NOT a problem, the photo is turned over automatically. Read the values as if it were the right way up.`
 
 const TOOL = {
   name: 'report_check_photo',
@@ -87,7 +93,15 @@ const TOOL = {
       },
       payer: {
         type: 'string',
-        description: 'Front only: the name printed top left (who wrote the check). Omit if not legible.',
+        description: 'Front only: the account holder name printed top left (who wrote the check), as printed. Omit if not legible.',
+      },
+      payer_address: {
+        type: 'string',
+        description: 'Front only: the street line printed under the account holder name, e.g. "123 Oak Hollow Dr". Street line only, no city. Omit if absent or not legible.',
+      },
+      upside_down: {
+        type: 'boolean',
+        description: 'True if the check appears upside down (rotated 180°) in this photo.',
       },
       endorsed: {
         type: 'boolean',
@@ -119,10 +133,13 @@ function sanitizeReview(side: CheckSide, raw: unknown): CheckPhotoReview {
     if (typeof input.payer === 'string' && input.payer.trim()) {
       read.payer = input.payer.trim().slice(0, 120)
     }
+    if (typeof input.payer_address === 'string' && /\d/.test(input.payer_address)) {
+      read.payer_address = input.payer_address.trim().slice(0, 120)
+    }
   } else if (typeof input.endorsed === 'boolean') {
     read.endorsed = input.endorsed
   }
-  return { ok: problems.length === 0, problems, read }
+  return { ok: problems.length === 0, problems, read, upside_down: input.upside_down === true }
 }
 
 /** Ask Claude whether a bank app would take this photo, and what it can read. */
@@ -152,6 +169,66 @@ export async function reviewCheckPhoto(side: CheckSide, bytes: Buffer, mime: str
   const call = resp.content.find(b => b.type === 'tool_use')
   if (!call || call.type !== 'tool_use') return { ok: true, problems: [], read: {} }
   return sanitizeReview(side, call.input)
+}
+
+// ── Who wrote it ───────────────────────────────────────────────────────────
+
+export type PayerMatch = { id: string; name: string; address: string | null; by: 'address' | 'name' }
+
+const NAME_NOISE = new Set(['and', 'or', 'mr', 'mrs', 'ms', 'dr', 'jr', 'sr', 'ii', 'iii', 'llc', 'inc', 'the'])
+
+/**
+ * Customers in the Contacts directory who could have written this check. The
+ * street line printed on a personal check is the strongest key we have (a
+ * customer's service address is usually their home), so address matches rank
+ * first; then the printed name — every word of it, falling back to the last
+ * name. "JOHN & MARY SMITH" finds Mary Smith; "Smith Family Trust" finds the
+ * Smiths. A suggestion only: the tech confirms or changes it before sending.
+ */
+export async function matchPayer(
+  admin: SupabaseAdmin,
+  companyId: string,
+  payer: string | undefined,
+  address: string | undefined,
+): Promise<PayerMatch[]> {
+  type Row = { id: string; name: string | null; address_line1: string | null; city: string | null }
+  const base = () => admin
+    .from('txt_contacts')
+    .select('id, name, address_line1, city')
+    .eq('company_id', companyId)
+    .is('deleted_at', null)
+    .is('archived_at', null)
+    .neq('name', '')
+    .limit(8)
+  const out: PayerMatch[] = []
+  const add = (rows: Row[] | null, by: PayerMatch['by']) => {
+    for (const r of rows ?? []) {
+      if (!r.name || out.some(o => o.id === r.id)) continue
+      out.push({ id: r.id, name: r.name, address: [r.address_line1, r.city].filter(Boolean).join(', ') || null, by })
+    }
+  }
+
+  // "123 Oak Hollow Dr" → number + first street word: "123 Oak%".
+  const m = address?.match(/^\s*(\d+[a-z]?)\s+([a-z0-9]+)/i)
+  if (m) {
+    const { data } = await base().ilike('address_line1', `${m[1]} ${m[2]}%`)
+    add(data as Row[] | null, 'address')
+  }
+
+  const words = (payer ?? '')
+    .toLowerCase()
+    .replace(/[^a-z\s'-]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 1 && !NAME_NOISE.has(w))
+  if (words.length) {
+    const last = words[words.length - 1]
+    // Every-word match first (narrow), then last name alone (wide).
+    let q = base()
+    for (const w of words) q = q.ilike('name', ilikeSearchPattern(w))
+    add((await q).data as Row[] | null, 'name')
+    if (out.length < 5) add((await base().ilike('name', ilikeSearchPattern(last))).data as Row[] | null, 'name')
+  }
+  return out.slice(0, 5)
 }
 
 // ── Where checks are posted ───────────────────────────────────────────────

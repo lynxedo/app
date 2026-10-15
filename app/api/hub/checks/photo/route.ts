@@ -2,15 +2,20 @@ import { NextResponse } from 'next/server'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { requireCompany } from '@/lib/company-auth'
 import { getR2Client } from '@/lib/r2'
+import { createAdminClient } from '@/lib/supabase/admin'
 import {
-  reviewCheckPhoto, isCheckImage, MAX_CHECK_IMAGE_BYTES, type CheckSide,
+  reviewCheckPhoto, matchPayer, isCheckImage, MAX_CHECK_IMAGE_BYTES, type CheckSide,
 } from '@/lib/check-deposit'
 
 // POST /api/hub/checks/photo → store one side of a check + say whether a bank
 // app would take it.
 //
-//   multipart/form-data { photo: File, side: 'front' | 'back' }
-//   → { path, size, review: { ok, problems[], read } }
+//   multipart/form-data { photo: File, side: 'front' | 'back', review?: '0' }
+//   → { path, size, review: { ok, problems[], read, upside_down }, matches? }
+//
+// matches (front only) = Contacts-directory customers who could have written
+// the check, from the printed name + street line. review=0 stores without a
+// second AI pass — used when the client turns an upside-down photo over.
 //
 // Stored first, reviewed second: the tech can always "send anyway", so the
 // photo must exist even when the review fails or times out (review = null).
@@ -62,9 +67,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Could not save that photo — try again.' }, { status: 502 })
   }
 
+  if (form.get('review') === '0') return NextResponse.json({ path, size: bytes.length })
+
   try {
     const review = await reviewCheckPhoto(side, bytes, mime)
-    return NextResponse.json({ path, size: bytes.length, review })
+    const matches = side === 'front' && (review.read.payer || review.read.payer_address)
+      ? await matchPayer(createAdminClient(), auth.companyId, review.read.payer, review.read.payer_address).catch(() => [])
+      : []
+    return NextResponse.json({ path, size: bytes.length, review, matches })
   } catch (e) {
     // The photo is saved; only the check failed. The screen says so and lets
     // the tech look at it themselves.
