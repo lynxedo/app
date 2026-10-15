@@ -413,6 +413,13 @@ export class NylasProvider implements MailProvider {
     })
   }
 
+  async setThreadFlags(threadId: string, flags: { unread?: boolean; starred?: boolean }): Promise<void> {
+    await nylasFetch(this.g(`/threads/${encodeURIComponent(threadId)}`), {
+      method: 'PUT',
+      body: JSON.stringify(flags),
+    })
+  }
+
   // Cancel a scheduled send (must be ≥10s before its send_at time, per Nylas).
   async cancelScheduledSend(scheduleId: string): Promise<void> {
     await nylasFetch(this.g(`/messages/schedules/${encodeURIComponent(scheduleId)}`), {

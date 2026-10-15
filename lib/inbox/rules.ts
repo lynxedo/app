@@ -14,6 +14,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { nylasApiKey, nylasApiUri } from './config'
+import { markThreadReadInMailbox } from './mark-read'
 
 // ---------------------------------------------------------------------------
 // Types + allowlists (exported for the admin API validators and the RulesPanel UI)
@@ -328,6 +329,8 @@ async function actAutoClose(admin: SupabaseClient, rule: InboxRule, ctx: RuleCon
     actor_user_id: null, // automated — see detail.rule
     detail: ruleDetail(rule),
   })
+  // Auto-closed mail is handled mail — read in the mailbox too.
+  await markThreadReadInMailbox(admin, ctx.threadDbId)
 }
 
 async function actMoveToFolder(admin: SupabaseClient, rule: InboxRule, action: RuleAction, ctx: RuleContext) {

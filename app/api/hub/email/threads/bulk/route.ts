@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireCompany } from '@/lib/company-auth'
 import { getInboxUserFlags } from '@/lib/inbox/permissions'
+import { markThreadsReadInMailbox } from '@/lib/inbox/mark-read'
 
 export const dynamic = 'force-dynamic'
 
@@ -99,12 +100,14 @@ export async function POST(request: Request) {
 
   const nowIso = new Date().toISOString()
   let applied = 0
+  const closedIds: string[] = []
 
   // Best-effort per thread: one failure must not abort the rest.
   for (const thread of threads) {
     try {
       await applyAction(admin, plan, thread, userId, companyId, nowIso)
       applied += 1
+      if (plan.action === 'close') closedIds.push(thread.id)
     } catch (err) {
       console.warn('[inbox:bulk] thread failed', thread.id, err)
     }
@@ -123,6 +126,8 @@ export async function POST(request: Request) {
     } catch (err) {
       console.warn('[inbox:bulk] broadcast failed', err)
     }
+    // Closed in Hub → read in the mailbox, so Outlook's unread counts stay honest.
+    if (closedIds.length > 0) await markThreadsReadInMailbox(admin, closedIds)
   })
 
   return NextResponse.json({ ok: true, applied, skipped })
