@@ -35,7 +35,7 @@ export async function GET(request: Request) {
 
   let q = admin
     .from('check_deposits')
-    .select('id, contact_id, customer_name, amount_cents, check_number, memo, front_review, back_review, sent_anyway, submitted_by, status, deposited_at, deposited_by, created_at')
+    .select('id, contact_id, customer_name, amount_cents, check_number, memo, front_review, back_review, sent_anyway, submitted_by, status, deposited_at, deposited_by, posted_at, posted_by, created_at')
     .eq('company_id', auth.companyId)
     .order('created_at', { ascending: false })
     .limit(200)
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   const rows = data ?? []
 
-  const userIds = [...new Set(rows.flatMap(r => [r.submitted_by, r.deposited_by]).filter(Boolean))] as string[]
+  const userIds = [...new Set(rows.flatMap(r => [r.submitted_by, r.deposited_by, r.posted_by]).filter(Boolean))] as string[]
   const names: Record<string, string> = {}
   if (userIds.length) {
     const { data: users } = await admin.from('hub_users').select('id, display_name').in('id', userIds)
@@ -59,6 +59,7 @@ export async function GET(request: Request) {
       ...r,
       submitted_by_name: names[r.submitted_by] ?? null,
       deposited_by_name: r.deposited_by ? names[r.deposited_by] ?? null : null,
+      posted_by_name: r.posted_by ? names[r.posted_by] ?? null : null,
     })),
   })
 }

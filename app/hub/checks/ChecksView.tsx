@@ -66,8 +66,10 @@ type CheckRow = {
   status: 'pending' | 'deposited' | 'void'
   created_at: string
   deposited_at: string | null
+  posted_at: string | null
   submitted_by_name: string | null
   deposited_by_name: string | null
+  posted_by_name: string | null
 }
 
 function money(cents: number): string {
@@ -192,6 +194,7 @@ export default function ChecksView() {
   const [canManage, setCanManage] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [shareReady, setShareReady] = useState<{ id: string; files: File[] } | null>(null)
 
   // Customer search — the Contacts directory, so the check links to the customer file.
   useEffect(() => {
@@ -412,6 +415,65 @@ export default function ChecksView() {
       setPendingCount(c => c == null ? c : Math.max(0, c + (status === 'pending' ? 1 : -1)))
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Could not update')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  // Posted = the office applied the payment in Jobber. Independent of deposited.
+  async function setPosted(id: string, posted: boolean) {
+    setBusyId(id)
+    try {
+      const r = await fetch(`/api/hub/checks/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ posted }),
+      })
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error || 'Could not update')
+      setRows(rs => (rs ?? []).map(x => x.id === id
+        ? { ...x, posted_at: posted ? new Date().toISOString() : null, posted_by_name: posted ? 'you' : null }
+        : x))
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not update')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  // Both photos as files. On a computer: two downloads. On a phone: the share
+  // sheet ("Save 2 Images"), which is what downloading is on an iPhone. The
+  // bytes come from our own origin as blobs — the shape the iPhone app's
+  // download shim and the Android app's download bridge both know how to save.
+  async function downloadBoth(r: CheckRow) {
+    setBusyId(r.id); setShareReady(null)
+    try {
+      const files = await Promise.all((['front', 'back'] as const).map(async side => {
+        const res = await fetch(`/api/hub/checks/${r.id}/photo/${side}?download=1`)
+        if (!res.ok) throw new Error('Could not download the photos')
+        const name = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] ?? `check-${side}.jpg`
+        return new File([await res.blob()], name, { type: 'image/jpeg' })
+      }))
+      const phone = window.matchMedia?.('(pointer: coarse)').matches
+      if (phone && navigator.canShare?.({ files })) {
+        try {
+          await navigator.share({ files })
+        } catch (e) {
+          // The share sheet needs a fresh tap once the downloads took a moment —
+          // offer a button that opens it straight away.
+          if ((e as Error)?.name === 'NotAllowedError') setShareReady({ id: r.id, files })
+        }
+        return
+      }
+      files.forEach((f, i) => {
+        setTimeout(() => {
+          const url = URL.createObjectURL(f)
+          const a = document.createElement('a')
+          a.href = url; a.download = f.name
+          a.click()
+          setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        }, i * 1200)
+      })
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not download the photos')
     } finally {
       setBusyId(null)
     }
@@ -777,6 +839,7 @@ export default function ChecksView() {
           {rows && rows.length > 0 && tab === 'pending' && (
             <div className="mb-3 text-sm text-white/60">
               {rows.length} check{rows.length === 1 ? '' : 's'} · <b className="text-white">{money(rows.reduce((t, r) => t + r.amount_cents, 0))}</b> waiting
+              {rows.some(r => !r.posted_at) && <> · {rows.filter(r => !r.posted_at).length} not posted yet</>}
             </div>
           )}
           <div className="space-y-2.5">
@@ -798,32 +861,57 @@ export default function ChecksView() {
                   </div>
                   {r.memo && <div className="text-xs text-white/60 mt-0.5">{r.memo}</div>}
                   {r.sent_anyway && <div className="text-xs text-amber-300/90 mt-0.5">⚠ Sent anyway — the photo check flagged it</div>}
+                  {r.posted_at && (
+                    <div className="text-xs text-sky-400/90 mt-0.5">
+                      ✓ Posted {shortDate(r.posted_at)}{r.posted_by_name ? ` by ${r.posted_by_name}` : ''}
+                      {canManage && (
+                        <button type="button" disabled={busyId === r.id} onClick={() => setPosted(r.id, false)}
+                          className="ml-2 text-white/40 hover:text-white/70 underline">undo</button>
+                      )}
+                    </div>
+                  )}
                   {r.status === 'deposited' && r.deposited_at && (
                     <div className="text-xs text-emerald-400/90 mt-0.5">
                       ✓ Deposited {shortDate(r.deposited_at)}{r.deposited_by_name ? ` by ${r.deposited_by_name}` : ''}
                     </div>
                   )}
-                  {canManage && (
-                    <div className="mt-2 flex items-center gap-3">
-                      {r.status === 'pending' ? (
-                        <>
-                          <button type="button" disabled={busyId === r.id} onClick={() => setStatus(r.id, 'deposited')}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-[#fff] text-sm font-semibold disabled:opacity-50">
-                            ✓ Deposited
-                          </button>
-                          <button type="button" disabled={busyId === r.id} onClick={() => setStatus(r.id, 'void')}
-                            className="text-xs text-white/40 hover:text-white/70">
-                            Void
-                          </button>
-                        </>
-                      ) : (
-                        <button type="button" disabled={busyId === r.id} onClick={() => setStatus(r.id, 'pending')}
-                          className="text-xs text-white/45 hover:text-white/75 underline">
-                          Undo — not deposited yet
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button type="button" disabled={busyId === r.id} onClick={() => downloadBoth(r)}
+                      className="px-3 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:border-white/30 text-sm font-medium disabled:opacity-50">
+                      {busyId === r.id ? 'Working…' : '⬇ Download'}
+                    </button>
+                    {shareReady?.id === r.id && (
+                      <button type="button"
+                        onClick={() => { navigator.share({ files: shareReady.files }).catch(() => {}); setShareReady(null) }}
+                        className="px-3 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] text-sm font-semibold">
+                        📲 Save 2 photos
+                      </button>
+                    )}
+                    {canManage && !r.posted_at && r.status !== 'void' && (
+                      <button type="button" disabled={busyId === r.id} onClick={() => setPosted(r.id, true)}
+                        className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-[#fff] text-sm font-semibold disabled:opacity-50">
+                        ✓ Posted
+                      </button>
+                    )}
+                    {canManage && r.status === 'pending' && (
+                      <>
+                        <button type="button" disabled={busyId === r.id} onClick={() => setStatus(r.id, 'deposited')}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-[#fff] text-sm font-semibold disabled:opacity-50">
+                          ✓ Deposited
                         </button>
-                      )}
-                    </div>
-                  )}
+                        <button type="button" disabled={busyId === r.id} onClick={() => setStatus(r.id, 'void')}
+                          className="text-xs text-white/40 hover:text-white/70 px-1">
+                          Void
+                        </button>
+                      </>
+                    )}
+                    {canManage && r.status === 'deposited' && (
+                      <button type="button" disabled={busyId === r.id} onClick={() => setStatus(r.id, 'pending')}
+                        className="text-xs text-white/45 hover:text-white/75 underline">
+                        Undo — not deposited yet
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
