@@ -46,6 +46,8 @@ export type GarySettings = {
   approverIds: string[]
   /** Most emails Gary may send in one Central-time day. */
   dailyEmailCap: number
+  /** Off = nothing reaches a real customer (tests still go to the approver). */
+  customerSending: boolean
 }
 
 const DEFAULTS: GarySettings = {
@@ -54,6 +56,7 @@ const DEFAULTS: GarySettings = {
   recentTouchDays: 30,
   approverIds: [],
   dailyEmailCap: 20,
+  customerSending: false,
 }
 
 function cleanServices(v: unknown): GaryService[] {
@@ -64,7 +67,7 @@ function cleanServices(v: unknown): GaryService[] {
 export async function getGarySettings(admin: Admin, companyId: string): Promise<GarySettings> {
   const { data, error } = await admin
     .from('gary_settings')
-    .select('bot_user_id, services, recent_touch_days, approver_ids, daily_email_cap')
+    .select('bot_user_id, services, recent_touch_days, approver_ids, daily_email_cap, customer_sending')
     .eq('company_id', companyId)
     .maybeSingle()
   if (error) throw new Error(`gary_settings: ${error.message}`)
@@ -75,6 +78,7 @@ export async function getGarySettings(admin: Admin, companyId: string): Promise<
     recentTouchDays: Number.isFinite(data.recent_touch_days) ? data.recent_touch_days : DEFAULTS.recentTouchDays,
     approverIds: Array.isArray(data.approver_ids) ? data.approver_ids : [],
     dailyEmailCap: Number.isFinite(data.daily_email_cap) ? data.daily_email_cap : DEFAULTS.dailyEmailCap,
+    customerSending: data.customer_sending === true,
   }
 }
 
@@ -82,7 +86,7 @@ export async function saveGarySettings(
   admin: Admin,
   companyId: string,
   userId: string,
-  patch: { services?: unknown; recentTouchDays?: unknown; approverIds?: string[]; dailyEmailCap?: unknown },
+  patch: { services?: unknown; recentTouchDays?: unknown; approverIds?: string[]; dailyEmailCap?: unknown; customerSending?: unknown },
 ): Promise<void> {
   const row: Record<string, unknown> = { company_id: companyId, updated_at: new Date().toISOString(), updated_by: userId }
   if (patch.services !== undefined) row.services = cleanServices(patch.services)
@@ -91,6 +95,7 @@ export async function saveGarySettings(
     if (!Number.isFinite(n) || n < 1 || n > 365) throw new Error('Days must be between 1 and 365')
     row.recent_touch_days = n
   }
+  if (patch.customerSending !== undefined) row.customer_sending = patch.customerSending === true
   // The route validates approverIds against the people who may approve.
   if (patch.approverIds !== undefined) row.approver_ids = patch.approverIds
   if (patch.dailyEmailCap !== undefined) {

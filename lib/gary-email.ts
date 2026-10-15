@@ -425,6 +425,14 @@ export async function decideGaryEmail(
     return { ok: true, item, message: `Test sent to ${to}. Nothing went to ${item.to_email}; the email is still waiting here.` }
   }
 
+  if (!settings.customerSending) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'Sending to customers is switched off on this page, so nothing went out. Send me a test still works.',
+    }
+  }
+
   if ((await garySentToday(admin, companyId)) >= settings.dailyEmailCap) {
     return {
       ok: false,
