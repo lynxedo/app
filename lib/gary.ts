@@ -50,6 +50,8 @@ export type GarySettings = {
   customerSending: boolean
   /** Days after the FIRST message that follow-up 2 and the last try (3) are due. */
   followUpDays: [number, number]
+  /** Where Gary looks for commercial prospects (5-digit ZIPs). */
+  prospectZips: string[]
 }
 
 const DEFAULTS: GarySettings = {
@@ -60,6 +62,13 @@ const DEFAULTS: GarySettings = {
   dailyEmailCap: 20,
   customerSending: false,
   followUpDays: [7, 21],
+  prospectZips: [],
+}
+
+/** Unique 5-digit ZIPs, in the order given (max 100). */
+export function cleanZips(v: unknown): string[] {
+  const list = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[\s,;]+/) : []
+  return [...new Set(list.map((z) => String(z).trim().slice(0, 5)).filter((z) => /^\d{5}$/.test(z)))].slice(0, 100)
 }
 
 /** [follow-up 2, last try] in days after the first message; null if invalid. */
@@ -78,7 +87,7 @@ function cleanServices(v: unknown): GaryService[] {
 export async function getGarySettings(admin: Admin, companyId: string): Promise<GarySettings> {
   const { data, error } = await admin
     .from('gary_settings')
-    .select('bot_user_id, services, recent_touch_days, approver_ids, daily_email_cap, customer_sending, follow_up_days')
+    .select('bot_user_id, services, recent_touch_days, approver_ids, daily_email_cap, customer_sending, follow_up_days, prospect_zips')
     .eq('company_id', companyId)
     .maybeSingle()
   if (error) throw new Error(`gary_settings: ${error.message}`)
@@ -91,6 +100,7 @@ export async function getGarySettings(admin: Admin, companyId: string): Promise<
     dailyEmailCap: Number.isFinite(data.daily_email_cap) ? data.daily_email_cap : DEFAULTS.dailyEmailCap,
     customerSending: data.customer_sending === true,
     followUpDays: cleanFollowUpDays(data.follow_up_days) ?? DEFAULTS.followUpDays,
+    prospectZips: cleanZips(data.prospect_zips),
   }
 }
 
@@ -105,6 +115,7 @@ export async function saveGarySettings(
     dailyEmailCap?: unknown
     customerSending?: unknown
     followUpDays?: unknown
+    prospectZips?: unknown
   },
 ): Promise<void> {
   const row: Record<string, unknown> = { company_id: companyId, updated_at: new Date().toISOString(), updated_by: userId }
@@ -115,6 +126,11 @@ export async function saveGarySettings(
     row.recent_touch_days = n
   }
   if (patch.customerSending !== undefined) row.customer_sending = patch.customerSending === true
+  if (patch.prospectZips !== undefined) {
+    const zips = cleanZips(patch.prospectZips)
+    if (!zips.length) throw new Error('Give Gary at least one 5-digit ZIP code to look in')
+    row.prospect_zips = zips
+  }
   if (patch.followUpDays !== undefined) {
     const days = cleanFollowUpDays(patch.followUpDays)
     if (!days) throw new Error('Follow-up days must be 1–60, and the last try later than the first follow-up (up to 90)')
