@@ -1439,7 +1439,7 @@ function RoutingTab() {
             <p className="mt-2 text-white font-medium text-xs uppercase tracking-wide">Setup:</p>
             <div className="space-y-2 mt-2">
               <Step n={1}>Click <strong className="text-white">↻ Refresh from Jobber</strong> to pull your full list of line items.</Step>
-              <Step n={2}>For each line item that affects duration, enter the minutes it adds.</Step>
+              <Step n={2}>For each line item that affects duration, enter the minutes it adds. Add as many as you need — under the list, <strong className="text-white">&ldquo;N Jobber line items have no minutes yet&rdquo;</strong> opens the ones still using the default time. These same minutes drive Dispatch&apos;s Optimize day and Find a slot.</Step>
               <Step n={3}>All matching line items on a visit are summed together.</Step>
               <Step n={4}>Optionally check <strong className="text-white">Add lawn size (K = minutes)</strong> — &ldquo;6K&rdquo; in the job title adds 6 minutes.</Step>
               <Step n={5}>Set <strong className="text-white">Padding</strong> (extra minutes per stop) and <strong className="text-white">Minimum</strong> (floor).</Step>
