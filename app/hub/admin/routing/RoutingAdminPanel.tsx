@@ -43,6 +43,10 @@ interface Props {
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
+// On-Site Duration line items. Was 15 — too few once every IR line item needs a
+// time (Ben, Oct 2026); the Jobber catalog is ~100 items. Guard only, not a limit anyone should hit.
+const MAX_DURATION_CODES = 200
+
 const METHOD_OPTIONS = [
   { value: 'formula',      label: 'Formula (Line Items)',          desc: 'Sum line item times + lawn size + padding' },
   { value: 'default',      label: 'Default Time',                  desc: 'Same time for every stop' },
@@ -354,7 +358,7 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
     })
   }
   const addCode = () => {
-    if (rules.codes.length >= 15) return
+    if (rules.codes.length >= MAX_DURATION_CODES) return
     setRules(r => ({ ...r, codes: [...r.codes, { lineItemName: '', minutes: 0 }] }))
   }
   const removeCode = (idx: number) => {
@@ -537,11 +541,22 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
                   </div>
                 ))}
               </div>
-              {rules.codes.length < 15 && (
+              {rules.codes.length < MAX_DURATION_CODES && (
                 <button onClick={addCode} className="mt-3 text-xs text-orange-400 hover:text-orange-300 transition-colors">
                   + Add line item
                 </button>
               )}
+              {(() => {
+                // Which Jobber line items still fall back to the default time.
+                const timed = new Set(rules.codes.map(c => c.lineItemName.trim().toLowerCase()).filter(Boolean))
+                const missing = rules.cachedLineItems.filter(li => !timed.has(li.trim().toLowerCase()))
+                return rules.cachedLineItems.length > 0 && missing.length > 0 ? (
+                  <details className="mt-2 text-xs text-gray-500">
+                    <summary className="cursor-pointer hover:text-gray-300">{missing.length} Jobber line item{missing.length === 1 ? '' : 's'} have no minutes yet (they use the default time)</summary>
+                    <div className="mt-1 text-gray-400 leading-relaxed">{missing.join(' · ')}</div>
+                  </details>
+                ) : null
+              })()}
             </div>
 
             <div className="flex items-center gap-3">
