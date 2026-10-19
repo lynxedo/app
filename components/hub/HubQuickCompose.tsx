@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { LockIcon } from './railCatalog'
+import { LockIcon, CatalogIcon, catalogEntriesFor, type RailPermissions } from './railCatalog'
 import type { HubUser } from './MessageFeed'
 
 type Room = { id: string; name: string; is_private: boolean }
@@ -18,6 +18,23 @@ type MessageResult = {
   sender: { display_name: string; avatar_url: string | null } | null
   room: { name: string } | null
 }
+
+type ContactResult = {
+  id: string
+  name: string | null
+  company_name: string | null
+  phone: string | null
+  email: string | null
+  city: string | null
+  address_line1: string | null
+}
+
+// Pages that aren't in the app catalog but people still look for by name.
+const EXTRA_APPS: { label: string; href: string; adminOnly?: boolean }[] = [
+  { label: 'Settings', href: '/hub/settings' },
+  { label: 'Help', href: '/help' },
+  { label: 'Admin', href: '/hub/admin', adminOnly: true },
+]
 
 function useDebounce(value: string, delay: number) {
   const [debounced, setDebounced] = useState(value)
@@ -64,6 +81,8 @@ export default function HubQuickCompose({
   currentUserId,
   conversations = [],
   onConversationCreated,
+  permissions,
+  showAdmin = false,
 }: {
   onClose: () => void
   rooms: Room[]
@@ -71,6 +90,9 @@ export default function HubQuickCompose({
   currentUserId: string
   conversations?: Conversation[]
   onConversationCreated?: () => void
+  /** Turns on the Apps + Contacts sections (only what this person can open). */
+  permissions?: RailPermissions
+  showAdmin?: boolean
 }) {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -80,6 +102,10 @@ export default function HubQuickCompose({
   const [messageResults, setMessageResults] = useState<MessageResult[]>([])
   const [searchingMessages, setSearchingMessages] = useState(false)
   const [searchedMessages, setSearchedMessages] = useState(false)
+  const [contactResults, setContactResults] = useState<ContactResult[]>([])
+  // The query the current contactResults answer — loading = it lags the box.
+  const [contactsFor, setContactsFor] = useState('')
+  const canSearchContacts = !!permissions?.canAccessHub
   const debounced = useDebounce(query.trim(), 300)
 
   useEffect(() => { inputRef.current?.focus() }, [])
@@ -103,6 +129,19 @@ export default function HubQuickCompose({
     return () => { cancelled = true }
   }, [debounced])
 
+  // Contacts Directory matches (name / phone / email) — same API and gate as
+  // the Contacts page. Do-not-text people still show: this is lookup, not texting.
+  useEffect(() => {
+    if (!canSearchContacts || debounced.length < 2) return
+    let cancelled = false
+    fetch(`/api/contacts?search=${encodeURIComponent(debounced)}&limit=8&include_do_not_text=1`)
+      .then(r => (r.ok ? r.json() : { contacts: [] }))
+      .then(d => { if (!cancelled) setContactResults(d.contacts ?? []) })
+      .catch(() => { if (!cancelled) setContactResults([]) })
+      .finally(() => { if (!cancelled) setContactsFor(debounced) })
+    return () => { cancelled = true }
+  }, [debounced, canSearchContacts])
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -116,6 +155,17 @@ export default function HubQuickCompose({
   const otherUsers = hubUsers.filter(u => !u.is_bot)
   const filteredRooms = rooms.filter(r => !q || r.name.toLowerCase().includes(q))
   const filteredUsers = otherUsers.filter(u => !q || u.display_name.toLowerCase().includes(q))
+  // Stale results from a longer query never show once the box is cleared/short.
+  const contactsLoading = canSearchContacts && debounced.length >= 2 && contactsFor !== debounced
+  const contactResultsShown = canSearchContacts && debounced.length >= 2 && !contactsLoading ? contactResults : []
+  const filteredApps: { key: string; label: string; href: string; icon: React.ReactNode }[] = !permissions || !q ? [] : [
+    ...catalogEntriesFor(permissions)
+      .filter(e => e.href && e.label.toLowerCase().includes(q))
+      .map(e => ({ key: e.id, label: e.label, href: e.href as string, icon: e.icon })),
+    ...EXTRA_APPS
+      .filter(a => (!a.adminOnly || showAdmin) && a.label.toLowerCase().includes(q))
+      .map(a => ({ key: a.href, label: a.label, href: a.href, icon: <CatalogIcon id="hub" /> })),
+  ]
 
   function toggleUser(id: string) {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
@@ -175,10 +225,10 @@ export default function HubQuickCompose({
           ref={inputRef}
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="Search rooms, people, and messages…"
+          placeholder={permissions ? 'Search apps, rooms, people, contacts, messages…' : 'Search rooms, people, and messages…'}
           className="flex-1 bg-transparent text-white text-base outline-none placeholder-gray-500"
         />
-        {searchingMessages && (
+        {(searchingMessages || contactsLoading) && (
           <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin flex-none" />
         )}
         <button
@@ -207,6 +257,27 @@ export default function HubQuickCompose({
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
+
+        {/* Apps — only the ones this person can open */}
+        {filteredApps.length > 0 && (
+          <div>
+            <div className="px-4 pt-3 pb-1">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Apps</span>
+            </div>
+            {filteredApps.map(app => (
+              <button
+                key={app.key}
+                onClick={() => { router.push(app.href); onClose() }}
+                className="w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3"
+              >
+                <div className="flex-none w-8 h-8 rounded-lg bg-[var(--t-sidebar)] flex items-center justify-center text-white/70">
+                  {app.icon}
+                </div>
+                <span className="text-sm text-white">{app.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Rooms */}
         {filteredRooms.length > 0 && (
@@ -283,6 +354,34 @@ export default function HubQuickCompose({
           </div>
         )}
 
+        {/* Contacts — the Contacts Directory; opens the customer page */}
+        {contactResultsShown.length > 0 && (
+          <div>
+            <div className="px-4 pt-3 pb-1">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Contacts</span>
+            </div>
+            {contactResultsShown.map(c => {
+              const name = c.name?.trim() || c.company_name?.trim() || c.phone || c.email || 'Unknown'
+              const sub = [c.phone, c.address_line1 || c.city, !c.phone ? c.email : null].filter(Boolean).join(' · ')
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => { router.push(`/hub/contacts/${c.id}`); onClose() }}
+                  className="w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3"
+                >
+                  <div className="flex-none w-8 h-8 rounded-full bg-emerald-800/60 flex items-center justify-center text-sm font-bold text-white">
+                    {name.slice(0, 1).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-white truncate">{name}</div>
+                    {sub && <div className="text-xs text-gray-500 truncate">{sub}</div>}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {/* Messages — keyword matches across every room + DM the user is in */}
         {messageResults.length > 0 && (
           <div>
@@ -331,7 +430,7 @@ export default function HubQuickCompose({
           </div>
         )}
 
-        {filteredRooms.length === 0 && filteredUsers.length === 0 && messageResults.length === 0 && q && !searchingMessages && (
+        {filteredApps.length === 0 && filteredRooms.length === 0 && filteredUsers.length === 0 && contactResultsShown.length === 0 && messageResults.length === 0 && q && !searchingMessages && !contactsLoading && (
           <div className="flex flex-col items-center justify-center py-16 text-gray-500">
             <p className="text-sm">
               {searchedMessages || q.length < 2
@@ -343,7 +442,9 @@ export default function HubQuickCompose({
 
         {!q && (
           <p className="text-xs text-gray-600 text-center pt-4 pb-2">
-            Click a room to jump · Click a name to message · Type a keyword to search messages
+            {permissions
+              ? 'Type to search apps, rooms, people, customers, and messages'
+              : 'Click a room to jump · Click a name to message · Type a keyword to search messages'}
           </p>
         )}
       </div>

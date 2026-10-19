@@ -323,6 +323,19 @@ export async function POST(request: Request) {
         .from('txt_conversations')
         .update({ status: 'assigned', assigned_to: access.userId, archived_by: null })
         .eq('id', conversationId)
+      // Archiving dropped every member row — seat the caller as owner again
+      // so the send gate (membership) agrees with assigned_to.
+      await admin
+        .from('txt_conversation_members')
+        .delete()
+        .eq('conversation_id', conversationId)
+        .eq('role', 'owner')
+      await admin.from('txt_conversation_members').insert({
+        conversation_id: conversationId,
+        user_id: access.userId,
+        role: 'owner',
+        added_by: access.userId,
+      })
     }
 
     return NextResponse.json({

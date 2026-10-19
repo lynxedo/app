@@ -12,16 +12,17 @@ import {
   type RailPermissions,
   type CatalogId,
 } from './railCatalog'
-import { classifyToken } from '@/lib/hub-layout'
+import { classifyToken, tokenAllowed } from '@/lib/hub-layout'
 // NAV-tokenConsistency — shared DM label resolver (was duplicated per surface).
 import { convFirstNames } from './menuItem'
 
 type Room = { id: string; name: string; is_private: boolean }
 type RailConversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
 
-// The bottom bar shows the first few list items before the Apps button. Extra
-// items overflow into the Apps drawer.
-const MAX_MOBILE_ITEMS = 5
+// The phone bar is the same for everyone (Ben, Oct 19 2026): no customizable
+// slot. Anything the person can't open is skipped; everything else in their
+// layout list lives in the Apps drawer.
+const MOBILE_BAR: CatalogId[] = ['hub', 'daily-log-v2', 'txt2', 'dialer', 'time-clock']
 
 export default function HubMobileBar({
   onMoreClick,
@@ -40,7 +41,6 @@ export default function HubMobileBar({
   missedCall,
   dailyLogUnread,
   permissions,
-  items: itemsProp,
   rooms = [],
   conversations = [],
   currentUserId,
@@ -70,8 +70,6 @@ export default function HubMobileBar({
   missedCall?: boolean
   dailyLogUnread?: boolean
   permissions: RailPermissions
-  /** The one shared layout list (already permission-filtered). */
-  items: string[]
   rooms?: Room[]
   conversations?: RailConversation[]
   currentUserId?: string
@@ -88,7 +86,7 @@ export default function HubMobileBar({
   const router = useRouter()
   const active = railFromPath(pathname)
 
-  const items = itemsProp.slice(0, MAX_MOBILE_ITEMS)
+  const items = MOBILE_BAR.filter(t => tokenAllowed(t, permissions))
 
   const SIDEBAR_BACKED = new Set<CatalogId>(['txt2', 'dialer'])
   const roomById = (id: string) => rooms.find(r => r.id === id)

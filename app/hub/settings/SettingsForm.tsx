@@ -780,15 +780,15 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <h2 className="font-semibold text-lg mb-1">My Hub</h2>
         <p className="text-gray-400 text-sm mb-6">
-          Make the icon rail (and the mobile bottom bar) your own — show only what you use, in the order you want.
+          Make the desktop icon rail and your Apps drawer your own — show only what you use, in the order you want.
           Add any app, a Do&nbsp;Not&nbsp;Disturb toggle, a room, or a custom link; drag to reorder; hide the rest.
-          Your desktop and phone each keep their own layout, and both follow your account to every device.
+          Your layout follows your account to every device. (The phone&apos;s bottom bar is the same for everyone:
+          Hub · Work Orders · Txt · Dialer · Clock · Apps.)
         </p>
 
         <ul className="text-sm text-gray-300 space-y-1.5 mb-6 list-disc pl-5">
           <li><strong className="text-white">Add anything</strong> — every tool as its own icon, plus DND, rooms, and custom links.</li>
           <li><strong className="text-white">Drag to reorder</strong> and tap the ✕ to hide what you don&apos;t need.</li>
-          <li><strong className="text-white">Separate desktop &amp; mobile</strong> layouts — lean phone, loaded desktop.</li>
           <li>The <strong className="text-white">Apps</strong> button is always there, so you can never lose your way back.</li>
         </ul>
 

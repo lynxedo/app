@@ -1323,7 +1323,6 @@ export default function HubShell({
         missedCall={missedCall}
         dailyLogUnread={dailyLogUnread}
         permissions={permissions}
-        items={liveLayout.items}
         rooms={rooms}
         conversations={railConversations}
         currentUserStatus={liveStatus}
@@ -1342,6 +1341,8 @@ export default function HubShell({
         currentUserId={currentUserId}
         conversations={railConversations}
         onConversationCreated={handleConversationCreated}
+        permissions={permissions}
+        showAdmin={showAdminRail}
       />
     )}
     {showTimeClock && (
