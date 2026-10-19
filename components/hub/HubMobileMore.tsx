@@ -1,10 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CatalogIcon, CustomUrlIcon, DndIcon, catalogById, type RailPermissions } from './railCatalog'
-import { classifyToken, MOBILE_VISIBLE } from '@/lib/hub-layout'
+import { classifyToken } from '@/lib/hub-layout'
 import { resolveMenuAccent, resolveMenuLabel, convFirstNames, type MenuContext } from './menuItem'
 
 type Room = { id: string; name: string; is_private: boolean }
@@ -66,7 +65,6 @@ export default function HubMobileMore({
   inboxUnread?: boolean
 }) {
   const router = useRouter()
-  const [appSearch, setAppSearch] = useState('')
 
   function navigate(href: string) { onClose(); router.push(href) }
   function openHub() {
@@ -82,10 +80,6 @@ export default function HubMobileMore({
     masterDndOn, hubDndOn, dialerDndOn,
   }
 
-  const searchQ = appSearch.trim().toLowerCase()
-  const visibleItems = searchQ
-    ? items.filter(t => (resolveMenuLabel(t, menuCtx) ?? '').toLowerCase().includes(searchQ))
-    : items
 
   function Tile({ token }: { token: string }) {
     const c = classifyToken(token)
@@ -194,40 +188,31 @@ export default function HubMobileMore({
         <div className="flex-none px-4 pt-3">
           <div className="relative">
             <svg className="w-4 h-4 text-white/35 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.34-4.34M17 10a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            <input
-              type="search"
-              value={appSearch}
-              onChange={e => setAppSearch(e.target.value)}
-              placeholder="Search apps…"
-              className="w-full bg-white/[0.06] ring-1 ring-inset ring-white/10 focus:ring-sky-400/40 rounded-xl pl-9 pr-9 py-2.5 text-base text-white placeholder-white/40 outline-none transition-shadow"
-            />
-            {appSearch && (
-              <button onClick={() => setAppSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1" aria-label="Clear search">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            )}
+            {/* Opens the one Hub search (apps, rooms, people, contacts, messages). */}
+            <button
+              type="button"
+              onClick={onSearchClick}
+              className="w-full text-left bg-white/[0.06] ring-1 ring-inset ring-white/10 rounded-xl pl-9 pr-3 py-2.5 text-base text-white/40"
+            >
+              Search everything…
+            </button>
           </div>
         </div>
 
         <div className="overflow-y-auto flex-1 px-4 py-4">
           <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-2">
-            Your menu{!searchQ && items.length > MOBILE_VISIBLE ? ` — first ${MOBILE_VISIBLE} show on the bar` : ''}
+            Your menu
           </p>
-          {searchQ && visibleItems.length === 0 && (
-            <p className="text-xs text-white/40 text-center py-6">No apps match &ldquo;{appSearch.trim()}&rdquo;</p>
-          )}
           <div className="grid grid-cols-4 gap-2.5 mb-2">
-            {visibleItems.map((token, i) => <Tile key={`${token}-${i}`} token={token} />)}
-            {!searchQ && (
-              <button
-                type="button"
-                onClick={() => { onClose(); onOpenLayoutEditor() }}
-                className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl border border-dashed border-white/15 text-white/55 active:scale-95 transition-transform"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                <span className="text-[10px] font-medium">Add</span>
-              </button>
-            )}
+            {items.map((token, i) => <Tile key={`${token}-${i}`} token={token} />)}
+            <button
+              type="button"
+              onClick={() => { onClose(); onOpenLayoutEditor() }}
+              className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl border border-dashed border-white/15 text-white/55 active:scale-95 transition-transform"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+              <span className="text-[10px] font-medium">Add</span>
+            </button>
           </div>
 
           <div className="h-px bg-white/10 my-4" />

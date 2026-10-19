@@ -6,7 +6,7 @@ import { haptic } from '@/lib/native-device'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
 import SaveToFilesModal from './SaveToFilesModal'
-import MessageActionsSheet from './MessageActionsSheet'
+import MessageActionsSheet, { messageContextMenu, type MenuAnchor } from './MessageActionsSheet'
 import MessageComposer from './MessageComposer'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
@@ -67,7 +67,14 @@ function formatDate(iso: string) {
   yest.setDate(today.getDate() - 1)
   if (d.toDateString() === today.toDateString()) return 'Today'
   if (d.toDateString() === yest.toDateString()) return 'Yesterday'
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  return d.toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+    ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}),
+  })
+}
+// Local calendar day as YYYY-MM-DD (what <input type="date"> speaks).
+function dayKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 function normSender(raw: Sender | Sender[] | null): Sender | null {
   if (!raw) return null
@@ -230,6 +237,12 @@ function ForwardedBanner({ original, rooms, hubUsers }: { original: ForwardedOri
 }
 
 const MESSAGE_PAGE_SIZE = 50
+// Jump to a date loads this many from the chosen day forward (plus one older page).
+const JUMP_AFTER_SIZE = 100
+const MESSAGE_SELECT = `id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
+  sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
+  reactions (message_id, user_id, emoji),
+  files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)`
 
 // ── MessageRow ─────────────────────────────────────────────────────────────
 // Memoized per-message row. All ID-comparison state is promoted to boolean
@@ -276,6 +289,8 @@ type MessageRowProps = {
   onCloseBoardPicker: () => void
   onCopyLink: (msg: HubMessage) => void
   onOpenThread?: (msg: HubMessage) => void
+  /** Desktop right-click → the action menu at the pointer. */
+  onOpenMenu: (msgId: string, anchor: MenuAnchor) => void
 }
 
 const MessageRow = memo(function MessageRow({
@@ -317,6 +332,7 @@ const MessageRow = memo(function MessageRow({
   onCloseBoardPicker,
   onCopyLink,
   onOpenThread,
+  onOpenMenu,
 }: MessageRowProps) {
   const sender = normSender(msg.sender)
   const files = normFiles(msg.files)
@@ -354,7 +370,11 @@ const MessageRow = memo(function MessageRow({
       onTouchMove={onCancelLongPress}
       onTouchEnd={onCancelLongPress}
       onTouchCancel={onCancelLongPress}
-      onContextMenu={e => e.preventDefault()}
+      onContextMenu={e => {
+        if (isEditing) return
+        const anchor = messageContextMenu(e)
+        if (anchor) onOpenMenu(msg.id, anchor)
+      }}
       style={{ touchAction: 'pan-y', WebkitTouchCallout: 'none' }}
     >
       <div className="flex-none w-7 md:w-8 mt-0.5">
@@ -667,6 +687,20 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const prevScrollHeightRef = useRef(0)
   const prevScrollTopRef = useRef(0)
   const topSentinelRef = useRef<HTMLDivElement>(null)
+  // Jump to a date: the feed can hold a window in the PAST. While it does,
+  // newer pages load as you scroll down, and live messages wait (the next
+  // page / Jump to latest fetches them) so the list never has a gap.
+  const [hasMoreNewer, setHasMoreNewer] = useState(false)
+  const hasMoreNewerRef = useRef(false)
+  const [loadingNewer, setLoadingNewer] = useState(false)
+  const loadingNewerRef = useRef(false)
+  const appendingNewerRef = useRef(false)
+  const bottomSentinelRef = useRef<HTMLDivElement>(null)
+  const [stickyDay, setStickyDay] = useState<string | null>(null)
+  const [dayMenuOpen, setDayMenuOpen] = useState(false)
+  const [pickedDay, setPickedDay] = useState('')
+  // addMessage (above the jump helpers) reaches Jump to latest through this.
+  const jumpToLatestRef = useRef<() => Promise<void>>(async () => {})
   const [editingId, setEditingId] = useState<string | null>(null)
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null)
   const [fullPickerMsgId, setFullPickerMsgId] = useState<string | null>(null)
@@ -678,6 +712,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const [addingToBoard, setAddingToBoard] = useState(false)
   const [tappedMsgId, setTappedMsgId] = useState<string | null>(null)
   const [actionSheetMsgId, setActionSheetMsgId] = useState<string | null>(null)
+  // Set when the menu came from a desktop right-click (null = phone long-press sheet).
+  const [actionAnchor, setActionAnchor] = useState<MenuAnchor | null>(null)
+  const openMenuAt = useCallback((msgId: string, anchor: MenuAnchor) => {
+    setActionAnchor(anchor)
+    setActionSheetMsgId(msgId)
+  }, [])
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressFired = useRef(false)
   const [rxMap, setRxMap] = useState<Record<string, RxItem[]>>(() => {
@@ -790,6 +830,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         }
         return [...prev, msg]
       })
+      if (hasMoreNewerRef.current) void jumpToLatestRef.current()
       setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
       const hasTempFiles = (msg.files ?? []).some(f => f.id.startsWith('temp-'))
       if (!hasTempFiles) patchMessage(msg)
@@ -861,6 +902,8 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       prependingRef.current = false
       return
     }
+    if (appendingNewerRef.current) { appendingNewerRef.current = false; return }
+    if (hasMoreNewerRef.current) return
     const el = scrollContainerRef.current
     if (!el) return
     // A hidden Workspace Tab has no layout, so scrollHeight is 0 and this pin
@@ -988,6 +1031,175 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     return () => io.disconnect()
   }, [feedReady, hasMoreOlder, loadOlder])
 
+  // Forwarded originals (mutates rows) + reply counts — what a page needs beyond the select.
+  const enrichRows = useCallback(async (rows: HubMessage[]): Promise<Record<string, number>> => {
+    if (rows.length === 0) return {}
+    const fwdIds = rows.map(m => m.forwarded_from).filter(Boolean) as string[]
+    if (fwdIds.length > 0) {
+      const { data: origs } = await supabase
+        .from('messages')
+        .select('id, content, room_id, conversation_id, sender:hub_users!sender_id (display_name)')
+        .in('id', fwdIds)
+      const fwdMap: Record<string, ForwardedOriginal> = {}
+      for (const o of origs ?? []) {
+        const orig = o as { id: string; content: string; room_id: string | null; conversation_id: string | null; sender: { display_name: string } | { display_name: string }[] | null }
+        fwdMap[orig.id] = { ...orig, sender: Array.isArray(orig.sender) ? orig.sender[0] : orig.sender }
+      }
+      for (const m of rows) if (m.forwarded_from) m.forwarded_original = fwdMap[m.forwarded_from] ?? null
+    }
+    const { data: replyRows } = await supabase
+      .from('messages').select('parent_id').in('parent_id', rows.map(m => m.id)).is('deleted_at', null)
+    const counts: Record<string, number> = {}
+    for (const r of (replyRows ?? []) as { parent_id: string }[]) counts[r.parent_id] = (counts[r.parent_id] ?? 0) + 1
+    return counts
+  }, [supabase])
+
+  const scopedQuery = useCallback(() => {
+    const scopeCol = roomId ? 'room_id' : 'conversation_id'
+    return supabase
+      .from('messages')
+      .select(MESSAGE_SELECT)
+      .eq(scopeCol, (roomId ?? conversationId) as string)
+      .is('parent_id', null)
+      .is('deleted_at', null)
+  }, [roomId, conversationId, supabase])
+
+  // Replace the feed with `rows` (reactions + reply counts alongside).
+  const replaceWindow = useCallback((rows: HubMessage[], counts: Record<string, number>) => {
+    setMessages(rows)
+    setRxMap(prev => {
+      const next = { ...prev }
+      for (const m of rows) next[m.id] = normReactions(m.reactions)
+      return next
+    })
+    setReplyCounts(prev => {
+      const next = { ...prev }
+      for (const m of rows) next[m.id] = counts[m.id] ?? 0
+      return next
+    })
+  }, [])
+
+  const jumpToLatest = useCallback(async () => {
+    const { data } = await scopedQuery().order('created_at', { ascending: false }).limit(MESSAGE_PAGE_SIZE)
+    const rows = ((data ?? []) as unknown as HubMessage[]).slice().reverse()
+    const counts = await enrichRows(rows)
+    hasMoreNewerRef.current = false
+    setHasMoreNewer(false)
+    setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
+    // Keep anything already on screen that's newer than the fetch (a send in flight).
+    const lastAt = rows[rows.length - 1]?.created_at ?? ''
+    const have = new Set(rows.map(m => m.id))
+    const extra = messagesRef.current.filter(m => !have.has(m.id) && m.created_at > lastAt)
+    replaceWindow([...rows, ...extra], counts)
+    requestAnimationFrame(() => {
+      const el = scrollContainerRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }, [scopedQuery, enrichRows, replaceWindow])
+  useEffect(() => { jumpToLatestRef.current = jumpToLatest }, [jumpToLatest])
+
+  // Jump to the first message on or after a calendar day ('YYYY-MM-DD', local).
+  const jumpToDate = useCallback(async (day: string) => {
+    const [y, m, d] = day.split('-').map(Number)
+    if (!y || !m || !d) return
+    const start = new Date(y, m - 1, d).toISOString()
+    const [afterRes, beforeRes] = await Promise.all([
+      scopedQuery().gte('created_at', start).order('created_at', { ascending: true }).limit(JUMP_AFTER_SIZE),
+      scopedQuery().lt('created_at', start).order('created_at', { ascending: false }).limit(MESSAGE_PAGE_SIZE),
+    ])
+    const after = (afterRes.data ?? []) as unknown as HubMessage[]
+    const before = ((beforeRes.data ?? []) as unknown as HubMessage[]).slice().reverse()
+    // Nothing on or after that day — the newest messages are the closest answer.
+    if (after.length === 0) { await jumpToLatest(); return }
+    const rows = [...before, ...after]
+    const counts = await enrichRows(rows)
+    const more = after.length === JUMP_AFTER_SIZE
+    hasMoreNewerRef.current = more
+    setHasMoreNewer(more)
+    setHasMoreOlder(before.length === MESSAGE_PAGE_SIZE)
+    replaceWindow(rows, counts)
+    focusPagesLoadedRef.current = 0
+    setPendingFocusId(after[0].id)
+  }, [scopedQuery, enrichRows, replaceWindow, jumpToLatest])
+
+  const loadNewer = useCallback(async () => {
+    if (loadingNewerRef.current || !hasMoreNewerRef.current) return
+    const current = messagesRef.current
+    const newest = current[current.length - 1]
+    if (!newest?.created_at) return
+    loadingNewerRef.current = true
+    setLoadingNewer(true)
+    try {
+      const { data } = await scopedQuery().gt('created_at', newest.created_at).order('created_at', { ascending: true }).limit(MESSAGE_PAGE_SIZE)
+      const rows = (data ?? []) as unknown as HubMessage[]
+      const counts = await enrichRows(rows)
+      if (rows.length > 0) {
+        appendingNewerRef.current = true
+        setMessages(prev => {
+          const have = new Set(prev.map(m => m.id))
+          const fresh = rows.filter(m => !have.has(m.id))
+          if (fresh.length === 0) { appendingNewerRef.current = false; return prev }
+          return [...prev, ...fresh]
+        })
+        setRxMap(prev => {
+          const next = { ...prev }
+          for (const m of rows) next[m.id] = normReactions(m.reactions)
+          return next
+        })
+        setReplyCounts(prev => {
+          const next = { ...prev }
+          for (const m of rows) next[m.id] = counts[m.id] ?? 0
+          return next
+        })
+      }
+      // Caught up with now — live messages append again.
+      if (rows.length < MESSAGE_PAGE_SIZE) { hasMoreNewerRef.current = false; setHasMoreNewer(false) }
+    } finally {
+      loadingNewerRef.current = false
+      setLoadingNewer(false)
+    }
+  }, [scopedQuery, enrichRows])
+
+  useEffect(() => {
+    if (!feedReady || !hasMoreNewer) return
+    const root = scrollContainerRef.current
+    const sentinel = bottomSentinelRef.current
+    if (!root || !sentinel) return
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) void loadNewer()
+    }, { root, rootMargin: '0px 0px 300px 0px', threshold: 0 })
+    io.observe(sentinel)
+    return () => io.disconnect()
+  }, [feedReady, hasMoreNewer, loadNewer])
+
+  // The day pinned at the top: the last divider that has scrolled above the top
+  // edge (null while the current day's own divider is still in view).
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el || !feedReady) return
+    let raf = 0
+    const update = () => {
+      raf = 0
+      const top = el.getBoundingClientRect().top
+      let label: string | null = null
+      for (const d of Array.from(el.querySelectorAll<HTMLElement>('[data-day-label]'))) {
+        if (d.getBoundingClientRect().top < top + 4) label = d.dataset.dayLabel ?? null
+        else break
+      }
+      setStickyDay(label)
+    }
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update) }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    update()
+    return () => { el.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf) }
+  }, [feedReady])
+
+  function pickDay(day: string) {
+    setDayMenuOpen(false)
+    setPickedDay('')
+    void jumpToDate(day)
+  }
+
   // Deep-link jump: once the feed is ready, find the target message (pulling
   // older pages if needed), center it, and flash it. Bounded by MAX_FOCUS_PAGES
   // so a bad/stale id can't loop forever.
@@ -1110,6 +1322,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           setMessages(prev => {
             const idx = prev.findIndex(m => m.id === msg.id)
             if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
+            if (hasMoreNewerRef.current) return prev // viewing the past — fetched on the way down
             return [...prev, msg]
           })
           setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
@@ -1169,6 +1382,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         setMessages(prev => {
           const idx = prev.findIndex(m => m.id === msg.id)
           if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
+          if (hasMoreNewerRef.current) return prev // viewing the past — fetched on the way down
           return [...prev, msg]
         })
         setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
@@ -1475,6 +1689,71 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   return (
     <>
       <div ref={scrollContainerRef} style={{ visibility: feedReady ? 'visible' : 'hidden', overscrollBehaviorX: 'none' }} className="flex-1 overflow-y-auto overflow-x-hidden w-full px-1 md:px-4 py-3 space-y-1">
+        {/* Day pill — tap to jump to a date (desktop + phone). */}
+        <div className="sticky top-0 z-20 h-0 flex justify-center">
+          {(stickyDay || dayMenuOpen) && (
+            <div className="relative mt-1">
+              <button
+                type="button"
+                onClick={() => setDayMenuOpen(o => !o)}
+                className="px-3 py-1 rounded-full bg-gray-900/95 border border-gray-700 text-xs text-gray-200 font-medium shadow-lg hover:bg-gray-800 flex items-center gap-1"
+                aria-haspopup="menu"
+                aria-expanded={dayMenuOpen}
+              >
+                {stickyDay ?? 'Jump to…'}
+                <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              </button>
+              {dayMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setDayMenuOpen(false)} aria-hidden />
+                  <div role="menu" className="absolute z-20 left-1/2 -translate-x-1/2 top-full mt-1 w-60 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl py-1 text-sm">
+                    <div className="px-3 pt-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Jump to…</div>
+                    {([
+                      ['Today', 0],
+                      ['Yesterday', 1],
+                      ['A week ago', 7],
+                      ['A month ago', 30],
+                    ] as const).map(([label, daysAgo]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { const d = new Date(); d.setDate(d.getDate() - daysAgo); pickDay(dayKey(d)) }}
+                        className="w-full text-left px-3 py-1.5 text-gray-100 hover:bg-gray-800"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => pickDay('2000-01-01')}
+                      className="w-full text-left px-3 py-1.5 text-gray-100 hover:bg-gray-800"
+                    >
+                      The very beginning
+                    </button>
+                    <form
+                      className="border-t border-gray-800 mt-1 px-3 pt-2 pb-2"
+                      onSubmit={e => { e.preventDefault(); if (pickedDay) pickDay(pickedDay) }}
+                    >
+                      <label className="block text-xs text-gray-400 mb-1">A specific date</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={pickedDay}
+                          max={dayKey(new Date())}
+                          onChange={e => setPickedDay(e.target.value)}
+                          className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-base md:text-sm text-white [color-scheme:dark]"
+                        />
+                        <button type="submit" disabled={!pickedDay} className="px-3 py-1 rounded bg-brand hover:bg-brand-hover disabled:opacity-40 text-[#fff] text-sm font-medium">Go</button>
+                      </div>
+                    </form>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
         {hasMoreOlder && <div ref={topSentinelRef} className="h-px w-full" aria-hidden />}
         {loadingOlder && (
           <div className="flex items-center justify-center py-3">
@@ -1483,9 +1762,16 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         )}
         {groups.map(group => (
           <div key={group.date}>
-            <div className="flex items-center gap-3 my-4">
+            <div className="flex items-center gap-3 my-4" data-day-label={group.date}>
               <div className="flex-1 h-px bg-gray-800" />
-              <span className="text-xs text-gray-500 font-medium">{group.date}</span>
+              <button
+                type="button"
+                onClick={() => setDayMenuOpen(true)}
+                title="Jump to a date"
+                className="text-xs text-gray-500 font-medium hover:text-gray-300 rounded-full px-2 py-0.5 hover:bg-gray-800/60"
+              >
+                {group.date}
+              </button>
               <div className="flex-1 h-px bg-gray-800" />
             </div>
 
@@ -1539,6 +1825,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                   onAddToBoard={handleAddToBoard}
                   onCloseBoardPicker={handleCloseBoardPicker}
                   onCopyLink={handleCopyLink}
+                  onOpenMenu={openMenuAt}
                   onOpenThread={onOpenThread}
                 />
               )
@@ -1563,6 +1850,24 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           </div>
         )}
 
+        {hasMoreNewer && <div ref={bottomSentinelRef} className="h-px w-full" aria-hidden />}
+        {loadingNewer && (
+          <div className="flex items-center justify-center py-3">
+            <div className="w-5 h-5 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+        {hasMoreNewer && (
+          <div className="sticky bottom-2 z-20 h-0 flex justify-center items-end">
+            <button
+              type="button"
+              onClick={() => void jumpToLatest()}
+              className="px-3 py-1.5 rounded-full bg-brand hover:bg-brand-hover text-[#fff] text-xs font-semibold shadow-lg"
+            >
+              Jump to latest ↓
+            </button>
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
@@ -1579,9 +1884,10 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
             isOwn={isOwn}
             isAdmin={!!isAdmin}
             hasOnOpenThread={!!onOpenThread}
-            onClose={() => setActionSheetMsgId(null)}
+            onClose={() => { setActionSheetMsgId(null); setActionAnchor(null) }}
             onCopy={() => { navigator.clipboard?.writeText(msg.content ?? '').catch(() => {}) }}
             onCopyLink={() => handleCopyLink(msg)}
+            anchor={actionAnchor ?? undefined}
             onAddReaction={emoji => toggleReaction(msg.id, emoji)}
             onForward={() => setForwardingMsg(msg)}
             onSaveToFiles={() => setSaveToFilesMsg(msg)}

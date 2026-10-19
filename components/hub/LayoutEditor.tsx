@@ -147,7 +147,7 @@ export default function LayoutEditor({
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 flex-none">
           <div>
             <h2 className="font-semibold text-white">Customize your menu</h2>
-            <p className="text-xs text-gray-400 mt-0.5">One list powers your rail, mobile bar, and the Apps drawer. The first few (🔒) are pinned for everyone; reorder, hide, or add anything below them. Saves instantly.</p>
+            <p className="text-xs text-gray-400 mt-0.5">One list powers your desktop rail and the Apps drawer. The first few (🔒) are pinned for everyone; reorder, hide, or add anything below them. Saves instantly.</p>
           </div>
           <button type="button" onClick={onClose} className="text-white/50 hover:text-white p-1" aria-label="Close">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -157,7 +157,7 @@ export default function LayoutEditor({
         <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
           {list.length > MOBILE_VISIBLE && (
             <p className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-2">
-              The top of this list fills your rail/bar; the rest live under the <strong>Apps</strong> button. Phones show the first {MOBILE_VISIBLE}; desktop shows as many as fit the screen.
+              The top of this list fills your desktop rail (as many as fit the screen); the rest live under the <strong>Apps</strong> button. On a phone the bottom bar is always Hub · Work Orders · Txt · Dialer · Clock · Apps, and this list is your Apps drawer.
             </p>
           )}
 

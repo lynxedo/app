@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useToast, useConfirm } from '@/components/ui'
 import dynamic from 'next/dynamic'
 import { init, SearchIndex } from 'emoji-mart'
@@ -10,7 +10,7 @@ import { FileAttachment } from './MessageFeed'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
 import SaveToFilesModal from './SaveToFilesModal'
-import MessageActionsSheet from './MessageActionsSheet'
+import MessageActionsSheet, { messageContextMenu, type MenuAnchor } from './MessageActionsSheet'
 import MessageComposer from './MessageComposer'
 import type { HubMessage, HubUser, Sender, FileItem, RxItem } from './MessageFeed'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
@@ -80,6 +80,17 @@ function normFiles(raw: unknown): FileItem[] {
 function normReactions(raw: unknown): RxItem[] {
   if (!raw || !Array.isArray(raw)) return []
   return raw as RxItem[]
+}
+
+function formatDay(iso: string) {
+  const d = new Date(iso), today = new Date(), yest = new Date(today)
+  yest.setDate(today.getDate() - 1)
+  if (d.toDateString() === today.toDateString()) return 'Today'
+  if (d.toDateString() === yest.toDateString()) return 'Yesterday'
+  return d.toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+    ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}),
+  })
 }
 
 function formatTime(iso: string) {
@@ -190,6 +201,8 @@ export default function ThreadPanel({
   const [boardPickerBoards, setBoardPickerBoards] = useState<{ id: string; name: string }[]>([])
   const [addingToBoard, setAddingToBoard] = useState(false)
   const [actionSheetMsgId, setActionSheetMsgId] = useState<string | null>(null)
+  // Set when the menu came from a desktop right-click (null = phone long-press sheet).
+  const [actionAnchor, setActionAnchor] = useState<MenuAnchor | null>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressFired = useRef(false)
   // Emoji picker popover (toolbar 😀 button)
@@ -997,7 +1010,10 @@ export default function ThreadPanel({
         {replies.length === 0 && (
           <p className="text-sm text-gray-600 text-center py-4">No replies yet — be the first!</p>
         )}
-        {replies.map(reply => {
+        {replies.map((reply, ri) => {
+          // Day divider when a reply lands on a different day than the one before it.
+          const day = new Date(reply.created_at).toDateString()
+          const prevDay = new Date(ri === 0 ? parentMessage.created_at : replies[ri - 1].created_at).toDateString()
           const sender = normSender(reply.sender)
           const files = normFiles(reply.files)
           const isOwn = sender?.id === currentUserId
@@ -1022,15 +1038,26 @@ export default function ThreadPanel({
             }
           }
           return (
+            <Fragment key={reply.id}>
+            {day !== prevDay && (
+              <div className="flex items-center gap-3 my-3">
+                <div className="flex-1 h-px bg-gray-800" />
+                <span className="text-xs text-gray-500 font-medium">{formatDay(reply.created_at)}</span>
+                <div className="flex-1 h-px bg-gray-800" />
+              </div>
+            )}
             <div
-              key={reply.id}
               data-reply-id={reply.id}
               className={`group relative flex items-start gap-3 rounded transition-colors hover:bg-gray-900/40 select-none md:select-text ${flashReplyId === reply.id ? 'hub-msg-flash' : ''}`}
               onTouchStart={() => { if (!isEditing) startLongPress(reply.id) }}
               onTouchMove={cancelLongPress}
               onTouchEnd={cancelLongPress}
               onTouchCancel={cancelLongPress}
-              onContextMenu={e => e.preventDefault()}
+              onContextMenu={e => {
+                if (isEditing) return
+                const anchor = messageContextMenu(e)
+                if (anchor) { setActionAnchor(anchor); setActionSheetMsgId(reply.id) }
+              }}
               style={{ touchAction: 'pan-y', WebkitTouchCallout: 'none' }}
             >
               <Avatar sender={sender} />
@@ -1209,6 +1236,7 @@ export default function ThreadPanel({
                 </div>
               )}
             </div>
+            </Fragment>
           )
         })}
         <div ref={bottomRef} />
@@ -1499,9 +1527,10 @@ export default function ThreadPanel({
             isOwn={isOwn}
             isAdmin={!!isAdmin}
             hasOnOpenThread={false}
-            onClose={() => setActionSheetMsgId(null)}
+            onClose={() => { setActionSheetMsgId(null); setActionAnchor(null) }}
             onCopy={() => { navigator.clipboard?.writeText(reply.content ?? '').catch(() => {}) }}
             onCopyLink={() => copyMessageLink(reply.id, true)}
+            anchor={actionAnchor ?? undefined}
             onAddReaction={emoji => toggleReaction(reply.id, emoji)}
             onForward={() => setForwardingReply(reply)}
             onSaveToFiles={() => setSaveToFilesReply(reply)}

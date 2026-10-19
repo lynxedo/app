@@ -300,6 +300,19 @@ async function sendOneRecipient(opts: {
         .from('txt_conversations')
         .update({ status: 'assigned', assigned_to: senderId, archived_by: null })
         .eq('id', conversationId)
+      // Archiving dropped every member row — seat the sender as owner again,
+      // or the thread reads as theirs but the send gate (membership) 403s.
+      await admin
+        .from('txt_conversation_members')
+        .delete()
+        .eq('conversation_id', conversationId)
+        .eq('role', 'owner')
+      await admin.from('txt_conversation_members').insert({
+        conversation_id: conversationId,
+        user_id: senderId,
+        role: 'owner',
+        added_by: senderId,
+      })
     }
   } else {
     const { data: createdConv, error: convErr } = await admin

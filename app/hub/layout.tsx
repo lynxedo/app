@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { quoteAccess } from '@/lib/quote-access'
-import { workOrderViewPerms } from '@/lib/work-order-access'
+import { workOrderAccess, workOrderViewPerms } from '@/lib/work-order-access'
 import { redirect } from 'next/navigation'
 import fs from 'fs'
 import path from 'path'
@@ -230,6 +230,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canComposeSharedEmail = isAdmin || (profileResult.data?.can_compose_shared_email ?? false)
   const canAccessForms = profileResult.data?.can_access_forms ?? true
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
+  // Nav icons follow the page's own gate (admins included). The idle landing
+  // below keeps the raw grant so an admin isn't parked on Work Orders.
+  const canSeeWorkOrders = workOrderAccess(profileResult.data).canAccess
   // Where a long-idle phone lands when the person has no Daily Log access: the
   // general room beats an empty home screen. Falls back to /hub/home if they are
   // in no rooms at all.
@@ -343,7 +346,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     canAccessSharedInbox: !!canReachInbox,
     canManageDrip: !!canManageDrip,
     canAccessForms: !!canAccessForms,
-    canAccessDailyLogV2: !!canAccessDailyLogV2,
+    canAccessDailyLogV2: canSeeWorkOrders && moduleOn('daily_log'),
     canAccessScoreboards: !!canAccessScoreboards,
     canAccessReports: canAccessReports && moduleOn('reports'),
     canAccessFiles: !!canAccessFiles,
@@ -465,7 +468,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canManageDrip={canManageDrip && moduleOn('drip')}
         canAdminEmail={canAdminEmail && moduleOn('email')}
         canAccessForms={canAccessForms}
-        canAccessDailyLogV2={canAccessDailyLogV2 && moduleOn('daily_log')}
+        canAccessDailyLogV2={canSeeWorkOrders && moduleOn('daily_log')}
         canAccessScoreboards={canAccessScoreboards && moduleOn('scoreboards')}
         canAccessReports={canAccessReports && moduleOn('reports')}
         canAccessFiles={canAccessFiles}
