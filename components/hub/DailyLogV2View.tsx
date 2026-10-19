@@ -62,6 +62,8 @@ type Stop = {
   instructions: string | null
   scheduled_start_at: string | null
   scheduled_end_at: string | null
+  /** Dispatch: the time frame the customer was promised (office/Amber-locked). */
+  promised_window?: { start: string; end: string } | null
   duration_minutes: number | null
   status: 'pending' | 'in_progress' | 'complete' | 'skipped'
   arrived_at: string | null
@@ -1620,6 +1622,11 @@ function StopRow({ stop, date, active, onOpen }: {
           {stop.scheduled_start_at && !isComplete && !isSkipped && (
             <div className="text-xs text-gray-400">{formatTime(stop.scheduled_start_at)}</div>
           )}
+          {stop.promised_window && !isComplete && !isSkipped && (
+            <div className="text-[10px] bg-pink-500/15 text-pink-300 px-1.5 py-0.5 rounded" title="The customer was promised this arrival time">
+              🔒 {formatTime(stop.promised_window.start)}–{formatTime(stop.promised_window.end)}
+            </div>
+          )}
           {stop.duration_minutes && !isComplete && !isSkipped && (
             <div className="text-xs text-gray-500">~{stop.duration_minutes} min</div>
           )}
@@ -1939,6 +1946,11 @@ function StopSheet({
               <div className="text-sm text-gray-400 truncate">{stop.address}</div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 mt-0.5">
                 {stop.scheduled_start_at && <span>{formatTime(stop.scheduled_start_at)}</span>}
+                {stop.promised_window && (
+                  <span className="text-pink-300" title="The customer was promised this arrival time">
+                    🔒 Promised {formatTime(stop.promised_window.start)}–{formatTime(stop.promised_window.end)}
+                  </span>
+                )}
                 {stop.duration_minutes && <span>~{stop.duration_minutes} min</span>}
                 {stop.client_phone && <span>{formatPhone(stop.client_phone)}</span>}
                 {isComplete && stop.completed_at && <span className="text-emerald-300">✓ Done {formatTime(stop.completed_at)}</span>}

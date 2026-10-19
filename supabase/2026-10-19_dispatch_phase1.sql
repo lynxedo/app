@@ -96,3 +96,29 @@ revoke all on public.dispatch_runs from anon;
 drop policy if exists dispatch_runs_select_company on public.dispatch_runs;
 create policy dispatch_runs_select_company on public.dispatch_runs
   for select using (company_id = get_my_company_id());
+
+-- Phase 3 — Hub day-before reminders. One row per item + day + channel, claimed
+-- BEFORE sending (UNIQUE), so two runs — or staging and prod on the shared DB —
+-- can never both send the same reminder.
+create table if not exists public.dispatch_reminders (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references public.companies(id) on delete cascade,
+  jobber_item_id  text not null,
+  visit_date      date not null,
+  channel         text not null check (channel in ('sms','email')),
+  status          text not null default 'sending' check (status in ('sending','sent','failed')),
+  template_id     text,
+  sent_to         text,
+  body            text,
+  provider_id     text,
+  error           text,
+  created_at      timestamptz not null default now(),
+  sent_at         timestamptz,
+  constraint dispatch_reminders_once unique (company_id, jobber_item_id, visit_date, channel)
+);
+create index if not exists dispatch_reminders_company_date on public.dispatch_reminders (company_id, visit_date);
+alter table public.dispatch_reminders enable row level security;
+revoke all on public.dispatch_reminders from anon;
+drop policy if exists dispatch_reminders_select_company on public.dispatch_reminders;
+create policy dispatch_reminders_select_company on public.dispatch_reminders
+  for select using (company_id = get_my_company_id());

@@ -45,6 +45,9 @@ export async function sendDirectTxtMessage(opts: {
    * signature shows the AI persona's name ("- Amber, …"). Defaults to `userId`.
    */
   signatureUserId?: string | null
+  /** Send unsigned — automated company messages (Dispatch day-before reminders)
+   *  that shouldn't look like they came from a person. Default false. */
+  noSignature?: boolean
 }): Promise<DirectSendResult> {
   const { admin, companyId, conversationId, contact, userId } = opts
   const mediaUrls = opts.mediaUrls ?? []
@@ -93,7 +96,7 @@ export async function sendDirectTxtMessage(opts: {
     const allowUserSig = settings?.allow_user_signatures !== false
     const personalSig = (profile?.txt_signature || '').trim()
     const companySig = (settings?.company_default_signature || '').trim()
-    let signature = allowUserSig && personalSig ? personalSig : companySig
+    let signature = opts.noSignature ? '' : allowUserSig && personalSig ? personalSig : companySig
 
     if (signature) {
       // Don't repeat the signature back-to-back from the same sender.
@@ -230,6 +233,10 @@ export async function sendDirectTxtToPhone(opts: {
   templateId?: string | null
   /** Sign as this Hub user instead of `userId` (see sendDirectTxtMessage). */
   signatureUserId?: string | null
+  /** Send unsigned (see sendDirectTxtMessage). */
+  noSignature?: boolean
+  /** `sources` tag on a contact this send has to create. Default 'daily-log'. */
+  contactSource?: string
 }): Promise<DirectSendResult & { conversation_id?: string; contact_id?: string }> {
   const { admin, companyId, userId } = opts
 
@@ -260,7 +267,7 @@ export async function sendDirectTxtToPhone(opts: {
         name,
         do_not_text: false,
         in_directory: true,
-        sources: ['daily-log'],
+        sources: [opts.contactSource || 'daily-log'],
       })
       .select('id, phone, name, do_not_text')
       .single()
@@ -329,6 +336,7 @@ export async function sendDirectTxtToPhone(opts: {
     body: opts.body,
     templateId: opts.templateId ?? null,
     signatureUserId: opts.signatureUserId ?? null,
+    noSignature: opts.noSignature === true,
   })
 
   return { ...result, conversation_id: conversationId, contact_id: contact.id }
