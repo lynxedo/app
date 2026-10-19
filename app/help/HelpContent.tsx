@@ -738,7 +738,8 @@ function HubTab() {
       </Section>
 
       <Section title="Office Alerts">
-        <p>Automated alerts land in their own room called <strong className="text-white">Office Alerts</strong>, so the working <em>office</em> room stays for actual conversation. Three things post there: calls the AI receptionist takes, new Google Local Services (LSA) leads, and new Angi leads.</p>
+        <p>Automated alerts land in their own room called <strong className="text-white">Office Alerts</strong>, so the working <em>office</em> room stays for actual conversation. Four things post there: calls the AI receptionist takes, new Google Local Services (LSA) leads, new Angi leads, and <strong className="text-white">new Jobber requests</strong>.</p>
+        <p className="mt-3"><strong className="text-white">New Jobber requests</strong> (from your online request form, or entered in Jobber) also land on the <strong className="text-white">Lead Tracker</strong> automatically, with the request title, address, and an <em>Open in Jobber</em> link in the lead&apos;s notes. No text goes to the customer. If that person already has an open lead, the request is added to that lead&apos;s notes instead of making a second card — and when Amber booked them herself a few minutes earlier, there&apos;s no second alert.</p>
         <p className="mt-3"><strong className="text-white">Each alert is one line, with the detail in a thread.</strong> The post itself is just who it was and how to reach them — for example <em>📇 Customer service call from Sonia Belvin ((832) 567-0670)</em> — so the room reads as a scannable list of what came in. Tap <em>1 reply</em> under it to read the rest: what they wanted, the service and address, urgency, and the link to go work it.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-3">
           <li><strong className="text-white">🔴 at the front</strong> means urgent — a complaint, or a call marked high urgency.</li>
