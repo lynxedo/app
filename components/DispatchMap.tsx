@@ -40,7 +40,8 @@ interface Props {
   unscheduled: Array<{ id: string; lat: number; lng: number; title: string; subtitle: string }>
   highlightId: string | null
   onStopClick: (id: string) => void
-  height?: number
+  /** Pixels or any CSS length, e.g. "max(520px, calc(100vh - 380px))" so it grows with the window. */
+  height?: number | string
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] ?? c))

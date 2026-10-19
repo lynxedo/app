@@ -135,6 +135,11 @@ export default function RouteBuilder() {
     const saved = localStorage.getItem('lynxedo-route-mode')
     if (saved === 'advanced' || saved === 'basic' || saved === 'dispatch') setRouteMode(saved)
   }, [])
+  // Tell the page shell which mode is showing — Dispatch is full-width.
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    rootRef.current?.closest('[data-route-shell]')?.setAttribute('data-mode', routeMode)
+  }, [routeMode])
   const changeRouteMode = (mode: 'basic' | 'advanced' | 'dispatch') => {
     setRouteMode(mode)
     try { localStorage.setItem('lynxedo-route-mode', mode) } catch {}
@@ -1178,7 +1183,7 @@ export default function RouteBuilder() {
   const selectedCount = visits ? (visits.filter(v => selectedIds.has(v.id) && !sentIds.has(v.id))).length : 0
 
   return (
-    <div className="space-y-6">
+    <div ref={rootRef} className="space-y-6">
       {/* ── Mode toggle: Basic ↔ Advanced ──────────────────────────────────
           Advanced renders its own view (AdvancedRouteView): multi-day pull,
           interactive map, lasso select, optimize-selected. Tank loadout /

@@ -21,11 +21,11 @@ export async function GET(request: Request) {
   const techIds = (sp.get('techIds') ?? '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 8)
   if (!DATE_RE.test(from) || !DATE_RE.test(to) || to < from) return NextResponse.json({ error: 'from/to (YYYY-MM-DD) required' }, { status: 400 })
   if ((new Date(to).getTime() - new Date(from).getTime()) / 86400000 > MAX_DAYS) return NextResponse.json({ error: 'Range too long' }, { status: 400 })
-  if (techIds.length === 0) return NextResponse.json({ days: {} })
+  if (techIds.length === 0) return NextResponse.json({ days: {}, depot: null })
 
   const admin = createAdminClient()
   const { data: visits, error } = await admin.from('visits')
-    .select('id, external_id, client_id, title, scheduled_date, start_at, end_at, completed_at, tech_external_user_ids')
+    .select('id, external_id, client_id, job_id, title, scheduled_date, start_at, end_at, completed_at, tech_external_user_ids')
     .eq('company_id', companyId)
     .is('deleted_at', null)
     .gte('scheduled_date', from).lte('scheduled_date', to)
@@ -54,6 +54,21 @@ export async function GET(request: Request) {
       totals.set(k, (totals.get(k) ?? 0) + Number(li.total ?? 0))
     }
   }
+  // Addresses for the Week/Month map: visit → job → property (same path Find a slot uses).
+  const jobIds = [...new Set(rows.map(v => v.job_id).filter(Boolean))] as string[]
+  const propOfJob = new Map<string, string>()
+  for (let i = 0; i < jobIds.length; i += 200) {
+    const { data } = await admin.from('jobs').select('id, property_id').in('id', jobIds.slice(i, i + 200))
+    for (const j of data ?? []) if (j.property_id) propOfJob.set(j.id as string, j.property_id as string)
+  }
+  const propIds = [...new Set(propOfJob.values())]
+  const addrOf = new Map<string, string>()
+  for (let i = 0; i < propIds.length; i += 200) {
+    const { data } = await admin.from('properties').select('id, address_line1, city, state, zip').in('id', propIds.slice(i, i + 200))
+    for (const p of data ?? []) if (p.address_line1) addrOf.set(p.id as string, `${p.address_line1}, ${p.city ?? ''}, ${p.state ?? ''} ${p.zip ?? ''}`.trim())
+  }
+  const { data: rs } = await admin.from('company_routing_settings').select('depot_lat, depot_lng').eq('company_id', companyId).maybeSingle()
+
   const extIds = rows.map(v => v.external_id as string).filter(Boolean)
   const lockedIds = new Set<string>()
   for (let i = 0; i < extIds.length; i += 200) {
@@ -72,7 +87,7 @@ export async function GET(request: Request) {
       kind: 'visit' as const,
       clientName: names.get(v.client_id as string) ?? '',
       phone: null,
-      address: '',
+      address: addrOf.get(propOfJob.get(v.job_id as string) ?? '') ?? '',
       routable: true,
       title: (v.title as string) ?? '',
       lineItemNames: items.get(v.id as string) ?? [],
@@ -91,5 +106,8 @@ export async function GET(request: Request) {
     }
     ;(days[a.date] ??= []).push(stop)
   }
-  return NextResponse.json({ days })
+  return NextResponse.json({
+    days,
+    depot: rs?.depot_lat != null && rs?.depot_lng != null ? { lat: rs.depot_lat as number, lng: rs.depot_lng as number } : null,
+  })
 }
