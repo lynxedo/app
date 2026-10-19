@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import AdvancedRouteView from './AdvancedRouteView'
+import DispatchView from './DispatchView'
 import { openUrlWithFallback } from '@/lib/open-url'
 
 interface JobberUser {
@@ -126,12 +127,15 @@ export default function RouteBuilder() {
   // predicted times) — those are built in later sessions. This is purely a
   // view switch over the SAME route engine; Basic is never forked or rebuilt.
   // Persisted per-browser, hydrated after mount to avoid an SSR/client mismatch.
-  const [routeMode, setRouteMode] = useState<'basic' | 'advanced'>('basic')
+  // Dispatch (Oct 2026) is a third, separate view for appointment-window days —
+  // see Reference/PRDs/DISPATCH_ROUTING_PRD.md. It shares the route engine's
+  // writer and settings but never touches the Basic/Advanced flow.
+  const [routeMode, setRouteMode] = useState<'basic' | 'advanced' | 'dispatch'>('basic')
   useEffect(() => {
     const saved = localStorage.getItem('lynxedo-route-mode')
-    if (saved === 'advanced' || saved === 'basic') setRouteMode(saved)
+    if (saved === 'advanced' || saved === 'basic' || saved === 'dispatch') setRouteMode(saved)
   }, [])
-  const changeRouteMode = (mode: 'basic' | 'advanced') => {
+  const changeRouteMode = (mode: 'basic' | 'advanced' | 'dispatch') => {
     setRouteMode(mode)
     try { localStorage.setItem('lynxedo-route-mode', mode) } catch {}
   }
@@ -1200,7 +1204,18 @@ export default function RouteBuilder() {
         >
           Advanced
         </button>
+        <button
+          type="button"
+          onClick={() => changeRouteMode('dispatch')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            routeMode === 'dispatch' ? 'bg-orange-500 text-[#fff]' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Dispatch
+        </button>
       </div>
+
+      {routeMode === 'dispatch' && <DispatchView />}
 
       {/* Advanced mode renders its own self-contained view (multi-day pull,
           interactive map, lasso select, optimize-selected). The Basic flow
