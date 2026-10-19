@@ -45,7 +45,7 @@ export default function DispatchSettingsSection() {
       setCanEdit(!!d.canEdit)
       setLoaded(true)
     }).catch(() => setLoaded(true))
-    fetch('/api/users?include_all=1').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
+    fetch('/api/hub/routing/dispatch/users').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
   }, [])
 
   const name = (id: string) => users.find(u => u.id === id)?.name ?? id.slice(-6)
@@ -125,6 +125,30 @@ export default function DispatchSettingsSection() {
             <span className="text-gray-500">to</span>
             <input type="time" step={1800} disabled={dis} value={s.view_end} onChange={e => patch({ view_end: e.target.value })} className={input} />
           </div>
+        </label>
+      </div>
+
+      {/* Work days + title shorthand */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="text-sm">
+          <div className="text-gray-300 mb-1">Days Find a slot may use</div>
+          <div className="flex flex-wrap gap-1">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => {
+              const on = s.work_days.includes(i)
+              return (
+                <button key={d} type="button" disabled={dis}
+                  onClick={() => patch({ work_days: on ? s.work_days.filter(x => x !== i) : [...s.work_days, i].sort() })}
+                  className={`px-2 py-1 rounded-lg text-xs border ${on ? 'bg-orange-500 border-orange-500 text-[#fff]' : 'border-gray-700 text-gray-400'}`}>{d}</button>
+              )
+            })}
+          </div>
+        </div>
+        <label className="text-sm flex items-start gap-2">
+          <input type="checkbox" disabled={dis} checked={s.title_windows} onChange={e => patch({ title_windows: e.target.checked })} className="mt-1" />
+          <span>
+            <span className="text-gray-300">Suggest promised times from visit titles</span>
+            <span className="block text-xs text-gray-500">Reads “AM”, “PM”, “1-4PM”, “after 1PM”, “10AM” in a visit title as a suggested time frame (the office still clicks Lock), and Find a slot keeps to it. Titles are never used for filters.</span>
+          </span>
         </label>
       </div>
 

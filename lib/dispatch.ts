@@ -43,6 +43,11 @@ export interface DispatchSettings {
   default_team: string[]
   color_rules: ColorRule[]
   filter_groups: FilterGroup[]
+  /** Days Find a slot may use: 0 = Sunday … 6 = Saturday. */
+  work_days: number[]
+  /** Opt-in: read "AM" / "PM" / "1-4PM" / "after 1PM" / "10AM" in a visit title as a
+   *  SUGGESTED promised window. The one place title text is read; never a filter. */
+  title_windows: boolean
 }
 
 export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
@@ -54,6 +59,8 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   default_team: [],
   color_rules: [],
   filter_groups: [],
+  work_days: [1, 2, 3, 4, 5],
+  title_windows: false,
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -87,7 +94,53 @@ export function normalizeDispatchSettings(raw: unknown): DispatchSettings {
         ...(x.kind === 'assessment' || x.kind === 'task' ? { kind: x.kind } : {}),
       }))
       .slice(0, 12),
+    work_days: Array.isArray(r.work_days)
+      ? [...new Set((r.work_days as unknown[]).filter((d): d is number => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6))].sort()
+      : DEFAULT_DISPATCH_SETTINGS.work_days,
+    title_windows: r.title_windows === true,
   }
+}
+
+/**
+ * Suggested promised window from a visit title (opt-in per tenant, Heroes-style
+ * shorthand). Returns minutes since midnight, or null. Only ever a suggestion —
+ * the office still clicks Lock.
+ *   "1-4PM" / "1-4 pm" / "10-12" → that range (bare hours under 7 read as pm)
+ *   "after 1PM"                  → 1 pm to the end of the arrival day
+ *   "AM" → arrival start – 12 pm;  "PM" → 12 pm – arrival end
+ *   "10AM" / "2:30PM"            → a one-hour window from that time
+ */
+export function parseTitleWindow(title: string, s: Pick<DispatchSettings, 'arrival_first' | 'arrival_last'>): { start: number; end: number; label: string } | null {
+  const t = ` ${title.toUpperCase().replace(/\s+/g, ' ')} `
+  const first = hhmmToMinutes(s.arrival_first)
+  const lastStart = hhmmToMinutes(s.arrival_last)
+  const dayEnd = Math.max(lastStart + 60, 17 * 60)
+  const hour = (h: number, mer: string | undefined, fallbackPm: boolean) => {
+    let x = h % 12
+    if (mer === 'PM' || (!mer && h === 12) || (!mer && fallbackPm && h < 7)) x += 12
+    return x * 60
+  }
+  let m = t.match(/AFTER (\d{1,2})(?::(\d{2}))? ?(AM|PM)?/)
+  if (m) {
+    const st = hour(Number(m[1]), m[3], true) + Number(m[2] ?? 0)
+    return { start: st, end: dayEnd, label: m[0].trim() }
+  }
+  m = t.match(/[ /](\d{1,2})(?::(\d{2}))? ?(AM|PM)? ?[-–] ?(\d{1,2})(?::(\d{2}))? ?(AM|PM)?[ ,.)]/)
+  if (m && (m[3] || m[6] || Number(m[1]) <= 12)) {
+    const endMer = m[6] ?? m[3]
+    const en = hour(Number(m[4]), endMer, true) + Number(m[5] ?? 0)
+    let st = hour(Number(m[1]), m[3] ?? (endMer === 'PM' && Number(m[1]) <= Number(m[4]) ? 'PM' : endMer), true) + Number(m[2] ?? 0)
+    if (st >= en) st = hour(Number(m[1]), 'AM', false) + Number(m[2] ?? 0)
+    if (en > st) return { start: st, end: en, label: m[0].trim() }
+  }
+  m = t.match(/[ /](\d{1,2})(?::(\d{2}))? ?(AM|PM)[ ,.)]/)
+  if (m) {
+    const st = hour(Number(m[1]), m[3], false) + Number(m[2] ?? 0)
+    return { start: st, end: st + 60, label: m[0].trim() }
+  }
+  if (/ AM[ ,.)]/.test(t)) return { start: first, end: 12 * 60, label: 'AM' }
+  if (/ PM[ ,.)]/.test(t)) return { start: 12 * 60, end: dayEnd, label: 'PM' }
+  return null
 }
 
 export function hhmmToMinutes(s: string): number {
@@ -109,6 +162,8 @@ export interface DispatchStop {
   routable: boolean
   title: string           // the visit's own title when known, else the job's
   lineItemNames: string[]
+  /** Priced line items, for the printed route sheet. */
+  lineItems?: Array<{ name: string; qty: number; unitPrice: number; totalPrice: number }>
   totalPrice: number
   instructions: string | null
   startAt: string | null  // ISO from Jobber

@@ -5,11 +5,12 @@ import { useRouter } from 'next/navigation'
 import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
 import { fetchLeg, type Leg, type LatLng } from '@/lib/dispatch-legs'
 import { computeDuration } from '@/lib/route-duration'
+import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced-route-sheet'
 import type { DurationRulesConfig } from '@/app/api/settings/types'
 import {
   type DispatchSettings, type DispatchStop, type DispatchLock, type DraftChange,
   DEFAULT_DISPATCH_SETTINGS, LANE_COLORS, addDays, fmtClock, hhmmToMinutes, isoToLocal,
-  localStamp, localToIso, remindersAlreadySent, stopColor, stopMatchesGroup, todayLocal,
+  localStamp, localToIso, parseTitleWindow, remindersAlreadySent, stopColor, stopMatchesGroup, todayLocal,
 } from '@/lib/dispatch'
 
 // Dispatch — the third routing mode (Reference/PRDs/DISPATCH_ROUTING_PRD.md),
@@ -111,6 +112,22 @@ export default function DispatchView() {
   const [notice, setNotice] = useState<string | null>(null)
   const [windowPrompt, setWindowPrompt] = useState<null | { stopId: string; lane: string; startMin: number; lock: { startMin: number; endMin: number } }>(null)
   const [routes, setRoutes] = useState<Record<string, Leg[]>>({})
+  const [optimizing, setOptimizing] = useState(false)
+  const [optPreview, setOptPreview] = useState<null | {
+    results: Array<{
+      techId: string; skipped?: string; order?: string[]; starts?: Record<string, number>
+      driveMin?: number; beforeDriveMin?: number; estimated?: boolean
+      violations?: Array<{ id: string; kind: 'window' | 'hours'; lateMin: number }>
+    }>
+  }>(null)
+  const [slots, setSlots] = useState<null | {
+    stopId: string; loading: boolean; error?: string; note?: string
+    window: { start: number; end: number; label: string } | null
+    options: Array<{ date: string; techId: string; startMin: number; addedMin: number; afterAddress: string | null; beforeAddress: string | null; emptyDay: boolean }>
+  }>(null)
+  const [ghost, setGhost] = useState<null | { date: string; lane: string; startMin: number; durationMin: number; stopId: string }>(null)
+  const [pendingPlace, setPendingPlace] = useState<null | { date: string; stopId: string; lane: string; startMin: number }>(null)
+  const [sheetMsg, setSheetMsg] = useState<Record<string, { busy?: boolean; ok?: boolean; text: string }>>({})
 
   const [sendOpen, setSendOpen] = useState(false)
   const [sending, setSending] = useState(false)
@@ -128,7 +145,7 @@ export default function DispatchView() {
 
   // ── Load: users, team, filters ────────────────────────────────────────────
   useEffect(() => {
-    fetch('/api/users?include_all=1').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
+    fetch('/api/hub/routing/dispatch/users').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
     setFilters(readLS(LS_FILTERS, { groups: [], hideZero: false }))
     const saved = readLS<string[] | null>(LS_TEAM, null)
     if (saved && saved.length) setTeam(saved)
@@ -368,12 +385,12 @@ export default function DispatchView() {
     return b ? { stop: b, fromBucket: true } : null
   }, [day, placed, bucketById])
 
-  const applyMove = useCallback((stopId: string, lane: string, rawStart: number, opts: { overrideWindow?: boolean } = {}) => {
+  const applyMove = useCallback((stopId: string, lane: string, rawStart: number, opts: { overrideWindow?: boolean; exact?: boolean } = {}) => {
     const found = findStop(stopId)
     if (!found) return
     const { stop } = found
     if (stop.isComplete) { setNotice('That stop is already completed in Jobber.'); return }
-    const startMin = Math.max(0, Math.min(24 * 60 - SNAP, Math.round(rawStart / SNAP) * SNAP))
+    const startMin = Math.max(0, Math.min(24 * 60 - SNAP, opts.exact ? Math.round(rawStart) : Math.round(rawStart / SNAP) * SNAP))
     const p = placed.find(x => x.stop.id === stopId)
     const duration = p?.durationMin ?? estimate(stop)
     const existing = changeById.get(stopId)
@@ -413,6 +430,120 @@ export default function DispatchView() {
     const rest = changes.filter(c => c.id !== stopId)
     commit(backHome ? rest : [...rest, change])
   }, [findStop, placed, estimate, changeById, lockFor, date, settings.arrival_first, settings.arrival_last, changes, commit])
+
+  // ── Optimize day (preview first; Apply puts it in the draft) ─────────────
+  const runOptimize = async () => {
+    setOptimizing(true); setNotice(null)
+    try {
+      const payload = lanes.map(l => ({
+        techId: l.techId,
+        start: l.start, end: l.end,
+        stops: [...l.timed, ...l.tray]
+          .filter(p => p.stop.routable && !p.stop.isComplete && coords[p.stop.address])
+          .map(p => ({
+            id: p.stop.id,
+            lat: coords[p.stop.address]!.lat, lng: coords[p.stop.address]!.lng,
+            durationMin: p.durationMin,
+            window: p.lock ? [p.lock.startMin, p.lock.endMin] as [number, number] : null,
+            currentStart: p.startMin,
+          })),
+      })).filter(l => l.stops.length > 0)
+      if (payload.length === 0) { setNotice('No stops with an address to optimize on this day.'); return }
+      const res = await fetch('/api/hub/routing/dispatch/optimize', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, lanes: payload, notBefore: date === todayLocal() ? isoToLocal(new Date().toISOString()).minutes : null }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Optimize failed')
+      setOptPreview({ results: d.results ?? [] })
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Optimize failed')
+    } finally {
+      setOptimizing(false)
+    }
+  }
+
+  const applyOptimize = () => {
+    if (!optPreview) return
+    let next = [...changes]
+    const byId = new Map(next.map(c => [c.id, c]))
+    for (const r of optPreview.results) {
+      if (!r.starts) continue
+      for (const [id, startMin] of Object.entries(r.starts)) {
+        const p = placed.find(x => x.stop.id === id)
+        if (!p) continue
+        if (p.startMin === startMin && p.lane === r.techId) continue
+        const existing = byId.get(id)
+        const stop = p.stop
+        const ch: DraftChange = {
+          id, kind: stop.kind, clientName: stop.clientName, phone: stop.phone,
+          fromStartAt: existing ? existing.fromStartAt : stop.startAt,
+          fromTechIds: existing ? existing.fromTechIds : stop.techIds,
+          toStart: localStamp(date, startMin),
+          toEnd: localStamp(date, startMin + Math.max(SNAP, p.durationMin)),
+          toTechId: r.techId,
+          newLock: existing?.newLock ?? null,
+          at: new Date().toISOString(),
+        }
+        const backHome = !stop.allDay && stop.startAt && isoToLocal(stop.startAt).date === date
+          && isoToLocal(stop.startAt).minutes === startMin && stop.techIds.includes(r.techId) && !ch.newLock
+        next = next.filter(c => c.id !== id)
+        if (!backHome) next.push(ch)
+      }
+    }
+    commit(next)
+    setOptPreview(null)
+  }
+
+  // ── Find a slot ────────────────────────────────────────────────────────────
+  const titleWindow = useCallback((s: DispatchStop) =>
+    settings.title_windows ? parseTitleWindow(s.title, settings) : null, [settings])
+
+  const runSlots = async (s: DispatchStop) => {
+    setSelectedId(s.id)
+    const w = locks[s.id]
+      ? (() => { const a = isoToLocal(locks[s.id].window_start), b = isoToLocal(locks[s.id].window_end); return { start: a.minutes, end: b.minutes, label: 'promised' } })()
+      : titleWindow(s)
+    setSlots({ stopId: s.id, loading: true, options: [], window: w })
+    setGhost(null)
+    try {
+      const res = await fetch('/api/hub/routing/dispatch/slots', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stop: { id: s.id, address: s.address, durationMin: estimate(s), window: w ? [w.start, w.end] : null },
+          techIds: teamList,
+          fromDate: date > todayLocal() ? date : undefined,
+          days: 14,
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Find a slot failed')
+      setSlots({ stopId: s.id, loading: false, options: d.options ?? [], note: d.note, window: w })
+    } catch (e) {
+      setSlots({ stopId: s.id, loading: false, options: [], error: e instanceof Error ? e.message : 'Find a slot failed', window: w })
+    }
+  }
+
+  const previewSlot = (stopId: string, o: { date: string; techId: string; startMin: number }) => {
+    const s = findStop(stopId)?.stop
+    setGhost({ date: o.date, lane: o.techId, startMin: o.startMin, durationMin: s ? estimate(s) : 30, stopId })
+    if (o.date !== date) setDate(o.date)
+  }
+
+  const scheduleSlot = (stopId: string, o: { date: string; techId: string; startMin: number }) => {
+    setGhost(null)
+    setSlots(null)
+    if (o.date === date) applyMove(stopId, o.techId, o.startMin, { exact: true })
+    else { setPendingPlace({ date: o.date, stopId, lane: o.techId, startMin: o.startMin }); setDate(o.date) }
+  }
+
+  // A slot on another day: switch days, wait for that day (and its draft) to load, then place it.
+  useEffect(() => {
+    if (!pendingPlace || !day || day.date !== pendingPlace.date || loading) return
+    const p = pendingPlace
+    setPendingPlace(null)
+    applyMove(p.stopId, p.lane, p.startMin, { exact: true })
+  }, [pendingPlace, day, loading, applyMove])
 
   // Drag and drop (desktop). Touch / keyboard users move a stop from its panel.
   const dragRef = useRef<{ id: string; grabMin: number } | null>(null)
@@ -548,6 +679,86 @@ export default function DispatchView() {
     }
   }
 
+  // ── Route sheet → the tech's Work Orders (Daily Log) ─────────────────────
+  // The stops themselves reach the Work Order list on their own (it's fed from
+  // Jobber); what the office also wants there is the printed PDF route sheet.
+  // Same path as the Advanced optimizer's "Send to Daily Log": the sheet HTML is
+  // built here and /api/hub/daily-log/from-route renders the PDF and attaches it.
+  const laneHasUnsent = (techId: string) => changes.some(c => c.toTechId === techId || c.fromTechIds.includes(techId))
+
+  const sendSheet = async (l: LaneRoute) => {
+    const techName = userName(l.techId)
+    if (laneHasUnsent(l.techId)) {
+      setSheetMsg(m => ({ ...m, [l.techId]: { ok: false, text: 'Send to Jobber first — the sheet should match Jobber.' } }))
+      return
+    }
+    const legs = l.legs ?? []
+    const offset = l.start ? 1 : 0
+    const unroutable = l.tray.filter(p => !p.stop.routable)
+    if (l.timed.length === 0 && unroutable.length === 0) {
+      setSheetMsg(m => ({ ...m, [l.techId]: { ok: false, text: 'No timed stops to print.' } }))
+      return
+    }
+    setSheetMsg(m => ({ ...m, [l.techId]: { busy: true, text: 'Building the route sheet…' } }))
+    const items = (p: Placed) => p.stop.lineItems ?? p.stop.lineItemNames.map(n => ({ name: n, qty: 1, unitPrice: 0, totalPrice: 0 }))
+    const sheetStops: RouteSheetStop[] = [
+      ...unroutable.map(p => ({
+        stopNumber: 0, routable: false, clientName: p.stop.clientName, addressString: p.stop.address, phone: p.stop.phone,
+        jobTitle: p.stop.title, eta: '', driveMinutes: 0, onSiteMinutes: p.durationMin, distanceKm: 0, lat: 0, lng: 0,
+        lineItems: items(p), services: p.stop.lineItemNames.join(', '), totalPrice: p.stop.totalPrice, instructions: p.stop.instructions,
+      })),
+      ...l.timed.map((p, i) => {
+        const c = coords[p.stop.address]!
+        const leg = i > 0 || l.start ? legs[i - 1 + offset] : undefined
+        return {
+          stopNumber: i + 1, routable: true, clientName: p.stop.clientName, addressString: p.stop.address, phone: p.stop.phone,
+          jobTitle: p.stop.title, eta: fmtClock(p.startMin!), driveMinutes: leg?.minutes ?? 0, onSiteMinutes: p.durationMin,
+          distanceKm: leg ? Math.round(leg.miles * 1.609 * 10) / 10 : 0, lat: c.lat, lng: c.lng,
+          lineItems: items(p), services: p.stop.lineItemNames.join(', '), totalPrice: p.stop.totalPrice, instructions: p.stop.instructions,
+        }
+      }),
+    ]
+    try {
+      const html = await buildAdvancedRouteSheetHtml({
+        techName, date, stops: sheetStops, depot: l.start, mapboxToken: process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '',
+      })
+      const all = [...unroutable, ...l.timed]
+      const res = await fetch('/api/hub/daily-log/from-route', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          log_date: date,
+          tech_jobber_user_id: l.techId,
+          tech_jobber_user_name: techName,
+          stops: all.map(p => {
+            const c = coords[p.stop.address]
+            return {
+              jobber_visit_id: p.stop.id,
+              client_name: p.stop.clientName,
+              client_phone: p.stop.phone,
+              address: p.stop.address,
+              lat: c?.lat ?? null, lng: c?.lng ?? null,
+              job_title: p.stop.title,
+              line_items: items(p),
+              instructions: p.stop.instructions,
+              scheduled_start_at: p.startMin != null ? localToIso(localStamp(date, p.startMin)) : null,
+              scheduled_end_at: p.endMin != null ? localToIso(localStamp(date, p.endMin)) : null,
+              duration_minutes: p.durationMin,
+            }
+          }),
+          predicted_drive_minutes: legs.reduce((sum, g) => sum + g.minutes, 0),
+          predicted_onsite_minutes: all.reduce((sum, p) => sum + p.durationMin, 0),
+          route_html: html || null,
+          route_name: `${techName} - ${date}.html`,
+        }),
+      })
+      const d = await res.json().catch(() => ({})) as { stop_count?: number; action?: string; error?: string }
+      if (!res.ok || d.error) throw new Error(d.error || `Failed (${res.status})`)
+      setSheetMsg(m => ({ ...m, [l.techId]: { ok: true, text: `Route sheet on ${techName}'s Work Orders ✓` } }))
+    } catch (e) {
+      setSheetMsg(m => ({ ...m, [l.techId]: { ok: false, text: e instanceof Error ? e.message : 'Could not send the route sheet' } }))
+    }
+  }
+
   // ── Bucket view ───────────────────────────────────────────────────────────
   const dayCentroids = useMemo(() => placed.map(p => coords[p.stop.address]).filter((c): c is LatLng => !!c), [placed, coords])
   const bucketShown = useMemo(() => {
@@ -672,6 +883,11 @@ export default function DispatchView() {
           </div>
 
           <button type="button" onClick={() => { void loadDay(); void loadBucket(true) }} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" title="Re-read from Jobber">↻ Refresh</button>
+          <button type="button" onClick={runOptimize} disabled={optimizing || loading || teamList.length === 0}
+            className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-sm font-medium disabled:opacity-40"
+            title="Best order and times for each lane that keep every promise — shows a preview first">
+            {optimizing ? 'Optimizing…' : '⚡ Optimize day'}
+          </button>
           {loading && <span className="text-xs text-gray-500">Loading from Jobber…</span>}
         </div>
 
@@ -799,6 +1015,14 @@ export default function DispatchView() {
                       {l.timed.length} stop{l.timed.length === 1 ? '' : 's'}{miles ? ` · ${Math.round(miles)} mi` : ''}
                       {leave !== null && <> · out {fmtClock(leave)}</>}{back !== null && <> · back {fmtClock(back)}</>}
                     </div>
+                    <button type="button" onClick={() => sendSheet(l)} disabled={!!sheetMsg[l.techId]?.busy || (l.timed.length === 0 && !l.tray.some(p => !p.stop.routable))}
+                      className="mt-1 text-[11px] text-sky-400 hover:text-sky-300 disabled:opacity-40"
+                      title={laneHasUnsent(l.techId) ? 'Send your changes to Jobber first' : "Attach this lane's PDF route sheet to the tech's Work Orders for the day"}>
+                      📄 Send route sheet
+                    </button>
+                    {sheetMsg[l.techId] && (
+                      <div className={`text-[10px] leading-tight ${sheetMsg[l.techId].busy ? 'text-gray-400' : sheetMsg[l.techId].ok ? 'text-green-400' : 'text-red-400'}`}>{sheetMsg[l.techId].text}</div>
+                    )}
                   </div>
                   <div className="flex-1">
                     <div
@@ -848,6 +1072,14 @@ export default function DispatchView() {
                           style={{ left: pct(p.lock!.startMin), width: width(p.lock!.endMin - p.lock!.startMin) }}
                           title={`Promised ${fmtClock(p.lock!.startMin)} – ${fmtClock(p.lock!.endMin)}`} />
                       ))}
+
+                      {/* Find-a-slot preview */}
+                      {ghost && ghost.date === date && ghost.lane === l.techId && (
+                        <div className="absolute top-1 h-[50px] rounded-md border-2 border-dashed border-emerald-400 bg-emerald-400/15 text-[10px] text-emerald-300 px-1 pointer-events-none"
+                          style={{ left: pct(ghost.startMin), width: width(Math.max(SNAP, ghost.durationMin)) }}>
+                          {fmtClock(ghost.startMin)}
+                        </div>
+                      )}
 
                       {/* stop blocks */}
                       {l.timed.map((p, i) => (
@@ -903,6 +1135,41 @@ export default function DispatchView() {
           <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} />
 
           <div className="space-y-4">
+            {slots && (
+              <div className="bg-gray-900 border border-emerald-700/60 rounded-2xl p-3 text-sm space-y-2">
+                <div className="flex items-center">
+                  <span className="font-semibold">Find a slot — {findStop(slots.stopId)?.stop.clientName ?? ''}</span>
+                  <button type="button" onClick={() => { setSlots(null); setGhost(null) }} className="ml-auto text-gray-500 hover:text-white" aria-label="Close">✕</button>
+                </div>
+                <div className="text-[11px] text-gray-500">
+                  Next 14 work days · {teamList.map(userName).join(', ')}{slots.window ? ` · ${slots.window.label === 'promised' ? 'promised' : `title says “${slots.window.label}”`}: ${fmtClock(slots.window.start)}–${fmtClock(slots.window.end)}` : ''}
+                </div>
+                {slots.loading && <div className="text-xs text-gray-400">Checking every gap…</div>}
+                {slots.error && <div className="text-xs text-red-400">{slots.error}</div>}
+                {slots.note && <div className="text-xs text-gray-400">{slots.note}</div>}
+                {!slots.loading && !slots.error && slots.options.length === 0 && !slots.note && (
+                  <div className="text-xs text-gray-400">No gap fits without pushing someone else&apos;s time. Try another team, or drag it in by hand.</div>
+                )}
+                {slots.options.map((o, i) => (
+                  <div key={`${o.date}-${o.techId}`} className={`rounded-lg border p-2 ${ghost && ghost.date === o.date && ghost.lane === o.techId ? 'border-emerald-500' : 'border-gray-800'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{i === 0 ? '★ ' : ''}{new Date(`${o.date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })} · {fmtClock(o.startMin)}</span>
+                      <span className="text-xs text-gray-400">{userName(o.techId)}</span>
+                      <span className="ml-auto text-xs text-emerald-400">+{o.addedMin} min drive</span>
+                    </div>
+                    <div className="text-[11px] text-gray-500 truncate">
+                      {o.emptyDay ? 'Only stop that day (a round trip)' : o.afterAddress && o.beforeAddress ? `Between ${o.afterAddress.split(',')[0]} and ${o.beforeAddress.split(',')[0]}` : o.afterAddress ? `After ${o.afterAddress.split(',')[0]}` : o.beforeAddress ? `Before ${o.beforeAddress.split(',')[0]}` : ''}
+                    </div>
+                    <div className="flex gap-2 mt-1">
+                      <button type="button" onClick={() => previewSlot(slots.stopId, o)} className="text-xs text-gray-300 hover:text-white">Show me</button>
+                      <button type="button" onClick={() => scheduleSlot(slots.stopId, o)} className="text-xs px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-[#fff]">Schedule</button>
+                    </div>
+                  </div>
+                ))}
+                <p className="text-[10px] text-gray-600">Ranked by extra drive time; nobody else&apos;s time moves. Schedule puts it in the draft — nothing reaches Jobber until you send.</p>
+              </div>
+            )}
+
             {(selected || selectedBucket) && (
               <StopPanel
                 key={(selected?.stop ?? selectedBucket)!.id}
@@ -912,6 +1179,8 @@ export default function DispatchView() {
                 userName={userName}
                 lock={selected?.lock ?? null}
                 hasSavedLock={!!locks[(selected?.stop ?? selectedBucket)!.id]}
+                suggestion={titleWindow((selected?.stop ?? selectedBucket)!)}
+                onFindSlot={selectedBucket ? () => runSlots(selectedBucket) : undefined}
                 onClose={() => setSelectedId(null)}
                 onMove={(lane, hhmm) => applyMove((selected?.stop ?? selectedBucket)!.id, lane, hhmmToMinutes(hhmm))}
                 onLock={(a, b) => saveLock((selected?.stop ?? selectedBucket)!, a, b)}
@@ -952,7 +1221,9 @@ export default function DispatchView() {
                         <span className="text-gray-400">{money(s.totalPrice)}</span>
                       </div>
                       <div className="text-gray-500 truncate">{s.lineItemNames[0] ?? s.title}</div>
-                      <div className="text-gray-500 flex gap-2">
+                      <div className="text-gray-500 flex gap-2 items-center">
+                        <button type="button" onClick={e => { e.stopPropagation(); void runSlots(s) }} disabled={!s.routable}
+                          className="text-emerald-400 hover:text-emerald-300 disabled:opacity-40 shrink-0">Find a slot</button>
                         {waiting !== null && <span>{waiting}d waiting</span>}
                         {Number.isFinite(miles) && <span>{miles.toFixed(1)} mi from today&apos;s stops</span>}
                         {s.techIds.length > 0 && <span className="truncate">{s.techIds.map(userName).join(', ')}</span>}
@@ -962,10 +1233,64 @@ export default function DispatchView() {
                 })}
                 {!bucketLoading && bucketShown.length === 0 && <div className="text-xs text-gray-500">Nothing unscheduled{bucketTeamOnly ? ' for this team' : ''}.</div>}
               </div>
-              <p className="text-[10px] text-gray-600 mt-2">Drag a card onto a lane to schedule it. Find a slot comes in Phase 2.</p>
+              <p className="text-[10px] text-gray-600 mt-2">Drag a card onto a lane to schedule it, or use Find a slot.</p>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Optimize preview */}
+      {optPreview && (
+        <Modal onClose={() => setOptPreview(null)}>
+          <h3 className="font-semibold mb-2">Optimized day — preview</h3>
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto text-sm">
+            {optPreview.results.map(r => {
+              if (r.skipped) return <div key={r.techId} className="text-gray-400">{userName(r.techId)}: {r.skipped}</div>
+              const moves = Object.entries(r.starts ?? {}).filter(([id, st]) => {
+                const p = placed.find(x => x.stop.id === id)
+                return !p || p.startMin !== st
+              })
+              return (
+                <div key={r.techId}>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: laneColor(r.techId) }} />
+                    <span className="font-medium">{userName(r.techId)}</span>
+                    <span className="text-xs text-gray-400">drive {r.beforeDriveMin} → <b className="text-white">{r.driveMin}</b> min{r.estimated ? ' (estimated)' : ''}</span>
+                  </div>
+                  <ol className="ml-5 mt-1 list-decimal text-xs text-gray-300">
+                    {(r.order ?? []).map(id => {
+                      const p = placed.find(x => x.stop.id === id)
+                      const st = r.starts?.[id]
+                      const moved = !p || p.startMin !== st
+                      return (
+                        <li key={id} className={moved ? 'text-orange-300' : ''}>
+                          {p?.stop.clientName ?? id} — {p?.startMin != null && moved ? `${fmtClock(p.startMin)} → ` : ''}{st != null ? fmtClock(st) : ''}{p?.lock ? ' 🔒' : ''}
+                        </li>
+                      )
+                    })}
+                  </ol>
+                  {moves.length === 0 && <div className="text-xs text-gray-500 ml-5">Already the best order — no changes.</div>}
+                  {(r.violations ?? []).map(v => {
+                    const p = placed.find(x => x.stop.id === v.id)
+                    return (
+                      <div key={`${v.id}-${v.kind}`} className="text-xs text-red-400 ml-5">
+                        ⚠ {p?.stop.clientName ?? v.id}: {v.kind === 'window' ? `can't make the promised time — ${v.lateMin} min late` : `arrives ${v.lateMin} min after the last arrival time`}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+          {optPreview.results.some(r => (r.violations ?? []).length > 0) && (
+            <p className="text-xs text-amber-300 mt-3">No order keeps every promise. This is the closest it gets — consider moving a stop to another tech or day (Find a slot).</p>
+          )}
+          <div className="flex justify-end gap-2 mt-4">
+            <button type="button" onClick={() => setOptPreview(null)} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm">Cancel</button>
+            <button type="button" onClick={applyOptimize} className="px-4 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-sm font-medium">Put in draft</button>
+          </div>
+          <p className="text-[11px] text-gray-500 mt-2">Nothing changes in Jobber until you Send.</p>
+        </Modal>
       )}
 
       {/* Window override prompt */}
@@ -1025,13 +1350,15 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
   )
 }
 
-function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, onClose, onMove, onLock, onUnlock, onUndoMove }: {
+function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestion, onFindSlot, onClose, onMove, onLock, onUnlock, onUndoMove }: {
   stop: DispatchStop
   placed: Placed | null
   team: string[]
   userName: (id: string) => string
   lock: { startMin: number; endMin: number } | null
   hasSavedLock: boolean
+  suggestion: { start: number; end: number; label: string } | null
+  onFindSlot?: () => void
   onClose: () => void
   onMove: (lane: string, hhmm: string) => void
   onLock: (startHHMM: string, endHHMM: string) => void
@@ -1041,8 +1368,8 @@ function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, onClose, 
   const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   const [lane, setLane] = useState(placed?.lane && team.includes(placed.lane) ? placed.lane : team[0] ?? '')
   const [time, setTime] = useState(placed?.startMin != null ? hhmm(placed.startMin) : '08:00')
-  const [lockStart, setLockStart] = useState(lock ? hhmm(lock.startMin) : '10:00')
-  const [lockEnd, setLockEnd] = useState(lock ? hhmm(lock.endMin) : '12:00')
+  const [lockStart, setLockStart] = useState(lock ? hhmm(lock.startMin) : suggestion ? hhmm(suggestion.start) : '10:00')
+  const [lockEnd, setLockEnd] = useState(lock ? hhmm(lock.endMin) : suggestion ? hhmm(suggestion.end) : '12:00')
   const jobberWindow = stop.arrivalStart && stop.arrivalEnd
     ? `${fmtClock(isoToLocal(stop.arrivalStart).minutes)} – ${fmtClock(isoToLocal(stop.arrivalEnd).minutes)}` : null
 
@@ -1078,6 +1405,7 @@ function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, onClose, 
             <button type="button" onClick={() => lane && time && onMove(lane, time)} className="px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-xs">Move</button>
           </div>
           {placed?.changed && <button type="button" onClick={onUndoMove} className="mt-1 text-[11px] text-gray-400 hover:text-white">Put it back where Jobber has it</button>}
+          {onFindSlot && stop.routable && <button type="button" onClick={onFindSlot} className="mt-1 ml-3 text-[11px] text-emerald-400 hover:text-emerald-300">Find a slot</button>}
         </div>
       )}
 
@@ -1090,6 +1418,9 @@ function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, onClose, 
           <button type="button" onClick={() => onLock(lockStart, lockEnd)} className="px-2.5 py-1 rounded-lg bg-pink-600 hover:bg-pink-500 text-[#fff] text-xs">{hasSavedLock ? 'Update' : 'Lock'}</button>
           {hasSavedLock && <button type="button" onClick={onUnlock} className="px-2 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs">Unlock</button>}
         </div>
+        {!lock && suggestion && (
+          <p className="text-[11px] text-pink-300 mt-1">The title says “{suggestion.label}” — {fmtClock(suggestion.start)} – {fmtClock(suggestion.end)} is filled in above. Click Lock if that was promised.</p>
+        )}
         <p className="text-[10px] text-gray-500 mt-1">Locked stops show as PROMISED. A lock is saved right away; it lives in Hub, not Jobber.</p>
       </div>
     </div>

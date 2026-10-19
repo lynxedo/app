@@ -24,6 +24,7 @@ function toDispatchStop(s: DayStop, techId: string): DispatchStop {
     routable: s.routable,
     title: (s.visitTitle ?? '').trim() || s.jobTitle,
     lineItemNames: s.lineItemNames,
+    lineItems: s.lineItems,
     totalPrice: s.totalPrice,
     instructions: s.instructions,
     startAt: s.startAt,

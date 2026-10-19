@@ -91,6 +91,7 @@ export async function GET(request: Request) {
           routable: !!a,
           title: (v.title ?? '').trim() || (v.job?.title ?? ''),
           lineItemNames: items.map(li => li.name),
+          lineItems: items.map(li => ({ name: li.name, qty: 1, unitPrice: li.totalPrice ?? 0, totalPrice: li.totalPrice ?? 0 })),
           totalPrice: items.reduce((s, li) => s + (li.totalPrice ?? 0), 0),
           instructions: v.job?.instructions ?? null,
           startAt: null,
