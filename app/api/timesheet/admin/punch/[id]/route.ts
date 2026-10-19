@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recomputeDayEntry } from '@/lib/timesheet-recompute'
 import { centralDate } from '@/lib/timezone'
+import { weekLockError } from '@/lib/timesheet-lock'
 
 // PATCH /api/timesheet/admin/punch/[id] — admin edits a punch time
 export async function PATCH(
@@ -49,6 +50,9 @@ export async function PATCH(
     .single()
   if (!targetEmployee) return NextResponse.json({ error: 'Punch not found' }, { status: 404 })
 
+  const lockError = await weekLockError(admin, profile.company_id, [centralDate(original.punched_at), centralDate(punched_at)])
+  if (lockError) return NextResponse.json({ error: lockError }, { status: 409 })
+
   const { data, error } = await supabase
     .from('time_punches')
     .update({
@@ -75,6 +79,9 @@ export async function PATCH(
     // Central calendar day, not UTC (TS4).
     const date = centralDate(punch.punched_at)
     await recomputeDayEntry(admin, punch.employee_id, date)
+    // Moved to another day? The day it left needs its hours recomputed too.
+    const fromDate = centralDate(original.punched_at)
+    if (fromDate !== date) await recomputeDayEntry(admin, punch.employee_id, fromDate)
   }
 
   return NextResponse.json({ punch: data })

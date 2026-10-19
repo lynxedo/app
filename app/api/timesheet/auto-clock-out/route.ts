@@ -75,6 +75,8 @@ export async function POST(req: NextRequest) {
       // Inherited from the IN punch being closed — the cron needs no company context.
       company_id: latest.company_id,
       note: `Auto clock-out after ${MAX_SHIFT_HOURS}h — please verify`,
+      // Marker for the Time Records "Auto clock-out" flag (the note is just for people).
+      is_auto_clock_out: true,
     })
     if (insErr) {
       console.error('[timesheet:auto-clock-out] failed to insert out punch', { employeeId, insErr })

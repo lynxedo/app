@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { weekLockError } from '@/lib/timesheet-lock'
 
 // PATCH /api/timesheet/admin/pto-requests/[id] — approve or reject
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -23,6 +25,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (!['approve', 'reject'].includes(action)) {
     return NextResponse.json({ error: 'action must be approve or reject' }, { status: 400 })
+  }
+
+  // Approving PTO adds paid hours — refused inside an approved pay week.
+  if (action === 'approve') {
+    const { data: ptoReq } = await supabase
+      .from('pto_requests')
+      .select('request_date, company_id')
+      .eq('id', id)
+      .single()
+    if (ptoReq?.company_id) {
+      const lockError = await weekLockError(createAdminClient(), ptoReq.company_id, [ptoReq.request_date])
+      if (lockError) return NextResponse.json({ error: lockError }, { status: 409 })
+    }
   }
 
   const { data, error } = await supabase

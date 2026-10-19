@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { weekLockError } from '@/lib/timesheet-lock'
 
 // GET /api/timesheet/pto-requests?start=YYYY-MM-DD&end=YYYY-MM-DD
 // Employee: their own requests. Admin: all for the company in date range.
@@ -74,6 +76,8 @@ export async function POST(req: NextRequest) {
   const { request_date, hours, type, note } = body
 
   if (!request_date) return NextResponse.json({ error: 'Date required' }, { status: 400 })
+  const lockError = await weekLockError(createAdminClient(), emp.company_id, [request_date], 'employee')
+  if (lockError) return NextResponse.json({ error: lockError }, { status: 409 })
   if (!hours || Number(hours) <= 0) return NextResponse.json({ error: 'Hours must be > 0' }, { status: 400 })
   if (!['paid', 'unpaid'].includes(type)) {
     return NextResponse.json({ error: 'Type must be paid or unpaid' }, { status: 400 })
