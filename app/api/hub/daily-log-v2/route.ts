@@ -160,11 +160,29 @@ export async function GET(request: Request) {
     return r ? { id: r.id, status: r.status === 'final' ? 'final' : 'draft', sent_at: r.sent_at } : null
   }
 
+  // Dispatch (Oct 2026) — a stop's PROMISED time frame, locked by the office or
+  // by Amber when she booked it. Shown to the tech; only the office changes it.
+  const promisedByVisit = new Map<string, { start: string; end: string }>()
+  if (visitIds.length > 0) {
+    const admin = createAdminClient()
+    const { data: locks } = await admin
+      .from('dispatch_visit_locks')
+      .select('jobber_item_id, window_start, window_end')
+      .eq('company_id', profile.company_id)
+      .in('jobber_item_id', visitIds)
+    for (const l of locks ?? []) promisedByVisit.set(l.jobber_item_id as string, { start: l.window_start as string, end: l.window_end as string })
+  }
+
   const sorted = (entries ?? []).map(e => ({
     ...e,
     stops: [...((e.stops ?? []) as StopRow[])]
       .sort((a, b) => a.ord - b.ord)
-      .map(s => ({ ...s, inspection: inspectionFor(s), service_report: serviceReportFor(s) })),
+      .map(s => ({
+        ...s,
+        inspection: inspectionFor(s),
+        service_report: serviceReportFor(s),
+        promised_window: s.jobber_visit_id ? promisedByVisit.get(s.jobber_visit_id) ?? null : null,
+      })),
     secondary_techs: ((e.secondary_tech_user_ids ?? []) as string[])
       .map(id => techMap.get(id))
       .filter((t): t is HubUserLite => Boolean(t)),

@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useAutoSave } from '@/components/admin'
 import {
-  type ColorRule, type ColorRuleType, type DispatchSettings, type FilterGroup,
-  DEFAULT_DISPATCH_SETTINGS, LANE_COLORS,
+  type ColorRule, type ColorRuleType, type DispatchSettings, type FilterGroup, type ReminderSettings, type ReminderTemplate,
+  DEFAULT_DISPATCH_SETTINGS, LANE_COLORS, REMINDER_PLACEHOLDERS,
 } from '@/lib/dispatch'
 
 // Admin → Routing → Dispatch (Reference/PRDs/DISPATCH_ROUTING_PRD.md §4.7, §4.8).
@@ -37,11 +37,15 @@ export default function DispatchSettingsSection() {
   const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [err, setErr] = useState<string | null>(null)
   const [techEdit, setTechEdit] = useState<TechRow | null>(null)
+  const [hubUsers, setHubUsers] = useState<Array<{ id: string; display_name: string; is_bot: boolean }>>([])
+  const [identities, setIdentities] = useState<Array<{ id: string; label: string; from_name: string | null; from_email: string; domain_verified: boolean; is_default: boolean }>>([])
 
   useEffect(() => {
     fetch('/api/hub/routing/dispatch/settings').then(r => r.json()).then(d => {
       if (d.settings) setS(d.settings)
       setTechs(d.techSettings ?? [])
+      setHubUsers(d.hubUsers ?? [])
+      setIdentities(d.emailIdentities ?? [])
       setCanEdit(!!d.canEdit)
       setLoaded(true)
     }).catch(() => setLoaded(true))
@@ -231,6 +235,15 @@ export default function DispatchSettingsSection() {
         {err && <span className="text-red-400">{err}</span>}
       </div>
 
+      <RemindersBlock
+        r={s.reminders}
+        dis={dis}
+        input={input}
+        hubUsers={hubUsers}
+        identities={identities}
+        onChange={reminders => patch({ reminders })}
+      />
+
       {/* Per-tech start/end */}
       <div className="border-t border-gray-800 pt-4">
         <div className="text-sm text-gray-300 mb-1">Where each tech starts and ends <span className="text-gray-500">— everyone uses the shop unless listed here</span></div>
@@ -275,5 +288,126 @@ export default function DispatchSettingsSection() {
         </div>
       </div>
     </section>
+  )
+}
+
+const BLANK_TEMPLATE = (applies: 'timed' | 'anytime'): ReminderTemplate => ({
+  id: newId(),
+  name: applies === 'timed' ? 'Timed visit' : 'Anytime visit',
+  match: '',
+  applies_to: applies,
+  sms: true,
+  email: true,
+  sms_body: applies === 'timed'
+    ? 'Hi {first_name}, this is {company}. Reminder: your {service} visit is {day}, {date}, with an arrival time between {start} and {end}. Reply here with any questions.'
+    : 'Hi {first_name}, this is {company}. Reminder: we\'ll be at {address} {day}, {date} for your {service}. Your technician will text when they\'re on the way.',
+  email_subject: applies === 'timed' ? 'Your visit {day}: arrival between {start} and {end}' : 'Your visit {day}, {date}',
+  email_body: applies === 'timed'
+    ? 'Hi {first_name},\n\nThis is a reminder that your {service} visit is {day}, {date}, with an arrival time between {start} and {end}.\n\nThank you,\n{company}'
+    : 'Hi {first_name},\n\nThis is a reminder that we\'ll be at {address} on {day}, {date} for your {service}. Your technician will text you when they\'re on the way.\n\nThank you,\n{company}',
+})
+
+// Day-before reminders (Ben, Oct 19 2026): built OFF; every visit gets one;
+// templates by LINE ITEM with separate timed / anytime wording; text, email or
+// both; sent as the company (unsigned).
+function RemindersBlock({ r, dis, input, hubUsers, identities, onChange }: {
+  r: ReminderSettings
+  dis: boolean
+  input: string
+  hubUsers: Array<{ id: string; display_name: string; is_bot: boolean }>
+  identities: Array<{ id: string; label: string; from_name: string | null; from_email: string; domain_verified: boolean; is_default: boolean }>
+  onChange: (r: ReminderSettings) => void
+}) {
+  const set = (p: Partial<ReminderSettings>) => onChange({ ...r, ...p })
+  const setT = (i: number, p: Partial<ReminderTemplate>) => {
+    const t = [...r.templates]; t[i] = { ...t[i], ...p }; set({ templates: t })
+  }
+  const move = (i: number, d: -1 | 1) => {
+    const t = [...r.templates]; const j = i + d
+    if (j < 0 || j >= t.length) return
+    ;[t[i], t[j]] = [t[j], t[i]]; set({ templates: t })
+  }
+  const toggleOn = () => {
+    if (!r.enabled && !window.confirm('Turn ON Hub reminders? Turn OFF Jobber\'s own visit reminders first, or customers will get two. Nothing sends until the automatic sender is set up on the server.')) return
+    set({ enabled: !r.enabled })
+  }
+  return (
+    <div className="border-t border-gray-800 pt-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <div className="text-sm text-gray-300">Day-before reminders</div>
+          <div className="text-xs text-gray-500">A text and/or email to every customer with a visit tomorrow, sent as the company (no person&apos;s signature). Preview them on the Dispatch tab (📨 Reminders).</div>
+        </div>
+        <button type="button" disabled={dis} onClick={toggleOn}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${r.enabled ? 'bg-green-600 border-green-600 text-[#fff]' : 'border-gray-600 text-gray-300'}`}>
+          {r.enabled ? 'ON — sending' : 'OFF'}
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 text-sm">
+        <label>
+          <div className="text-gray-300 mb-1">Send at (the day before)</div>
+          <input type="time" step={900} disabled={dis} value={r.send_time} onChange={e => set({ send_time: e.target.value })} className={input} />
+        </label>
+        <label>
+          <div className="text-gray-300 mb-1">Timed visit window length</div>
+          <select disabled={dis} value={r.timed_window_minutes} onChange={e => set({ timed_window_minutes: Number(e.target.value) })} className={input}>
+            {[60, 90, 120, 180, 240].map(m => <option key={m} value={m}>{m / 60} hour{m === 60 ? '' : 's'}</option>)}
+          </select>
+          <div className="text-xs text-gray-500 mt-1">Used when a visit has a time but no promised time frame and no Jobber arrival window.</div>
+        </label>
+        <label>
+          <div className="text-gray-300 mb-1">Text replies go to</div>
+          <select disabled={dis} value={r.owner_user_id ?? ''} onChange={e => set({ owner_user_id: e.target.value || null })} className={input}>
+            <option value="">Pick someone…</option>
+            {hubUsers.map(u => <option key={u.id} value={u.id}>{u.display_name}{u.is_bot ? ' (assistant)' : ''}</option>)}
+          </select>
+          <div className="text-xs text-gray-500 mt-1">Owns the text thread. The reminder itself isn&apos;t signed by them.</div>
+        </label>
+        <label>
+          <div className="text-gray-300 mb-1">Email from</div>
+          <select disabled={dis} value={r.email_identity_id ?? ''} onChange={e => set({ email_identity_id: e.target.value || null })} className={input}>
+            <option value="">Company default sender</option>
+            {identities.map(i => <option key={i.id} value={i.id}>{i.from_name ? `${i.from_name} <${i.from_email}>` : i.from_email}{i.domain_verified ? '' : ' (not verified)'}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div>
+        <div className="text-sm text-gray-300 mb-1">Templates <span className="text-gray-500">— first match wins, top to bottom. Blanks: {REMINDER_PLACEHOLDERS.join(' ')}</span></div>
+        <div className="space-y-2">
+          {r.templates.map((t, i) => (
+            <div key={t.id} className="bg-gray-950/50 rounded-lg p-3 space-y-2 text-sm">
+              <div className="flex flex-wrap gap-1.5 items-center">
+                <input disabled={dis} value={t.name} onChange={e => setT(i, { name: e.target.value })} placeholder="Template name" className={`${input} w-40`} />
+                <select disabled={dis} value={t.applies_to} onChange={e => setT(i, { applies_to: e.target.value as 'timed' | 'anytime' })} className={input}>
+                  <option value="timed">Timed visits (arrival window)</option>
+                  <option value="anytime">Anytime visits</option>
+                </select>
+                <input disabled={dis} value={t.match} onChange={e => setT(i, { match: e.target.value })} placeholder="Line item contains (blank = any)" className={`${input} w-56`} />
+                <label className="flex items-center gap-1 text-xs"><input type="checkbox" disabled={dis} checked={t.sms} onChange={e => setT(i, { sms: e.target.checked })} /> Text</label>
+                <label className="flex items-center gap-1 text-xs"><input type="checkbox" disabled={dis} checked={t.email} onChange={e => setT(i, { email: e.target.checked })} /> Email</label>
+                <button type="button" disabled={dis} onClick={() => move(i, -1)} className="text-gray-500 hover:text-white" aria-label="Move up">↑</button>
+                <button type="button" disabled={dis} onClick={() => move(i, 1)} className="text-gray-500 hover:text-white" aria-label="Move down">↓</button>
+                <button type="button" disabled={dis} onClick={() => set({ templates: r.templates.filter(x => x.id !== t.id) })} className="text-gray-500 hover:text-red-400">✕</button>
+              </div>
+              {t.sms && (
+                <textarea disabled={dis} value={t.sms_body} onChange={e => setT(i, { sms_body: e.target.value })} rows={3} placeholder="Text message" className={`${input} w-full`} />
+              )}
+              {t.email && (
+                <>
+                  <input disabled={dis} value={t.email_subject} onChange={e => setT(i, { email_subject: e.target.value })} placeholder="Email subject" className={`${input} w-full`} />
+                  <textarea disabled={dis} value={t.email_body} onChange={e => setT(i, { email_body: e.target.value })} rows={5} placeholder="Email body" className={`${input} w-full`} />
+                </>
+              )}
+            </div>
+          ))}
+          <div className="flex gap-3">
+            <button type="button" disabled={dis} onClick={() => set({ templates: [...r.templates, BLANK_TEMPLATE('timed')] })} className="text-xs text-orange-400 hover:text-orange-300">+ Timed template</button>
+            <button type="button" disabled={dis} onClick={() => set({ templates: [...r.templates, BLANK_TEMPLATE('anytime')] })} className="text-xs text-orange-400 hover:text-orange-300">+ Anytime template</button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

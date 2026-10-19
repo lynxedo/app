@@ -290,7 +290,7 @@ export async function createJobberVisit(
     timezone: string
     assignedUserIds: string[]
   },
-): Promise<void> {
+): Promise<string | null> {
   const schedule: Record<string, unknown> = {
     startAt: {
       date: opts.date,
@@ -309,6 +309,8 @@ export async function createJobberVisit(
 
   const errs = resp.data?.visitCreate?.userErrors ?? []
   if (errs.length) throw new Error(errs.map((e) => e.message).join('; '))
+  // The new visit's id — Dispatch keys the promised time frame on it.
+  return resp.data?.visitCreate?.createdVisits?.[0]?.id ?? null
 }
 
 /**

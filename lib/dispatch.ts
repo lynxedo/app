@@ -48,6 +48,93 @@ export interface DispatchSettings {
   /** Opt-in: read "AM" / "PM" / "1-4PM" / "after 1PM" / "10AM" in a visit title as a
    *  SUGGESTED promised window. The one place title text is read; never a filter. */
   title_windows: boolean
+  /** Hub day-before reminders (Phase 3) — built OFF; Ben switches on when Jobber's go off. */
+  reminders: ReminderSettings
+}
+
+// ── Day-before reminders ────────────────────────────────────────────────────
+
+export interface ReminderTemplate {
+  id: string
+  name: string
+  /** Line item name contains (case-insensitive); '' = any visit. */
+  match: string
+  /** Timed (has an arrival window) or anytime visits. */
+  applies_to: 'timed' | 'anytime'
+  sms: boolean
+  email: boolean
+  sms_body: string
+  email_subject: string
+  email_body: string
+}
+
+export interface ReminderSettings {
+  /** Master switch. While false nothing is ever sent (preview + test still work). */
+  enabled: boolean
+  /** Local "HH:MM" on the day before. */
+  send_time: string
+  /** Hub user who owns the text threads (gets the replies). The text itself is unsigned. */
+  owner_user_id: string | null
+  /** email_sending_identities.id; null = the company default sender. */
+  email_identity_id: string | null
+  /** Length of the arrival window for a timed (not promised) visit, minutes. */
+  timed_window_minutes: number
+  templates: ReminderTemplate[]
+}
+
+export const REMINDER_PLACEHOLDERS = ['{first_name}', '{name}', '{company}', '{day}', '{date}', '{start}', '{end}', '{address}', '{service}'] as const
+
+export const DEFAULT_REMINDERS: ReminderSettings = {
+  enabled: false,
+  send_time: '14:00',
+  owner_user_id: null,
+  email_identity_id: null,
+  timed_window_minutes: 120,
+  templates: [],
+}
+
+const clampInt = (v: unknown, lo: number, hi: number, d: number) =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : d
+
+export function normalizeReminders(raw: unknown): ReminderSettings {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const str = (v: unknown, max: number) => (typeof v === 'string' ? v : '').slice(0, max)
+  return {
+    enabled: r.enabled === true,
+    send_time: typeof r.send_time === 'string' && HHMM.test(r.send_time) ? r.send_time : DEFAULT_REMINDERS.send_time,
+    owner_user_id: typeof r.owner_user_id === 'string' && r.owner_user_id ? r.owner_user_id : null,
+    email_identity_id: typeof r.email_identity_id === 'string' && r.email_identity_id ? r.email_identity_id : null,
+    timed_window_minutes: clampInt(r.timed_window_minutes, 30, 480, DEFAULT_REMINDERS.timed_window_minutes),
+    templates: (Array.isArray(r.templates) ? r.templates : [])
+      .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object' && typeof (t as { id?: unknown }).id === 'string')
+      .map(t => ({
+        id: t.id as string,
+        name: str(t.name, 60),
+        match: str(t.match, 80),
+        applies_to: t.applies_to === 'anytime' ? 'anytime' as const : 'timed' as const,
+        sms: t.sms === true,
+        email: t.email === true,
+        sms_body: str(t.sms_body, 640),
+        email_subject: str(t.email_subject, 160),
+        email_body: str(t.email_body, 4000),
+      }))
+      .slice(0, 20),
+  }
+}
+
+/** First template (in order) whose line-item match and visit type fit. */
+export function pickReminderTemplate(templates: ReminderTemplate[], lineItemNames: string[], timed: boolean): ReminderTemplate | null {
+  const items = lineItemNames.map(n => n.toLowerCase())
+  for (const t of templates) {
+    if ((t.applies_to === 'timed') !== timed) continue
+    const m = t.match.trim().toLowerCase()
+    if (!m || items.some(n => n.includes(m))) return t
+  }
+  return null
+}
+
+export function renderReminder(text: string, v: Record<string, string>): string {
+  return text.replace(/\{(first_name|name|company|day|date|start|end|address|service)\}/g, (_, k: string) => v[k] ?? '')
 }
 
 export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
@@ -61,6 +148,7 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   filter_groups: [],
   work_days: [1, 2, 3, 4, 5],
   title_windows: false,
+  reminders: DEFAULT_REMINDERS,
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -98,6 +186,7 @@ export function normalizeDispatchSettings(raw: unknown): DispatchSettings {
       ? [...new Set((r.work_days as unknown[]).filter((d): d is number => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6))].sort()
       : DEFAULT_DISPATCH_SETTINGS.work_days,
     title_windows: r.title_windows === true,
+    reminders: normalizeReminders(r.reminders),
   }
 }
 

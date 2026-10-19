@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
+import DispatchCalendar from '@/components/DispatchCalendar'
 import { fetchLeg, type Leg, type LatLng } from '@/lib/dispatch-legs'
 import { computeDuration } from '@/lib/route-duration'
 import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced-route-sheet'
@@ -67,6 +68,7 @@ interface LaneRoute {
 const SNAP = 15
 const LS_TEAM = 'lynxedo-dispatch-team'
 const LS_FILTERS = 'lynxedo-dispatch-filters'
+const LS_VIEW = 'lynxedo-dispatch-view'
 
 const minutesOf = (local: string) => Number(local.slice(11, 13)) * 60 + Number(local.slice(14, 16))
 const money = (n: number) => `$${Math.round(n).toLocaleString()}`
@@ -77,6 +79,14 @@ function haversineMi(a: LatLng, b: LatLng): number {
   return 2 * R * Math.asin(Math.sqrt(x))
 }
 
+function stepDate(date: string, view: 'day' | 'week' | 'month', dir: 1 | -1): string {
+  if (view === 'day') return addDays(date, dir)
+  if (view === 'week') return addDays(date, 7 * dir)
+  const [y, m] = date.split('-').map(Number)
+  const t = new Date(Date.UTC(y, m - 1 + dir, 1))
+  return t.toISOString().slice(0, 10)
+}
+
 function readLS<T>(key: string, fallback: T): T {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) as T : fallback } catch { return fallback }
 }
@@ -85,6 +95,7 @@ function writeLS(key: string, v: unknown) { try { localStorage.setItem(key, JSON
 export default function DispatchView() {
   const router = useRouter()
   const [date, setDate] = useState(() => todayLocal())
+  const [view, setView] = useState<'day' | 'week' | 'month'>('day')
   const [users, setUsers] = useState<JobberUser[]>([])
   const [team, setTeam] = useState<string[] | null>(null)
   const [teamOpen, setTeamOpen] = useState(false)
@@ -127,6 +138,20 @@ export default function DispatchView() {
   }>(null)
   const [ghost, setGhost] = useState<null | { date: string; lane: string; startMin: number; durationMin: number; stopId: string }>(null)
   const [pendingPlace, setPendingPlace] = useState<null | { date: string; stopId: string; lane: string; startMin: number }>(null)
+  const [remOpen, setRemOpen] = useState(false)
+  const [rem, setRem] = useState<null | {
+    loading: boolean; error?: string; date?: string; enabled?: boolean; sendTime?: string; ownerSet?: boolean; templates?: number
+    items?: Array<{
+      jobberItemId: string; kind: string; clientName: string; title: string; timed: boolean
+      window: { start: number; end: number; source: string } | null
+      template: { id: string; name: string } | null
+      sms: { to: string; body: string } | null
+      email_msg: { to: string; subject: string; body: string } | null
+      skip: string | null
+    }>
+    log?: Array<{ jobber_item_id: string; channel: string; status: string; error: string | null }>
+  }>(null)
+  const [remSample, setRemSample] = useState<Record<string, string>>({})
   const [sheetMsg, setSheetMsg] = useState<Record<string, { busy?: boolean; ok?: boolean; text: string }>>({})
 
   const [sendOpen, setSendOpen] = useState(false)
@@ -147,6 +172,8 @@ export default function DispatchView() {
   useEffect(() => {
     fetch('/api/hub/routing/dispatch/users').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
     setFilters(readLS(LS_FILTERS, { groups: [], hideZero: false }))
+    const v = readLS<string>(LS_VIEW, 'day')
+    if (v === 'week' || v === 'month') setView(v)
     const saved = readLS<string[] | null>(LS_TEAM, null)
     if (saved && saved.length) setTeam(saved)
     else {
@@ -180,7 +207,8 @@ export default function DispatchView() {
     }
   }, [date, team])
 
-  useEffect(() => { void loadDay() }, [loadDay])
+  // Week/Month read Hub's copy; only the Day view needs the live Jobber pull.
+  useEffect(() => { if (view === 'day') void loadDay() }, [loadDay, view])
 
   const loadBucket = useCallback(async (refresh = false) => {
     setBucketLoading(true); setBucketError(null)
@@ -527,12 +555,14 @@ export default function DispatchView() {
   const previewSlot = (stopId: string, o: { date: string; techId: string; startMin: number }) => {
     const s = findStop(stopId)?.stop
     setGhost({ date: o.date, lane: o.techId, startMin: o.startMin, durationMin: s ? estimate(s) : 30, stopId })
+    setView('day')
     if (o.date !== date) setDate(o.date)
   }
 
   const scheduleSlot = (stopId: string, o: { date: string; techId: string; startMin: number }) => {
     setGhost(null)
     setSlots(null)
+    setView('day')
     if (o.date === date) applyMove(stopId, o.techId, o.startMin, { exact: true })
     else { setPendingPlace({ date: o.date, stopId, lane: o.techId, startMin: o.startMin }); setDate(o.date) }
   }
@@ -677,6 +707,29 @@ export default function DispatchView() {
     } catch {
       setNotice("Couldn't open a text thread for that customer.")
     }
+  }
+
+  // ── Day-before reminders (preview only here; built OFF) ───────────────────
+  const remDate = date > todayLocal() ? date : addDays(todayLocal(), 1)
+  const openReminders = async () => {
+    setRemOpen(true)
+    setRem({ loading: true })
+    try {
+      const res = await fetch(`/api/hub/routing/dispatch/reminders/preview?date=${remDate}`)
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Could not load the preview')
+      setRem({ loading: false, ...d })
+    } catch (e) {
+      setRem({ loading: false, error: e instanceof Error ? e.message : 'Could not load the preview' })
+    }
+  }
+  const sendSample = async (itemId: string) => {
+    setRemSample(m => ({ ...m, [itemId]: 'Sending…' }))
+    const res = await fetch('/api/hub/routing/dispatch/reminders/test', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemId, date: rem?.date ?? remDate }),
+    })
+    const d = await res.json().catch(() => ({}))
+    setRemSample(m => ({ ...m, [itemId]: res.ok ? (d.results ?? []).join(' ') : (d.error || 'Failed') }))
   }
 
   // ── Route sheet → the tech's Work Orders (Daily Log) ─────────────────────
@@ -858,9 +911,17 @@ export default function DispatchView() {
       {/* Top bar */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setDate(addDays(date, -1))} className="px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" aria-label="Previous day">←</button>
+          <div className="inline-flex rounded-lg bg-gray-800 p-0.5">
+            {(['day', 'week', 'month'] as const).map(v => (
+              <button key={v} type="button" onClick={() => { setView(v); writeLS(LS_VIEW, v) }}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium ${view === v ? 'bg-orange-500 text-[#fff]' : 'text-gray-400 hover:text-white'}`}>
+                {v[0].toUpperCase() + v.slice(1)}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => setDate(stepDate(date, view, -1))} className="px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" aria-label="Previous">←</button>
           <input type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm" />
-          <button type="button" onClick={() => setDate(addDays(date, 1))} className="px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" aria-label="Next day">→</button>
+          <button type="button" onClick={() => setDate(stepDate(date, view, 1))} className="px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" aria-label="Next">→</button>
           <button type="button" onClick={() => setDate(todayLocal())} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm">Today</button>
 
           <div className="relative">
@@ -883,11 +944,12 @@ export default function DispatchView() {
           </div>
 
           <button type="button" onClick={() => { void loadDay(); void loadBucket(true) }} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" title="Re-read from Jobber">↻ Refresh</button>
-          <button type="button" onClick={runOptimize} disabled={optimizing || loading || teamList.length === 0}
+          <button type="button" onClick={runOptimize} disabled={optimizing || loading || teamList.length === 0 || view !== 'day'}
             className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-sm font-medium disabled:opacity-40"
             title="Best order and times for each lane that keep every promise — shows a preview first">
             {optimizing ? 'Optimizing…' : '⚡ Optimize day'}
           </button>
+          <button type="button" onClick={openReminders} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" title="Preview the day-before reminder texts and emails">📨 Reminders</button>
           {loading && <span className="text-xs text-gray-500">Loading from Jobber…</span>}
         </div>
 
@@ -987,7 +1049,7 @@ export default function DispatchView() {
       )}
 
       {/* Lanes */}
-      {teamList.length > 0 && (
+      {teamList.length > 0 && view === 'day' && (
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-3 overflow-x-auto">
           <div className="min-w-[760px]">
             {/* hour ruler */}
@@ -1132,7 +1194,10 @@ export default function DispatchView() {
       {/* Map + side panel */}
       {teamList.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-          <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} />
+          {view === 'day'
+            ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} />
+            : <DispatchCalendar view={view} date={date} team={teamList} settings={settings} filters={filters}
+                userName={userName} laneColor={laneColor} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }} />}
 
           <div className="space-y-4">
             {slots && (
@@ -1235,6 +1300,63 @@ export default function DispatchView() {
               </div>
               <p className="text-[10px] text-gray-600 mt-2">Drag a card onto a lane to schedule it, or use Find a slot.</p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reminders preview */}
+      {remOpen && rem && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setRemOpen(false)}>
+          <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto bg-gray-900 border border-gray-700 rounded-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex-1">
+                <h3 className="font-semibold">Day-before reminders — {rem.date ? new Date(`${rem.date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''} visits</h3>
+                {!rem.loading && !rem.error && (
+                  <p className={`text-xs mt-1 ${rem.enabled ? 'text-green-400' : 'text-amber-300'}`}>
+                    {rem.enabled
+                      ? `Reminders are ON — these go out at ${rem.sendTime ? fmtClock(hhmmToMinutes(rem.sendTime)) : ''} the day before.`
+                      : 'Reminders are OFF — nothing below will be sent. This is what would go out.'}
+                    {!rem.ownerSet && ' · Pick who gets text replies in Admin → Routing → Dispatch.'}
+                  </p>
+                )}
+              </div>
+              <button type="button" onClick={() => setRemOpen(false)} className="text-gray-500 hover:text-white" aria-label="Close">✕</button>
+            </div>
+            {rem.loading && <div className="text-sm text-gray-400">Reading the day from Jobber…</div>}
+            {rem.error && <div className="text-sm text-red-400">{rem.error}</div>}
+            {rem.items && (
+              <>
+                <div className="text-xs text-gray-400 mb-2">
+                  {rem.items.length} visits · {rem.items.filter(i => i.sms).length} texts · {rem.items.filter(i => i.email_msg).length} emails · {rem.items.filter(i => i.skip).length} with nothing to send
+                </div>
+                <div className="space-y-2">
+                  {rem.items.map(i => {
+                    const logged = (rem.log ?? []).filter(l => l.jobber_item_id === i.jobberItemId)
+                    return (
+                      <div key={i.jobberItemId} className="border border-gray-800 rounded-lg p-2.5 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{i.clientName || 'Unknown client'}</span>
+                          <span className="text-xs text-gray-500 truncate max-w-[16rem]" title={i.title}>{i.title}</span>
+                          <span className="text-xs text-gray-400">
+                            {i.window ? `${fmtClock(i.window.start)}–${fmtClock(i.window.end)} (${i.window.source === 'promised' ? 'promised' : i.window.source === 'jobber' ? "Jobber's window" : i.window.source === 'title' ? 'from title' : 'planned'})` : 'anytime'}
+                          </span>
+                          <span className="text-xs text-sky-300">{i.template?.name ?? ''}</span>
+                          {logged.map(l => <span key={l.channel} className={`text-[10px] px-1.5 rounded ${l.status === 'sent' ? 'bg-green-900 text-green-300' : l.status === 'failed' ? 'bg-red-900 text-red-300' : 'bg-gray-800'}`}>{l.channel} {l.status}</span>)}
+                          {(i.sms || i.email_msg) && (
+                            <button type="button" onClick={() => sendSample(i.jobberItemId)} className="ml-auto text-xs text-orange-400 hover:text-orange-300">Send me a sample</button>
+                          )}
+                        </div>
+                        {i.skip && <div className="text-xs text-amber-400 mt-1">Nothing sends: {i.skip}</div>}
+                        {i.sms && <div className="text-xs text-gray-300 mt-1 whitespace-pre-wrap"><span className="text-gray-500">Text → {i.sms.to}:</span> {i.sms.body}</div>}
+                        {i.email_msg && <div className="text-xs text-gray-300 mt-1"><span className="text-gray-500">Email → {i.email_msg.to}:</span> <b>{i.email_msg.subject}</b></div>}
+                        {remSample[i.jobberItemId] && <div className="text-xs text-gray-400 mt-1">{remSample[i.jobberItemId]}</div>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+            <p className="text-[11px] text-gray-500 mt-3">Templates, send time and the on/off switch live in Admin → Routing → Dispatch → Day-before reminders. “Send me a sample” goes to your own phone (Settings → Profile) and login email — never to the customer.</p>
           </div>
         </div>
       )}

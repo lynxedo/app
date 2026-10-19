@@ -40,6 +40,7 @@ import {
 } from '@/lib/voice-scheduling'
 import { getActiveVoiceNotes, bookingCapsForService } from '@/lib/voice-notes'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import { localToIso, normalizeDispatchSettings, parseTitleWindow } from '@/lib/dispatch'
 import {
   buildJobTitle,
   createJobberJob,
@@ -370,8 +371,9 @@ export async function POST(request: Request) {
     // day's stops for driving, and a timed visit pins one it can't move. The promise
     // lives on the title (see `ptf` above), exactly as the company's catalog says.
     let visitOk = true
+    let visitId: string | null = null
     try {
-      await createJobberVisit(userId, {
+      visitId = await createJobberVisit(userId, {
         jobId: created.id,
         date,
         timezone: SCHEDULING_TZ,
@@ -382,6 +384,33 @@ export async function POST(request: Request) {
       // this as a clean booking — the office has to place it.
       console.error('[voice.book] visitCreate failed', err)
       visitOk = false
+    }
+
+    // Dispatch: the time frame she promised becomes a LOCK on the (still Anytime)
+    // visit, so the office's Dispatch board, Optimize day, Find a slot, the
+    // reminders and the tech's Work Order stop all respect it. Read through the
+    // same parser Dispatch uses for titles ("AM", "PM", "2-4pm"…), so the lock
+    // always matches what the title says. Best-effort — never costs the booking.
+    if (visitOk && visitId && ptf) {
+      try {
+        const { data: rs } = await admin.from('company_routing_settings').select('dispatch_settings').eq('company_id', companyId).maybeSingle()
+        const w = parseTitleWindow(ptf, normalizeDispatchSettings(rs?.dispatch_settings))
+        if (w) {
+          const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`
+          await admin.from('dispatch_visit_locks').upsert({
+            company_id: companyId,
+            jobber_item_id: visitId,
+            item_kind: 'visit',
+            window_start: localToIso(`${date}T${hhmm(w.start)}`),
+            window_end: localToIso(`${date}T${hhmm(w.end)}`),
+            locked_source: 'amber',
+            note: `Amber booked: ${ptf}`,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'company_id,jobber_item_id' })
+        }
+      } catch (err) {
+        console.warn('[voice.book] dispatch lock failed', err)
+      }
     }
 
     // Recorded for the wrap-up, which surfaces it on the Office Alert (and on the
