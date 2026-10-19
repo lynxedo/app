@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { weekLockError } from '@/lib/timesheet-lock'
 
 // GET /api/timesheet/holiday-overrides?period_start=YYYY-MM-DD
 // Returns all holiday overrides for the given pay period start
@@ -44,6 +46,9 @@ export async function POST(req: NextRequest) {
   if (!employee_id || !holiday_id || !pay_period_start) {
     return NextResponse.json({ error: 'employee_id, holiday_id, and pay_period_start required' }, { status: 400 })
   }
+
+  const lockError = await weekLockError(createAdminClient(), profile.company_id, [pay_period_start])
+  if (lockError) return NextResponse.json({ error: lockError }, { status: 409 })
 
   const { data, error } = await supabase
     .from('holiday_overrides')

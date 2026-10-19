@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recomputeDayEntry } from '@/lib/timesheet-recompute'
 import { centralDate, centralDayRangeUtc } from '@/lib/timezone'
+import { weekLockError } from '@/lib/timesheet-lock'
 
 // GET /api/timesheet/admin/punches?employee_id=xxx&start=YYYY-MM-DD&end=YYYY-MM-DD
 export async function GET(req: NextRequest) {
@@ -71,6 +72,9 @@ export async function POST(req: NextRequest) {
     .single()
   if (!targetEmployee) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  const lockError = await weekLockError(admin, profile.company_id, [centralDate(punched_at)])
+  if (lockError) return NextResponse.json({ error: lockError }, { status: 409 })
+
   const { data, error } = await admin
     .from('time_punches')
     .insert({ employee_id, punch_type, punched_at, note: note || null, edited_by: user.id,
@@ -131,6 +135,9 @@ export async function DELETE(req: NextRequest) {
     .eq('company_id', profile.company_id)
     .single()
   if (!targetEmployee) return NextResponse.json({ error: 'Punch not found' }, { status: 404 })
+
+  const lockError = await weekLockError(admin, profile.company_id, [centralDate(target.punched_at)])
+  if (lockError) return NextResponse.json({ error: lockError }, { status: 409 })
 
   const { data: deleted, error } = await admin
     .from('time_punches')

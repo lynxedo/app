@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useConfirm } from '@/components/ui'
 import { formatDurationMs } from '@/lib/format'
+import { ruleLabel, type FlagRule, type FlagRuleKind, type WeekFlagReport } from '@/lib/timesheet-flags'
 
 type Employee = {
   id: string
@@ -40,6 +41,7 @@ type TimeEntry = {
   total_hours: number | null
   regular_hours: number | null
   overtime_hours: number | null
+  break_hours?: number | null
 }
 
 type TimePunch = {
@@ -214,6 +216,32 @@ function formatDuration(sinceTs: string): string {
   return formatDurationMs(Date.now() - new Date(sinceTs).getTime(), { style: 'verbose' })
 }
 
+// 0.5 → "30m", 1.25 → "1h 15m" (unpaid break time on a split-shift day).
+function formatBreak(hours: number): string {
+  const mins = Math.round(hours * 60)
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return h > 0 ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`
+}
+
+// The pay week's dates (YYYY-MM-DD), for the Add time day picker.
+function weekDates(start: Date): string[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start)
+    d.setDate(start.getDate() + i)
+    return toDateStr(d)
+  })
+}
+
+const FLAG_RULE_KINDS: { kind: FlagRuleKind; label: string; takes: 'time' | 'hours'; help: string }[] = [
+  { kind: 'clock_in_before', label: 'Clock-in before', takes: 'time', help: "Checks each day's first clock-in." },
+  { kind: 'clock_in_after', label: 'Clock-in after', takes: 'time', help: "Checks each day's first clock-in (not coming back from lunch)." },
+  { kind: 'clock_out_before', label: 'Clock-out before', takes: 'time', help: "Checks each day's last clock-out." },
+  { kind: 'clock_out_after', label: 'Clock-out after', takes: 'time', help: "Checks each day's last clock-out." },
+  { kind: 'day_hours_over', label: 'Day over (hours)', takes: 'hours', help: 'Paid hours in one day.' },
+  { kind: 'week_ot_over', label: 'Week overtime over (hours)', takes: 'hours', help: 'Overtime hours in one pay week.' },
+]
+
 function displayName(e: Employee): string {
   return e.preferred_name || e.first_name
 }
@@ -349,6 +377,25 @@ export default function AdminTimesheetPage() {
   const [savingPolicy, setSavingPolicy] = useState(false)
   const [policyError, setPolicyError] = useState('')
 
+  // Flags + weekly payroll approval (Pay Period tab) and the Add time form.
+  const [flagReport, setFlagReport] = useState<WeekFlagReport | null>(null)
+  const [clearingFlag, setClearingFlag] = useState<{ key: string; note: string } | null>(null)
+  const [flagBusy, setFlagBusy] = useState(false)
+  const [flagError, setFlagError] = useState<string | null>(null)
+  const [approvalBusy, setApprovalBusy] = useState(false)
+  const [approvalError, setApprovalError] = useState<string | null>(null)
+  const [addTime, setAddTime] = useState<{ employeeId: string; date: string; clockIn: string; clockOut: string; reason: string } | null>(null)
+  const [addTimeSaving, setAddTimeSaving] = useState(false)
+  const [addTimeError, setAddTimeError] = useState<string | null>(null)
+  const [punchPanelError, setPunchPanelError] = useState<string | null>(null)
+
+  // Flag rules (Settings tab).
+  const [flagRules, setFlagRules] = useState<FlagRule[]>([])
+  const [flagRulesLoaded, setFlagRulesLoaded] = useState(false)
+  const [newRule, setNewRule] = useState<{ kind: FlagRuleKind; time: string; hours: string }>({ kind: 'clock_out_after', time: '18:00', hours: '10' })
+  const [ruleSaving, setRuleSaving] = useState(false)
+  const [ruleError, setRuleError] = useState('')
+
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekStart.getDate() + 6)
 
@@ -388,13 +435,14 @@ export default function AdminTimesheetPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
-    const [empRes, entRes, editRes, holRes, overRes, ptoRes] = await Promise.all([
+    const [empRes, entRes, editRes, holRes, overRes, ptoRes, flagRes] = await Promise.all([
       fetch(`/api/timesheet/employees?period_start=${toDateStr(weekStart)}&period_end=${toDateStr(weekEnd)}`),
       fetch(`/api/timesheet/entries?start=${toDateStr(weekStart)}&end=${toDateStr(weekEnd)}`),
       fetch('/api/timesheet/punch-edits'),
       fetch(`/api/timesheet/holidays?start=${toDateStr(weekStart)}&end=${toDateStr(weekEnd)}`),
       fetch(`/api/timesheet/holiday-overrides?period_start=${toDateStr(weekStart)}`),
       fetch(`/api/timesheet/pto-requests?start=${toDateStr(weekStart)}&end=${toDateStr(weekEnd)}`),
+      fetch(`/api/timesheet/admin/flags?week_start=${toDateStr(weekStart)}`),
     ])
     const [empData, entData, editData, holData, overData, ptoData] = await Promise.all([
       empRes.json(), entRes.json(), editRes.json(), holRes.json(), overRes.json(), ptoRes.json(),
@@ -406,6 +454,7 @@ export default function AdminTimesheetPage() {
     setWeekHolidays(holData.holidays ?? [])
     setHolidayOverrides(overData.overrides ?? [])
     setWeekPtoRequests(ptoData.requests ?? [])
+    setFlagReport(flagRes.ok ? await flagRes.json() : null)
     setLoading(false)
   }, [weekStart]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -417,6 +466,10 @@ export default function AdminTimesheetPage() {
 
   useEffect(() => {
     if (tab === 'pto' && !policiesLoaded) loadPolicies()
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (tab === 'settings' && !flagRulesLoaded) loadFlagRules()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── data helpers ──────────────────────────────────────────────────────────
@@ -469,6 +522,7 @@ export default function AdminTimesheetPage() {
   async function openEditPunches(employee: Employee) {
     const ws = getWeekStart()
     setEditEmployee(employee)
+    setPunchPanelError(null)
     setEditWeekStart(ws)
     loadEditPunches(employee, ws)
   }
@@ -485,11 +539,12 @@ export default function AdminTimesheetPage() {
 
   async function savePunchEdit() {
     if (!editingPunch || !editEmployee) return
-    await fetch(`/api/timesheet/admin/punch/${editingPunch.id}`, {
+    const res = await fetch(`/api/timesheet/admin/punch/${editingPunch.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ punched_at: editingPunch.time, edit_reason: editingPunch.reason }),
     })
+    setPunchPanelError(res.ok ? null : ((await res.json().catch(() => ({}))).error ?? 'Could not save'))
     setEditingPunch(null)
     loadEditPunches(editEmployee, editWeekStart)
     loadData()
@@ -524,14 +579,15 @@ export default function AdminTimesheetPage() {
 
   async function deletePunch(id: string) {
     if (!(await confirmDialog({ message: 'Delete this punch? This cannot be undone.', danger: true }))) return
-    await fetch(`/api/timesheet/admin/punches?id=${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/timesheet/admin/punches?id=${id}`, { method: 'DELETE' })
+    setPunchPanelError(res.ok ? null : ((await res.json().catch(() => ({}))).error ?? 'Could not delete'))
     if (editEmployee) loadEditPunches(editEmployee, editWeekStart)
     loadData()
   }
 
   async function addPunch() {
     if (!addingPunch || !editEmployee) return
-    await fetch('/api/timesheet/admin/punches', {
+    const res = await fetch('/api/timesheet/admin/punches', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -541,9 +597,132 @@ export default function AdminTimesheetPage() {
         note: addingPunch.note || null,
       }),
     })
+    setPunchPanelError(res.ok ? null : ((await res.json().catch(() => ({}))).error ?? 'Could not add'))
     setAddingPunch(null)
     loadEditPunches(editEmployee, editWeekStart)
     loadData()
+  }
+
+  // ── flags + approval ──────────────────────────────────────────────────────
+  async function loadFlags() {
+    const res = await fetch(`/api/timesheet/admin/flags?week_start=${toDateStr(weekStart)}`)
+    setFlagReport(res.ok ? await res.json() : null)
+  }
+
+  async function clearFlag() {
+    if (!clearingFlag) return
+    setFlagBusy(true)
+    setFlagError(null)
+    const res = await fetch('/api/timesheet/admin/flags/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ week_start: toDateStr(weekStart), flag_key: clearingFlag.key, note: clearingFlag.note }),
+    })
+    setFlagBusy(false)
+    if (!res.ok) {
+      setFlagError((await res.json().catch(() => ({}))).error ?? 'Could not clear')
+      loadFlags()
+      return
+    }
+    setClearingFlag(null)
+    loadFlags()
+  }
+
+  async function setWeekApproval(action: 'approve' | 'unapprove') {
+    const ok = await confirmDialog({
+      message: action === 'approve'
+        ? `Approve payroll for ${formatWeekRange(weekStart)}? The week will be locked — no edits until you unapprove it.`
+        : `Unapprove payroll for ${formatWeekRange(weekStart)}? Edits will be allowed again, and you'll need to approve it again.`,
+      danger: action === 'unapprove',
+    })
+    if (!ok) return
+    setApprovalBusy(true)
+    setApprovalError(null)
+    const res = await fetch('/api/timesheet/admin/week-approval', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ week_start: toDateStr(weekStart), action }),
+    })
+    setApprovalBusy(false)
+    if (!res.ok) setApprovalError((await res.json().catch(() => ({}))).error ?? 'Could not save')
+    loadFlags()
+  }
+
+  function openAddTime(emp: Employee) {
+    const dates = weekDates(weekStart)
+    const today = toDateStr(new Date())
+    const taken = new Set(entries.filter(e => e.employee_id === emp.id).map(e => e.date))
+    const date = dates.includes(today) ? today : (dates.find(d => !taken.has(d)) ?? dates[0])
+    setAddTimeError(null)
+    setAddTime({ employeeId: emp.id, date, clockIn: '07:00', clockOut: '15:00', reason: '' })
+  }
+
+  // Add time — both times in one save (a Clock In + Clock Out pair), so half a
+  // shift can never be left behind.
+  async function saveAddTime() {
+    if (!addTime) return
+    const clockIn = new Date(`${addTime.date}T${addTime.clockIn}`).toISOString()
+    const clockOut = new Date(`${addTime.date}T${addTime.clockOut}`).toISOString()
+    if (punchTimeError(clockIn, clockOut)) return
+    if (!addTime.reason.trim()) { setAddTimeError('Please add a short reason.'); return }
+    setAddTimeSaving(true)
+    setAddTimeError(null)
+    const res = await fetch('/api/timesheet/admin/day', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: addTime.employeeId, clock_in: clockIn, clock_out: clockOut, edit_reason: addTime.reason.trim() }),
+    })
+    setAddTimeSaving(false)
+    if (!res.ok) {
+      setAddTimeError((await res.json().catch(() => ({}))).error ?? 'Could not save')
+      return
+    }
+    setAddTime(null)
+    loadData()
+  }
+
+  // ── flag rules (Settings) ─────────────────────────────────────────────────
+  async function loadFlagRules() {
+    const res = await fetch('/api/timesheet/admin/flag-rules')
+    const data = res.ok ? await res.json() : { rules: [] }
+    setFlagRules(data.rules ?? [])
+    setFlagRulesLoaded(true)
+  }
+
+  async function addFlagRule() {
+    const def = FLAG_RULE_KINDS.find(k => k.kind === newRule.kind)!
+    setRuleSaving(true)
+    setRuleError('')
+    const res = await fetch('/api/timesheet/admin/flag-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(def.takes === 'time'
+        ? { kind: newRule.kind, time_value: newRule.time }
+        : { kind: newRule.kind, hours_value: Number(newRule.hours) }),
+    })
+    setRuleSaving(false)
+    if (!res.ok) { setRuleError((await res.json().catch(() => ({}))).error ?? 'Could not add'); return }
+    const { rule } = await res.json()
+    setFlagRules(prev => [...prev, rule])
+    loadFlags()
+  }
+
+  async function toggleFlagRule(rule: FlagRule) {
+    setFlagRules(prev => prev.map(r => r.id === rule.id ? { ...r, is_active: !r.is_active } : r))
+    const res = await fetch('/api/timesheet/admin/flag-rules', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: rule.id, is_active: !rule.is_active }),
+    })
+    if (!res.ok) setFlagRules(prev => prev.map(r => r.id === rule.id ? { ...r, is_active: rule.is_active } : r))
+    loadFlags()
+  }
+
+  async function deleteFlagRule(rule: FlagRule) {
+    if (!(await confirmDialog({ message: `Remove the rule "${ruleLabel(rule)}"?`, danger: true }))) return
+    const res = await fetch(`/api/timesheet/admin/flag-rules?id=${rule.id}`, { method: 'DELETE' })
+    if (res.ok) setFlagRules(prev => prev.filter(r => r.id !== rule.id))
+    loadFlags()
   }
 
   async function reviewEditRequest(id: string, action: 'approve' | 'reject') {
@@ -914,6 +1093,19 @@ export default function AdminTimesheetPage() {
   const empPendingRequests = (emp: Employee) => pendingRequests.filter(r => r.employee_id === emp.id)
   const hasPending = (emp: Employee) => empPendingRequests(emp).length > 0
   const empPendingPto = (empId: string) => weekPtoRequests.filter(r => r.employee_id === empId && r.status === 'pending')
+  const weekApproved = !!flagReport?.approval
+  const empFlags = (empId: string) => (flagReport?.flags ?? []).filter(f => f.employee_id === empId)
+  const openFlagCount = (flagReport?.flags ?? []).filter(f => !f.cleared).length
+  const approvalBlockers: string[] = []
+  if (flagReport) {
+    if (openFlagCount > 0) approvalBlockers.push(`${openFlagCount} flag${openFlagCount === 1 ? '' : 's'} to clear`)
+    for (const o of flagReport.openShifts) {
+      const emp = employees.find(e => e.id === o.employee_id)
+      approvalBlockers.push(`${emp ? displayName(emp) : 'Someone'} is still clocked in`)
+    }
+    if (flagReport.pendingEditRequests > 0) approvalBlockers.push(`${flagReport.pendingEditRequests} edit request${flagReport.pendingEditRequests === 1 ? '' : 's'} waiting`)
+    if (flagReport.pendingPto > 0) approvalBlockers.push(`${flagReport.pendingPto} PTO request${flagReport.pendingPto === 1 ? '' : 's'} waiting`)
+  }
 
   const liveCount = openPunches.length
   const isCurrentWeek = toDateStr(weekStart) === toDateStr(getWeekStart())
@@ -1118,6 +1310,39 @@ export default function AdminTimesheetPage() {
                 className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
               >↓ Export CSV</button>
             </div>
+            {/* Payroll approval — every flag cleared, then approve (locks the week). */}
+            {flagReport && (
+              <div className={`px-5 py-3 border-b border-gray-800 flex flex-wrap items-center gap-x-3 gap-y-2 ${weekApproved ? 'bg-emerald-500/5' : ''}`}>
+                {weekApproved ? (
+                  <>
+                    <span className="text-sm font-medium text-emerald-400">✓ Payroll approved</span>
+                    <span className="text-xs text-gray-500">
+                      {flagReport.approval?.approved_by ? `by ${flagReport.approval.approved_by} · ` : ''}
+                      {new Date(flagReport.approval!.approved_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      {' · this week is locked'}
+                    </span>
+                    <button
+                      onClick={() => setWeekApproval('unapprove')}
+                      disabled={approvalBusy}
+                      className="ml-auto text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
+                    >Unapprove</button>
+                  </>
+                ) : (
+                  <>
+                    <span className={`text-sm ${approvalBlockers.length > 0 ? 'text-orange-300' : 'text-gray-300'}`}>
+                      {approvalBlockers.length > 0 ? `⚑ Before approving: ${approvalBlockers.join(' · ')}` : 'Everything is reviewed — ready to approve.'}
+                    </span>
+                    <button
+                      onClick={() => setWeekApproval('approve')}
+                      disabled={approvalBusy || approvalBlockers.length > 0}
+                      title={approvalBlockers.length > 0 ? 'Clear every flag first' : undefined}
+                      className="ml-auto bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-[#fff] text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
+                    >{approvalBusy ? 'Saving…' : 'Approve payroll'}</button>
+                  </>
+                )}
+                {approvalError && <p className="w-full text-xs text-red-400">{approvalError}</p>}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -1146,6 +1371,8 @@ export default function AdminTimesheetPage() {
                     const empDailyEntries = empEntries(emp).sort((a, b) => a.date.localeCompare(b.date))
                     const ptoRequests = empPendingPto(emp.id)
                     const isEditingOverride = overrideEmpId === emp.id
+                    const empFlagList = empFlags(emp.id)
+                    const empOpenFlags = empFlagList.filter(f => !f.cleared)
 
                     return [
                       <tr key={emp.id} className={`hover:bg-gray-800/50 transition-colors ${isExpanded ? 'bg-gray-800/30' : ''}`}>
@@ -1164,6 +1391,13 @@ export default function AdminTimesheetPage() {
                             {ptoRequests.length > 0 && (
                               <span className="text-xs bg-violet-500/15 text-violet-400 border border-violet-500/20 px-1.5 py-0.5 rounded-full">🌴 {ptoRequests.length}</span>
                             )}
+                            {empOpenFlags.length > 0 && (
+                              <button
+                                onClick={() => { if (!isExpanded) toggleExpandedRow(emp.id) }}
+                                className="text-xs bg-orange-500/15 text-orange-400 border border-orange-500/20 px-1.5 py-0.5 rounded-full"
+                                title="Flags to review"
+                              >⚑ {empOpenFlags.length}</button>
+                            )}
                           </div>
                           <div className="text-xs text-gray-500">{emp.department}</div>
                         </td>
@@ -1177,7 +1411,7 @@ export default function AdminTimesheetPage() {
                         <td className="text-right px-4 py-3 tabular-nums">
                           {activeWeekHolidays.length > 0 ? (
                             <button
-                              onClick={() => isEditingOverride ? setOverrideEmpId(null) : openOverrideEditor(emp.id)}
+                              onClick={() => { if (weekApproved) return; if (isEditingOverride) setOverrideEmpId(null); else openOverrideEditor(emp.id) }}
                               className={`tabular-nums text-sm underline-offset-2 ${isEditingOverride ? 'text-blue-400' : 'text-emerald-400 hover:underline'}`}
                               title="Click to override"
                             >
@@ -1203,6 +1437,53 @@ export default function AdminTimesheetPage() {
                         <tr key={`${emp.id}-expanded`} className="bg-gray-800/20">
                           <td colSpan={9} className="px-4 py-3">
                             <div className="space-y-3">
+
+                              {/* Flags — clear each one (optional note) before approving the week */}
+                              {empFlagList.length > 0 && (
+                                <div className="space-y-1.5">
+                                  {empFlagList.map(f => (
+                                    <div key={f.key} className={`rounded-lg border px-3 py-2 ${f.cleared ? 'border-gray-700 bg-gray-900/40' : 'border-orange-500/30 bg-orange-500/5'}`}>
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <p className={`text-xs font-medium ${f.cleared ? 'text-gray-500' : 'text-orange-300'}`}>
+                                            ⚑ {f.label} · {f.date ? formatDateShort(f.date) : 'this week'}
+                                          </p>
+                                          <p className="text-xs text-gray-400 mt-0.5">{f.detail}</p>
+                                          {f.cleared && (
+                                            <p className="text-xs text-emerald-500/80 mt-0.5">
+                                              ✓ Cleared{f.cleared.by ? ` by ${f.cleared.by}` : ''}{f.cleared.note ? ` — “${f.cleared.note}”` : ''}
+                                            </p>
+                                          )}
+                                        </div>
+                                        {!f.cleared && !weekApproved && clearingFlag?.key !== f.key && (
+                                          <button
+                                            onClick={() => { setFlagError(null); setClearingFlag({ key: f.key, note: '' }) }}
+                                            className="shrink-0 text-xs text-gray-300 hover:text-white border border-gray-600 hover:border-gray-400 px-3 py-1 rounded-lg transition-colors"
+                                          >Clear</button>
+                                        )}
+                                      </div>
+                                      {clearingFlag?.key === f.key && (
+                                        <div className="mt-2 flex flex-col sm:flex-row gap-2">
+                                          <input
+                                            type="text"
+                                            autoFocus
+                                            placeholder="Note (optional) — e.g. stayed late for a repair"
+                                            value={clearingFlag.note}
+                                            onChange={e => setClearingFlag(c => c ? { ...c, note: e.target.value } : c)}
+                                            onKeyDown={e => { if (e.key === 'Enter') clearFlag() }}
+                                            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                                          />
+                                          <div className="flex gap-2">
+                                            <button onClick={clearFlag} disabled={flagBusy} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">{flagBusy ? 'Saving…' : 'Clear flag'}</button>
+                                            <button onClick={() => setClearingFlag(null)} className="text-gray-500 hover:text-white text-xs px-2 py-1.5 transition-colors">Cancel</button>
+                                          </div>
+                                        </div>
+                                      )}
+                                      {clearingFlag?.key === f.key && flagError && <p className="text-xs text-red-400 mt-1">{flagError}</p>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
 
                               {/* Holiday override editor */}
                               {isEditingOverride && activeWeekHolidays.length > 0 && (
@@ -1249,7 +1530,7 @@ export default function AdminTimesheetPage() {
                                 const isReviewing = reviewingId === pendingReq?.id
 
                                 return (
-                                  <div key={entry.id} className={`rounded-lg border px-4 py-2.5 ${pendingReq ? 'border-amber-500/30 bg-amber-500/5' : 'border-gray-700 bg-gray-900/50'}`}>
+                                  <div key={entry.id} className={`rounded-lg border px-4 py-2.5 ${pendingReq ? 'border-amber-500/30 bg-amber-500/5' : empOpenFlags.some(f => f.date === entry.date) ? 'border-orange-500/30 bg-gray-900/50' : 'border-gray-700 bg-gray-900/50'}`}>
                                     <div className="flex items-start justify-between gap-4">
                                       <div className="flex-1">
                                         <div className="flex items-center gap-3">
@@ -1258,6 +1539,9 @@ export default function AdminTimesheetPage() {
                                             {formatTime(entry.clock_in)} → {entry.clock_out ? formatTime(entry.clock_out) : <span className="text-green-400">ongoing</span>}
                                           </span>
                                           <span className="text-xs tabular-nums text-gray-400">{entry.total_hours?.toFixed(2)}h</span>
+                                          {(entry.break_hours ?? 0) > 0 && (
+                                            <span className="text-xs text-gray-500" title="Unpaid break between clock-out and clock-in">{formatBreak(Number(entry.break_hours))} break</span>
+                                          )}
                                           {(entry.overtime_hours ?? 0) > 0 && (
                                             <span className="text-xs text-amber-400">{entry.overtime_hours?.toFixed(2)}h OT</span>
                                           )}
@@ -1283,7 +1567,7 @@ export default function AdminTimesheetPage() {
                                             <button onClick={() => reviewEditRequest(pendingReq.id, 'approve')} disabled={isReviewing} className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-[#fff] px-3 py-1.5 rounded-lg transition-colors font-medium">{isReviewing ? '…' : '✓ Approve'}</button>
                                             <button onClick={() => reviewEditRequest(pendingReq.id, 'reject')} disabled={isReviewing} className="text-xs bg-gray-700 hover:bg-red-900/40 hover:border-red-500/30 disabled:opacity-50 text-gray-300 hover:text-red-400 border border-gray-600 px-3 py-1.5 rounded-lg transition-colors">Reject</button>
                                           </>
-                                        ) : (
+                                        ) : weekApproved ? null : (
                                           <button
                                             onClick={() => {
                                               setDayEditError(null)
@@ -1377,6 +1661,62 @@ export default function AdminTimesheetPage() {
                                   </div>
                                 )
                               })}
+
+                              {/* + Add time — a whole slice (in + out) in one save */}
+                              {!weekApproved && (addTime?.employeeId === emp.id ? (() => {
+                                const inIso = new Date(`${addTime.date}T${addTime.clockIn}`).toISOString()
+                                const outIso = new Date(`${addTime.date}T${addTime.clockOut}`).toISOString()
+                                const err = addTime.clockIn && addTime.clockOut ? punchTimeError(inIso, outIso) : 'Pick both times.'
+                                const warnings = err ? [] : punchTimeWarnings(inIso, outIso)
+                                return (
+                                  <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-4 py-3 space-y-3">
+                                    <p className="text-xs font-semibold text-blue-400">Add time for {displayName(emp)}</p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                      <label className="block">
+                                        <span className="text-xs text-gray-500">Day</span>
+                                        <select
+                                          value={addTime.date}
+                                          onChange={e => setAddTime(a => a ? { ...a, date: e.target.value } : a)}
+                                          className="mt-1 w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                                        >
+                                          {weekDates(weekStart).map(d => <option key={d} value={d}>{formatDateShort(d)}</option>)}
+                                        </select>
+                                      </label>
+                                      <label className="block">
+                                        <span className="text-xs text-gray-500">Clock In</span>
+                                        <input type="time" value={addTime.clockIn} onChange={e => setAddTime(a => a ? { ...a, clockIn: e.target.value } : a)} className="mt-1 w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
+                                      </label>
+                                      <label className="block">
+                                        <span className="text-xs text-gray-500">Clock Out</span>
+                                        <input type="time" value={addTime.clockOut} onChange={e => setAddTime(a => a ? { ...a, clockOut: e.target.value } : a)} className="mt-1 w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
+                                      </label>
+                                    </div>
+                                    <input
+                                      type="text"
+                                      placeholder="Reason *"
+                                      value={addTime.reason}
+                                      onChange={e => setAddTime(a => a ? { ...a, reason: e.target.value } : a)}
+                                      className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                                    />
+                                    {err && <p className="text-xs text-red-400">⚠ {err}</p>}
+                                    {warnings.map((w, i) => <p key={i} className="text-xs text-amber-400">⚠ {w}</p>)}
+                                    {addTimeError && <p className="text-xs text-red-400">{addTimeError}</p>}
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={saveAddTime}
+                                        disabled={!!err || !addTime.reason.trim() || addTimeSaving}
+                                        className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-[#fff] text-sm px-4 py-1.5 rounded-lg transition-colors"
+                                      >{addTimeSaving ? 'Saving…' : 'Save'}</button>
+                                      <button onClick={() => { setAddTime(null); setAddTimeError(null) }} className="text-gray-500 hover:text-white text-sm px-3 py-1.5 transition-colors">Cancel</button>
+                                    </div>
+                                  </div>
+                                )
+                              })() : (
+                                <button
+                                  onClick={() => openAddTime(emp)}
+                                  className="w-full border border-dashed border-gray-700 hover:border-gray-500 rounded-lg py-2 text-sm text-gray-500 hover:text-gray-300 transition-colors"
+                                >+ Add time</button>
+                              ))}
                             </div>
                           </td>
                         </tr>
@@ -1645,6 +1985,7 @@ export default function AdminTimesheetPage() {
           </div>
         ) : tab === 'settings' ? (
           // ── Settings (TS7) ────────────────────────────────────────────────────
+          <div className="space-y-4">
           <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden max-w-2xl">
             <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
               <div>
@@ -1713,6 +2054,18 @@ export default function AdminTimesheetPage() {
                 </div>
               </div>
             </div>
+          </div>
+          <FlagRulesCard
+            rules={flagRules}
+            loaded={flagRulesLoaded}
+            newRule={newRule}
+            setNewRule={setNewRule}
+            saving={ruleSaving}
+            error={ruleError}
+            onAdd={addFlagRule}
+            onToggle={toggleFlagRule}
+            onDelete={deleteFlagRule}
+          />
           </div>
         ) : (
           // ── PTO Policy ────────────────────────────────────────────────────────
@@ -2162,6 +2515,7 @@ export default function AdminTimesheetPage() {
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
               {editPunchesLoading && <p className="text-sm text-gray-500">Loading…</p>}
               {!editPunchesLoading && editPunches.length === 0 && <p className="text-sm text-gray-500">No punches this week.</p>}
+              {punchPanelError && <p className="text-xs text-red-400">{punchPanelError}</p>}
               {editPunches.map(punch => (
                 <div key={punch.id} className="flex items-center gap-3 group">
                   <span className={`text-xs font-semibold w-8 text-center py-0.5 rounded ${punch.punch_type === 'in' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
@@ -2198,6 +2552,15 @@ export default function AdminTimesheetPage() {
                     <input type="datetime-local" value={toLocalInputValue(addingPunch.datetime)} onChange={e => { const iso = fromLocalInputValue(e.target.value); if (iso) setAddingPunch(p => p ? { ...p, datetime: iso } : p) }} className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
                   </div>
                   <input type="text" placeholder="Note (optional)" value={addingPunch.note} onChange={e => setAddingPunch(p => p ? { ...p, note: e.target.value } : p)} className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
+                  {(() => {
+                    // Two Ins (or two Outs) in a row leave a shift that can't be counted.
+                    const before = editPunches
+                      .filter(p => p.punched_at < addingPunch.datetime)
+                      .sort((a, b) => b.punched_at.localeCompare(a.punched_at))[0]
+                    return before && before.punch_type === addingPunch.type ? (
+                      <p className="text-xs text-amber-400">⚠ The punch before this is also a Clock {addingPunch.type === 'in' ? 'In' : 'Out'}. Did you mean Clock {addingPunch.type === 'in' ? 'Out' : 'In'}?</p>
+                    ) : null
+                  })()}
                   {new Date(addingPunch.datetime).getHours() < 5 && (
                     <p className="text-xs text-amber-400">⚠ This time is before 5 AM — double-check AM vs PM.</p>
                   )}
@@ -2212,7 +2575,8 @@ export default function AdminTimesheetPage() {
                     const isCurrentEditWeek = toDateStr(editWeekStart) === toDateStr(getWeekStart())
                     const defaultDt = isCurrentEditWeek ? new Date() : new Date(editWeekStart)
                     defaultDt.setHours(8, 0, 0, 0)
-                    setAddingPunch({ type: 'in', datetime: defaultDt.toISOString(), note: '' })
+                    const last = [...editPunches].sort((a, b) => b.punched_at.localeCompare(a.punched_at))[0]
+                    setAddingPunch({ type: last?.punch_type === 'in' ? 'out' : 'in', datetime: defaultDt.toISOString(), note: '' })
                   }}
                   className="w-full border border-dashed border-gray-700 hover:border-gray-600 rounded-lg py-2 text-sm text-gray-500 hover:text-gray-400 transition-colors"
                 >+ Add Punch</button>
@@ -2221,6 +2585,93 @@ export default function AdminTimesheetPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Time Records → Settings → Flag rules. Each rule flags matching days (or weeks) in
+// the Pay Period tab; every flag must be cleared before payroll can be approved.
+function FlagRulesCard({
+  rules, loaded, newRule, setNewRule, saving, error, onAdd, onToggle, onDelete,
+}: {
+  rules: FlagRule[]
+  loaded: boolean
+  newRule: { kind: FlagRuleKind; time: string; hours: string }
+  setNewRule: (fn: (r: { kind: FlagRuleKind; time: string; hours: string }) => { kind: FlagRuleKind; time: string; hours: string }) => void
+  saving: boolean
+  error: string
+  onAdd: () => void
+  onToggle: (rule: FlagRule) => void
+  onDelete: (rule: FlagRule) => void
+}) {
+  const def = FLAG_RULE_KINDS.find(k => k.kind === newRule.kind)!
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden max-w-2xl">
+      <div className="px-5 py-4 border-b border-gray-800">
+        <h2 className="font-semibold">Flag rules</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Flag unusual time for review in the Pay Period tab. Auto clock-outs and missing punches are always flagged.
+          Clear every flag before approving payroll. Times are Central.
+        </p>
+      </div>
+      <div className="px-5 py-4 space-y-3">
+        {!loaded && <p className="text-sm text-gray-500">Loading…</p>}
+        {loaded && rules.length === 0 && <p className="text-sm text-gray-500">No rules yet — add one below.</p>}
+        {rules.map(rule => (
+          <div key={rule.id} className="flex items-center gap-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={rule.is_active}
+              aria-label={`${ruleLabel(rule)} on/off`}
+              onClick={() => onToggle(rule)}
+              className={`relative flex-none w-10 h-6 rounded-full transition-colors ${rule.is_active ? 'bg-brand' : 'bg-gray-700'}`}
+            >
+              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${rule.is_active ? 'translate-x-5' : 'translate-x-1'}`} />
+            </button>
+            <span className={`flex-1 text-sm ${rule.is_active ? 'text-white' : 'text-gray-500'}`}>Flag {ruleLabel(rule).toLowerCase()}</span>
+            <button onClick={() => onDelete(rule)} className="text-gray-600 hover:text-red-400 text-sm px-1 transition-colors" aria-label="Remove rule" title="Remove rule">✕</button>
+          </div>
+        ))}
+        <div className="border-t border-gray-800 pt-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <select
+              value={newRule.kind}
+              onChange={e => setNewRule(r => ({ ...r, kind: e.target.value as FlagRuleKind }))}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand transition-colors"
+            >
+              {FLAG_RULE_KINDS.map(k => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+            </select>
+            {def.takes === 'time' ? (
+              <input
+                type="time"
+                value={newRule.time}
+                onChange={e => setNewRule(r => ({ ...r, time: e.target.value }))}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand transition-colors"
+              />
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={newRule.hours}
+                  onChange={e => setNewRule(r => ({ ...r, hours: e.target.value }))}
+                  className="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand transition-colors"
+                />
+                <span className="text-sm text-gray-400">hours</span>
+              </div>
+            )}
+            <button
+              onClick={onAdd}
+              disabled={saving || (def.takes === 'time' ? !newRule.time : newRule.hours === '')}
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >{saving ? 'Adding…' : 'Add rule'}</button>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">{def.help}</p>
+          {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+        </div>
+      </div>
     </div>
   )
 }

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { weekLockError } from '@/lib/timesheet-lock'
 
 // GET /api/timesheet/punch-edits
 // Employee: returns all their edit requests (all statuses)
@@ -72,12 +74,14 @@ export async function POST(req: NextRequest) {
   // Verify the time_entry belongs to this employee
   const { data: entry } = await supabase
     .from('time_entries')
-    .select('id, employee_id, clock_out')
+    .select('id, employee_id, clock_out, date')
     .eq('id', time_entry_id)
     .eq('employee_id', emp.id)
     .single()
   if (!entry) return NextResponse.json({ error: 'Time entry not found' }, { status: 404 })
   if (!entry.clock_out) return NextResponse.json({ error: 'Cannot edit an in-progress shift' }, { status: 409 })
+  const lockError = await weekLockError(createAdminClient(), emp.company_id, [entry.date], 'employee')
+  if (lockError) return NextResponse.json({ error: lockError }, { status: 409 })
 
   // Only one pending request per entry at a time
   const { data: existing } = await supabase

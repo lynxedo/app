@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recomputeDayEntry } from '@/lib/timesheet-recompute'
 import { centralDayRangeUtc } from '@/lib/timezone'
+import { weekLockError } from '@/lib/timesheet-lock'
 
 // PATCH /api/timesheet/admin/punch-edits/[id]
 // Admin approves or rejects an employee edit request.
@@ -58,6 +59,9 @@ export async function PATCH(
       id: string; employee_id: string; date: string; clock_in: string; clock_out: string | null
     }
 
+    const lockError = await weekLockError(createAdminClient(), profile.company_id, [entry.date])
+    if (lockError) return NextResponse.json({ error: lockError }, { status: 409 })
+
     // Find punches for this employee on this date and apply the new times.
     // Central calendar day, not UTC (TS4).
     const { startIso, endIso } = centralDayRangeUtc(entry.date)
@@ -70,8 +74,10 @@ export async function PATCH(
       .order('punched_at', { ascending: true })
 
     if (dayPunches) {
+      // First In + LAST Out — on a split-shift day the first Out is the lunch
+      // clock-out, and moving it would re-pair the whole day.
       const inPunch = dayPunches.find((p: { punch_type: string }) => p.punch_type === 'in')
-      const outPunch = dayPunches.find((p: { punch_type: string }) => p.punch_type === 'out')
+      const outPunch = [...dayPunches].reverse().find((p: { punch_type: string }) => p.punch_type === 'out')
 
       if (inPunch && editReq.new_clock_in) {
         await supabase.from('time_punches').update({
