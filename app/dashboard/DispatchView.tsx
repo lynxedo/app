@@ -461,6 +461,67 @@ export default function DispatchView() {
     commit(backHome ? rest : [...rest, change])
   }, [findStop, placed, estimate, changeById, lockFor, date, settings.arrival_first, settings.arrival_last, changes, commit])
 
+  // ── Length: drag a box's right edge, or set it in the stop panel ─────────
+  // Ben, Oct 2026: the length from settings must be overridable by hand. The
+  // new end goes into the draft like any move; Jobber gets it on Send, and
+  // later moves / Optimize keep the new length.
+  const applyLength = useCallback((stopId: string, rawEnd: number) => {
+    const p = placed.find(x => x.stop.id === stopId)
+    if (!p || p.startMin == null) return
+    const stop = p.stop
+    if (stop.isComplete) { setNotice('That stop is already completed in Jobber.'); return }
+    const endMin = Math.min(24 * 60 - 1, Math.max(p.startMin + 10, Math.round(rawEnd / 5) * 5))
+    const existing = changeById.get(stopId)
+    const change: DraftChange = {
+      id: stop.id, kind: stop.kind, clientName: stop.clientName, phone: stop.phone,
+      fromStartAt: existing ? existing.fromStartAt : stop.startAt,
+      fromTechIds: existing ? existing.fromTechIds : stop.techIds,
+      toStart: localStamp(date, p.startMin),
+      toEnd: localStamp(date, endMin),
+      toTechId: p.lane,
+      newLock: existing?.newLock ?? null,
+      at: new Date().toISOString(),
+    }
+    // Back to exactly what Jobber has → no change at all.
+    const js = stop.startAt && !stop.allDay ? isoToLocal(stop.startAt) : null
+    const je = stop.endAt ? isoToLocal(stop.endAt) : null
+    const backHome = js && je && js.date === date && js.minutes === p.startMin && je.minutes === endMin
+      && stop.techIds.includes(p.lane) && !change.newLock
+    const rest = changes.filter(c => c.id !== stopId)
+    commit(backHome ? rest : [...rest, change])
+  }, [placed, changeById, date, changes, commit])
+
+  const applyLengthRef = useRef(applyLength)
+  useEffect(() => { applyLengthRef.current = applyLength }, [applyLength])
+  const resizingRef = useRef(false)
+  const [resize, setResize] = useState<null | { id: string; startMin: number; endMin: number }>(null)
+
+  const startResize = (e: React.PointerEvent<HTMLDivElement>, p: Placed) => {
+    if (p.startMin == null || p.endMin == null) return
+    e.preventDefault(); e.stopPropagation()
+    const laneW = e.currentTarget.parentElement?.parentElement?.getBoundingClientRect().width ?? 1
+    const startX = e.clientX
+    const origEnd = p.startMin + p.durationMin
+    const startMin = p.startMin
+    resizingRef.current = true
+    setResize({ id: p.stop.id, startMin, endMin: origEnd })
+    let last = origEnd
+    const onMove = (ev: PointerEvent) => {
+      last = Math.max(startMin + 10, Math.round((origEnd + ((ev.clientX - startX) / laneW) * span) / 5) * 5)
+      setResize({ id: p.stop.id, startMin, endMin: last })
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setResize(null)
+      if (last !== origEnd) applyLengthRef.current(p.stop.id, last)
+      // Let the click that ends the drag pass before re-enabling drag-to-move.
+      window.setTimeout(() => { resizingRef.current = false }, 0)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   // ── Optimize day (preview first; Apply puts it in the draft) ─────────────
   const runOptimize = async () => {
     setOptimizing(true); setNotice(null)
@@ -1148,8 +1209,9 @@ export default function DispatchView() {
                       {/* stop blocks */}
                       {l.timed.map((p, i) => (
                         <div key={p.stop.id}
-                          draggable={!p.stop.isComplete}
+                          draggable={!p.stop.isComplete && resize?.id !== p.stop.id}
                           onDragStart={e => {
+                            if (resizingRef.current) { e.preventDefault(); return }
                             const r = e.currentTarget.getBoundingClientRect()
                             const laneW = e.currentTarget.parentElement?.getBoundingClientRect().width ?? 1
                             onDragStartStop(e, p.stop.id, ((e.clientX - r.left) / laneW) * span)
@@ -1157,7 +1219,8 @@ export default function DispatchView() {
                           onClick={() => setSelectedId(p.stop.id)}
                           className={`absolute top-1.5 h-[46px] rounded-md px-1 overflow-hidden text-[11px] leading-tight cursor-grab select-none ${p.changed ? 'ring-2 ring-orange-400 ring-dashed' : ''} ${selectedId === p.stop.id ? 'outline outline-2 outline-white' : ''}`}
                           style={{
-                            left: pct(p.startMin!), width: width(Math.max(SNAP, p.durationMin)),
+                            left: pct(p.startMin!),
+                            width: width(Math.max(SNAP, resize?.id === p.stop.id ? resize.endMin - resize.startMin : p.durationMin)),
                             background: p.color, color: '#fff', opacity: p.dim ? 0.3 : p.stop.isComplete ? 0.55 : 1,
                             borderLeft: `4px solid ${color}`,
                           }}
@@ -1165,6 +1228,17 @@ export default function DispatchView() {
                         >
                           <div className="font-bold">{i + 1}{p.lock ? ' 🔒' : ''}{p.stop.isComplete ? ' ✓' : ''}</div>
                           <div className="truncate">{p.stop.clientName}</div>
+                          {resize?.id === p.stop.id && (
+                            <div className="absolute bottom-0.5 right-2 text-[10px] font-semibold bg-black/50 rounded px-1">{resize.endMin - resize.startMin} min · ends {fmtClock(resize.endMin)}</div>
+                          )}
+                          {!p.stop.isComplete && (
+                            <div
+                              onPointerDown={e => startResize(e, p)}
+                              onClick={e => e.stopPropagation()}
+                              className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/40"
+                              title="Drag to change the length"
+                            />
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1239,7 +1313,7 @@ export default function DispatchView() {
 
             {(selected || selectedBucket) && (
               <StopPanel
-                key={(selected?.stop ?? selectedBucket)!.id}
+                key={`${(selected?.stop ?? selectedBucket)!.id}|${selected?.startMin ?? ""}|${selected?.durationMin ?? ""}|${selected?.lane ?? ""}`}
                 stop={(selected?.stop ?? selectedBucket)!}
                 placed={selected}
                 team={teamList}
@@ -1253,6 +1327,7 @@ export default function DispatchView() {
                 onLock={(a, b) => saveLock((selected?.stop ?? selectedBucket)!, a, b)}
                 onUnlock={() => removeLock((selected?.stop ?? selectedBucket)!)}
                 onUndoMove={() => commit(changes.filter(c => c.id !== (selected?.stop ?? selectedBucket)!.id))}
+                onLength={selected?.startMin != null ? (min: number) => applyLength(selected.stop.id, selected.startMin! + min) : undefined}
               />
             )}
 
@@ -1474,7 +1549,7 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
   )
 }
 
-function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestion, onFindSlot, onClose, onMove, onLock, onUnlock, onUndoMove }: {
+function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestion, onFindSlot, onClose, onMove, onLock, onUnlock, onUndoMove, onLength }: {
   stop: DispatchStop
   placed: Placed | null
   team: string[]
@@ -1488,10 +1563,12 @@ function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestio
   onLock: (startHHMM: string, endHHMM: string) => void
   onUnlock: () => void
   onUndoMove: () => void
+  onLength?: (minutes: number) => void
 }) {
   const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   const [lane, setLane] = useState(placed?.lane && team.includes(placed.lane) ? placed.lane : team[0] ?? '')
   const [time, setTime] = useState(placed?.startMin != null ? hhmm(placed.startMin) : '08:00')
+  const [lengthMin, setLengthMin] = useState(String(placed?.durationMin ?? 30))
   const [lockStart, setLockStart] = useState(lock ? hhmm(lock.startMin) : suggestion ? hhmm(suggestion.start) : '10:00')
   const [lockEnd, setLockEnd] = useState(lock ? hhmm(lock.endMin) : suggestion ? hhmm(suggestion.end) : '12:00')
   const jobberWindow = stop.arrivalStart && stop.arrivalEnd
@@ -1528,6 +1605,16 @@ function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestio
             <input type="time" step={900} value={time} onChange={e => setTime(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-1.5 py-1 text-xs" />
             <button type="button" onClick={() => lane && time && onMove(lane, time)} className="px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-xs">Move</button>
           </div>
+          {onLength && (
+            <div className="flex gap-1.5 items-center mt-1.5">
+              <span className="text-xs text-gray-400">Length</span>
+              <input type="number" min={10} max={600} step={5} value={lengthMin} onChange={e => setLengthMin(e.target.value)}
+                className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-1.5 py-1 text-xs" />
+              <span className="text-xs text-gray-500">min</span>
+              <button type="button" onClick={() => { const n = Number(lengthMin); if (n >= 10) onLength(n) }}
+                className="px-2.5 py-1 rounded-lg bg-gray-700 hover:bg-gray-600 text-xs">Set</button>
+            </div>
+          )}
           {placed?.changed && <button type="button" onClick={onUndoMove} className="mt-1 text-[11px] text-gray-400 hover:text-white">Put it back where Jobber has it</button>}
           {onFindSlot && stop.routable && <button type="button" onClick={onFindSlot} className="mt-1 ml-3 text-[11px] text-emerald-400 hover:text-emerald-300">Find a slot</button>}
         </div>
