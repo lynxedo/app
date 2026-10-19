@@ -1369,6 +1369,21 @@ function RoutingTab() {
         <p>If the panel says <strong className="text-white">&ldquo;No product mappings yet&rdquo;</strong>, an admin needs to map your Jobber line items to products in <Link href="/hub/admin/service-mapping" className="text-orange-400 hover:text-orange-300">Admin → Service Mapping</Link> first. Stops whose job title has no size, or line items with no product mapping, are called out so nothing is silently missed.</p>
       </Section>
 
+      <Section title="Dispatch (appointment-window days)">
+        <p>Flip the toggle to <strong className="text-white">Dispatch</strong> for days with a few stops per tech, several techs, and customers who need to be home — irrigation days, for example. Basic and Advanced stay the tools for long recurring routes.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">One lane per technician.</strong> Pick who shows with <strong className="text-white">👥 Team</strong> (your choice is remembered; your admin sets the starting team). Each lane is a timeline: numbered stop blocks in time order, grey <strong className="text-white">drive bars</strong> with the real drive minutes, hatched <strong className="text-white">gaps</strong>, a hollow dot when the tech leaves the shop and a solid dot when they&apos;re back. A drive bar turns <span className="text-red-400">red</span> when the tech would arrive late for the next stop. The green dashed lines mark the arrival hours (first and last arrival window).</li>
+          <li><strong className="text-white">The map</strong> draws each tech&apos;s real road path in their lane color, with stops numbered to match the lane. The drive home is the thinner line labeled <em>back to shop · N min</em>. Red squares are unscheduled visits, so you can see what&apos;s nearby. Hover any leg for from → to, minutes and miles.</li>
+          <li><strong className="text-white">Drag to move.</strong> Drag a stop left or right to change its time, or into another lane to give it to another tech. Drag an <strong className="text-white">Unscheduled</strong> card, or an <em>anytime</em> chip under a lane, onto a lane to give it a time. Times snap to 15 minutes. On a phone or tablet, tap the stop and use <strong className="text-white">Move</strong> in its panel instead.</li>
+          <li><strong className="text-white">Nothing changes in Jobber until you send.</strong> Every move goes into a draft — changed stops get an orange outline, <strong className="text-white">↶ Undo</strong> steps back one move at a time, and <strong className="text-white">Discard</strong> throws the draft away. The draft is saved, so closing the tab loses nothing, and anyone else who opens that day sees it. <strong className="text-white">Send to Jobber</strong> re-checks every stop in Jobber first: if someone moved or reassigned a stop since you started, it&apos;s held back (not overwritten) and stays in your draft.</li>
+          <li><strong className="text-white">Promised time frames.</strong> Tap a stop and set <strong className="text-white">Promised time frame</strong> (e.g. 10 am – 12 pm) to lock it — the stop turns PROMISED pink, shows 🔒 and a pink bracket under it. Dragging it outside the window snaps it back; choose <strong className="text-white">Move anyway — customer agreed</strong> to move it and its window together. The lock lives in Hub (Jobber can&apos;t store it) and saves right away.</li>
+          <li><strong className="text-white">Jobber&apos;s 2 pm reminders.</strong> Jobber texts and emails customers their time the afternoon before. If you retime tomorrow after that (or today), Send warns you those customers were told the old time, and afterwards gives you a <strong className="text-white">Text new time</strong> button for each — it opens their Txt thread with a message ready for you to check and send.</li>
+          <li><strong className="text-white">Filters</strong> match a stop&apos;s <em>line items</em> (Service calls, Installs, Plan checks…), never its title. Filtered-out stops fade rather than disappear, so the drawn route stays true; <strong className="text-white">Hide $0</strong> fades visits worth nothing. In the Unscheduled list, filters hide cards; sort by <em>Oldest first</em>, <em>Nearest today</em> or <em>Highest $</em>.</li>
+          <li><strong className="text-white">Stop length</strong> comes from Jobber&apos;s start and end time; a stop with no time uses the on-site minutes from <strong className="text-white">Admin → Routing → On-Site Duration</strong> (the same numbers the optimizer uses).</li>
+        </ul>
+        <p className="mt-2 text-gray-400">Coming next: <strong className="text-white">Optimize day</strong> (best order that keeps every promise) and <strong className="text-white">Find a slot</strong> for unscheduled visits, then Week and Month views.</p>
+      </Section>
+
       <Section title="Printing the Route Sheet">
         <p>Click <strong className="text-white">Print Route Sheet</strong> to open a printable version (a new tab in a browser; opens in place inside the iPhone/Android app):</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
@@ -1429,6 +1444,11 @@ function RoutingTab() {
           <div className="border border-gray-700 rounded-xl p-4">
             <p className="text-white font-medium mb-2">Routing Profile Name</p>
             <p>Shown on the printed route sheet header. Set this to your company name or a crew name.</p>
+          </div>
+
+          <div className="border border-gray-700 rounded-xl p-4">
+            <p className="text-white font-medium mb-2">Dispatch</p>
+            <p>Settings for the Dispatch tab; they save as you type. <strong className="text-white">Arrival hours</strong> — when the first arrival window may start and the latest a window may start (Heroes: 8 am and 2 pm). <strong className="text-white">Jobber reminders go out</strong> — the time Jobber sends the day-before reminder (Heroes: 2 pm); retiming after it warns that customers were already told. <strong className="text-white">Default team</strong> — the lanes everyone starts with. <strong className="text-white">Filter chips</strong> — each matches a line-item name (&ldquo;contains&rdquo;) or a stop type, never a job title. <strong className="text-white">Stop colors</strong> — an ordered list, first match wins: line item contains, assigned to, title contains, or has a promised time frame. <strong className="text-white">Where each tech starts and ends</strong> — everyone uses the shop (the Depot above) unless you give them a different start or end address.</p>
           </div>
         </AdminOnly>
       </Section>

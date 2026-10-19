@@ -272,6 +272,16 @@ export default function TxtConversationView({
     .map((row) => unwrap(row.contact))
     .filter((c): c is Contact => Boolean(c))
   const [text, setText] = useState('')
+  // A screen that opens this thread to suggest a message (Dispatch's "text the
+  // new time") leaves it in sessionStorage — never the URL — and the office
+  // reviews it here before sending. Read once, then cleared.
+  useEffect(() => {
+    try {
+      const key = `lynxedo-txt-prefill:${conversation.id}`
+      const prefill = sessionStorage.getItem(key)
+      if (prefill) { sessionStorage.removeItem(key); setText(t => t || prefill) }
+    } catch {}
+  }, [conversation.id])
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
   // Expand/collapse the composer (toolbar toggle, mirrors the Hub composer).

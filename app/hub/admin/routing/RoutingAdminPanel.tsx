@@ -8,6 +8,7 @@ import {
   EMPTY_PIN_SETTINGS, MAX_BASE_PROGRAMS, MAX_AUX_PROGRAMS, MAX_HALO_ARCS, PIN_COLOR_PALETTE,
   type PinSettings, type PinProgram, type MatchType,
 } from '@/lib/pin-colors'
+import DispatchSettingsSection from './DispatchSettingsSection'
 
 interface Settings {
   display_name: string | null
@@ -835,6 +836,9 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
           </div>
         )}
       </section>
+
+      {/* Dispatch (appointment-window days) — its own settings; reuses the depot + minutes above */}
+      <DispatchSettingsSection />
     </div>
   )
 }

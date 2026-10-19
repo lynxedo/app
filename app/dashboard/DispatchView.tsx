@@ -1,0 +1,1097 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
+import { fetchLeg, type Leg, type LatLng } from '@/lib/dispatch-legs'
+import { computeDuration } from '@/lib/route-duration'
+import type { DurationRulesConfig } from '@/app/api/settings/types'
+import {
+  type DispatchSettings, type DispatchStop, type DispatchLock, type DraftChange,
+  DEFAULT_DISPATCH_SETTINGS, LANE_COLORS, addDays, fmtClock, hhmmToMinutes, isoToLocal,
+  localStamp, localToIso, remindersAlreadySent, stopColor, stopMatchesGroup, todayLocal,
+} from '@/lib/dispatch'
+
+// Dispatch — the third routing mode (Reference/PRDs/DISPATCH_ROUTING_PRD.md),
+// for appointment-window days: a few stops per tech, several techs, customers
+// who need to be home. One lane per technician on a timeline, the real drive
+// path on the map, the Unscheduled bucket, and drag to retime / reassign /
+// schedule. Moves build a saved DRAFT (undoable); "Send to Jobber" re-checks
+// each stop live and writes through the Route Optimizer's own writer
+// (/api/send-to-jobber). Jobber stays the schedule of record.
+
+interface JobberUser { id: string; name: string }
+
+interface TechSettingRow {
+  jobber_user_id: string
+  start_kind: 'depot' | 'address'; start_lat: number | null; start_lng: number | null; start_address: string | null
+  end_kind: 'depot' | 'address'; end_lat: number | null; end_lng: number | null; end_address: string | null
+}
+
+interface DayData {
+  date: string
+  stops: DispatchStop[]
+  locks: DispatchLock[]
+  errors: Array<{ techId: string; error: string }>
+  truncated: boolean
+  draft: { changes: DraftChange[]; updatedByName: string | null; updatedAt: string; mine: boolean } | null
+  depot: { lat: number; lng: number; address: string | null } | null
+  duration: { method: string; defaultMinutes: number; rules: DurationRulesConfig }
+  settings: DispatchSettings
+  techSettings: TechSettingRow[]
+}
+
+interface Placed {
+  stop: DispatchStop
+  lane: string
+  startMin: number | null   // null = anytime / not on the clock
+  endMin: number | null
+  durationMin: number
+  changed: boolean
+  fromBucket: boolean
+  lock: { startMin: number; endMin: number } | null
+  color: string
+  dim: boolean               // filtered out — kept on the route so the drive stays true
+}
+
+interface LaneRoute {
+  techId: string
+  start: LatLng | null
+  end: LatLng | null
+  timed: Placed[]            // routable, on the clock, in time order — numbered 1..n
+  tray: Placed[]             // anytime or no address
+  legs: Leg[] | null         // start→1, 1→2, … n→end
+}
+
+const SNAP = 15
+const LS_TEAM = 'lynxedo-dispatch-team'
+const LS_FILTERS = 'lynxedo-dispatch-filters'
+
+const minutesOf = (local: string) => Number(local.slice(11, 13)) * 60 + Number(local.slice(14, 16))
+const money = (n: number) => `$${Math.round(n).toLocaleString()}`
+
+function haversineMi(a: LatLng, b: LatLng): number {
+  const R = 3958.8, r = Math.PI / 180
+  const x = Math.sin((b.lat - a.lat) * r / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin((b.lng - a.lng) * r / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(x))
+}
+
+function readLS<T>(key: string, fallback: T): T {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) as T : fallback } catch { return fallback }
+}
+function writeLS(key: string, v: unknown) { try { localStorage.setItem(key, JSON.stringify(v)) } catch {} }
+
+export default function DispatchView() {
+  const router = useRouter()
+  const [date, setDate] = useState(() => todayLocal())
+  const [users, setUsers] = useState<JobberUser[]>([])
+  const [team, setTeam] = useState<string[] | null>(null)
+  const [teamOpen, setTeamOpen] = useState(false)
+
+  const [day, setDay] = useState<DayData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const [bucket, setBucket] = useState<DispatchStop[]>([])
+  const [bucketLoading, setBucketLoading] = useState(false)
+  const [bucketError, setBucketError] = useState<string | null>(null)
+  const [bucketSort, setBucketSort] = useState<'oldest' | 'value' | 'nearest'>('oldest')
+  const [bucketSearch, setBucketSearch] = useState('')
+  const [bucketTeamOnly, setBucketTeamOnly] = useState(true)
+  const [bucketAt, setBucketAt] = useState(0)
+
+  const [coords, setCoords] = useState<Record<string, LatLng | null>>({})
+  const [changes, setChanges] = useState<DraftChange[]>([])
+  const historyRef = useRef<DraftChange[][]>([])
+  const [canUndo, setCanUndo] = useState(false)
+  const [locks, setLocks] = useState<Record<string, DispatchLock>>({})
+
+  const [filters, setFilters] = useState<{ groups: string[]; hideZero: boolean }>({ groups: [], hideZero: false })
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [windowPrompt, setWindowPrompt] = useState<null | { stopId: string; lane: string; startMin: number; lock: { startMin: number; endMin: number } }>(null)
+  const [routes, setRoutes] = useState<Record<string, Leg[]>>({})
+
+  const [sendOpen, setSendOpen] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [sendReport, setSendReport] = useState<null | {
+    ok: Array<{ change: DraftChange; remind: boolean }>
+    failed: Array<{ change: DraftChange; error: string }>
+    conflicts: Array<{ change: DraftChange; reason: string }>
+    unchecked: number
+  }>(null)
+
+  const settings = day?.settings ?? DEFAULT_DISPATCH_SETTINGS
+  const viewStart = hhmmToMinutes(settings.view_start)
+  const viewEnd = Math.max(viewStart + 60, hhmmToMinutes(settings.view_end))
+  const span = viewEnd - viewStart
+
+  // ── Load: users, team, filters ────────────────────────────────────────────
+  useEffect(() => {
+    fetch('/api/users?include_all=1').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
+    setFilters(readLS(LS_FILTERS, { groups: [], hideZero: false }))
+    const saved = readLS<string[] | null>(LS_TEAM, null)
+    if (saved && saved.length) setTeam(saved)
+    else {
+      // No personal choice yet — use the company default from Dispatch settings.
+      fetch('/api/hub/routing/dispatch/settings').then(r => r.json())
+        .then(d => setTeam((d.settings?.default_team as string[] | undefined) ?? []))
+        .catch(() => setTeam([]))
+    }
+  }, [])
+
+  const userName = useCallback((id: string) => users.find(u => u.id === id)?.name ?? 'Unknown tech', [users])
+
+  const loadDay = useCallback(async () => {
+    if (!team || team.length === 0) { setDay(null); return }
+    setLoading(true); setLoadError(null)
+    try {
+      const res = await fetch(`/api/hub/routing/dispatch/day?date=${date}&techIds=${encodeURIComponent(team.join(','))}`)
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || `Couldn't load the day (${res.status})`)
+      setDay(d as DayData)
+      setChanges((d as DayData).draft?.changes ?? [])
+      historyRef.current = []
+      setCanUndo(false)
+      const lm: Record<string, DispatchLock> = {}
+      for (const l of (d as DayData).locks) lm[l.jobber_item_id] = l
+      setLocks(lm)
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Load failed')
+    } finally {
+      setLoading(false)
+    }
+  }, [date, team])
+
+  useEffect(() => { void loadDay() }, [loadDay])
+
+  const loadBucket = useCallback(async (refresh = false) => {
+    setBucketLoading(true); setBucketError(null)
+    try {
+      const res = await fetch(`/api/hub/routing/dispatch/unscheduled${refresh ? '?refresh=1' : ''}`)
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Could not load unscheduled visits')
+      setBucket(d.stops ?? [])
+      setBucketAt(Date.now())
+    } catch (e) {
+      setBucketError(e instanceof Error ? e.message : 'Load failed')
+    } finally {
+      setBucketLoading(false)
+    }
+  }, [])
+  useEffect(() => { void loadBucket() }, [loadBucket])
+
+  // ── Geocode every address we show (server geocoder + cache, same as the optimizer)
+  useEffect(() => {
+    const want = new Set<string>()
+    for (const s of day?.stops ?? []) if (s.routable && s.address && !(s.address in coords)) want.add(s.address)
+    for (const s of bucket) if (s.routable && s.address && !(s.address in coords)) want.add(s.address)
+    const list = [...want]
+    if (list.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      for (let i = 0; i < list.length; i += 40) {
+        const chunk = list.slice(i, i + 40)
+        try {
+          const res = await fetch('/api/geocode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ addresses: chunk }) })
+          const d = await res.json()
+          if (cancelled) return
+          const got: Record<string, LatLng | null> = {}
+          chunk.forEach((a, j) => { got[a] = d.coords?.[j] ?? null })
+          setCoords(prev => ({ ...prev, ...got }))
+        } catch {
+          if (cancelled) return
+          const got: Record<string, LatLng | null> = {}
+          chunk.forEach(a => { got[a] = null })
+          setCoords(prev => ({ ...prev, ...got }))
+        }
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day, bucket])
+
+  // ── Draft persistence ─────────────────────────────────────────────────────
+  const saveTimer = useRef<number | null>(null)
+  const saveDraft = useCallback((next: DraftChange[]) => {
+    if (saveTimer.current) window.clearTimeout(saveTimer.current)
+    saveTimer.current = window.setTimeout(() => {
+      fetch('/api/hub/routing/dispatch/draft', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, changes: next }),
+      }).then(r => { if (!r.ok) setNotice("Couldn't save the draft — your changes are still on screen; try again.") })
+        .catch(() => setNotice("Couldn't save the draft — check your connection."))
+    }, 350)
+  }, [date])
+
+  const commit = useCallback((next: DraftChange[]) => {
+    historyRef.current.push(changes)
+    if (historyRef.current.length > 100) historyRef.current.shift()
+    setCanUndo(true)
+    setChanges(next)
+    saveDraft(next)
+  }, [changes, saveDraft])
+
+  const undo = () => {
+    const prev = historyRef.current.pop()
+    if (prev === undefined) return
+    setCanUndo(historyRef.current.length > 0)
+    setChanges(prev)
+    saveDraft(prev)
+  }
+
+  const discard = () => {
+    if (!window.confirm(`Throw away ${changes.length} unsent change${changes.length === 1 ? '' : 's'}? Jobber hasn't been changed.`)) return
+    commit([])
+  }
+
+  // ── Derived: where every stop sits ────────────────────────────────────────
+  const changeById = useMemo(() => new Map(changes.map(c => [c.id, c])), [changes])
+  const bucketById = useMemo(() => new Map(bucket.map(s => [s.id, s])), [bucket])
+  const teamList = useMemo(() => team ?? [], [team])
+  const laneColor = useCallback((techId: string) => LANE_COLORS[Math.max(0, teamList.indexOf(techId)) % LANE_COLORS.length], [teamList])
+
+  const estimate = useCallback((s: DispatchStop) => {
+    if (!day) return 30
+    return computeDuration(s.lineItemNames, s.title, s.kind, day.duration.method, day.duration.rules, day.duration.defaultMinutes).minutes
+  }, [day])
+
+  const filteredOut = useCallback((s: DispatchStop) => {
+    if (filters.hideZero && s.kind === 'visit' && Math.abs(s.totalPrice) < 0.005) return true
+    const active = settings.filter_groups.filter(g => filters.groups.includes(g.id))
+    if (active.length && !active.some(g => stopMatchesGroup(s, g))) return true
+    return false
+  }, [filters, settings.filter_groups])
+
+  const lockFor = useCallback((s: DispatchStop, ch: DraftChange | undefined): { startMin: number; endMin: number } | null => {
+    if (ch?.newLock) return { startMin: minutesOf(ch.newLock.start), endMin: minutesOf(ch.newLock.end) }
+    const l = locks[s.id]
+    if (!l) return null
+    const a = isoToLocal(l.window_start), b = isoToLocal(l.window_end)
+    if (a.date !== date) return null
+    return { startMin: a.minutes, endMin: b.date === date ? b.minutes : 24 * 60 }
+  }, [locks, date])
+
+  const placed: Placed[] = useMemo(() => {
+    if (!day) return []
+    const out: Placed[] = []
+    const place = (s: DispatchStop, fromBucket: boolean) => {
+      const ch = changeById.get(s.id)
+      const lane = ch ? ch.toTechId : (teamList.find(t => s.techIds.includes(t)) ?? s.techIds[0] ?? '')
+      let startMin: number | null = null, endMin: number | null = null
+      if (ch) { startMin = minutesOf(ch.toStart); endMin = minutesOf(ch.toEnd) }
+      else if (s.startAt && !s.allDay) {
+        const a = isoToLocal(s.startAt)
+        // A midnight start is Jobber's anytime placeholder (and the only signal
+        // if the allDay field is ever unavailable) — never a real appointment.
+        if (a.date === date && a.minutes > 0) {
+          startMin = a.minutes
+          endMin = s.endAt ? isoToLocal(s.endAt).minutes : null
+          if (endMin === null || endMin <= startMin) endMin = startMin + estimate(s)
+        }
+      }
+      const lock = lockFor(s, ch)
+      out.push({
+        stop: s, lane, startMin, endMin,
+        durationMin: startMin !== null && endMin !== null ? endMin - startMin : estimate(s),
+        changed: !!ch, fromBucket, lock,
+        color: stopColor(s, settings.color_rules, !!lock),
+        dim: filteredOut(s),
+      })
+    }
+    for (const s of day.stops) place(s, false)
+    for (const c of changes) {
+      if (day.stops.some(s => s.id === c.id)) continue
+      const b = bucketById.get(c.id)
+      // A bucket card scheduled in the draft. If the bucket hasn't loaded (or the
+      // visit left it), rebuild enough of it from the change to keep it on screen.
+      place(b ?? {
+        id: c.id, kind: c.kind, clientName: c.clientName, phone: c.phone, address: '', routable: false,
+        title: c.clientName, lineItemNames: [], totalPrice: 0, instructions: null, startAt: null, endAt: null,
+        allDay: true, isComplete: false, arrivalStart: null, arrivalEnd: null, techIds: c.fromTechIds,
+      }, true)
+    }
+    return out
+  }, [day, changes, changeById, bucketById, teamList, date, estimate, lockFor, settings.color_rules, filteredOut])
+
+  const startEndFor = useCallback((techId: string): { start: LatLng | null; end: LatLng | null } => {
+    const depot = day?.depot ? { lat: day.depot.lat, lng: day.depot.lng } : null
+    const t = day?.techSettings.find(x => x.jobber_user_id === techId)
+    const start = t?.start_kind === 'address' && t.start_lat != null && t.start_lng != null ? { lat: t.start_lat, lng: t.start_lng } : depot
+    const end = t?.end_kind === 'address' && t.end_lat != null && t.end_lng != null ? { lat: t.end_lat, lng: t.end_lng } : depot
+    return { start, end }
+  }, [day])
+
+  const lanes: LaneRoute[] = useMemo(() => teamList.map(techId => {
+    const mine = placed.filter(p => p.lane === techId)
+    const timed = mine
+      .filter(p => p.startMin !== null && p.stop.routable && coords[p.stop.address])
+      .sort((a, b) => (a.startMin! - b.startMin!))
+    const tray = mine.filter(p => !timed.includes(p))
+    const { start, end } = startEndFor(techId)
+    return { techId, start, end, timed, tray, legs: routes[techId] ?? null }
+  }), [teamList, placed, coords, startEndFor, routes])
+
+  // ── Road legs per lane ────────────────────────────────────────────────────
+  const legKey = useMemo(() => lanes.map(l => {
+    const pts = [l.start, ...l.timed.map(p => coords[p.stop.address]), l.end]
+    return `${l.techId}:${pts.map(p => p ? `${p.lat.toFixed(5)},${p.lng.toFixed(5)}` : 'x').join(';')}`
+  }).join('|'), [lanes, coords])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const next: Record<string, Leg[]> = {}
+      await Promise.all(lanes.map(async l => {
+        const pts: LatLng[] = []
+        if (l.start) pts.push(l.start)
+        for (const p of l.timed) { const c = coords[p.stop.address]; if (c) pts.push(c) }
+        if (l.end && l.timed.length) pts.push(l.end)
+        if (pts.length < 2) { next[l.techId] = []; return }
+        const legs: Leg[] = []
+        for (let i = 0; i < pts.length - 1; i++) legs.push(await fetchLeg(pts[i], pts[i + 1]))
+        next[l.techId] = legs
+      }))
+      if (!cancelled) setRoutes(next)
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legKey])
+
+  // ── Moves ─────────────────────────────────────────────────────────────────
+  const findStop = useCallback((id: string): { stop: DispatchStop; fromBucket: boolean } | null => {
+    const s = day?.stops.find(x => x.id === id)
+    if (s) return { stop: s, fromBucket: false }
+    const p = placed.find(x => x.stop.id === id)
+    if (p) return { stop: p.stop, fromBucket: p.fromBucket }
+    const b = bucketById.get(id)
+    return b ? { stop: b, fromBucket: true } : null
+  }, [day, placed, bucketById])
+
+  const applyMove = useCallback((stopId: string, lane: string, rawStart: number, opts: { overrideWindow?: boolean } = {}) => {
+    const found = findStop(stopId)
+    if (!found) return
+    const { stop } = found
+    if (stop.isComplete) { setNotice('That stop is already completed in Jobber.'); return }
+    const startMin = Math.max(0, Math.min(24 * 60 - SNAP, Math.round(rawStart / SNAP) * SNAP))
+    const p = placed.find(x => x.stop.id === stopId)
+    const duration = p?.durationMin ?? estimate(stop)
+    const existing = changeById.get(stopId)
+    const lock = p?.lock ?? lockFor(stop, existing)
+
+    let newLock = existing?.newLock ?? null
+    if (lock && (startMin < lock.startMin || startMin >= lock.endMin)) {
+      if (!opts.overrideWindow) { setWindowPrompt({ stopId, lane, startMin, lock }); return }
+      // "Move anyway — customer agreed": the promise moves with the stop.
+      const delta = startMin - (p?.startMin ?? lock.startMin)
+      const len = lock.endMin - lock.startMin
+      const ns = p?.startMin != null ? lock.startMin + delta : startMin
+      newLock = { start: localStamp(date, ns), end: localStamp(date, ns + len) }
+    }
+
+    const arrivalFirst = hhmmToMinutes(settings.arrival_first), arrivalLast = hhmmToMinutes(settings.arrival_last)
+    if (startMin < arrivalFirst || startMin > arrivalLast) {
+      setNotice(`Heads up: ${fmtClock(startMin)} is outside the arrival hours (${fmtClock(arrivalFirst)} – ${fmtClock(arrivalLast)}). It's in the draft anyway.`)
+    } else setNotice(null)
+
+    const change: DraftChange = {
+      id: stop.id,
+      kind: stop.kind,
+      clientName: stop.clientName,
+      phone: stop.phone,
+      fromStartAt: existing ? existing.fromStartAt : stop.startAt,
+      fromTechIds: existing ? existing.fromTechIds : stop.techIds,
+      toStart: localStamp(date, startMin),
+      toEnd: localStamp(date, startMin + Math.max(SNAP, duration)),
+      toTechId: lane,
+      newLock,
+      at: new Date().toISOString(),
+    }
+    // Dropped exactly back where Jobber has it → no change at all.
+    const backHome = !stop.allDay && stop.startAt && isoToLocal(stop.startAt).date === date
+      && isoToLocal(stop.startAt).minutes === startMin && stop.techIds.includes(lane) && !newLock
+    const rest = changes.filter(c => c.id !== stopId)
+    commit(backHome ? rest : [...rest, change])
+  }, [findStop, placed, estimate, changeById, lockFor, date, settings.arrival_first, settings.arrival_last, changes, commit])
+
+  // Drag and drop (desktop). Touch / keyboard users move a stop from its panel.
+  const dragRef = useRef<{ id: string; grabMin: number } | null>(null)
+  const onDragStartStop = (e: React.DragEvent, id: string, grabMin: number) => {
+    dragRef.current = { id, grabMin }
+    e.dataTransfer.effectAllowed = 'move'
+    try { e.dataTransfer.setData('text/plain', id) } catch {}
+  }
+  const onDropLane = (e: React.DragEvent<HTMLDivElement>, lane: string) => {
+    e.preventDefault()
+    const d = dragRef.current
+    dragRef.current = null
+    if (!d) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const min = viewStart + ((e.clientX - rect.left) / rect.width) * span - d.grabMin
+    applyMove(d.id, lane, min)
+  }
+
+  // ── Locks (Hub-only, saved immediately) ───────────────────────────────────
+  const saveLock = async (s: DispatchStop, startHHMM: string, endHHMM: string) => {
+    const res = await fetch('/api/hub/routing/dispatch/locks', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jobberItemId: s.id, kind: s.kind,
+        windowStart: localToIso(`${date}T${startHHMM}:00`), windowEnd: localToIso(`${date}T${endHHMM}:00`),
+      }),
+    })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) { setNotice(d.error || 'Could not lock the time frame'); return }
+    setLocks(prev => ({ ...prev, [s.id]: d.lock }))
+  }
+  const removeLock = async (s: DispatchStop) => {
+    const res = await fetch(`/api/hub/routing/dispatch/locks?id=${encodeURIComponent(s.id)}`, { method: 'DELETE' })
+    if (!res.ok) { setNotice('Could not unlock'); return }
+    setLocks(prev => { const n = { ...prev }; delete n[s.id]; return n })
+  }
+
+  // ── Send to Jobber ────────────────────────────────────────────────────────
+  const remindersOut = remindersAlreadySent(date, settings.reminder_cutoff)
+  const toldCustomer = (c: DraftChange) => {
+    if (!c.fromStartAt) return false
+    const was = isoToLocal(c.fromStartAt)
+    return !(was.date === date && was.minutes === minutesOf(c.toStart))
+  }
+
+  const send = async () => {
+    setSending(true)
+    try {
+      const checkRes = await fetch('/api/hub/routing/dispatch/check', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: changes.map(c => ({ id: c.id, kind: c.kind, fromStartAt: c.fromStartAt, fromTechIds: c.fromTechIds })) }),
+      })
+      const check = await checkRes.json()
+      if (!checkRes.ok) throw new Error(check.error || 'Could not check Jobber before sending')
+      const conflictMap = new Map<string, string>((check.conflicts ?? []).map((c: { id: string; reason: string }) => [c.id, c.reason]))
+      const toSend = changes.filter(c => !conflictMap.has(c.id))
+
+      // /api/send-to-jobber reassigns every item in a call to one tech, so group
+      // by "reassign to X" vs "keep who's on it".
+      const groups = new Map<string, DraftChange[]>()
+      for (const c of toSend) {
+        const k = c.fromTechIds.includes(c.toTechId) ? '__keep__' : c.toTechId
+        groups.set(k, [...(groups.get(k) ?? []), c])
+      }
+      const ok: Array<{ change: DraftChange; remind: boolean }> = []
+      const failed: Array<{ change: DraftChange; error: string }> = []
+      for (const [k, list] of groups) {
+        const res = await fetch('/api/send-to-jobber', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            visits: list.map(c => ({ visitId: c.id, startAt: c.toStart, endAt: c.toEnd, type: c.kind })),
+            assignedUserId: k === '__keep__' ? null : k,
+          }),
+        })
+        const d = await res.json().catch(() => ({}))
+        if (!res.ok) { for (const c of list) failed.push({ change: c, error: d.error || `Jobber send failed (${res.status})` }); continue }
+        const byId = new Map<string, { success: boolean; error?: string }>((d.results ?? []).map((r: { visitId: string; success: boolean; error?: string }) => [r.visitId, r]))
+        for (const c of list) {
+          const r = byId.get(c.id)
+          if (r?.success) ok.push({ change: c, remind: remindersOut && toldCustomer(c) })
+          else failed.push({ change: c, error: r?.error ?? 'No result from Jobber' })
+        }
+      }
+
+      // A promise that moved with the stop ("customer agreed") is saved once Jobber has the move.
+      for (const { change } of ok) {
+        if (!change.newLock) continue
+        await fetch('/api/hub/routing/dispatch/locks', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobberItemId: change.id, kind: change.kind, windowStart: localToIso(change.newLock.start), windowEnd: localToIso(change.newLock.end) }),
+        }).catch(() => {})
+      }
+
+      const sentIds = new Set(ok.map(o => o.change.id))
+      const remaining = changes.filter(c => !sentIds.has(c.id))
+      historyRef.current = []
+      setCanUndo(false)
+      setChanges(remaining)
+      await fetch('/api/hub/routing/dispatch/draft', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, changes: remaining }),
+      }).catch(() => {})
+
+      setSendReport({
+        ok, failed,
+        conflicts: changes.filter(c => conflictMap.has(c.id)).map(c => ({ change: c, reason: conflictMap.get(c.id)! })),
+        unchecked: (check.unchecked ?? []).length,
+      })
+      setSendOpen(false)
+      await Promise.all([loadDay(), loadBucket(true)])
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Send failed')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const textNewTime = async (c: DraftChange) => {
+    if (!c.phone) return
+    const first = c.clientName.split(' ')[0] || 'there'
+    const dayLabel = new Date(`${c.toStart.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' })
+    const body = `Hi ${first}, a quick update on your service visit: we now plan to arrive ${dayLabel} around ${fmtClock(minutesOf(c.toStart))}. Reply here if that doesn't work for you.`
+    try {
+      const res = await fetch('/api/txt/conversations/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: c.phone, name: c.clientName }),
+      })
+      const d = await res.json()
+      if (!res.ok || !d.conversation_id) throw new Error()
+      try { sessionStorage.setItem(`lynxedo-txt-prefill:${d.conversation_id}`, body) } catch {}
+      router.push(`/hub/txt/${d.conversation_id}`)
+    } catch {
+      setNotice("Couldn't open a text thread for that customer.")
+    }
+  }
+
+  // ── Bucket view ───────────────────────────────────────────────────────────
+  const dayCentroids = useMemo(() => placed.map(p => coords[p.stop.address]).filter((c): c is LatLng => !!c), [placed, coords])
+  const bucketShown = useMemo(() => {
+    const q = bucketSearch.trim().toLowerCase()
+    const list = bucket.filter(s => {
+      if (changeById.has(s.id)) return false
+      if (filteredOut(s)) return false
+      if (bucketTeamOnly && teamList.length && !s.techIds.some(t => teamList.includes(t))) return false
+      if (q && !`${s.clientName} ${s.address} ${s.title} ${s.lineItemNames.join(' ')}`.toLowerCase().includes(q)) return false
+      return true
+    })
+    const near = (s: DispatchStop) => {
+      const c = coords[s.address]
+      if (!c || dayCentroids.length === 0) return Infinity
+      return Math.min(...dayCentroids.map(d => haversineMi(c, d)))
+    }
+    if (bucketSort === 'value') list.sort((a, b) => b.totalPrice - a.totalPrice)
+    else if (bucketSort === 'nearest') list.sort((a, b) => near(a) - near(b))
+    else list.sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
+    return list.map(s => ({ s, miles: near(s) }))
+  }, [bucket, changeById, filteredOut, bucketTeamOnly, teamList, bucketSearch, bucketSort, coords, dayCentroids])
+
+  // ── Map data ──────────────────────────────────────────────────────────────
+  const mapStops: DispatchMapStop[] = useMemo(() => {
+    const out: DispatchMapStop[] = []
+    for (const l of lanes) {
+      l.timed.forEach((p, i) => {
+        const c = coords[p.stop.address]!
+        out.push({
+          id: p.stop.id, lat: c.lat, lng: c.lng, label: String(i + 1), color: laneColor(l.techId),
+          fill: p.dim ? '#94a3b8' : p.color, locked: !!p.lock, title: p.stop.clientName, subtitle: p.stop.address,
+          meta: `${userName(l.techId)} · ${fmtClock(p.startMin!)}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}`,
+        })
+      })
+      for (const p of l.tray) {
+        const c = coords[p.stop.address]
+        if (!c) continue
+        out.push({
+          id: p.stop.id, lat: c.lat, lng: c.lng, label: '', color: laneColor(l.techId), fill: p.dim ? '#94a3b8' : p.color,
+          locked: !!p.lock, title: p.stop.clientName, subtitle: p.stop.address, meta: `${userName(l.techId)} · anytime`,
+        })
+      }
+    }
+    return out
+  }, [lanes, coords, laneColor, userName])
+
+  const mapLegs: DispatchMapLeg[] = useMemo(() => {
+    const out: DispatchMapLeg[] = []
+    for (const l of lanes) {
+      if (!l.legs) continue
+      const names = [l.start ? 'Shop' : null, ...l.timed.map((p, i) => `${i + 1}. ${p.stop.clientName}`), 'Shop'].filter((x): x is string => !!x)
+      l.legs.forEach((leg, i) => {
+        const isReturn = i === l.legs!.length - 1 && !!l.end && l.timed.length > 0
+        out.push({
+          coords: leg.coords, color: laneColor(l.techId), isReturn,
+          label: isReturn ? `back to shop · ${leg.minutes} min` : '',
+          tooltip: `${names[i] ?? ''} → ${names[i + 1] ?? ''} · ${leg.minutes} min · ${leg.miles} mi${leg.estimated ? ' (estimate)' : ''}`,
+        })
+      })
+    }
+    return out
+  }, [lanes, laneColor])
+
+  const mapUnscheduled = useMemo(() => bucketShown.slice(0, 150).flatMap(({ s }) => {
+    const c = coords[s.address]
+    return c ? [{ id: s.id, lat: c.lat, lng: c.lng, title: s.clientName, subtitle: s.address }] : []
+  }), [bucketShown, coords])
+
+  const depots = useMemo(() => {
+    const out: Array<{ lat: number; lng: number; label: string }> = []
+    if (day?.depot) out.push({ lat: day.depot.lat, lng: day.depot.lng, label: 'Shop' })
+    for (const l of lanes) for (const p of [l.start, l.end]) {
+      if (p && !out.some(d => d.lat === p.lat && d.lng === p.lng)) out.push({ ...p, label: `${userName(l.techId)} start/end` })
+    }
+    return out
+  }, [day, lanes, userName])
+
+  const selected = selectedId ? (placed.find(p => p.stop.id === selectedId) ?? null) : null
+  const selectedBucket = selectedId && !selected ? bucketById.get(selectedId) ?? null : null
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const pct = (m: number) => `${((m - viewStart) / span) * 100}%`
+  const width = (m: number) => `${(m / span) * 100}%`
+  const hours: number[] = []
+  for (let h = Math.ceil(viewStart / 60) * 60; h <= viewEnd; h += 60) hours.push(h)
+  const nowMin = date === todayLocal() ? isoToLocal(new Date().toISOString()).minutes : null
+  const arrivalFirst = hhmmToMinutes(settings.arrival_first), arrivalLast = hhmmToMinutes(settings.arrival_last)
+
+  const toggleTeam = (id: string) => {
+    const next = teamList.includes(id) ? teamList.filter(x => x !== id) : [...teamList, id]
+    setTeam(next); writeLS(LS_TEAM, next)
+  }
+  const setFilter = (next: { groups: string[]; hideZero: boolean }) => { setFilters(next); writeLS(LS_FILTERS, next) }
+
+  return (
+    <div className="space-y-4">
+      {/* Top bar */}
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setDate(addDays(date, -1))} className="px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" aria-label="Previous day">←</button>
+          <input type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm" />
+          <button type="button" onClick={() => setDate(addDays(date, 1))} className="px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" aria-label="Next day">→</button>
+          <button type="button" onClick={() => setDate(todayLocal())} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm">Today</button>
+
+          <div className="relative">
+            <button type="button" onClick={() => setTeamOpen(o => !o)} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm">
+              👥 Team ({teamList.length})
+            </button>
+            {teamOpen && (
+              <div className="absolute z-30 mt-1 w-64 max-h-80 overflow-auto bg-gray-900 border border-gray-700 rounded-xl shadow-xl p-2">
+                {users.length === 0 && <div className="text-xs text-gray-500 p-2">Loading technicians…</div>}
+                {users.map(u => (
+                  <label key={u.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-800 text-sm cursor-pointer">
+                    <input type="checkbox" checked={teamList.includes(u.id)} onChange={() => toggleTeam(u.id)} />
+                    {teamList.includes(u.id) && <span className="w-2.5 h-2.5 rounded-full" style={{ background: laneColor(u.id) }} />}
+                    {u.name}
+                  </label>
+                ))}
+                <button type="button" onClick={() => setTeamOpen(false)} className="mt-1 w-full text-xs text-gray-400 hover:text-white py-1">Done</button>
+              </div>
+            )}
+          </div>
+
+          <button type="button" onClick={() => { void loadDay(); void loadBucket(true) }} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" title="Re-read from Jobber">↻ Refresh</button>
+          {loading && <span className="text-xs text-gray-500">Loading from Jobber…</span>}
+        </div>
+
+        {/* Filter chips — line items, never titles */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {settings.filter_groups.map(g => {
+            const on = filters.groups.includes(g.id)
+            return (
+              <button key={g.id} type="button"
+                onClick={() => setFilter({ ...filters, groups: on ? filters.groups.filter(x => x !== g.id) : [...filters.groups, g.id] })}
+                className={`px-2.5 py-1 rounded-full text-xs border ${on ? 'bg-orange-500 border-orange-500 text-[#fff]' : 'border-gray-700 text-gray-300 hover:border-gray-500'}`}>
+                {g.label}
+              </button>
+            )
+          })}
+          <button type="button" onClick={() => setFilter({ ...filters, hideZero: !filters.hideZero })}
+            className={`px-2.5 py-1 rounded-full text-xs border ${filters.hideZero ? 'bg-orange-500 border-orange-500 text-[#fff]' : 'border-gray-700 text-gray-300 hover:border-gray-500'}`}>
+            Hide $0
+          </button>
+          {settings.filter_groups.length === 0 && <span className="text-xs text-gray-500">Filter chips are set up in Admin → Routing → Dispatch.</span>}
+        </div>
+      </div>
+
+      {/* Draft bar */}
+      {(changes.length > 0 || day?.draft) && (
+        <div className="sticky top-0 z-20 bg-gray-900/95 backdrop-blur border border-orange-500/50 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">
+            {changes.length} unsent change{changes.length === 1 ? '' : 's'}
+          </span>
+          {day?.draft && !day.draft.mine && day.draft.updatedByName && changes.length > 0 && (
+            <span className="text-xs text-amber-400">— started by {day.draft.updatedByName}</span>
+          )}
+          <span className="text-xs text-gray-500">Nothing changes in Jobber until you send.</span>
+          <div className="ml-auto flex gap-2">
+            <button type="button" onClick={undo} disabled={!canUndo} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm disabled:opacity-40">↶ Undo</button>
+            <button type="button" onClick={discard} disabled={changes.length === 0} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm disabled:opacity-40">Discard</button>
+            <button type="button" onClick={() => setSendOpen(true)} disabled={changes.length === 0} className="px-4 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-sm font-medium disabled:opacity-40">
+              Send to Jobber ({changes.length})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {notice && (
+        <div className="bg-amber-900/30 border border-amber-700 text-amber-200 rounded-xl px-4 py-2 text-sm flex items-start gap-3">
+          <span className="flex-1">{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} className="text-amber-400 hover:text-white" aria-label="Dismiss">✕</button>
+        </div>
+      )}
+      {loadError && <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-xl px-4 py-2 text-sm">{loadError}</div>}
+      {day?.errors.map(e => (
+        <div key={e.techId} className="bg-red-900/30 border border-red-800 text-red-300 rounded-xl px-4 py-2 text-sm">
+          Couldn&apos;t load {userName(e.techId)}&apos;s day from Jobber: {e.error}
+        </div>
+      ))}
+      {day && !day.depot && (
+        <div className="bg-amber-900/30 border border-amber-700 text-amber-200 rounded-xl px-4 py-2 text-sm">
+          No shop address is set, so lanes have no start or end point. Set it in Admin → Routing.
+        </div>
+      )}
+
+      {sendReport && (
+        <div className="bg-gray-900 border border-gray-700 rounded-2xl p-4 space-y-2 text-sm">
+          <div className="flex items-center">
+            <span className="font-semibold">Sent to Jobber: {sendReport.ok.length} ✓{sendReport.failed.length ? ` · ${sendReport.failed.length} failed` : ''}{sendReport.conflicts.length ? ` · ${sendReport.conflicts.length} held back` : ''}</span>
+            <button type="button" onClick={() => setSendReport(null)} className="ml-auto text-gray-500 hover:text-white" aria-label="Close">✕</button>
+          </div>
+          {sendReport.conflicts.map(({ change, reason }) => (
+            <div key={change.id} className="text-amber-300">
+              ⚠ {change.clientName} — held back: {reason === 'moved' ? 'someone moved it in Jobber since this draft was made' : reason === 'reassigned' ? 'someone reassigned it in Jobber since' : reason === 'completed' ? "it's been completed" : "it's no longer in Jobber"}. It&apos;s still in your draft — refresh and move it again.
+            </div>
+          ))}
+          {sendReport.failed.map(({ change, error }) => (
+            <div key={change.id} className="text-red-300">✕ {change.clientName}: {error} (still in your draft)</div>
+          ))}
+          {sendReport.unchecked > 0 && <div className="text-xs text-gray-500">{sendReport.unchecked} assessment/task change(s) were sent without the live re-check (Jobber has no quick way to read those back).</div>}
+          {sendReport.ok.some(o => o.remind) && (
+            <div className="border-t border-gray-800 pt-2 space-y-1">
+              <div className="text-amber-300">Jobber&apos;s reminders already went out for this day, so these customers were told the old time:</div>
+              {sendReport.ok.filter(o => o.remind).map(({ change }) => (
+                <div key={change.id} className="flex items-center gap-2">
+                  <span className="flex-1">{change.clientName} — told {change.fromStartAt ? fmtClock(isoToLocal(change.fromStartAt).minutes) : '?'}, now {fmtClock(minutesOf(change.toStart))}</span>
+                  {change.phone
+                    ? <button type="button" onClick={() => textNewTime(change)} className="px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-xs">Text new time</button>
+                    : <span className="text-xs text-gray-500">no phone on file</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {team !== null && teamList.length === 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center text-gray-400">
+          Pick the technicians to dispatch with <b>👥 Team</b> — each one gets a lane.
+        </div>
+      )}
+
+      {/* Lanes */}
+      {teamList.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-3 overflow-x-auto">
+          <div className="min-w-[760px]">
+            {/* hour ruler */}
+            <div className="flex">
+              <div className="w-40 shrink-0" />
+              <div className="relative flex-1 h-5 text-[10px] text-gray-500">
+                {hours.map(h => <span key={h} className="absolute -translate-x-1/2" style={{ left: pct(h) }}>{fmtClock(h)}</span>)}
+              </div>
+            </div>
+            {lanes.map(l => {
+              const color = laneColor(l.techId)
+              const legs = l.legs ?? []
+              const first = l.timed[0], last = l.timed[l.timed.length - 1]
+              const leave = first && legs[0] && l.start ? first.startMin! - legs[0].minutes : null
+              const back = last && l.end && legs.length === l.timed.length + 1 ? last.endMin! + legs[legs.length - 1].minutes : null
+              const miles = legs.reduce((s, g) => s + g.miles, 0)
+              const offset = l.start ? 1 : 0
+              return (
+                <div key={l.techId} className="flex border-t border-gray-800 py-2">
+                  <div className="w-40 shrink-0 pr-2">
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      <span className="w-3 h-3 rounded-full" style={{ background: color }} />{userName(l.techId)}
+                    </div>
+                    <div className="text-[11px] text-gray-500">
+                      {l.timed.length} stop{l.timed.length === 1 ? '' : 's'}{miles ? ` · ${Math.round(miles)} mi` : ''}
+                      {leave !== null && <> · out {fmtClock(leave)}</>}{back !== null && <> · back {fmtClock(back)}</>}
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div
+                      className="relative h-16 rounded-lg bg-gray-950/60"
+                      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                      onDrop={e => onDropLane(e, l.techId)}
+                    >
+                      {hours.map(h => <div key={h} className="absolute top-0 bottom-0 border-l border-gray-800/80" style={{ left: pct(h) }} />)}
+                      {/* arrival hours */}
+                      <div className="absolute top-0 bottom-0 border-l border-dashed border-emerald-700/70" style={{ left: pct(arrivalFirst) }} title={`First arrival ${fmtClock(arrivalFirst)}`} />
+                      <div className="absolute top-0 bottom-0 border-l border-dashed border-emerald-700/70" style={{ left: pct(arrivalLast) }} title={`Last arrival ${fmtClock(arrivalLast)}`} />
+                      {nowMin !== null && nowMin >= viewStart && nowMin <= viewEnd && (
+                        <div className="absolute top-0 bottom-0 border-l-2 border-red-500 z-10" style={{ left: pct(nowMin) }} title="Now" />
+                      )}
+                      {leave !== null && leave >= viewStart && <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2" style={{ left: pct(leave), borderColor: color }} title={`Leaves ${fmtClock(leave)}`} />}
+                      {back !== null && back <= viewEnd && <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full" style={{ left: pct(back), background: color }} title={`Back ${fmtClock(back)}`} />}
+
+                      {/* drive bars + gaps */}
+                      {l.timed.map((p, i) => {
+                        const leg = legs[i + offset]
+                        const next = l.timed[i + 1]
+                        if (!leg || !next) return null
+                        const driveStart = p.endMin!
+                        const arrive = driveStart + leg.minutes
+                        const late = arrive - next.startMin!
+                        return (
+                          <div key={`d-${p.stop.id}`}>
+                            <div className="absolute top-[26px] h-3 rounded-sm text-[9px] leading-3 text-center overflow-hidden"
+                              style={{ left: pct(driveStart), width: width(leg.minutes), background: late > 0 ? '#dc262699' : '#47556999', color: '#e2e8f0' }}
+                              title={`${leg.minutes} min drive · ${leg.miles} mi${late > 0 ? ` · arrives ${late} min late` : ''}`}>
+                              {leg.minutes}m
+                            </div>
+                            {late > 0 && <div className="absolute top-0 text-[9px] text-red-400" style={{ left: pct(next.startMin!) }}>late {late}m</div>}
+                            {late < -20 && (
+                              <div className="absolute top-[22px] h-5 rounded-sm text-[9px] text-gray-500 flex items-center justify-center"
+                                style={{ left: pct(arrive), width: width(-late), backgroundImage: 'repeating-linear-gradient(45deg,#33415555 0 4px,transparent 4px 8px)' }}>
+                                {Math.round(-late)}m gap
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+
+                      {/* window brackets */}
+                      {l.timed.filter(p => p.lock).map(p => (
+                        <div key={`w-${p.stop.id}`} className="absolute bottom-0 h-1.5 border-x-2 border-b-2 border-pink-500 rounded-b"
+                          style={{ left: pct(p.lock!.startMin), width: width(p.lock!.endMin - p.lock!.startMin) }}
+                          title={`Promised ${fmtClock(p.lock!.startMin)} – ${fmtClock(p.lock!.endMin)}`} />
+                      ))}
+
+                      {/* stop blocks */}
+                      {l.timed.map((p, i) => (
+                        <div key={p.stop.id}
+                          draggable={!p.stop.isComplete}
+                          onDragStart={e => {
+                            const r = e.currentTarget.getBoundingClientRect()
+                            const laneW = e.currentTarget.parentElement?.getBoundingClientRect().width ?? 1
+                            onDragStartStop(e, p.stop.id, ((e.clientX - r.left) / laneW) * span)
+                          }}
+                          onClick={() => setSelectedId(p.stop.id)}
+                          className={`absolute top-1.5 h-[46px] rounded-md px-1 overflow-hidden text-[11px] leading-tight cursor-grab select-none ${p.changed ? 'ring-2 ring-orange-400 ring-dashed' : ''} ${selectedId === p.stop.id ? 'outline outline-2 outline-white' : ''}`}
+                          style={{
+                            left: pct(p.startMin!), width: width(Math.max(SNAP, p.durationMin)),
+                            background: p.color, color: '#fff', opacity: p.dim ? 0.3 : p.stop.isComplete ? 0.55 : 1,
+                            borderLeft: `4px solid ${color}`,
+                          }}
+                          title={`${i + 1}. ${p.stop.clientName} · ${fmtClock(p.startMin!)}–${fmtClock(p.endMin!)}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}${p.changed ? ' · moved (unsent)' : ''}`}
+                        >
+                          <div className="font-bold">{i + 1}{p.lock ? ' 🔒' : ''}{p.stop.isComplete ? ' ✓' : ''}</div>
+                          <div className="truncate">{p.stop.clientName}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* anytime / no-address tray */}
+                    {l.tray.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        <span className="text-[10px] text-gray-500 self-center">Anytime / no time set:</span>
+                        {l.tray.map(p => (
+                          <div key={p.stop.id} draggable={!p.stop.isComplete}
+                            onDragStart={e => onDragStartStop(e, p.stop.id, 0)}
+                            onClick={() => setSelectedId(p.stop.id)}
+                            className={`px-2 py-0.5 rounded-full text-[11px] cursor-grab text-[#fff] ${p.changed ? 'ring-2 ring-orange-400' : ''}`}
+                            style={{ background: p.color, opacity: p.dim ? 0.3 : 1 }}
+                            title={p.stop.routable ? (coords[p.stop.address] === null ? "Couldn't find this address on the map" : 'Drag onto the timeline to give it a time') : 'No address'}>
+                            {p.stop.clientName}{!p.stop.routable ? ' (no address)' : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Map + side panel */}
+      {teamList.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+          <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} />
+
+          <div className="space-y-4">
+            {(selected || selectedBucket) && (
+              <StopPanel
+                key={(selected?.stop ?? selectedBucket)!.id}
+                stop={(selected?.stop ?? selectedBucket)!}
+                placed={selected}
+                team={teamList}
+                userName={userName}
+                lock={selected?.lock ?? null}
+                hasSavedLock={!!locks[(selected?.stop ?? selectedBucket)!.id]}
+                onClose={() => setSelectedId(null)}
+                onMove={(lane, hhmm) => applyMove((selected?.stop ?? selectedBucket)!.id, lane, hhmmToMinutes(hhmm))}
+                onLock={(a, b) => saveLock((selected?.stop ?? selectedBucket)!, a, b)}
+                onUnlock={() => removeLock((selected?.stop ?? selectedBucket)!)}
+                onUndoMove={() => commit(changes.filter(c => c.id !== (selected?.stop ?? selectedBucket)!.id))}
+              />
+            )}
+
+            {/* Unscheduled bucket */}
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <h3 className="font-semibold text-sm">Unscheduled</h3>
+                <span className="text-xs text-gray-500">{bucketShown.length}</span>
+                <button type="button" onClick={() => loadBucket(true)} className="ml-auto text-xs text-gray-400 hover:text-white" title="Re-read from Jobber">↻</button>
+              </div>
+              <div className="flex gap-1.5 mb-2">
+                <input value={bucketSearch} onChange={e => setBucketSearch(e.target.value)} placeholder="Search" className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs" />
+                <select value={bucketSort} onChange={e => setBucketSort(e.target.value as typeof bucketSort)} className="bg-gray-800 border border-gray-700 rounded-lg px-1.5 py-1 text-xs">
+                  <option value="oldest">Oldest first</option>
+                  <option value="nearest">Nearest today</option>
+                  <option value="value">Highest $</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
+                <input type="checkbox" checked={bucketTeamOnly} onChange={e => setBucketTeamOnly(e.target.checked)} /> Only visits assigned to the team
+              </label>
+              {bucketLoading && <div className="text-xs text-gray-500">Loading from Jobber…</div>}
+              {bucketError && <div className="text-xs text-red-400">{bucketError}</div>}
+              <div className="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
+                {bucketShown.map(({ s, miles }) => {
+                  const waiting = s.createdAt && bucketAt ? Math.max(0, Math.round((bucketAt - new Date(s.createdAt).getTime()) / 86400000)) : null
+                  return (
+                    <div key={s.id} draggable onDragStart={e => onDragStartStop(e, s.id, 0)} onClick={() => setSelectedId(s.id)}
+                      className={`rounded-lg border px-2 py-1.5 cursor-grab text-xs ${selectedId === s.id ? 'border-orange-500' : 'border-gray-800 hover:border-gray-600'}`}>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: stopColor(s, settings.color_rules, false) }} />
+                        <span className="font-medium truncate flex-1">{s.clientName}</span>
+                        <span className="text-gray-400">{money(s.totalPrice)}</span>
+                      </div>
+                      <div className="text-gray-500 truncate">{s.lineItemNames[0] ?? s.title}</div>
+                      <div className="text-gray-500 flex gap-2">
+                        {waiting !== null && <span>{waiting}d waiting</span>}
+                        {Number.isFinite(miles) && <span>{miles.toFixed(1)} mi from today&apos;s stops</span>}
+                        {s.techIds.length > 0 && <span className="truncate">{s.techIds.map(userName).join(', ')}</span>}
+                      </div>
+                    </div>
+                  )
+                })}
+                {!bucketLoading && bucketShown.length === 0 && <div className="text-xs text-gray-500">Nothing unscheduled{bucketTeamOnly ? ' for this team' : ''}.</div>}
+              </div>
+              <p className="text-[10px] text-gray-600 mt-2">Drag a card onto a lane to schedule it. Find a slot comes in Phase 2.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Window override prompt */}
+      {windowPrompt && (
+        <Modal onClose={() => setWindowPrompt(null)}>
+          <h3 className="font-semibold mb-2">This stop has a promised time frame</h3>
+          <p className="text-sm text-gray-300 mb-4">
+            The customer was promised {fmtClock(windowPrompt.lock.startMin)} – {fmtClock(windowPrompt.lock.endMin)}. {fmtClock(windowPrompt.startMin)} is outside it.
+          </p>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <button type="button" onClick={() => setWindowPrompt(null)} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm">Snap back</button>
+            <button type="button" onClick={() => { const w = windowPrompt; setWindowPrompt(null); applyMove(w.stopId, w.lane, w.startMin, { overrideWindow: true }) }}
+              className="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-[#fff] text-sm">Move anyway — customer agreed</button>
+          </div>
+          <p className="text-[11px] text-gray-500 mt-3">“Move anyway” moves the promised time frame with the stop.</p>
+        </Modal>
+      )}
+
+      {/* Send confirmation */}
+      {sendOpen && (
+        <Modal onClose={() => !sending && setSendOpen(false)}>
+          <h3 className="font-semibold mb-2">Send {changes.length} change{changes.length === 1 ? '' : 's'} to Jobber?</h3>
+          <div className="max-h-72 overflow-y-auto space-y-1 text-sm mb-3">
+            {changes.map(c => (
+              <div key={c.id} className="flex gap-2">
+                <span className="flex-1 truncate">{c.clientName}</span>
+                <span className="text-gray-400 text-xs">
+                  {c.fromStartAt ? fmtClock(isoToLocal(c.fromStartAt).minutes) : 'unscheduled'} → {fmtClock(minutesOf(c.toStart))}
+                  {!c.fromTechIds.includes(c.toTechId) ? ` · to ${userName(c.toTechId)}` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+          {remindersOut && changes.some(toldCustomer) && (
+            <div className="bg-amber-900/30 border border-amber-700 text-amber-200 rounded-lg px-3 py-2 text-xs mb-3">
+              Jobber&apos;s reminders for this day already went out ({fmtClock(hhmmToMinutes(settings.reminder_cutoff))} the day before), so {changes.filter(toldCustomer).length} customer{changes.filter(toldCustomer).length === 1 ? ' was' : 's were'} told the old time. After sending you&apos;ll get a one-tap text for each.
+            </div>
+          )}
+          <p className="text-xs text-gray-500 mb-3">Each stop is re-checked in Jobber first. Anything someone else changed since is held back, not overwritten.</p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setSendOpen(false)} disabled={sending} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm">Cancel</button>
+            <button type="button" onClick={send} disabled={sending} className="px-4 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-sm font-medium disabled:opacity-50">
+              {sending ? 'Sending…' : 'Send to Jobber'}
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="w-full max-w-md bg-gray-900 border border-gray-700 rounded-2xl p-5" onClick={e => e.stopPropagation()}>{children}</div>
+    </div>
+  )
+}
+
+function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, onClose, onMove, onLock, onUnlock, onUndoMove }: {
+  stop: DispatchStop
+  placed: Placed | null
+  team: string[]
+  userName: (id: string) => string
+  lock: { startMin: number; endMin: number } | null
+  hasSavedLock: boolean
+  onClose: () => void
+  onMove: (lane: string, hhmm: string) => void
+  onLock: (startHHMM: string, endHHMM: string) => void
+  onUnlock: () => void
+  onUndoMove: () => void
+}) {
+  const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  const [lane, setLane] = useState(placed?.lane && team.includes(placed.lane) ? placed.lane : team[0] ?? '')
+  const [time, setTime] = useState(placed?.startMin != null ? hhmm(placed.startMin) : '08:00')
+  const [lockStart, setLockStart] = useState(lock ? hhmm(lock.startMin) : '10:00')
+  const [lockEnd, setLockEnd] = useState(lock ? hhmm(lock.endMin) : '12:00')
+  const jobberWindow = stop.arrivalStart && stop.arrivalEnd
+    ? `${fmtClock(isoToLocal(stop.arrivalStart).minutes)} – ${fmtClock(isoToLocal(stop.arrivalEnd).minutes)}` : null
+
+  return (
+    <div className="bg-gray-900 border border-gray-700 rounded-2xl p-3 text-sm space-y-2">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold truncate">{stop.clientName}</div>
+          <div className="text-xs text-gray-400 truncate">{stop.address || 'No address'}</div>
+        </div>
+        <button type="button" onClick={onClose} className="text-gray-500 hover:text-white" aria-label="Close">✕</button>
+      </div>
+      <div className="text-xs text-gray-400 space-y-0.5">
+        <div className="truncate" title={stop.title}>{stop.kind !== 'visit' ? `${stop.kind[0].toUpperCase()}${stop.kind.slice(1)} · ` : ''}{stop.title}</div>
+        {stop.lineItemNames.length > 0 && <div className="truncate" title={stop.lineItemNames.join(', ')}>{stop.lineItemNames.join(', ')}</div>}
+        {stop.kind === 'visit' && <div>{money(stop.totalPrice)}</div>}
+        <div>
+          {placed?.startMin != null ? `Planned ${fmtClock(placed.startMin)} – ${fmtClock(placed.endMin!)} · ${userName(placed.lane)}` : 'No time set'}
+          {placed?.changed && <span className="text-orange-400"> · unsent</span>}
+        </div>
+        {jobberWindow && <div>Jobber arrival window: {jobberWindow}</div>}
+        {stop.instructions && <div className="text-gray-500 line-clamp-3" title={stop.instructions}>{stop.instructions}</div>}
+      </div>
+
+      {!stop.isComplete && (
+        <div className="border-t border-gray-800 pt-2">
+          <div className="text-xs font-medium mb-1">Move</div>
+          <div className="flex gap-1.5">
+            <select value={lane} onChange={e => setLane(e.target.value)} className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-1.5 py-1 text-xs">
+              {team.map(t => <option key={t} value={t}>{userName(t)}</option>)}
+            </select>
+            <input type="time" step={900} value={time} onChange={e => setTime(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-1.5 py-1 text-xs" />
+            <button type="button" onClick={() => lane && time && onMove(lane, time)} className="px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-xs">Move</button>
+          </div>
+          {placed?.changed && <button type="button" onClick={onUndoMove} className="mt-1 text-[11px] text-gray-400 hover:text-white">Put it back where Jobber has it</button>}
+        </div>
+      )}
+
+      <div className="border-t border-gray-800 pt-2">
+        <div className="text-xs font-medium mb-1">Promised time frame {lock ? <span className="text-pink-400">🔒 {fmtClock(lock.startMin)} – {fmtClock(lock.endMin)}</span> : <span className="text-gray-500">— none (anytime)</span>}</div>
+        <div className="flex gap-1.5 items-center">
+          <input type="time" step={900} value={lockStart} onChange={e => setLockStart(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-1.5 py-1 text-xs" />
+          <span className="text-xs text-gray-500">to</span>
+          <input type="time" step={900} value={lockEnd} onChange={e => setLockEnd(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-1.5 py-1 text-xs" />
+          <button type="button" onClick={() => onLock(lockStart, lockEnd)} className="px-2.5 py-1 rounded-lg bg-pink-600 hover:bg-pink-500 text-[#fff] text-xs">{hasSavedLock ? 'Update' : 'Lock'}</button>
+          {hasSavedLock && <button type="button" onClick={onUnlock} className="px-2 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs">Unlock</button>}
+        </div>
+        <p className="text-[10px] text-gray-500 mt-1">Locked stops show as PROMISED. A lock is saved right away; it lives in Hub, not Jobber.</p>
+      </div>
+    </div>
+  )
+}
