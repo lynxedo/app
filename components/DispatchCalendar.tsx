@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
+import { fetchLeg, type LatLng } from '@/lib/dispatch-legs'
 import {
   type DispatchSettings, type DispatchStop, addDays, fmtClock, hhmmToMinutes, stopColor, stopMatchesGroup, todayLocal,
 } from '@/lib/dispatch'
@@ -8,7 +10,10 @@ import {
 // Dispatch Week + Month views (Reference/PRDs/DISPATCH_ROUTING_PRD.md Phase 3).
 // Read-only overview from the Hub mirror; click a day to open its live Day view,
 // where moves happen. Week = a mini timeline strip per tech per day; Month =
-// counts per tech + the first few names, like Jobber's month.
+// counts per tech + the first stops. Cells stay compact — "More" opens one up
+// (Ben, Oct 2026: auto-expanding cells took more room than needed).
+// The map shows the whole range as dots, or — after 🗺 on a day — that day's
+// stops numbered per tech with real road paths, like the Day view.
 
 type RangeStop = DispatchStop & { startMin: number | null; endMin: number | null; locked: boolean }
 
@@ -21,6 +26,7 @@ interface Props {
   userName: (id: string) => string
   laneColor: (id: string) => string
   onOpenDay: (date: string) => void
+  mapHeight: string
 }
 
 const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
@@ -28,19 +34,25 @@ const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
 const weekStart = (d: string) => addDays(d, -((weekday(d) + 6) % 7))
 const dayNum = (d: string) => Number(d.slice(8, 10))
 const label = (d: string, opts: Intl.DateTimeFormatOptions) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { ...opts, timeZone: 'UTC' })
+const MONTH_CHIPS = 3
 
-export default function DispatchCalendar({ view, date, team, settings, filters, userName, laneColor, onOpenDay }: Props) {
+export default function DispatchCalendar({ view, date, team, settings, filters, userName, laneColor, onOpenDay, mapHeight }: Props) {
   const [days, setDays] = useState<Record<string, RangeStop[]>>({})
+  const [depot, setDepot] = useState<LatLng | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [coords, setCoords] = useState<Record<string, LatLng | null>>({})
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [expandAll, setExpandAll] = useState(false)
+  const [mapDay, setMapDay] = useState<string | null>(null)
+  const [legs, setLegs] = useState<DispatchMapLeg[]>([])
 
   const { from, to, cells } = useMemo(() => {
     if (view === 'week') {
       const f = weekStart(date)
       return { from: f, to: addDays(f, 6), cells: Array.from({ length: 7 }, (_, i) => addDays(f, i)) }
     }
-    const first = `${date.slice(0, 7)}-01`
-    const f = weekStart(first)
+    const f = weekStart(`${date.slice(0, 7)}-01`)
     const cells = Array.from({ length: 42 }, (_, i) => addDays(f, i))
     return { from: f, to: cells[41], cells }
   }, [view, date])
@@ -49,18 +61,41 @@ export default function DispatchCalendar({ view, date, team, settings, filters, 
   useEffect(() => {
     if (!teamKey) { setDays({}); return }
     let cancelled = false
-    setLoading(true); setError(null)
+    setLoading(true); setError(null); setMapDay(null); setExpanded(new Set())
     fetch(`/api/hub/routing/dispatch/range?from=${from}&to=${to}&techIds=${encodeURIComponent(teamKey)}`)
       .then(r => r.json().then(d => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (cancelled) return
         if (!ok) throw new Error(d.error || 'Could not load')
         setDays(d.days ?? {})
+        setDepot(d.depot ?? null)
       })
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [from, to, teamKey])
+
+  // Geocode every address in range (server geocoder + cache, same as the optimizer).
+  useEffect(() => {
+    const want = [...new Set(Object.values(days).flat().map(s => s.address).filter(a => a && !(a in coords)))]
+    if (want.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      for (let i = 0; i < want.length; i += 40) {
+        const chunk = want.slice(i, i + 40)
+        const got: Record<string, LatLng | null> = {}
+        try {
+          const res = await fetch('/api/geocode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ addresses: chunk }) })
+          const d = await res.json()
+          chunk.forEach((a, j) => { got[a] = d.coords?.[j] ?? null })
+        } catch { chunk.forEach(a => { got[a] = null }) }
+        if (cancelled) return
+        setCoords(prev => ({ ...prev, ...got }))
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days])
 
   const dim = (s: DispatchStop) => {
     if (filters.hideZero && Math.abs(s.totalPrice) < 0.005) return true
@@ -70,76 +105,188 @@ export default function DispatchCalendar({ view, date, team, settings, filters, 
   const today = todayLocal()
   const viewStart = hhmmToMinutes(settings.view_start)
   const span = Math.max(60, hhmmToMinutes(settings.view_end) - viewStart)
+  const isOpen = (key: string) => expandAll || expanded.has(key)
+  const toggle = (key: string) => setExpanded(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
+
+  // ── Map ───────────────────────────────────────────────────────────────────
+  const inRange = (d: string) => (view === 'month' ? d.slice(0, 7) === date.slice(0, 7) : true)
+  const dayRoutes = useMemo(() => {
+    if (!mapDay) return []
+    return team.map(t => {
+      const list = (days[mapDay] ?? []).filter(s => s.techIds.includes(t))
+      const timed = list.filter(s => s.startMin != null).sort((a, b) => a.startMin! - b.startMin!)
+      const anytime = list.filter(s => s.startMin == null)
+      return { techId: t, timed, anytime }
+    })
+  }, [mapDay, days, team])
+
+  const mapStops: DispatchMapStop[] = useMemo(() => {
+    const out: DispatchMapStop[] = []
+    const push = (s: RangeStop, techId: string, labelText: string, meta: string) => {
+      const c = coords[s.address]
+      if (!c) return
+      out.push({
+        id: `${s.id}|${techId}`, lat: c.lat, lng: c.lng, label: labelText, color: laneColor(techId),
+        fill: dim(s) ? '#94a3b8' : stopColor(s, settings.color_rules, s.locked), locked: s.locked,
+        title: s.clientName, subtitle: s.address, meta,
+      })
+    }
+    if (mapDay) {
+      for (const r of dayRoutes) {
+        r.timed.forEach((s, i) => push(s, r.techId, String(i + 1), `${userName(r.techId)} · ${fmtClock(s.startMin!)}`))
+        r.anytime.forEach(s => push(s, r.techId, '', `${userName(r.techId)} · anytime`))
+      }
+    } else {
+      for (const [d, list] of Object.entries(days)) {
+        if (!inRange(d)) continue
+        for (const s of list) {
+          const t = team.find(x => s.techIds.includes(x)) ?? s.techIds[0]
+          push(s, t, '', `${label(d, { weekday: 'short', month: 'short', day: 'numeric' })} · ${userName(t)}${s.startMin != null ? ` · ${fmtClock(s.startMin)}` : ''}`)
+        }
+      }
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapDay, dayRoutes, days, coords, settings.color_rules, filters, team])
+
+  // Road legs only for the one day being mapped (shop → stops in time order → shop).
+  const legKey = useMemo(() => dayRoutes.map(r => `${r.techId}:${r.timed.map(s => s.address).join(';')}`).join('|') + `|${coords ? Object.keys(coords).length : 0}`, [dayRoutes, coords])
+  useEffect(() => {
+    if (!mapDay) { setLegs([]); return }
+    let cancelled = false
+    ;(async () => {
+      const out: DispatchMapLeg[] = []
+      for (const r of dayRoutes) {
+        const pts = r.timed.map(s => coords[s.address]).filter((c): c is LatLng => !!c)
+        if (pts.length === 0) continue
+        const path = [...(depot ? [depot] : []), ...pts, ...(depot ? [depot] : [])]
+        for (let i = 0; i < path.length - 1; i++) {
+          const leg = await fetchLeg(path[i], path[i + 1])
+          const isReturn = !!depot && i === path.length - 2
+          out.push({
+            coords: leg.coords, color: laneColor(r.techId), isReturn,
+            label: isReturn ? `back to shop · ${leg.minutes} min` : '',
+            tooltip: `${userName(r.techId)} · ${leg.minutes} min · ${leg.miles} mi${leg.estimated ? ' (estimate)' : ''}`,
+          })
+        }
+      }
+      if (!cancelled) setLegs(out)
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legKey, mapDay, depot])
+
+  const depots = useMemo(() => (depot ? [{ ...depot, label: 'Shop' }] : []), [depot])
+  const noop = () => {}
 
   if (team.length === 0) return null
 
-  return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-3 overflow-x-auto">
-      <div className="flex items-center gap-2 mb-2 text-sm">
+  const mapBtn = (d: string) => (
+    <span role="button" tabIndex={0} title="Show this day on the map"
+      onClick={e => { e.stopPropagation(); setMapDay(m => (m === d ? null : d)) }}
+      onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); setMapDay(m => (m === d ? null : d)) } }}
+      className={`ml-1 px-1 rounded text-[10px] cursor-pointer ${mapDay === d ? 'bg-orange-500 text-[#fff]' : 'text-gray-500 hover:text-white'}`}>🗺</span>
+  )
+
+  const calendar = (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-3 overflow-x-auto min-w-0">
+      <div className="flex flex-wrap items-center gap-2 mb-2 text-sm">
         <span className="font-semibold">
           {view === 'week' ? `Week of ${label(from, { month: 'short', day: 'numeric' })}` : label(`${date.slice(0, 7)}-15`, { month: 'long', year: 'numeric' })}
         </span>
         {loading && <span className="text-xs text-gray-500">Loading…</span>}
         {error && <span className="text-xs text-red-400">{error}</span>}
-        <span className="ml-auto text-[11px] text-gray-500">From Hub&apos;s copy of Jobber (visits only) · click a day to open it</span>
+        <button type="button" onClick={() => { setExpandAll(x => !x); setExpanded(new Set()) }} className="ml-auto text-xs text-gray-400 hover:text-white">
+          {expandAll ? 'Collapse all' : 'Expand all'}
+        </button>
+        <span className="text-[11px] text-gray-500">From Hub&apos;s copy of Jobber (visits only) · click a day to open it</span>
       </div>
 
       {view === 'week' ? (
-        <div className="min-w-[760px]">
-          <div className="grid" style={{ gridTemplateColumns: `8rem repeat(7, minmax(0, 1fr))` }}>
-            <div />
-            {cells.map(d => (
-              <button key={d} type="button" onClick={() => onOpenDay(d)}
-                className={`text-xs py-1 rounded hover:bg-gray-800 ${d === today ? 'text-orange-400 font-semibold' : 'text-gray-400'}`}>
+        <div className="min-w-[760px] grid" style={{ gridTemplateColumns: `8rem repeat(7, minmax(0, 1fr))` }}>
+          <div />
+          {cells.map(d => (
+            <div key={d} className="flex items-center justify-center">
+              <button type="button" onClick={() => onOpenDay(d)}
+                className={`text-xs py-1 px-1 rounded hover:bg-gray-800 ${d === today ? 'text-orange-400 font-semibold' : 'text-gray-400'}`}>
                 {label(d, { weekday: 'short', month: 'numeric', day: 'numeric' })}
               </button>
-            ))}
-            {team.map(t => (
-              <WeekRow key={t} techId={t} cells={cells} days={days} name={userName(t)} color={laneColor(t)}
-                settings={settings} dim={dim} viewStart={viewStart} span={span} onOpenDay={onOpenDay} />
-            ))}
-          </div>
+              {mapBtn(d)}
+            </div>
+          ))}
+          {team.map(t => (
+            <WeekRow key={t} techId={t} cells={cells} days={days} name={userName(t)} color={laneColor(t)}
+              settings={settings} dim={dim} viewStart={viewStart} span={span} onOpenDay={onOpenDay}
+              isOpen={isOpen} toggle={toggle} />
+          ))}
         </div>
       ) : (
-        <div className="min-w-[700px]">
-          <div className="grid grid-cols-7 gap-px bg-gray-800 rounded-lg overflow-hidden">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(w => <div key={w} className="bg-gray-900 text-[11px] text-gray-500 text-center py-1">{w}</div>)}
-            {cells.map(d => {
-              const list = (days[d] ?? []).filter(s => !dim(s))
-              const inMonth = d.slice(0, 7) === date.slice(0, 7)
-              return (
-                <button key={d} type="button" onClick={() => onOpenDay(d)}
-                  className={`bg-gray-900 hover:bg-gray-800 text-left p-1.5 min-h-[84px] align-top ${inMonth ? '' : 'opacity-40'}`}>
-                  <div className={`text-xs mb-1 ${d === today ? 'text-orange-400 font-bold' : 'text-gray-400'}`}>{dayNum(d)}</div>
-                  {team.map(t => {
-                    const n = list.filter(s => s.techIds.includes(t)).length
-                    return n ? (
-                      <div key={t} className="flex items-center gap-1 text-[10px] text-gray-300">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: laneColor(t) }} />
-                        <span className="truncate">{userName(t).split(' ')[0]}</span>
-                        <span className="ml-auto text-gray-400">{n}</span>
-                      </div>
-                    ) : null
-                  })}
-                  {list.slice(0, 2).map(s => (
-                    <div key={s.id} className="text-[10px] truncate mt-0.5 px-1 rounded text-[#fff]" style={{ background: stopColor(s, settings.color_rules, s.locked) }}>
-                      {s.startMin != null ? `${fmtClock(s.startMin)} ` : ''}{s.clientName}
-                    </div>
-                  ))}
-                  {list.length > 2 && <div className="text-[10px] text-gray-500">+{list.length - 2} more</div>}
-                </button>
-              )
-            })}
-          </div>
+        <div className="min-w-[700px] grid grid-cols-7 gap-px bg-gray-800 rounded-lg overflow-hidden">
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(w => <div key={w} className="bg-gray-900 text-[11px] text-gray-500 text-center py-1">{w}</div>)}
+          {cells.map(d => {
+            const list = (days[d] ?? []).filter(s => !dim(s))
+              .sort((a, b) => (a.startMin ?? 9999) - (b.startMin ?? 9999))
+            const inMonth = d.slice(0, 7) === date.slice(0, 7)
+            const open = isOpen(d)
+            const shown = open ? list : list.slice(0, MONTH_CHIPS)
+            return (
+              <div key={d} role="button" tabIndex={0} onClick={() => onOpenDay(d)} onKeyDown={e => { if (e.key === 'Enter') onOpenDay(d) }}
+                className={`bg-gray-900 hover:bg-gray-800/70 text-left p-1.5 cursor-pointer ${open ? '' : 'h-[112px] overflow-hidden'} ${inMonth ? '' : 'opacity-40'} ${mapDay === d ? 'ring-1 ring-orange-500 ring-inset' : ''}`}>
+                <div className="flex items-center text-xs mb-0.5">
+                  <span className={d === today ? 'text-orange-400 font-bold' : 'text-gray-400'}>{dayNum(d)}</span>
+                  {list.length > 0 && mapBtn(d)}
+                  <span className="ml-auto flex gap-1">
+                    {team.map(t => {
+                      const n = list.filter(s => s.techIds.includes(t)).length
+                      return n ? (
+                        <span key={t} className="text-[10px] px-1 rounded text-[#fff]" style={{ background: laneColor(t) }} title={userName(t)}>{n}</span>
+                      ) : null
+                    })}
+                  </span>
+                </div>
+                {shown.map(s => (
+                  <div key={s.id} className="text-[10px] truncate mt-0.5 px-1 rounded text-[#fff]" style={{ background: stopColor(s, settings.color_rules, s.locked) }}
+                    title={`${s.startMin != null ? fmtClock(s.startMin) + ' ' : ''}${s.clientName}${s.locked ? ' · promised' : ''}`}>
+                    {s.startMin != null ? `${fmtClock(s.startMin)} ` : ''}{s.clientName}
+                  </div>
+                ))}
+                {list.length > MONTH_CHIPS && !expandAll && (
+                  <button type="button" onClick={e => { e.stopPropagation(); toggle(d) }} className="text-[10px] text-sky-400 hover:text-sky-300 mt-0.5">
+                    {open ? 'Less' : `More (${list.length - MONTH_CHIPS})`}
+                  </button>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
   )
+
+  const map = (
+    <div className="space-y-1 min-w-0">
+      <div className="flex items-center gap-2 text-xs text-gray-400">
+        {mapDay
+          ? <>Map: <b className="text-white">{label(mapDay, { weekday: 'long', month: 'short', day: 'numeric' })}</b> — numbered by time, real road paths
+              <button type="button" onClick={() => setMapDay(null)} className="ml-auto text-gray-400 hover:text-white">Show the whole {view}</button></>
+          : <>Map: every visit this {view} · 🗺 on a day shows just that day&apos;s routes</>}
+      </div>
+      <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={null} onStopClick={noop} height={mapHeight} />
+    </div>
+  )
+
+  return (
+    <div className="grid gap-4 min-[1700px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      {calendar}
+      {map}
+    </div>
+  )
 }
 
-function WeekRow({ techId, cells, days, name, color, settings, dim, viewStart, span, onOpenDay }: {
+function WeekRow({ techId, cells, days, name, color, settings, dim, viewStart, span, onOpenDay, isOpen, toggle }: {
   techId: string; cells: string[]; days: Record<string, RangeStop[]>; name: string; color: string
   settings: DispatchSettings; dim: (s: DispatchStop) => boolean; viewStart: number; span: number; onOpenDay: (d: string) => void
+  isOpen: (key: string) => boolean; toggle: (key: string) => void
 }) {
   return (
     <>
@@ -148,11 +295,14 @@ function WeekRow({ techId, cells, days, name, color, settings, dim, viewStart, s
         <span className="truncate">{name}</span>
       </div>
       {cells.map(d => {
-        const list = (days[d] ?? []).filter(s => s.techIds.includes(techId))
+        const list = (days[d] ?? []).filter(s => s.techIds.includes(techId)).sort((a, b) => (a.startMin ?? 9999) - (b.startMin ?? 9999))
         const timed = list.filter(s => s.startMin != null)
         const anytime = list.length - timed.length
+        const key = `${d}|${techId}`
+        const open = isOpen(key)
         return (
-          <button key={d} type="button" onClick={() => onOpenDay(d)} className="border-t border-l border-gray-800 p-1 hover:bg-gray-800/60 text-left">
+          <div key={d} role="button" tabIndex={0} onClick={() => onOpenDay(d)} onKeyDown={e => { if (e.key === 'Enter') onOpenDay(d) }}
+            className="border-t border-l border-gray-800 p-1 hover:bg-gray-800/60 text-left cursor-pointer min-w-0">
             <div className="relative h-5 rounded bg-gray-950/60 overflow-hidden">
               {timed.map(s => (
                 <div key={s.id} className="absolute top-0.5 bottom-0.5 rounded-sm"
@@ -165,10 +315,24 @@ function WeekRow({ techId, cells, days, name, color, settings, dim, viewStart, s
                   }} />
               ))}
             </div>
-            <div className="text-[10px] text-gray-400 mt-0.5">
-              {list.length ? `${list.length} stop${list.length === 1 ? '' : 's'}` : '—'}{anytime ? ` · ${anytime} anytime` : ''}
+            <div className="flex items-center text-[10px] text-gray-400 mt-0.5">
+              <span>{list.length ? `${list.length} stop${list.length === 1 ? '' : 's'}` : '—'}{anytime ? ` · ${anytime} anytime` : ''}</span>
+              {list.length > 0 && (
+                <button type="button" onClick={e => { e.stopPropagation(); toggle(key) }} className="ml-auto text-sky-400 hover:text-sky-300">
+                  {open ? 'Less' : 'More'}
+                </button>
+              )}
             </div>
-          </button>
+            {open && (
+              <div className="mt-1 space-y-0.5">
+                {list.map(s => (
+                  <div key={s.id} className="text-[10px] truncate px-1 rounded text-[#fff]" style={{ background: stopColor(s, settings.color_rules, s.locked), opacity: dim(s) ? 0.35 : 1 }}>
+                    {s.startMin != null ? `${fmtClock(s.startMin)} ` : 'Anytime · '}{s.clientName}{s.locked ? ' 🔒' : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )
       })}
     </>

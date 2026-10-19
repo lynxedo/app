@@ -69,6 +69,8 @@ const SNAP = 15
 const LS_TEAM = 'lynxedo-dispatch-team'
 const LS_FILTERS = 'lynxedo-dispatch-filters'
 const LS_VIEW = 'lynxedo-dispatch-view'
+// The map grows with the window (big / ultra-wide screens), never below 520px.
+const MAP_HEIGHT = 'max(520px, calc(100vh - 380px))'
 
 const minutesOf = (local: string) => Number(local.slice(11, 13)) * 60 + Number(local.slice(14, 16))
 const money = (n: number) => `$${Math.round(n).toLocaleString()}`
@@ -1193,11 +1195,11 @@ export default function DispatchView() {
 
       {/* Map + side panel */}
       {teamList.length > 0 && (
-        <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
           {view === 'day'
-            ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} />
+            ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} height={MAP_HEIGHT} />
             : <DispatchCalendar view={view} date={date} team={teamList} settings={settings} filters={filters}
-                userName={userName} laneColor={laneColor} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }} />}
+                userName={userName} laneColor={laneColor} mapHeight={MAP_HEIGHT} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }} />}
 
           <div className="space-y-4">
             {slots && (
@@ -1274,7 +1276,7 @@ export default function DispatchView() {
               </label>
               {bucketLoading && <div className="text-xs text-gray-500">Loading from Jobber…</div>}
               {bucketError && <div className="text-xs text-red-400">{bucketError}</div>}
-              <div className="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
+              <div className="space-y-1.5 max-h-[max(420px,calc(100vh-520px))] overflow-y-auto pr-1">
                 {bucketShown.map(({ s, miles }) => {
                   const waiting = s.createdAt && bucketAt ? Math.max(0, Math.round((bucketAt - new Date(s.createdAt).getTime()) / 86400000)) : null
                   return (

@@ -37,7 +37,9 @@ export default async function HubRoutingPage({ searchParams }: Props) {
 
   return (
     <div className="flex-1 min-h-0 overflow-auto">
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-10">
+      {/* RouteBuilder flips data-mode; Dispatch drops the width cap so it fills
+          a big/ultra-wide window (Ben, Oct 2026). Basic/Advanced keep 7xl. */}
+      <div data-route-shell className="max-w-7xl data-[mode=dispatch]:max-w-none mx-auto px-4 md:px-6 py-6 md:py-10">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl md:text-2xl font-bold tracking-tight">⚡ Route Optimizer</h1>
           {jobberConnected && (
