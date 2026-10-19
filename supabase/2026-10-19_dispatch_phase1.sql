@@ -77,3 +77,22 @@ create policy dispatch_drafts_select_company on public.dispatch_drafts
 drop policy if exists dispatch_tech_settings_select_company on public.dispatch_tech_settings;
 create policy dispatch_tech_settings_select_company on public.dispatch_tech_settings
   for select using (company_id = get_my_company_id());
+
+-- Phase 2 — every Optimize / Find-a-slot run, for "why did it put that there".
+create table if not exists public.dispatch_runs (
+  id            uuid primary key default gen_random_uuid(),
+  company_id    uuid not null references public.companies(id) on delete cascade,
+  kind          text not null check (kind in ('optimize','slots')),
+  run_date      date,
+  requested_by  uuid,
+  input         jsonb not null default '{}'::jsonb,
+  output        jsonb not null default '{}'::jsonb,
+  cost_ms       integer,
+  created_at    timestamptz not null default now()
+);
+create index if not exists dispatch_runs_company_created on public.dispatch_runs (company_id, created_at desc);
+alter table public.dispatch_runs enable row level security;
+revoke all on public.dispatch_runs from anon;
+drop policy if exists dispatch_runs_select_company on public.dispatch_runs;
+create policy dispatch_runs_select_company on public.dispatch_runs
+  for select using (company_id = get_my_company_id());
