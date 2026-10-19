@@ -22,6 +22,7 @@ import { jobberGraphQLAdmin, resolveJobberUserId } from '@/lib/jobber'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
 import { createPesticideRecordFromJobberVisit } from '@/lib/pesticide'
 import { syncClientsToDirectory, type DirectoryClientInput } from '@/lib/contacts-directory'
+import { ingestJobberRequest } from '@/lib/jobber-request-lead'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -3008,6 +3009,12 @@ export async function processJobberWebhookEvent(
         }
         // A completion in the Jobber app marks the still-pending Hub stop complete.
         await feedWorkOrdersForVisit(companyId, itemId, topic)
+        break
+      }
+      case 'REQUEST_CREATE': {
+        // New request → Lead Tracker card + Office Alerts post (no customer text).
+        const outcome = await ingestJobberRequest(admin, companyId, userId, itemId)
+        console.log(`[jobber-webhook] request ${itemId}: ${outcome}`)
         break
       }
       default:
