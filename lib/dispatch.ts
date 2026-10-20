@@ -290,6 +290,48 @@ export interface DraftChange {
   /** When the move also re-set the stop's locked window ("customer agreed"). */
   newLock?: { start: string; end: string } | null
   at: string                   // when drafted (ISO)
+  /** Moved as an ANYTIME visit (date + tech only, no clock time) — Month/Week
+   *  drags of anytime stops. toStart/toEnd are then "<date>T00:00:00". */
+  anytime?: boolean
+  /** Enough of the stop to draw it on a day that didn't load it (moved there
+   *  from another day in Month/Week). */
+  snapshot?: {
+    address: string
+    title: string
+    lineItemNames: string[]
+    totalPrice: number
+    routable: boolean
+    instructions?: string | null
+  } | null
+}
+
+/** The day a drafted change lands on. Drafts span every day (Oct 20 2026). */
+export const changeDate = (c: Pick<DraftChange, 'toStart'>) => c.toStart.slice(0, 10)
+
+/**
+ * A tech's stops for one day in ROUTE order (Ben, Oct 20 2026: Jobber's API
+ * can't order anytime visits, so the order the office drags into place lives in
+ * Hub — dispatch_route_order). With a saved order: saved positions first; any
+ * stop not in it follows, timed by time then anytime as given. Without one:
+ * timed stops by time, then anytime stops in the order Jobber returned them.
+ */
+export function orderRoute<T extends { id: string; startMin: number | null }>(stops: T[], saved?: string[] | null): T[] {
+  const byTime = (a: T, b: T) => (a.startMin ?? Infinity) - (b.startMin ?? Infinity)
+  const natural = [...stops.filter(s => s.startMin != null).sort(byTime), ...stops.filter(s => s.startMin == null)]
+  if (!saved || saved.length === 0) return natural
+  const pos = new Map(saved.map((id, i) => [id, i]))
+  const known = natural.filter(s => pos.has(s.id)).sort((a, b) => pos.get(a.id)! - pos.get(b.id)!)
+  const rest = natural.filter(s => !pos.has(s.id))
+  return [...known, ...rest]
+}
+
+/** Put `id` just before `beforeId` (or at the end) in an order list. */
+export function insertInOrder(ids: string[], id: string, beforeId: string | null): string[] {
+  const out = ids.filter(x => x !== id)
+  const at = beforeId ? out.indexOf(beforeId) : -1
+  if (at < 0) out.push(id)
+  else out.splice(at, 0, id)
+  return out
 }
 
 // ── Time helpers (company timezone) ─────────────────────────────────────────

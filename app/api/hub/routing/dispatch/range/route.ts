@@ -70,13 +70,13 @@ export async function GET(request: Request) {
   const { data: rs } = await admin.from('company_routing_settings').select('depot_lat, depot_lng').eq('company_id', companyId).maybeSingle()
 
   const extIds = rows.map(v => v.external_id as string).filter(Boolean)
-  const lockedIds = new Set<string>()
+  const lockOf = new Map<string, { start: string; end: string }>()
   for (let i = 0; i < extIds.length; i += 200) {
-    const { data } = await admin.from('dispatch_visit_locks').select('jobber_item_id').eq('company_id', companyId).in('jobber_item_id', extIds.slice(i, i + 200))
-    for (const l of data ?? []) lockedIds.add(l.jobber_item_id as string)
+    const { data } = await admin.from('dispatch_visit_locks').select('jobber_item_id, window_start, window_end').eq('company_id', companyId).in('jobber_item_id', extIds.slice(i, i + 200))
+    for (const l of data ?? []) lockOf.set(l.jobber_item_id as string, { start: l.window_start as string, end: l.window_end as string })
   }
 
-  const days: Record<string, Array<DispatchStop & { startMin: number | null; endMin: number | null; locked: boolean }>> = {}
+  const days: Record<string, Array<DispatchStop & { startMin: number | null; endMin: number | null; locked: boolean; lock: { start: string; end: string } | null }>> = {}
   for (const v of rows) {
     if (!v.start_at || !v.external_id) continue
     const a = isoToLocal(v.start_at as string)
@@ -102,7 +102,8 @@ export async function GET(request: Request) {
       techIds: ((v.tech_external_user_ids ?? []) as string[]).filter(t => techIds.includes(t)),
       startMin: anytime ? null : a.minutes,
       endMin: anytime ? null : (b && b.date === a.date && b.minutes > a.minutes ? b.minutes : a.minutes + 30),
-      locked: lockedIds.has(v.external_id as string),
+      locked: lockOf.has(v.external_id as string),
+      lock: lockOf.get(v.external_id as string) ?? null,
     }
     ;(days[a.date] ??= []).push(stop)
   }
