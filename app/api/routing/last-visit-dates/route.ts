@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { jobberGraphQL } from '@/lib/jobber'
+import { denyWithoutGrant } from '@/lib/company-auth'
 
 // Fetch up to 50 visits per job. For most recurring lawn-care jobs this covers
 // the full history; more than 50 means there will definitely be a completed one.
@@ -40,6 +41,9 @@ export async function GET(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Every API checks its own grant — the middleware gates pages, not APIs.
+  const denied = await denyWithoutGrant(supabase, user.id, 'can_access_routing')
+  if (denied) return denied
 
   const jobIds = [...new Set(jobIdsParam.split(',').map(s => s.trim()).filter(Boolean))]
   if (jobIds.length === 0) return NextResponse.json({})

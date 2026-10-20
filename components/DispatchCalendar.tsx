@@ -2,10 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
+import DispatchRoutePanel, { type OptimizeRequest, type PanelLane } from '@/components/DispatchRoutePanel'
+import DispatchTankPanel from '@/components/DispatchTankPanel'
+import type { CapacityData } from '@/lib/route-capacity'
+import type { OptCtxStop } from '@/app/dashboard/DispatchView'
 import { fetchLeg, type LatLng } from '@/lib/dispatch-legs'
 import {
   type DispatchSettings, type DispatchStop, type DraftChange,
-  addDays, changeDate, fmtClock, hhmmToMinutes, insertInOrder, orderRoute, stopColor, stopMatchesGroup, todayLocal,
+  addDays, changeDate, fmtClock, hhmmToMinutes, insertInOrder, isoToLocal, orderRoute, stopColor, stopMatchesGroup, todayLocal,
 } from '@/lib/dispatch'
 
 // Dispatch Week + Month views (Reference/PRDs/DISPATCH_ROUTING_PRD.md Phase 3).
@@ -43,6 +47,12 @@ interface Props {
   onSaveOrder: (date: string, techId: string, ids: string[]) => void
   onMoveStop: (stop: RangeStop, fromDate: string | null, toDate: string, toTechId: string) => void
   reloadKey: number
+  /** Optimize the 🗺 day — same preview + apply as Day view. */
+  onOptimizeDay: (date: string, req: OptimizeRequest, ctx: Record<string, OptCtxStop>, routeIds: Record<string, string[]>, depot: LatLng | null) => void
+  optimizing: boolean
+  showTanks: boolean
+  capacity: CapacityData | null
+  onLoadCapacity: () => void
 }
 
 const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
@@ -59,7 +69,8 @@ const writeNum = (k: string, v: number) => { try { localStorage.setItem(k, Strin
 
 export default function DispatchCalendar({
   view, date, team, settings, filters, userName, laneColor, onOpenDay,
-  changes, orders, onOrdersLoaded, onSaveOrder, onMoveStop, reloadKey,
+  changes, orders, onOrdersLoaded, onSaveOrder, onMoveStop, reloadKey, onOptimizeDay, optimizing,
+  showTanks, capacity, onLoadCapacity,
 }: Props) {
   const [days, setDays] = useState<Record<string, RangeStop[]>>({})
   const [depot, setDepot] = useState<LatLng | null>(null)
@@ -302,6 +313,36 @@ export default function DispatchCalendar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legKey, mapDay, depot])
 
+  // Route & optimize for the 🗺 day (same panel as Day view).
+  const panelLanes: PanelLane[] = mapDay ? team.map(t => ({
+    techId: t, name: userName(t), color: laneColor(t),
+    stops: routeOf(mapDay, t).map(s => ({
+      id: s.id, clientName: s.clientName, title: s.title, startMin: s.startMin,
+      mapped: s.routable && !!coords[s.address], routable: s.routable, locked: s.locked,
+      isComplete: s.isComplete, changed: s.changed,
+    })).sort((a, b) => Number(b.mapped) - Number(a.mapped)),
+  })) : []
+  const optimizeMapDay = (req: OptimizeRequest) => {
+    if (!mapDay) return
+    const ctx: Record<string, OptCtxStop> = {}
+    const routeIds: Record<string, string[]> = {}
+    for (const t of team) {
+      const r = routeOf(mapDay, t)
+      routeIds[t] = r.filter(s => s.routable && coords[s.address]).map(s => s.id)
+      for (const s of r) {
+        const c = coords[s.address]
+        const la = s.lock ? isoToLocal(s.lock.start) : null, lb = s.lock ? isoToLocal(s.lock.end) : null
+        ctx[s.id] = {
+          stop: s, startMin: s.startMin,
+          durationMin: s.startMin != null && s.endMin != null && s.endMin > s.startMin ? s.endMin - s.startMin : null,
+          lock: la && lb && la.date === mapDay ? { startMin: la.minutes, endMin: lb.minutes } : null,
+          lane: t, lat: c?.lat ?? null, lng: c?.lng ?? null,
+        }
+      }
+    }
+    onOptimizeDay(mapDay, req, ctx, routeIds, depot)
+  }
+
   const depots = useMemo(() => (depot ? [{ ...depot, label: 'Shop' }] : []), [depot])
   const noop = () => {}
 
@@ -419,7 +460,21 @@ export default function DispatchCalendar({
           : <>Map: every visit this {view} · 🗺 on a day shows just that day&apos;s routes</>}
       </div>
       <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={null} onStopClick={noop}
-        height={view === 'week' ? `${weekMapH}px` : 'max(520px, calc(100vh - 140px))'} />
+        height={view === 'week' ? `${weekMapH}px` : mapDay ? 'max(420px, calc(100vh - 420px))' : 'max(520px, calc(100vh - 140px))'} />
+      {mapDay && (
+        <div className="pt-2">
+          <DispatchRoutePanel date={mapDay} lanes={panelLanes} busy={optimizing} onOptimize={optimizeMapDay} onClose={() => setMapDay(null)} />
+          {showTanks && (
+            <div className="mt-2 space-y-2">
+              {team.map(t => (
+                <DispatchTankPanel key={t} date={mapDay} techId={t} techName={userName(t)}
+                  stops={routeOf(mapDay, t).map(s => ({ id: s.id, clientName: s.clientName, jobTitle: s.title, lineItemNames: s.lineItemNames }))}
+                  capacity={capacity} onLoadCapacity={onLoadCapacity} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 

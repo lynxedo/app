@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
 import DispatchCalendar, { type RangeStop } from '@/components/DispatchCalendar'
+import DispatchRoutePanel, { type OptimizeRequest, type PanelLane } from '@/components/DispatchRoutePanel'
+import DispatchTankPanel, { tankRouteCode } from '@/components/DispatchTankPanel'
+import type { CapacityData } from '@/lib/route-capacity'
 import { fetchLeg, type Leg, type LatLng } from '@/lib/dispatch-legs'
 import { computeDuration } from '@/lib/route-duration'
 import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced-route-sheet'
@@ -56,6 +59,17 @@ interface Placed {
   dim: boolean               // filtered out — kept on the route so the drive stays true
 }
 
+/** Everything Optimize needs to know about one stop on the day being optimized. */
+export interface OptCtxStop {
+  stop: DispatchStop
+  startMin: number | null
+  durationMin: number | null   // null = let the server work it out from the duration rules
+  lock: { startMin: number; endMin: number } | null
+  lane: string
+  lat: number | null
+  lng: number | null
+}
+
 interface LaneRoute {
   techId: string
   start: LatLng | null
@@ -74,6 +88,7 @@ const LS_TEAM = 'lynxedo-dispatch-team'
 const LS_FILTERS = 'lynxedo-dispatch-filters'
 const LS_VIEW = 'lynxedo-dispatch-view'
 const LS_BUCKET = 'lynxedo-dispatch-bucket'
+const LS_TANKS = 'lynxedo-dispatch-tanks'
 // The map grows with the window (big / ultra-wide screens), never below 520px.
 const MAP_HEIGHT = 'max(520px, calc(100vh - 380px))'
 
@@ -140,6 +155,20 @@ export default function DispatchView() {
   const [draftMeta, setDraftMeta] = useState<{ updatedByName: string | null; mine: boolean } | null>(null)
   // Settings load on their own too, so Week/Month have colors + chips without a Day load.
   const [baseSettings, setBaseSettings] = useState<DispatchSettings | null>(null)
+  const [baseTechSettings, setBaseTechSettings] = useState<TechSettingRow[]>([])
+  const [showRoutePanel, setShowRoutePanel] = useState(true)
+  // Tank loadout — hidden until asked for (Ben, Oct 20 2026).
+  const [showTanks, setShowTanks] = useState(false)
+  const [capacity, setCapacity] = useState<CapacityData | null>(null)
+  const capLoading = useRef(false)
+  const loadCapacity = useCallback(() => {
+    if (capLoading.current) return
+    capLoading.current = true
+    fetch('/api/hub/routing/capacity-data').then(r => r.json())
+      .then(d => { if (d.tanks) setCapacity({ tanks: d.tanks, serviceProducts: d.serviceProducts ?? [], products: d.products ?? [] }) })
+      .catch(() => {})
+      .finally(() => { capLoading.current = false })
+  }, [])
   // Hub route order per "date|techId" (Jobber can't order anytime visits).
   const [orders, setOrders] = useState<Record<string, string[]>>({})
   // Bumped after a send so Week/Month re-read Hub's copy of Jobber.
@@ -155,11 +184,15 @@ export default function DispatchView() {
   const [routes, setRoutes] = useState<Record<string, Leg[]>>({})
   const [optimizing, setOptimizing] = useState(false)
   const [optPreview, setOptPreview] = useState<null | {
+    date: string
     results: Array<{
       techId: string; skipped?: string; order?: string[]; starts?: Record<string, number>
-      driveMin?: number; beforeDriveMin?: number; estimated?: boolean
+      driveMin?: number; beforeDriveMin?: number; estimated?: boolean; grouped?: number
       violations?: Array<{ id: string; kind: 'window' | 'hours'; lateMin: number }>
     }>
+    ctx: Record<string, OptCtxStop>
+    /** Each lane's full route before optimizing — unticked stops keep their place. */
+    routeIds: Record<string, string[]>
   }>(null)
   const [slots, setSlots] = useState<null | {
     stopId: string; loading: boolean; error?: string; note?: string
@@ -203,6 +236,7 @@ export default function DispatchView() {
     fetch('/api/hub/routing/dispatch/users').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
     setFilters(readLS(LS_FILTERS, { groups: [], hideZero: false }))
     setShowBucket(readLS<boolean>(LS_BUCKET, true))
+    setShowTanks(readLS<boolean>(LS_TANKS, false))
     const v = readLS<string>(LS_VIEW, 'day')
     if (v === 'week' || v === 'month') setView(v)
     const saved = readLS<string[] | null>(LS_TEAM, null)
@@ -210,6 +244,7 @@ export default function DispatchView() {
     fetch('/api/hub/routing/dispatch/settings').then(r => r.json())
       .then(d => {
         if (d.settings) setBaseSettings(d.settings as DispatchSettings)
+        if (Array.isArray(d.techSettings)) setBaseTechSettings(d.techSettings as TechSettingRow[])
         // No personal choice yet — use the company default from Dispatch settings.
         if (!(saved && saved.length)) setTeam((d.settings?.default_team as string[] | undefined) ?? [])
       })
@@ -627,30 +662,40 @@ export default function DispatchView() {
   }, [changeById, changes, commit])
 
   // ── Optimize day (preview first; Apply puts it in the draft) ─────────────
-  const runOptimize = async () => {
+  /**
+   * Optimize one day — Day view or a 🗺 day in Week/Month. `ctx` describes every
+   * stop on the day (route order per tech in `routeIds`); `req` says which to
+   * optimize and any 📌 pins. Shows a preview; nothing changes until Apply.
+   */
+  const optimizeDay = async (
+    d: string,
+    req: OptimizeRequest,
+    ctx: Record<string, OptCtxStop>,
+    routeIds: Record<string, string[]>,
+    ends: Record<string, { start: LatLng | null; end: LatLng | null }>,
+  ) => {
     setOptimizing(true); setNotice(null)
     try {
-      const payload = lanes.map(l => ({
+      const payload = req.lanes.map(l => ({
         techId: l.techId,
-        start: l.start, end: l.end,
-        stops: [...l.timed, ...l.tray]
-          .filter(p => p.stop.routable && !p.stop.isComplete && coords[p.stop.address])
-          .map(p => ({
-            id: p.stop.id,
-            lat: coords[p.stop.address]!.lat, lng: coords[p.stop.address]!.lng,
-            durationMin: p.durationMin,
-            window: p.lock ? [p.lock.startMin, p.lock.endMin] as [number, number] : null,
-            currentStart: p.startMin,
-          })),
+        start: ends[l.techId]?.start ?? null, end: ends[l.techId]?.end ?? null,
+        firstId: l.firstId, lastId: l.lastId,
+        stops: l.stopIds.map(id => ctx[id]).filter(c => c && c.lat != null).map(c => ({
+          id: c.stop.id, lat: c.lat!, lng: c.lng!,
+          durationMin: c.durationMin ?? null,
+          window: c.lock ? [c.lock.startMin, c.lock.endMin] as [number, number] : null,
+          currentStart: c.startMin,
+          kind: c.stop.kind, title: c.stop.title, lineItemNames: c.stop.lineItemNames,
+        })),
       })).filter(l => l.stops.length > 0)
-      if (payload.length === 0) { setNotice('No stops with an address to optimize on this day.'); return }
+      if (payload.length === 0) { setNotice('No stops with an address to optimize.'); return }
       const res = await fetch('/api/hub/routing/dispatch/optimize', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, lanes: payload, notBefore: date === todayLocal() ? isoToLocal(new Date().toISOString()).minutes : null }),
+        body: JSON.stringify({ date: d, lanes: payload, notBefore: d === todayLocal() ? isoToLocal(new Date().toISOString()).minutes : null }),
       })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error || 'Optimize failed')
-      setOptPreview({ results: d.results ?? [] })
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.error || 'Optimize failed')
+      setOptPreview({ date: d, results: r.results ?? [], ctx, routeIds })
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'Optimize failed')
     } finally {
@@ -658,38 +703,74 @@ export default function DispatchView() {
     }
   }
 
+  /** Day view: the panel's request → the day's context. */
+  const runOptimize = (req: OptimizeRequest) => {
+    const ctx: Record<string, OptCtxStop> = {}
+    const routeIds: Record<string, string[]> = {}
+    const ends: Record<string, { start: LatLng | null; end: LatLng | null }> = {}
+    for (const l of lanes) {
+      routeIds[l.techId] = l.route.map(p => p.stop.id)
+      ends[l.techId] = { start: l.start, end: l.end }
+      for (const p of [...l.route, ...l.tray]) {
+        const c = coords[p.stop.address]
+        ctx[p.stop.id] = { stop: p.stop, startMin: p.startMin, durationMin: p.durationMin, lock: p.lock, lane: l.techId, lat: c?.lat ?? null, lng: c?.lng ?? null }
+      }
+    }
+    void optimizeDay(date, req, ctx, routeIds, ends)
+  }
+
+  /** Week/Month: the 🗺 day's panel. Start/end = the tech's own setting, else the shop. */
+  const optimizeFromCalendar = (d: string, req: OptimizeRequest, ctx: Record<string, OptCtxStop>, routeIds: Record<string, string[]>, depot: LatLng | null) => {
+    const ends: Record<string, { start: LatLng | null; end: LatLng | null }> = {}
+    for (const t of Object.keys(routeIds)) {
+      const ts = baseTechSettings.find(x => x.jobber_user_id === t)
+      ends[t] = {
+        start: ts?.start_kind === 'address' && ts.start_lat != null && ts.start_lng != null ? { lat: ts.start_lat, lng: ts.start_lng } : depot,
+        end: ts?.end_kind === 'address' && ts.end_lat != null && ts.end_lng != null ? { lat: ts.end_lat, lng: ts.end_lng } : depot,
+      }
+    }
+    void optimizeDay(d, req, ctx, routeIds, ends)
+  }
+
   const applyOptimize = () => {
     if (!optPreview) return
+    const d = optPreview.date
     let next = [...changes]
     const byId = new Map(next.map(c => [c.id, c]))
     for (const r of optPreview.results) {
-      if (!r.starts) continue
+      if (!r.starts || !r.order) continue
       for (const [id, startMin] of Object.entries(r.starts)) {
-        const p = placed.find(x => x.stop.id === id)
-        if (!p) continue
+        const c = optPreview.ctx[id]
+        if (!c) continue
         // Anytime stops stay anytime in Jobber (Ben, Oct 20 2026) — Optimize only
         // sets their ORDER (saved below, in Hub). Timed stops get the new times.
-        if (p.startMin == null) continue
-        if (p.startMin === startMin && p.lane === r.techId) continue
+        if (c.startMin == null) continue
+        if (c.startMin === startMin && c.lane === r.techId) continue
         const existing = byId.get(id)
-        const stop = p.stop
+        const stop = c.stop
+        const dur = c.durationMin ?? 30
         const ch: DraftChange = {
           id, kind: stop.kind, clientName: stop.clientName, phone: stop.phone,
           fromStartAt: existing ? existing.fromStartAt : stop.startAt,
           fromTechIds: existing ? existing.fromTechIds : stop.techIds,
-          toStart: localStamp(date, startMin),
-          toEnd: localStamp(date, startMin + Math.max(SNAP, p.durationMin)),
+          toStart: localStamp(d, startMin),
+          toEnd: localStamp(d, startMin + Math.max(SNAP, dur)),
           toTechId: r.techId,
           newLock: existing?.newLock ?? null,
           at: new Date().toISOString(),
           snapshot: snapOf(stop),
         }
-        const backHome = !stop.allDay && stop.startAt && isoToLocal(stop.startAt).date === date
-          && isoToLocal(stop.startAt).minutes === startMin && stop.techIds.includes(r.techId) && !ch.newLock
-        next = next.filter(c => c.id !== id)
+        const o = stop.startAt && !stop.allDay ? isoToLocal(stop.startAt) : null
+        const backHome = !!o && o.date === d && o.minutes === startMin && stop.techIds.includes(r.techId) && !ch.newLock
+        next = next.filter(x => x.id !== id)
         if (!backHome) next.push(ch)
       }
-      if (r.order?.length) saveOrder(date, r.techId, r.order)
+      // Unticked stops keep their slots; the optimized ones fill the rest in order.
+      const full = optPreview.routeIds[r.techId] ?? []
+      const chosen = new Set(r.order)
+      const queue = [...r.order]
+      const merged = full.map(id => (chosen.has(id) ? queue.shift()! : id))
+      saveOrder(d, r.techId, [...merged, ...queue])
     }
     commit(next)
     setOptPreview(null)
@@ -1006,6 +1087,8 @@ export default function DispatchView() {
               duration_minutes: p.durationMin,
             }
           }),
+          tank_overrides: await fetch(`/api/hub/routing/tank-assignments?route_code=${encodeURIComponent(tankRouteCode(l.techId))}&run_date=${date}`)
+            .then(r => r.json()).then(d => (d.assignments ?? null) as Record<string, number> | null).catch(() => null),
           predicted_drive_minutes: legs.reduce((sum, g) => sum + g.minutes, 0),
           predicted_onsite_minutes: all.reduce((sum, p) => sum + p.durationMin, 0),
           route_html: html || null,
@@ -1145,16 +1228,21 @@ export default function DispatchView() {
           </div>
 
           <button type="button" onClick={() => { void loadDay(); void loadBucket(true) }} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" title="Re-read from Jobber">↻ Refresh</button>
-          <button type="button" onClick={runOptimize} disabled={optimizing || loading || teamList.length === 0 || view !== 'day'}
-            className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-sm font-medium disabled:opacity-40"
-            title="Best order and times for each lane that keep every promise — shows a preview first">
-            {optimizing ? 'Optimizing…' : '⚡ Optimize day'}
+          <button type="button" onClick={() => setShowRoutePanel(v => !v)} disabled={teamList.length === 0 || view !== 'day'}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-40 ${showRoutePanel && view === 'day' ? 'bg-orange-500 hover:bg-orange-400 text-[#fff]' : 'bg-gray-800 hover:bg-gray-700'}`}
+            title={view === 'day' ? 'Show or hide Route & optimize (pick stops, 📌 first/last, Optimize)' : 'In Week/Month, click 🗺 on a day to optimize it'}>
+            ⚡ Route &amp; optimize
           </button>
           <button type="button" onClick={openReminders} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" title="Preview the day-before reminder texts and emails">📨 Reminders</button>
           <button type="button" onClick={() => { const v = !showBucket; setShowBucket(v); writeLS(LS_BUCKET, v) }}
             className={`px-3 py-1.5 rounded-lg text-sm ${showBucket ? 'bg-gray-700 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
             title={showBucket ? 'Hide the Unscheduled list for more room' : 'Show the Unscheduled list'}>
             📋 Unscheduled ({bucketShown.length}) {showBucket ? '◂' : '▸'}
+          </button>
+          <button type="button" onClick={() => { const v = !showTanks; setShowTanks(v); writeLS(LS_TANKS, v) }}
+            className={`px-3 py-1.5 rounded-lg text-sm ${showTanks ? 'bg-gray-700 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+            title={showTanks ? 'Hide the tank loadout' : 'Show the tank loadout (tank fill, products to mix)'}>
+            🧪 Tanks
           </button>
           {loading && <span className="text-xs text-gray-500">Loading from Jobber…</span>}
         </div>
@@ -1425,6 +1513,16 @@ export default function DispatchView() {
         </div>
       )}
 
+      {view === 'day' && showTanks && teamList.length > 0 && (
+        <div className="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+          {lanes.map(l => (
+            <DispatchTankPanel key={l.techId} date={date} techId={l.techId} techName={userName(l.techId)}
+              stops={[...l.route, ...l.tray].map(p => ({ id: p.stop.id, clientName: p.stop.clientName, jobTitle: p.stop.title, lineItemNames: p.stop.lineItemNames }))}
+              capacity={capacity} onLoadCapacity={loadCapacity} />
+          ))}
+        </div>
+      )}
+
       {view === 'day' && movedAway.length > 0 && (
         <div className="text-xs text-gray-400 flex flex-wrap gap-2 items-center">
           <span>Moved off this day (unsent):</span>
@@ -1438,7 +1536,7 @@ export default function DispatchView() {
 
       {/* Map + side panel */}
       {teamList.length > 0 && (
-        <div className={showBucket || slots || selected || selectedBucket
+        <div className={showBucket || slots || selected || selectedBucket || (view === 'day' && showRoutePanel)
           ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]'
           : 'grid gap-4'}>
           {view === 'day'
@@ -1446,9 +1544,27 @@ export default function DispatchView() {
             : <DispatchCalendar view={view} date={date} team={teamList} settings={settings} filters={filters}
                 userName={userName} laneColor={laneColor} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }}
                 changes={changes} orders={orders} onOrdersLoaded={o => setOrders(prev => ({ ...prev, ...o }))}
-                onSaveOrder={saveOrder} onMoveStop={moveFromCalendar} reloadKey={calTick} />}
+                onSaveOrder={saveOrder} onMoveStop={moveFromCalendar} reloadKey={calTick}
+                onOptimizeDay={optimizeFromCalendar} optimizing={optimizing}
+                showTanks={showTanks} capacity={capacity} onLoadCapacity={loadCapacity} />}
 
           <div className="space-y-4">
+            {view === 'day' && showRoutePanel && (
+              <DispatchRoutePanel
+                date={date}
+                lanes={lanes.map((l): PanelLane => ({
+                  techId: l.techId, name: userName(l.techId), color: laneColor(l.techId),
+                  stops: [...l.route, ...l.tray.filter(p => !l.num.has(p.stop.id))].map(p => ({
+                    id: p.stop.id, clientName: p.stop.clientName, title: p.stop.title, startMin: p.startMin,
+                    mapped: l.num.has(p.stop.id), routable: p.stop.routable, locked: !!p.lock,
+                    isComplete: p.stop.isComplete, changed: p.changed,
+                  })),
+                }))}
+                busy={optimizing}
+                onOptimize={runOptimize}
+                onClose={() => setShowRoutePanel(false)}
+              />
+            )}
             {slots && (
               <div className="bg-gray-900 border border-emerald-700/60 rounded-2xl p-3 text-sm space-y-2">
                 <div className="flex items-center">
@@ -1617,12 +1733,12 @@ export default function DispatchView() {
       {/* Optimize preview */}
       {optPreview && (
         <Modal onClose={() => setOptPreview(null)}>
-          <h3 className="font-semibold mb-2">Optimized day — preview</h3>
+          <h3 className="font-semibold mb-2">Optimized {new Date(`${optPreview.date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' })} — preview</h3>
           <div className="space-y-3 max-h-[60vh] overflow-y-auto text-sm">
             {optPreview.results.map(r => {
               if (r.skipped) return <div key={r.techId} className="text-gray-400">{userName(r.techId)}: {r.skipped}</div>
               const moves = Object.entries(r.starts ?? {}).filter(([id, st]) => {
-                const p = placed.find(x => x.stop.id === id)
+                const p = optPreview.ctx[id]
                 return !p || p.startMin !== st
               })
               return (
@@ -1634,7 +1750,7 @@ export default function DispatchView() {
                   </div>
                   <ol className="ml-5 mt-1 list-decimal text-xs text-gray-300">
                     {(r.order ?? []).map(id => {
-                      const p = placed.find(x => x.stop.id === id)
+                      const p = optPreview.ctx[id]
                       const st = r.starts?.[id]
                       const moved = !p || p.startMin !== st
                       return (
@@ -1648,7 +1764,7 @@ export default function DispatchView() {
                   </ol>
                   {moves.length === 0 && <div className="text-xs text-gray-500 ml-5">Already the best order — no changes.</div>}
                   {(r.violations ?? []).map(v => {
-                    const p = placed.find(x => x.stop.id === v.id)
+                    const p = optPreview.ctx[v.id]
                     return (
                       <div key={`${v.id}-${v.kind}`} className="text-xs text-red-400 ml-5">
                         ⚠ {p?.stop.clientName ?? v.id}: {v.kind === 'window' ? `can't make the promised time — ${v.lateMin} min late` : `arrives ${v.lateMin} min after the last arrival time`}
