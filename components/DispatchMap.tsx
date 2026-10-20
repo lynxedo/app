@@ -333,7 +333,9 @@ export default function DispatchMap({ depots, stops, legs, unscheduled, highligh
   const lassoPath = lassoPts.length > 1 ? `M ${lassoPts.map(p => `${p.x},${p.y}`).join(' L ')} Z` : ''
   return (
     <div className="relative rounded-xl overflow-hidden border border-gray-800" style={{ height }}>
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* Inline position on purpose: mapbox-gl.css sets .mapboxgl-map { position: relative },
+          which beats an `absolute` class and collapses the map to 0 height (Oct 20 2026). */}
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       {onLasso && (
         <>
           <div ref={overlayRef} onPointerDown={lassoDown} onPointerMove={lassoMove} onPointerUp={lassoUp}
