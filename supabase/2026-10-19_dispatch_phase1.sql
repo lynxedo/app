@@ -122,3 +122,22 @@ revoke all on public.dispatch_reminders from anon;
 drop policy if exists dispatch_reminders_select_company on public.dispatch_reminders;
 create policy dispatch_reminders_select_company on public.dispatch_reminders
   for select using (company_id = get_my_company_id());
+
+-- Hub route order (Oct 20 2026). Jobber's API can't set the order of anytime
+-- visits, so the order the office drags into place lives here, per tech per day:
+-- the map path, stop numbers, route sheet and Work Order list follow it.
+create table if not exists public.dispatch_route_order (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references public.companies(id) on delete cascade,
+  route_date      date not null,
+  jobber_user_id  text not null,
+  item_ids        text[] not null default '{}',
+  updated_by      uuid,
+  updated_at      timestamptz not null default now(),
+  constraint dispatch_route_order_unique unique (company_id, route_date, jobber_user_id)
+);
+alter table public.dispatch_route_order enable row level security;
+revoke all on public.dispatch_route_order from anon;
+drop policy if exists dispatch_route_order_select_company on public.dispatch_route_order;
+create policy dispatch_route_order_select_company on public.dispatch_route_order
+  for select using (company_id = get_my_company_id());

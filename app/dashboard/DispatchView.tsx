@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
-import DispatchCalendar from '@/components/DispatchCalendar'
+import DispatchCalendar, { type RangeStop } from '@/components/DispatchCalendar'
 import { fetchLeg, type Leg, type LatLng } from '@/lib/dispatch-legs'
 import { computeDuration } from '@/lib/route-duration'
 import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced-route-sheet'
 import type { DurationRulesConfig } from '@/app/api/settings/types'
 import {
   type DispatchSettings, type DispatchStop, type DispatchLock, type DraftChange,
-  DEFAULT_DISPATCH_SETTINGS, LANE_COLORS, addDays, fmtClock, hhmmToMinutes, isoToLocal,
+  DEFAULT_DISPATCH_SETTINGS, LANE_COLORS, addDays, changeDate, fmtClock, hhmmToMinutes, insertInOrder, isoToLocal, orderRoute,
   localStamp, localToIso, parseTitleWindow, remindersAlreadySent, stopColor, stopMatchesGroup, todayLocal,
 } from '@/lib/dispatch'
 
@@ -60,9 +60,13 @@ interface LaneRoute {
   techId: string
   start: LatLng | null
   end: LatLng | null
-  timed: Placed[]            // routable, on the clock, in time order — numbered 1..n
+  /** Every stop with an address on the map, in ROUTE order (Hub order, else time
+   *  then anytime) — numbered 1..n; the map path and route sheet follow it. */
+  route: Placed[]
+  num: Map<string, number>   // stop id → route number
+  timed: Placed[]            // on the clock — drawn as blocks on the timeline
   tray: Placed[]             // anytime or no address
-  legs: Leg[] | null         // start→1, 1→2, … n→end
+  legs: Leg[] | null         // start→route[0], route[0]→route[1], … → end
 }
 
 const SNAP = 15
@@ -80,6 +84,19 @@ function haversineMi(a: LatLng, b: LatLng): number {
   const R = 3958.8, r = Math.PI / 180
   const x = Math.sin((b.lat - a.lat) * r / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin((b.lng - a.lng) * r / 2) ** 2
   return 2 * R * Math.asin(Math.sqrt(x))
+}
+
+const shortDay = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', timeZone: 'UTC' })
+
+/** "10 am → 1:30 pm", or "Mon 10/20 → Wed 10/22, anytime" when the day changes. */
+function describeMove(c: DraftChange): string {
+  const was = c.fromStartAt ? isoToLocal(c.fromStartAt) : null
+  const to = changeDate(c)
+  const wasTime = was && was.minutes > 0 ? fmtClock(was.minutes) : 'anytime'
+  const toTime = c.anytime ? 'anytime' : fmtClock(minutesOf(c.toStart))
+  if (!was) return `unscheduled → ${shortDay(to)}, ${toTime}`
+  if (was.date !== to) return `${shortDay(was.date)} ${wasTime} → ${shortDay(to)}, ${toTime}`
+  return `${wasTime} → ${toTime}`
 }
 
 function stepDate(date: string, view: 'day' | 'week' | 'month', dir: 1 | -1): string {
@@ -119,6 +136,14 @@ export default function DispatchView() {
 
   const [coords, setCoords] = useState<Record<string, LatLng | null>>({})
   const [changes, setChanges] = useState<DraftChange[]>([])
+  // One draft across every day (Oct 20 2026) — loaded on its own, not with a day.
+  const [draftMeta, setDraftMeta] = useState<{ updatedByName: string | null; mine: boolean } | null>(null)
+  // Settings load on their own too, so Week/Month have colors + chips without a Day load.
+  const [baseSettings, setBaseSettings] = useState<DispatchSettings | null>(null)
+  // Hub route order per "date|techId" (Jobber can't order anytime visits).
+  const [orders, setOrders] = useState<Record<string, string[]>>({})
+  // Bumped after a send so Week/Month re-read Hub's copy of Jobber.
+  const [calTick, setCalTick] = useState(0)
   const historyRef = useRef<DraftChange[][]>([])
   const [canUndo, setCanUndo] = useState(false)
   const [locks, setLocks] = useState<Record<string, DispatchLock>>({})
@@ -168,7 +193,7 @@ export default function DispatchView() {
     unchecked: number
   }>(null)
 
-  const settings = day?.settings ?? DEFAULT_DISPATCH_SETTINGS
+  const settings = day?.settings ?? baseSettings ?? DEFAULT_DISPATCH_SETTINGS
   const viewStart = hhmmToMinutes(settings.view_start)
   const viewEnd = Math.max(viewStart + 60, hhmmToMinutes(settings.view_end))
   const span = viewEnd - viewStart
@@ -182,12 +207,35 @@ export default function DispatchView() {
     if (v === 'week' || v === 'month') setView(v)
     const saved = readLS<string[] | null>(LS_TEAM, null)
     if (saved && saved.length) setTeam(saved)
-    else {
-      // No personal choice yet — use the company default from Dispatch settings.
-      fetch('/api/hub/routing/dispatch/settings').then(r => r.json())
-        .then(d => setTeam((d.settings?.default_team as string[] | undefined) ?? []))
-        .catch(() => setTeam([]))
-    }
+    fetch('/api/hub/routing/dispatch/settings').then(r => r.json())
+      .then(d => {
+        if (d.settings) setBaseSettings(d.settings as DispatchSettings)
+        // No personal choice yet — use the company default from Dispatch settings.
+        if (!(saved && saved.length)) setTeam((d.settings?.default_team as string[] | undefined) ?? [])
+      })
+      .catch(() => { if (!(saved && saved.length)) setTeam([]) })
+    void loadDraft()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const loadDraft = useCallback(async () => {
+    try {
+      const res = await fetch('/api/hub/routing/dispatch/draft')
+      const d = await res.json()
+      if (!res.ok) return
+      setChanges(d.changes ?? [])
+      setDraftMeta({ updatedByName: d.updatedByName ?? null, mine: !!d.mine })
+      historyRef.current = []
+      setCanUndo(false)
+    } catch {}
+  }, [])
+
+  const saveOrder = useCallback((d: string, techId: string, ids: string[]) => {
+    setOrders(o => ({ ...o, [`${d}|${techId}`]: ids }))
+    fetch('/api/hub/routing/dispatch/order', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: d, techId, ids }),
+    }).then(r => { if (!r.ok) setNotice("Couldn't save the stop order — try again.") })
+      .catch(() => setNotice("Couldn't save the stop order — check your connection."))
   }, [])
 
   const userName = useCallback((id: string) => users.find(u => u.id === id)?.name ?? 'Unknown tech', [users])
@@ -200,9 +248,8 @@ export default function DispatchView() {
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || `Couldn't load the day (${res.status})`)
       setDay(d as DayData)
-      setChanges((d as DayData).draft?.changes ?? [])
-      historyRef.current = []
-      setCanUndo(false)
+      fetch(`/api/hub/routing/dispatch/order?from=${date}&to=${date}&techIds=${encodeURIComponent(team.join(','))}`)
+        .then(r => r.json()).then(o => setOrders(prev => ({ ...prev, ...(o.orders ?? {}) }))).catch(() => {})
       const lm: Record<string, DispatchLock> = {}
       for (const l of (d as DayData).locks) lm[l.jobber_item_id] = l
       setLocks(lm)
@@ -269,11 +316,11 @@ export default function DispatchView() {
     saveTimer.current = window.setTimeout(() => {
       fetch('/api/hub/routing/dispatch/draft', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, changes: next }),
+        body: JSON.stringify({ changes: next }),
       }).then(r => { if (!r.ok) setNotice("Couldn't save the draft — your changes are still on screen; try again.") })
         .catch(() => setNotice("Couldn't save the draft — check your connection."))
     }, 350)
-  }, [date])
+  }, [])
 
   const commit = useCallback((next: DraftChange[]) => {
     historyRef.current.push(changes)
@@ -302,6 +349,11 @@ export default function DispatchView() {
   const teamList = useMemo(() => team ?? [], [team])
   const laneColor = useCallback((techId: string) => LANE_COLORS[Math.max(0, teamList.indexOf(techId)) % LANE_COLORS.length], [teamList])
 
+  const snapOf = (s: DispatchStop): DraftChange['snapshot'] => ({
+    address: s.address, title: s.title, lineItemNames: s.lineItemNames, totalPrice: s.totalPrice,
+    routable: s.routable, instructions: s.instructions,
+  })
+
   const estimate = useCallback((s: DispatchStop) => {
     if (!day) return 30
     return computeDuration(s.lineItemNames, s.title, s.kind, day.duration.method, day.duration.rules, day.duration.defaultMinutes).minutes
@@ -328,9 +380,11 @@ export default function DispatchView() {
     const out: Placed[] = []
     const place = (s: DispatchStop, fromBucket: boolean) => {
       const ch = changeById.get(s.id)
+      if (ch && changeDate(ch) !== date) return // moved to another day in the draft
       const lane = ch ? ch.toTechId : (teamList.find(t => s.techIds.includes(t)) ?? s.techIds[0] ?? '')
       let startMin: number | null = null, endMin: number | null = null
-      if (ch) { startMin = minutesOf(ch.toStart); endMin = minutesOf(ch.toEnd) }
+      if (ch && !ch.anytime) { startMin = minutesOf(ch.toStart); endMin = minutesOf(ch.toEnd) }
+      else if (ch) { /* moved here as an anytime visit */ }
       else if (s.startAt && !s.allDay) {
         const a = isoToLocal(s.startAt)
         // A midnight start is Jobber's anytime placeholder (and the only signal
@@ -352,15 +406,19 @@ export default function DispatchView() {
     }
     for (const s of day.stops) place(s, false)
     for (const c of changes) {
-      if (day.stops.some(s => s.id === c.id)) continue
+      if (changeDate(c) !== date || day.stops.some(s => s.id === c.id)) continue
       const b = bucketById.get(c.id)
-      // A bucket card scheduled in the draft. If the bucket hasn't loaded (or the
-      // visit left it), rebuild enough of it from the change to keep it on screen.
+      // A bucket card scheduled in the draft, or a stop moved here from another
+      // day in Month/Week. Rebuild it from the change's snapshot when it isn't
+      // in today's Jobber pull or the bucket.
+      const snap = c.snapshot
       place(b ?? {
-        id: c.id, kind: c.kind, clientName: c.clientName, phone: c.phone, address: '', routable: false,
-        title: c.clientName, lineItemNames: [], totalPrice: 0, instructions: null, startAt: null, endAt: null,
+        id: c.id, kind: c.kind, clientName: c.clientName, phone: c.phone,
+        address: snap?.address ?? '', routable: snap?.routable ?? false,
+        title: snap?.title || c.clientName, lineItemNames: snap?.lineItemNames ?? [], totalPrice: snap?.totalPrice ?? 0,
+        instructions: snap?.instructions ?? null, startAt: null, endAt: null,
         allDay: true, isComplete: false, arrivalStart: null, arrivalEnd: null, techIds: c.fromTechIds,
-      }, true)
+      }, !snap)
     }
     return out
   }, [day, changes, changeById, bucketById, teamList, date, estimate, lockFor, settings.color_rules, filteredOut])
@@ -375,17 +433,25 @@ export default function DispatchView() {
 
   const lanes: LaneRoute[] = useMemo(() => teamList.map(techId => {
     const mine = placed.filter(p => p.lane === techId)
-    const timed = mine
-      .filter(p => p.startMin !== null && p.stop.routable && coords[p.stop.address])
-      .sort((a, b) => (a.startMin! - b.startMin!))
+    const mappable = mine.filter(p => p.stop.routable && coords[p.stop.address])
+    const route = orderRoute(mappable.map(p => ({ id: p.stop.id, startMin: p.startMin, p })), orders[`${date}|${techId}`]).map(x => x.p)
+    const num = new Map(route.map((p, i) => [p.stop.id, i + 1]))
+    const timed = mappable.filter(p => p.startMin !== null).sort((a, b) => (a.startMin! - b.startMin!))
     const tray = mine.filter(p => !timed.includes(p))
+      .sort((a, b) => (num.get(a.stop.id) ?? 999) - (num.get(b.stop.id) ?? 999))
     const { start, end } = startEndFor(techId)
-    return { techId, start, end, timed, tray, legs: routes[techId] ?? null }
-  }), [teamList, placed, coords, startEndFor, routes])
+    return { techId, start, end, route, num, timed, tray, legs: routes[techId] ?? null }
+  }), [teamList, placed, coords, startEndFor, routes, orders, date])
+
+  // Stops this day's draft moved to OTHER days (Month/Week drags) — listed under the lanes.
+  const movedAway = useMemo(() => (day?.stops ?? []).flatMap(s => {
+    const ch = changeById.get(s.id)
+    return ch && changeDate(ch) !== date ? [{ stop: s, ch }] : []
+  }), [day, changeById, date])
 
   // ── Road legs per lane ────────────────────────────────────────────────────
   const legKey = useMemo(() => lanes.map(l => {
-    const pts = [l.start, ...l.timed.map(p => coords[p.stop.address]), l.end]
+    const pts = [l.start, ...l.route.map(p => coords[p.stop.address]), l.end]
     return `${l.techId}:${pts.map(p => p ? `${p.lat.toFixed(5)},${p.lng.toFixed(5)}` : 'x').join(';')}`
   }).join('|'), [lanes, coords])
 
@@ -396,8 +462,8 @@ export default function DispatchView() {
       await Promise.all(lanes.map(async l => {
         const pts: LatLng[] = []
         if (l.start) pts.push(l.start)
-        for (const p of l.timed) { const c = coords[p.stop.address]; if (c) pts.push(c) }
-        if (l.end && l.timed.length) pts.push(l.end)
+        for (const p of l.route) { const c = coords[p.stop.address]; if (c) pts.push(c) }
+        if (l.end && l.route.length) pts.push(l.end)
         if (pts.length < 2) { next[l.techId] = []; return }
         const legs: Leg[] = []
         for (let i = 0; i < pts.length - 1; i++) legs.push(await fetchLeg(pts[i], pts[i + 1]))
@@ -457,6 +523,7 @@ export default function DispatchView() {
       toTechId: lane,
       newLock,
       at: new Date().toISOString(),
+      snapshot: snapOf(stop),
     }
     // Dropped exactly back where Jobber has it → no change at all.
     const backHome = !stop.allDay && stop.startAt && isoToLocal(stop.startAt).date === date
@@ -485,6 +552,7 @@ export default function DispatchView() {
       toTechId: p.lane,
       newLock: existing?.newLock ?? null,
       at: new Date().toISOString(),
+      snapshot: snapOf(stop),
     }
     // Back to exactly what Jobber has → no change at all.
     const js = stop.startAt && !stop.allDay ? isoToLocal(stop.startAt) : null
@@ -525,6 +593,38 @@ export default function DispatchView() {
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
   }
+
+  // ── Month/Week drags: move a stop to another day / tech (into the draft) ──
+  // An anytime stop moves as anytime (date + tech only); a timed one keeps its
+  // clock time. A promised time frame moves with it to the new day.
+  const moveFromCalendar = useCallback((s: RangeStop, fromDate: string | null, toDate: string, toTechId: string) => {
+    if (s.isComplete) { setNotice('That stop is already completed in Jobber.'); return }
+    const existing = changeById.get(s.id)
+    const anytime = s.startMin == null
+    const hhmmL = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`
+    let newLock = existing?.newLock ?? null
+    if (s.lock && fromDate && fromDate !== toDate) {
+      const a = isoToLocal(s.lock.start), b = isoToLocal(s.lock.end)
+      newLock = { start: `${toDate}T${hhmmL(a.minutes)}`, end: `${toDate}T${hhmmL(b.minutes)}` }
+    }
+    const end = s.endMin ?? (s.startMin != null ? s.startMin + 30 : 0)
+    const change: DraftChange = {
+      id: s.id, kind: s.kind, clientName: s.clientName, phone: s.phone,
+      fromStartAt: existing ? existing.fromStartAt : s.startAt,
+      fromTechIds: existing ? existing.fromTechIds : s.techIds,
+      toStart: anytime ? `${toDate}T00:00:00` : localStamp(toDate, s.startMin!),
+      toEnd: anytime ? `${toDate}T00:00:00` : localStamp(toDate, end),
+      toTechId, anytime, newLock,
+      at: new Date().toISOString(),
+      snapshot: snapOf(s),
+    }
+    // Dragged back to where Jobber has it → no change at all.
+    const orig = existing ? { startAt: existing.fromStartAt, techIds: existing.fromTechIds } : { startAt: s.startAt, techIds: s.techIds }
+    const o = orig.startAt ? isoToLocal(orig.startAt) : null
+    const backHome = !!o && o.date === toDate && orig.techIds.includes(toTechId) && !change.newLock
+      && (anytime ? o.minutes === 0 || existing?.anytime === true : o.minutes === s.startMin)
+    commit([...changes.filter(c => c.id !== s.id), ...(backHome ? [] : [change])])
+  }, [changeById, changes, commit])
 
   // ── Optimize day (preview first; Apply puts it in the draft) ─────────────
   const runOptimize = async () => {
@@ -567,6 +667,9 @@ export default function DispatchView() {
       for (const [id, startMin] of Object.entries(r.starts)) {
         const p = placed.find(x => x.stop.id === id)
         if (!p) continue
+        // Anytime stops stay anytime in Jobber (Ben, Oct 20 2026) — Optimize only
+        // sets their ORDER (saved below, in Hub). Timed stops get the new times.
+        if (p.startMin == null) continue
         if (p.startMin === startMin && p.lane === r.techId) continue
         const existing = byId.get(id)
         const stop = p.stop
@@ -579,12 +682,14 @@ export default function DispatchView() {
           toTechId: r.techId,
           newLock: existing?.newLock ?? null,
           at: new Date().toISOString(),
+          snapshot: snapOf(stop),
         }
         const backHome = !stop.allDay && stop.startAt && isoToLocal(stop.startAt).date === date
           && isoToLocal(stop.startAt).minutes === startMin && stop.techIds.includes(r.techId) && !ch.newLock
         next = next.filter(c => c.id !== id)
         if (!backHome) next.push(ch)
       }
+      if (r.order?.length) saveOrder(date, r.techId, r.order)
     }
     commit(next)
     setOptPreview(null)
@@ -679,12 +784,16 @@ export default function DispatchView() {
   }
 
   // ── Send to Jobber ────────────────────────────────────────────────────────
-  const remindersOut = remindersAlreadySent(date, settings.reminder_cutoff)
+  // The draft spans days, so "customers were already told" is judged per change:
+  // the day the visit WAS on had its reminders out, and the visit's time or day moved.
   const toldCustomer = (c: DraftChange) => {
     if (!c.fromStartAt) return false
     const was = isoToLocal(c.fromStartAt)
-    return !(was.date === date && was.minutes === minutesOf(c.toStart))
+    if (!remindersAlreadySent(was.date, settings.reminder_cutoff)) return false
+    if (c.anytime) return was.date !== changeDate(c)
+    return !(was.date === changeDate(c) && was.minutes === minutesOf(c.toStart))
   }
+  const remindersOut = changes.some(toldCustomer)
 
   const send = async () => {
     setSending(true)
@@ -698,15 +807,43 @@ export default function DispatchView() {
       const conflictMap = new Map<string, string>((check.conflicts ?? []).map((c: { id: string; reason: string }) => [c.id, c.reason]))
       const toSend = changes.filter(c => !conflictMap.has(c.id))
 
+      const ok: Array<{ change: DraftChange; remind: boolean }> = []
+      const failed: Array<{ change: DraftChange; error: string }> = []
+
+      // Anytime moves (Month/Week drags of anytime stops) go through the
+      // optimizer's "day + tech" writer, which keeps them Anytime in Jobber.
+      // It moves every item in a call to one day and (optionally) one tech.
+      const anyGroups = new Map<string, DraftChange[]>()
+      for (const c of toSend.filter(x => x.anytime)) {
+        const k = `${changeDate(c)}|${c.fromTechIds.includes(c.toTechId) ? '__keep__' : c.toTechId}`
+        anyGroups.set(k, [...(anyGroups.get(k) ?? []), c])
+      }
+      for (const [k, list] of anyGroups) {
+        const [d, tech] = k.split('|')
+        const res = await fetch('/api/reorder-jobber', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            visit_ids: list.map(c => c.id), visit_types: list.map(c => c.kind),
+            assigned_date: d, ...(tech !== '__keep__' ? { assigned_user_id: tech } : {}),
+          }),
+        })
+        const r = await res.json().catch(() => ({}))
+        if (!res.ok) { for (const c of list) failed.push({ change: c, error: r.error || `Jobber send failed (${res.status})` }); continue }
+        const byId = new Map<string, { success: boolean; error?: string }>((r.results ?? []).map((x: { visitId: string; success: boolean; error?: string }) => [x.visitId, x]))
+        for (const c of list) {
+          const x = byId.get(c.id)
+          if (x?.success) ok.push({ change: c, remind: toldCustomer(c) })
+          else failed.push({ change: c, error: x?.error ?? 'No result from Jobber' })
+        }
+      }
+
       // /api/send-to-jobber reassigns every item in a call to one tech, so group
       // by "reassign to X" vs "keep who's on it".
       const groups = new Map<string, DraftChange[]>()
-      for (const c of toSend) {
+      for (const c of toSend.filter(x => !x.anytime)) {
         const k = c.fromTechIds.includes(c.toTechId) ? '__keep__' : c.toTechId
         groups.set(k, [...(groups.get(k) ?? []), c])
       }
-      const ok: Array<{ change: DraftChange; remind: boolean }> = []
-      const failed: Array<{ change: DraftChange; error: string }> = []
       for (const [k, list] of groups) {
         const res = await fetch('/api/send-to-jobber', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -720,7 +857,7 @@ export default function DispatchView() {
         const byId = new Map<string, { success: boolean; error?: string }>((d.results ?? []).map((r: { visitId: string; success: boolean; error?: string }) => [r.visitId, r]))
         for (const c of list) {
           const r = byId.get(c.id)
-          if (r?.success) ok.push({ change: c, remind: remindersOut && toldCustomer(c) })
+          if (r?.success) ok.push({ change: c, remind: toldCustomer(c) })
           else failed.push({ change: c, error: r?.error ?? 'No result from Jobber' })
         }
       }
@@ -740,7 +877,7 @@ export default function DispatchView() {
       setCanUndo(false)
       setChanges(remaining)
       await fetch('/api/hub/routing/dispatch/draft', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, changes: remaining }),
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: remaining }),
       }).catch(() => {})
 
       setSendReport({
@@ -749,7 +886,8 @@ export default function DispatchView() {
         unchecked: (check.unchecked ?? []).length,
       })
       setSendOpen(false)
-      await Promise.all([loadDay(), loadBucket(true)])
+      setCalTick(t => t + 1)
+      await Promise.all([view === 'day' ? loadDay() : Promise.resolve(), loadBucket(true), loadDraft()])
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'Send failed')
     } finally {
@@ -761,7 +899,9 @@ export default function DispatchView() {
     if (!c.phone) return
     const first = c.clientName.split(' ')[0] || 'there'
     const dayLabel = new Date(`${c.toStart.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' })
-    const body = `Hi ${first}, a quick update on your service visit: we now plan to arrive ${dayLabel} around ${fmtClock(minutesOf(c.toStart))}. Reply here if that doesn't work for you.`
+    const body = c.anytime
+      ? `Hi ${first}, a quick update on your service visit: it's now scheduled for ${dayLabel}. Reply here if that doesn't work for you.`
+      : `Hi ${first}, a quick update on your service visit: we now plan to arrive ${dayLabel} around ${fmtClock(minutesOf(c.toStart))}. Reply here if that doesn't work for you.`
     try {
       const res = await fetch('/api/txt/conversations/start', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -814,9 +954,10 @@ export default function DispatchView() {
     }
     const legs = l.legs ?? []
     const offset = l.start ? 1 : 0
-    const unroutable = l.tray.filter(p => !p.stop.routable)
-    if (l.timed.length === 0 && unroutable.length === 0) {
-      setSheetMsg(m => ({ ...m, [l.techId]: { ok: false, text: 'No timed stops to print.' } }))
+    // Stops not on the map (no address, or the address couldn't be found) print first, unnumbered.
+    const unroutable = l.tray.filter(p => !l.num.has(p.stop.id))
+    if (l.route.length === 0 && unroutable.length === 0) {
+      setSheetMsg(m => ({ ...m, [l.techId]: { ok: false, text: 'No stops to print.' } }))
       return
     }
     setSheetMsg(m => ({ ...m, [l.techId]: { busy: true, text: 'Building the route sheet…' } }))
@@ -827,12 +968,12 @@ export default function DispatchView() {
         jobTitle: p.stop.title, eta: '', driveMinutes: 0, onSiteMinutes: p.durationMin, distanceKm: 0, lat: 0, lng: 0,
         lineItems: items(p), services: p.stop.lineItemNames.join(', '), totalPrice: p.stop.totalPrice, instructions: p.stop.instructions,
       })),
-      ...l.timed.map((p, i) => {
+      ...l.route.map((p, i) => {
         const c = coords[p.stop.address]!
         const leg = i > 0 || l.start ? legs[i - 1 + offset] : undefined
         return {
           stopNumber: i + 1, routable: true, clientName: p.stop.clientName, addressString: p.stop.address, phone: p.stop.phone,
-          jobTitle: p.stop.title, eta: fmtClock(p.startMin!), driveMinutes: leg?.minutes ?? 0, onSiteMinutes: p.durationMin,
+          jobTitle: p.stop.title, eta: p.startMin != null ? fmtClock(p.startMin) : 'Anytime', driveMinutes: leg?.minutes ?? 0, onSiteMinutes: p.durationMin,
           distanceKm: leg ? Math.round(leg.miles * 1.609 * 10) / 10 : 0, lat: c.lat, lng: c.lng,
           lineItems: items(p), services: p.stop.lineItemNames.join(', '), totalPrice: p.stop.totalPrice, instructions: p.stop.instructions,
         }
@@ -842,7 +983,7 @@ export default function DispatchView() {
       const html = await buildAdvancedRouteSheetHtml({
         techName, date, stops: sheetStops, depot: l.start, mapboxToken: process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '',
       })
-      const all = [...unroutable, ...l.timed]
+      const all = [...unroutable, ...l.route]
       const res = await fetch('/api/hub/daily-log/from-route', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -905,22 +1046,15 @@ export default function DispatchView() {
   const mapStops: DispatchMapStop[] = useMemo(() => {
     const out: DispatchMapStop[] = []
     for (const l of lanes) {
-      l.timed.forEach((p, i) => {
+      // Every mapped stop in ROUTE order — anytime ones included (Ben, Oct 20 2026).
+      l.route.forEach((p, i) => {
         const c = coords[p.stop.address]!
         out.push({
           id: p.stop.id, lat: c.lat, lng: c.lng, label: String(i + 1), color: laneColor(l.techId),
           fill: p.dim ? '#94a3b8' : p.color, locked: !!p.lock, title: p.stop.clientName, subtitle: p.stop.address,
-          meta: `${userName(l.techId)} · ${fmtClock(p.startMin!)}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}`,
+          meta: `${userName(l.techId)} · ${p.startMin != null ? fmtClock(p.startMin) : 'anytime'}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}`,
         })
       })
-      for (const p of l.tray) {
-        const c = coords[p.stop.address]
-        if (!c) continue
-        out.push({
-          id: p.stop.id, lat: c.lat, lng: c.lng, label: '', color: laneColor(l.techId), fill: p.dim ? '#94a3b8' : p.color,
-          locked: !!p.lock, title: p.stop.clientName, subtitle: p.stop.address, meta: `${userName(l.techId)} · anytime`,
-        })
-      }
     }
     return out
   }, [lanes, coords, laneColor, userName])
@@ -929,9 +1063,9 @@ export default function DispatchView() {
     const out: DispatchMapLeg[] = []
     for (const l of lanes) {
       if (!l.legs) continue
-      const names = [l.start ? 'Shop' : null, ...l.timed.map((p, i) => `${i + 1}. ${p.stop.clientName}`), 'Shop'].filter((x): x is string => !!x)
+      const names = [l.start ? 'Shop' : null, ...l.route.map((p, i) => `${i + 1}. ${p.stop.clientName}`), 'Shop'].filter((x): x is string => !!x)
       l.legs.forEach((leg, i) => {
-        const isReturn = i === l.legs!.length - 1 && !!l.end && l.timed.length > 0
+        const isReturn = i === l.legs!.length - 1 && !!l.end && l.route.length > 0
         out.push({
           coords: leg.coords, color: laneColor(l.techId), isReturn,
           label: isReturn ? `back to shop · ${leg.minutes} min` : '',
@@ -1046,13 +1180,14 @@ export default function DispatchView() {
       </div>
 
       {/* Draft bar */}
-      {(changes.length > 0 || day?.draft) && (
+      {changes.length > 0 && (
         <div className="sticky top-0 z-20 bg-gray-900/95 backdrop-blur border border-orange-500/50 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">
             {changes.length} unsent change{changes.length === 1 ? '' : 's'}
+            {new Set(changes.map(changeDate)).size > 1 ? ` across ${new Set(changes.map(changeDate)).size} days` : ''}
           </span>
-          {day?.draft && !day.draft.mine && day.draft.updatedByName && changes.length > 0 && (
-            <span className="text-xs text-amber-400">— started by {day.draft.updatedByName}</span>
+          {draftMeta && !draftMeta.mine && draftMeta.updatedByName && (
+            <span className="text-xs text-amber-400">— started by {draftMeta.updatedByName}</span>
           )}
           <span className="text-xs text-gray-500">Nothing changes in Jobber until you send.</span>
           <div className="ml-auto flex gap-2">
@@ -1103,7 +1238,7 @@ export default function DispatchView() {
               <div className="text-amber-300">Jobber&apos;s reminders already went out for this day, so these customers were told the old time:</div>
               {sendReport.ok.filter(o => o.remind).map(({ change }) => (
                 <div key={change.id} className="flex items-center gap-2">
-                  <span className="flex-1">{change.clientName} — told {change.fromStartAt ? fmtClock(isoToLocal(change.fromStartAt).minutes) : '?'}, now {fmtClock(minutesOf(change.toStart))}</span>
+                  <span className="flex-1">{change.clientName} — {describeMove(change)}</span>
                   {change.phone
                     ? <button type="button" onClick={() => textNewTime(change)} className="px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-xs">Text new time</button>
                     : <span className="text-xs text-gray-500">no phone on file</span>}
@@ -1134,11 +1269,14 @@ export default function DispatchView() {
             {lanes.map(l => {
               const color = laneColor(l.techId)
               const legs = l.legs ?? []
-              const first = l.timed[0], last = l.timed[l.timed.length - 1]
-              const leave = first && legs[0] && l.start ? first.startMin! - legs[0].minutes : null
-              const back = last && l.end && legs.length === l.timed.length + 1 ? last.endMin! + legs[legs.length - 1].minutes : null
-              const miles = legs.reduce((s, g) => s + g.miles, 0)
+              // Legs follow the ROUTE (anytime stops included): legs[k + offset]
+              // runs route[k] → route[k+1]. Out/back only when the first/last
+              // route stop has a clock time to count from.
               const offset = l.start ? 1 : 0
+              const first = l.route[0], last = l.route[l.route.length - 1]
+              const leave = first?.startMin != null && legs[0] && l.start ? first.startMin - legs[0].minutes : null
+              const back = last?.endMin != null && l.end && legs.length === l.route.length + offset ? last.endMin + legs[legs.length - 1].minutes : null
+              const miles = legs.reduce((s, g) => s + g.miles, 0)
               return (
                 <div key={l.techId} className="flex border-t border-gray-800 py-2">
                   <div className="w-40 shrink-0 pr-2">
@@ -1149,7 +1287,7 @@ export default function DispatchView() {
                       {l.timed.length} stop{l.timed.length === 1 ? '' : 's'}{miles ? ` · ${Math.round(miles)} mi` : ''}
                       {leave !== null && <> · out {fmtClock(leave)}</>}{back !== null && <> · back {fmtClock(back)}</>}
                     </div>
-                    <button type="button" onClick={() => sendSheet(l)} disabled={!!sheetMsg[l.techId]?.busy || (l.timed.length === 0 && !l.tray.some(p => !p.stop.routable))}
+                    <button type="button" onClick={() => sendSheet(l)} disabled={!!sheetMsg[l.techId]?.busy || (l.route.length === 0 && l.tray.length === 0)}
                       className="mt-1 text-[11px] text-sky-400 hover:text-sky-300 disabled:opacity-40"
                       title={laneHasUnsent(l.techId) ? 'Send your changes to Jobber first' : "Attach this lane's PDF route sheet to the tech's Work Orders for the day"}>
                       📄 Send route sheet
@@ -1175,10 +1313,11 @@ export default function DispatchView() {
                       {back !== null && back <= viewEnd && <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full" style={{ left: pct(back), background: color }} title={`Back ${fmtClock(back)}`} />}
 
                       {/* drive bars + gaps */}
-                      {l.timed.map((p, i) => {
+                      {l.route.map((p, i) => {
                         const leg = legs[i + offset]
-                        const next = l.timed[i + 1]
-                        if (!leg || !next) return null
+                        const next = l.route[i + 1]
+                        // A drive bar only sits between two stops that both have times.
+                        if (!leg || !next || p.endMin == null || next.startMin == null) return null
                         const driveStart = p.endMin!
                         const arrive = driveStart + leg.minutes
                         const late = arrive - next.startMin!
@@ -1189,7 +1328,7 @@ export default function DispatchView() {
                               title={`${leg.minutes} min drive · ${leg.miles} mi${late > 0 ? ` · arrives ${late} min late` : ''}`}>
                               {leg.minutes}m
                             </div>
-                            {late > 0 && <div className="absolute top-0 text-[9px] text-red-400" style={{ left: pct(next.startMin!) }}>late {late}m</div>}
+                            {late > 0 && <div className="absolute top-0 text-[9px] text-red-400" style={{ left: pct(next.startMin) }}>late {late}m</div>}
                             {late < -20 && (
                               <div className="absolute top-[22px] h-5 rounded-sm text-[9px] text-gray-500 flex items-center justify-center"
                                 style={{ left: pct(arrive), width: width(-late), backgroundImage: 'repeating-linear-gradient(45deg,#33415555 0 4px,transparent 4px 8px)' }}>
@@ -1216,7 +1355,7 @@ export default function DispatchView() {
                       )}
 
                       {/* stop blocks */}
-                      {l.timed.map((p, i) => (
+                      {l.timed.map(p => (
                         <div key={p.stop.id}
                           draggable={!p.stop.isComplete && resize?.id !== p.stop.id}
                           onDragStart={e => {
@@ -1233,9 +1372,9 @@ export default function DispatchView() {
                             background: p.color, color: '#fff', opacity: p.dim ? 0.3 : p.stop.isComplete ? 0.55 : 1,
                             borderLeft: `4px solid ${color}`,
                           }}
-                          title={`${i + 1}. ${p.stop.clientName} · ${fmtClock(p.startMin!)}–${fmtClock(p.endMin!)}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}${p.changed ? ' · moved (unsent)' : ''}`}
+                          title={`${l.num.get(p.stop.id) ?? ''}. ${p.stop.clientName} · ${fmtClock(p.startMin!)}–${fmtClock(p.endMin!)}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}${p.changed ? ' · moved (unsent)' : ''}`}
                         >
-                          <div className="font-bold">{i + 1}{p.lock ? ' 🔒' : ''}{p.stop.isComplete ? ' ✓' : ''}</div>
+                          <div className="font-bold">{l.num.get(p.stop.id) ?? ''}{p.lock ? ' 🔒' : ''}{p.stop.isComplete ? ' ✓' : ''}</div>
                           <div className="truncate">{p.stop.clientName}</div>
                           {resize?.id === p.stop.id && (
                             <div className="absolute bottom-0.5 right-2 text-[10px] font-semibold bg-black/50 rounded px-1">{resize.endMin - resize.startMin} min · ends {fmtClock(resize.endMin)}</div>
@@ -1259,11 +1398,21 @@ export default function DispatchView() {
                         {l.tray.map(p => (
                           <div key={p.stop.id} draggable={!p.stop.isComplete}
                             onDragStart={e => onDragStartStop(e, p.stop.id, 0)}
+                            onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                            onDrop={e => {
+                              // Drop on another anytime stop in this lane = put it just before (Hub order).
+                              e.preventDefault(); e.stopPropagation()
+                              const d = dragRef.current
+                              dragRef.current = null
+                              if (!d || d.id === p.stop.id) return
+                              if (!l.route.some(x => x.stop.id === d.id)) { setNotice('To move a stop to this tech, drop it on their timeline.'); return }
+                              saveOrder(date, l.techId, insertInOrder(l.route.map(x => x.stop.id), d.id, p.stop.id))
+                            }}
                             onClick={() => setSelectedId(p.stop.id)}
                             className={`px-2 py-0.5 rounded-full text-[11px] cursor-grab text-[#fff] ${p.changed ? 'ring-2 ring-orange-400' : ''}`}
                             style={{ background: p.color, opacity: p.dim ? 0.3 : 1 }}
-                            title={p.stop.routable ? (coords[p.stop.address] === null ? "Couldn't find this address on the map" : 'Drag onto the timeline to give it a time') : 'No address'}>
-                            {p.stop.clientName}{!p.stop.routable ? ' (no address)' : ''}
+                            title={p.stop.routable ? (coords[p.stop.address] === null ? "Couldn't find this address on the map" : 'Drag onto the timeline to give it a time, or onto another anytime stop to put it before that one') : 'No address'}>
+                            {l.num.has(p.stop.id) ? <b>{l.num.get(p.stop.id)}. </b> : ''}{p.stop.clientName}{!p.stop.routable ? ' (no address)' : ''}
                           </div>
                         ))}
                       </div>
@@ -1276,6 +1425,17 @@ export default function DispatchView() {
         </div>
       )}
 
+      {view === 'day' && movedAway.length > 0 && (
+        <div className="text-xs text-gray-400 flex flex-wrap gap-2 items-center">
+          <span>Moved off this day (unsent):</span>
+          {movedAway.map(({ stop, ch }) => (
+            <span key={stop.id} className="px-2 py-0.5 rounded-full border border-orange-400/60 text-orange-300">
+              {stop.clientName} → {shortDay(changeDate(ch))}{ch.anytime ? ', anytime' : `, ${fmtClock(minutesOf(ch.toStart))}`}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Map + side panel */}
       {teamList.length > 0 && (
         <div className={showBucket || slots || selected || selectedBucket
@@ -1284,7 +1444,9 @@ export default function DispatchView() {
           {view === 'day'
             ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} height={MAP_HEIGHT} />
             : <DispatchCalendar view={view} date={date} team={teamList} settings={settings} filters={filters}
-                userName={userName} laneColor={laneColor} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }} />}
+                userName={userName} laneColor={laneColor} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }}
+                changes={changes} orders={orders} onOrdersLoaded={o => setOrders(prev => ({ ...prev, ...o }))}
+                onSaveOrder={saveOrder} onMoveStop={moveFromCalendar} reloadKey={calTick} />}
 
           <div className="space-y-4">
             {slots && (
@@ -1477,7 +1639,9 @@ export default function DispatchView() {
                       const moved = !p || p.startMin !== st
                       return (
                         <li key={id} className={moved ? 'text-orange-300' : ''}>
-                          {p?.stop.clientName ?? id} — {p?.startMin != null && moved ? `${fmtClock(p.startMin)} → ` : ''}{st != null ? fmtClock(st) : ''}{p?.lock ? ' 🔒' : ''}
+                          {p?.stop.clientName ?? id} — {p?.startMin == null
+                            ? <span className="text-gray-400">anytime (order only · est. {st != null ? fmtClock(st) : ''})</span>
+                            : <>{moved ? `${fmtClock(p.startMin)} → ` : ''}{st != null ? fmtClock(st) : ''}</>}{p?.lock ? ' 🔒' : ''}
                         </li>
                       )
                     })}
@@ -1531,7 +1695,7 @@ export default function DispatchView() {
               <div key={c.id} className="flex gap-2">
                 <span className="flex-1 truncate">{c.clientName}</span>
                 <span className="text-gray-400 text-xs">
-                  {c.fromStartAt ? fmtClock(isoToLocal(c.fromStartAt).minutes) : 'unscheduled'} → {fmtClock(minutesOf(c.toStart))}
+                  {describeMove(c)}
                   {!c.fromTechIds.includes(c.toTechId) ? ` · to ${userName(c.toTechId)}` : ''}
                 </span>
               </div>
