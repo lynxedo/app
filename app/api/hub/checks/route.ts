@@ -3,6 +3,7 @@ import { requireCompany } from '@/lib/company-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
 import { sendHubPush } from '@/lib/hub-push'
+import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
 import {
   getChecksRoomId, canManageChecks, formatCents, RETAKE_PROBLEMS,
   type CheckPhotoReview, type RetakeProblem,
@@ -15,15 +16,12 @@ import {
 //        the ones they sent.
 //   POST { contact_id?, customer_name, amount_cents, check_number?, memo?,
 //          front: { path, size, width, height, review }, back: { … }, sent_anyway }
-//        → saves the check and posts it, with both photos, in the checks room.
+//        → saves the check and posts an alert (no photos — they live on the
+//          Checks page) in the checks room, mirrored to Slack when bridged.
 //
 // Open to everyone in Hub (Ben, Oct 15 2026).
 
 type Side = { path?: unknown; size?: unknown; width?: unknown; height?: unknown; review?: unknown }
-
-function dim(v: unknown): number | null {
-  return typeof v === 'number' && Number.isInteger(v) && v > 0 && v < 20000 ? v : null
-}
 
 export async function GET(request: Request) {
   const auth = await requireCompany({ grant: 'can_access_hub' })
@@ -131,7 +129,7 @@ export async function POST(request: Request) {
   const roomId = await getChecksRoomId(admin, auth.companyId)
   if (!roomId) return NextResponse.json({ id: row.id, posted: false })
 
-  const { data: me } = await admin.from('hub_users').select('display_name').eq('id', auth.userId).maybeSingle()
+  const { data: me } = await admin.from('hub_users').select('display_name, avatar_url').eq('id', auth.userId).maybeSingle()
   const senderName = me?.display_name?.trim() || 'A teammate'
 
   const problemText = (r: CheckPhotoReview | null) =>
@@ -164,26 +162,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ id: row.id, posted: false })
   }
 
-  const { error: filesErr } = await admin.from('files').insert(
-    ([['front', frontPath, body.front], ['back', backPath, body.back]] as const).map(([side, path, s]) => ({
-      company_id: auth.companyId,
-      message_id: msg.id,
-      uploader_id: auth.userId,
-      storage_path: path,
-      filename: `check-${checkNumber ?? row.id.slice(0, 8)}-${side}.jpg`,
-      mime_type: 'image/jpeg',
-      size_bytes: typeof s?.size === 'number' && s.size > 0 ? Math.round(s.size) : 0,
-      width_px: dim(s?.width),
-      height_px: dim(s?.height),
-    })),
-  )
-  if (filesErr) console.error('[checks] photo attach failed', filesErr)
 
   await admin.from('check_deposits').update({ message_id: msg.id }).eq('id', row.id)
 
   after(() => broadcastMessageInserted({
     messageId: msg.id, roomId, conversationId: null, parentId: null, senderId: auth.userId,
   }).catch(() => {}))
+
+  // The room is bridged to Slack (Chat Synx) at Heroes — a message inserted
+  // here skips the messages route, so mirror it ourselves. Text only.
+  after(() => bridgeHubMessageToChatSynx({
+    messageId: msg.id, roomId, parentId: null, senderId: auth.userId,
+    senderName, senderAvatarUrl: me?.avatar_url ?? null, content: lines.join('\n'),
+  }).catch((e: Error) => console.error('[checks] slack mirror failed', e.message)))
 
   const { data: members } = await admin.from('room_members').select('user_id').eq('room_id', roomId)
   const recipients = (members ?? []).map(m => m.user_id as string).filter(id => id !== auth.userId)
