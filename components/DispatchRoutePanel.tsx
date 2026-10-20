@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmtClock } from '@/lib/dispatch'
 
 // The route panel for one day — Day view (side column) and the 🗺 day in
@@ -11,6 +11,22 @@ import { fmtClock } from '@/lib/dispatch'
 //  • days since each stop's last completed visit;
 //  • stops that couldn't be put on the map, listed plainly.
 // Pins and ticks are remembered per day in this browser.
+//
+// The map's Lasso talks to this panel through window events (the panel owns
+// the ticks): 'lynxedo-dispatch-lasso' {date, ids, mode} in, and
+// 'lynxedo-dispatch-ticks' {date, off} out so the map can fade unticked stops.
+// The first "tick" loop when everything is ticked means "just these".
+
+export const LASSO_EVENT = 'lynxedo-dispatch-lasso'
+export const TICKS_EVENT = 'lynxedo-dispatch-ticks'
+/** Saved unticked ids for a day (for the map's fade before the panel has announced). */
+export function readPanelOff(date: string): string[] {
+  try { const v = localStorage.getItem(`lynxedo-dispatch-route-panel:${date}`); if (v) return (JSON.parse(v).off ?? []) as string[] } catch {}
+  return []
+}
+export function sendLasso(date: string, ids: string[], mode: 'select' | 'deselect') {
+  window.dispatchEvent(new CustomEvent(LASSO_EVENT, { detail: { date, ids, mode } }))
+}
 
 export interface PanelStop {
   id: string
@@ -47,11 +63,37 @@ export default function DispatchRoutePanel({ date, lanes, busy, onOptimize, onCl
   const [saved, setSaved] = useState<Saved>({ off: [], pins: {} })
   const [days, setDays] = useState<Record<string, number | null>>({})
   const [open, setOpen] = useState(true)
-  useEffect(() => { setSaved(read(date)) }, [date])
-  const save = (n: Saved) => { setSaved(n); try { localStorage.setItem(key(date), JSON.stringify(n)) } catch {} }
+  const announce = (d: string, off: string[]) => window.dispatchEvent(new CustomEvent(TICKS_EVENT, { detail: { date: d, off } }))
+  useEffect(() => { const v = read(date); setSaved(v); announce(date, v.off) }, [date])
+  const save = (n: Saved) => { setSaved(n); try { localStorage.setItem(key(date), JSON.stringify(n)) } catch {}; announce(date, n.off) }
 
   const allIds = useMemo(() => lanes.flatMap(l => l.stops.map(s => s.id)), [lanes])
   const idsKey = allIds.join(',')
+
+  // Lasso from the map.
+  const savedRef = useRef(saved)
+  useEffect(() => { savedRef.current = saved })
+  const allRef = useRef(allIds)
+  useEffect(() => { allRef.current = allIds })
+  useEffect(() => {
+    const onLasso = (e: Event) => {
+      const d = (e as CustomEvent<{ date: string; ids: string[]; mode: 'select' | 'deselect' }>).detail
+      if (!d || d.date !== date) return
+      const cur = savedRef.current
+      const hit = new Set(d.ids)
+      let off: string[]
+      if (d.mode === 'deselect') off = [...new Set([...cur.off, ...d.ids])]
+      else if (cur.off.length === 0) off = allRef.current.filter(id => !hit.has(id))   // first loop = just these
+      else off = cur.off.filter(id => !hit.has(id))
+      const n = { ...cur, off }
+      setSaved(n)
+      try { localStorage.setItem(key(date), JSON.stringify(n)) } catch {}
+      window.dispatchEvent(new CustomEvent(TICKS_EVENT, { detail: { date, off } }))
+      setOpen(true)
+    }
+    window.addEventListener(LASSO_EVENT, onLasso)
+    return () => window.removeEventListener(LASSO_EVENT, onLasso)
+  }, [date])
   useEffect(() => {
     if (!idsKey) return
     let cancelled = false
@@ -151,7 +193,7 @@ export default function DispatchRoutePanel({ date, lanes, busy, onOptimize, onCl
             className="w-full px-3 py-2 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] text-sm font-medium disabled:opacity-40">
             {busy ? 'Optimizing…' : `⚡ Optimize ${count} stop${count === 1 ? '' : 's'}`}
           </button>
-          <p className="text-[10px] text-gray-500">Unticked stops keep their place. 📌 pins a tech&apos;s first or last stop. You&apos;ll see a preview before anything changes.</p>
+          <p className="text-[10px] text-gray-500">Unticked stops keep their place. 📌 pins a tech&apos;s first or last stop. ◌ Lasso on the map ticks the stops you draw around. You&apos;ll see a preview before anything changes.</p>
         </div>
       )}
     </div>
