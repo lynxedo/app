@@ -69,6 +69,7 @@ const SNAP = 15
 const LS_TEAM = 'lynxedo-dispatch-team'
 const LS_FILTERS = 'lynxedo-dispatch-filters'
 const LS_VIEW = 'lynxedo-dispatch-view'
+const LS_BUCKET = 'lynxedo-dispatch-bucket'
 // The map grows with the window (big / ultra-wide screens), never below 520px.
 const MAP_HEIGHT = 'max(520px, calc(100vh - 380px))'
 
@@ -98,6 +99,8 @@ export default function DispatchView() {
   const router = useRouter()
   const [date, setDate] = useState(() => todayLocal())
   const [view, setView] = useState<'day' | 'week' | 'month'>('day')
+  // Unscheduled panel can be hidden for more calendar/map room (Ben, Oct 2026).
+  const [showBucket, setShowBucket] = useState(true)
   const [users, setUsers] = useState<JobberUser[]>([])
   const [team, setTeam] = useState<string[] | null>(null)
   const [teamOpen, setTeamOpen] = useState(false)
@@ -174,6 +177,7 @@ export default function DispatchView() {
   useEffect(() => {
     fetch('/api/hub/routing/dispatch/users').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
     setFilters(readLS(LS_FILTERS, { groups: [], hideZero: false }))
+    setShowBucket(readLS<boolean>(LS_BUCKET, true))
     const v = readLS<string>(LS_VIEW, 'day')
     if (v === 'week' || v === 'month') setView(v)
     const saved = readLS<string[] | null>(LS_TEAM, null)
@@ -1013,6 +1017,11 @@ export default function DispatchView() {
             {optimizing ? 'Optimizing…' : '⚡ Optimize day'}
           </button>
           <button type="button" onClick={openReminders} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" title="Preview the day-before reminder texts and emails">📨 Reminders</button>
+          <button type="button" onClick={() => { const v = !showBucket; setShowBucket(v); writeLS(LS_BUCKET, v) }}
+            className={`px-3 py-1.5 rounded-lg text-sm ${showBucket ? 'bg-gray-700 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+            title={showBucket ? 'Hide the Unscheduled list for more room' : 'Show the Unscheduled list'}>
+            📋 Unscheduled ({bucketShown.length}) {showBucket ? '◂' : '▸'}
+          </button>
           {loading && <span className="text-xs text-gray-500">Loading from Jobber…</span>}
         </div>
 
@@ -1269,11 +1278,13 @@ export default function DispatchView() {
 
       {/* Map + side panel */}
       {teamList.length > 0 && (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
+        <div className={showBucket || slots || selected || selectedBucket
+          ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]'
+          : 'grid gap-4'}>
           {view === 'day'
             ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} height={MAP_HEIGHT} />
             : <DispatchCalendar view={view} date={date} team={teamList} settings={settings} filters={filters}
-                userName={userName} laneColor={laneColor} mapHeight={MAP_HEIGHT} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }} />}
+                userName={userName} laneColor={laneColor} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }} />}
 
           <div className="space-y-4">
             {slots && (
@@ -1332,11 +1343,13 @@ export default function DispatchView() {
             )}
 
             {/* Unscheduled bucket */}
+            {showBucket && (
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-3">
               <div className="flex items-center gap-2 mb-2">
                 <h3 className="font-semibold text-sm">Unscheduled</h3>
                 <span className="text-xs text-gray-500">{bucketShown.length}</span>
                 <button type="button" onClick={() => loadBucket(true)} className="ml-auto text-xs text-gray-400 hover:text-white" title="Re-read from Jobber">↻</button>
+                <button type="button" onClick={() => { setShowBucket(false); writeLS(LS_BUCKET, false) }} className="text-xs text-gray-400 hover:text-white" title="Hide this list for more room">Hide ◂</button>
               </div>
               <div className="flex gap-1.5 mb-2">
                 <input value={bucketSearch} onChange={e => setBucketSearch(e.target.value)} placeholder="Search" className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs" />
@@ -1377,6 +1390,7 @@ export default function DispatchView() {
               </div>
               <p className="text-[10px] text-gray-600 mt-2">Drag a card onto a lane to schedule it, or use Find a slot.</p>
             </div>
+            )}
           </div>
         </div>
       )}
