@@ -26,6 +26,9 @@ export interface LaneProblem {
   arrivalLast: number
   /** Nothing may be planned before this (e.g. "now" when optimizing today). */
   notBefore?: number
+  /** 📌 Pinned first / last stop — index into `stops` (Advanced-optimizer style). */
+  firstIdx?: number
+  lastIdx?: number
 }
 
 export interface Violation { id: string; kind: 'window' | 'hours'; lateMin: number }
@@ -105,26 +108,32 @@ function permute(n: number, visit: (order: number[]) => void) {
 export function solveLane(p: LaneProblem): LaneSolution {
   const n = p.stops.length
   if (n === 0) return { order: [], starts: {}, driveMin: 0, finishMin: p.arrivalFirst, violations: [] }
+  // 📌 pins: only the middle stops are free.
+  const first = p.firstIdx != null && p.firstIdx >= 0 && p.firstIdx < n ? p.firstIdx : null
+  const last = p.lastIdx != null && p.lastIdx >= 0 && p.lastIdx < n && p.lastIdx !== first ? p.lastIdx : null
+  const middle = [...Array(n).keys()].filter(i => i !== first && i !== last)
+  const wrap = (mid: number[]) => [...(first != null ? [first] : []), ...mid, ...(last != null ? [last] : [])]
+
   let best: (LaneSolution & { cost: number }) | null = null
-  const consider = (order: number[]) => {
-    const r = scheduleOrder(p, order)
+  const consider = (mid: number[]) => {
+    const r = scheduleOrder(p, wrap(mid))
     if (!best || r.cost < best.cost) best = r
   }
-  if (n <= MAX_EXACT) {
-    permute(n, consider)
+  if (middle.length <= MAX_EXACT) {
+    permute(middle.length, idx => consider(idx.map(i => middle[i])))
   } else {
-    // Start window-first, then 2-opt until nothing improves.
-    let order = [...Array(n).keys()].sort((a, b) =>
+    // Start window-first, then 2-opt the middle until nothing improves.
+    let mid = [...middle].sort((a, b) =>
       (p.stops[a].window?.[0] ?? 24 * 60) - (p.stops[b].window?.[0] ?? 24 * 60))
-    let cur = scheduleOrder(p, order)
+    let cur = scheduleOrder(p, wrap(mid))
     let improved = true
     while (improved) {
       improved = false
-      for (let i = 0; i < n - 1; i++) {
-        for (let j = i + 1; j < n; j++) {
-          const cand = [...order.slice(0, i), ...order.slice(i, j + 1).reverse(), ...order.slice(j + 1)]
-          const r = scheduleOrder(p, cand)
-          if (r.cost < cur.cost - 1e-9) { order = cand; cur = r; improved = true }
+      for (let i = 0; i < mid.length - 1; i++) {
+        for (let j = i + 1; j < mid.length; j++) {
+          const cand = [...mid.slice(0, i), ...mid.slice(i, j + 1).reverse(), ...mid.slice(j + 1)]
+          const r = scheduleOrder(p, wrap(cand))
+          if (r.cost < cur.cost - 1e-9) { mid = cand; cur = r; improved = true }
         }
       }
     }
