@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
 import { fetchLeg, type LatLng } from '@/lib/dispatch-legs'
 import {
@@ -26,7 +26,6 @@ interface Props {
   userName: (id: string) => string
   laneColor: (id: string) => string
   onOpenDay: (date: string) => void
-  mapHeight: string
 }
 
 const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
@@ -34,9 +33,13 @@ const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
 const weekStart = (d: string) => addDays(d, -((weekday(d) + 6) % 7))
 const dayNum = (d: string) => Number(d.slice(8, 10))
 const label = (d: string, opts: Intl.DateTimeFormatOptions) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { ...opts, timeZone: 'UTC' })
-const MONTH_CHIPS = 3
+const MONTH_CHIPS = 6
+const LS_SPLIT = 'lynxedo-dispatch-month-split'
+const LS_WEEKMAP = 'lynxedo-dispatch-week-map-h'
+const readNum = (k: string, d: number) => { try { const v = Number(localStorage.getItem(k)); return Number.isFinite(v) && v > 0 ? v : d } catch { return d } }
+const writeNum = (k: string, v: number) => { try { localStorage.setItem(k, String(Math.round(v))) } catch {} }
 
-export default function DispatchCalendar({ view, date, team, settings, filters, userName, laneColor, onOpenDay, mapHeight }: Props) {
+export default function DispatchCalendar({ view, date, team, settings, filters, userName, laneColor, onOpenDay }: Props) {
   const [days, setDays] = useState<Record<string, RangeStop[]>>({})
   const [depot, setDepot] = useState<LatLng | null>(null)
   const [loading, setLoading] = useState(false)
@@ -46,6 +49,30 @@ export default function DispatchCalendar({ view, date, team, settings, filters, 
   const [expandAll, setExpandAll] = useState(false)
   const [mapDay, setMapDay] = useState<string | null>(null)
   const [legs, setLegs] = useState<DispatchMapLeg[]>([])
+  // Resizable panes (Ben, Oct 2026): Month = calendar | map side by side with a
+  // draggable divider; Week = calendar over map with a draggable height.
+  const [split, setSplit] = useState(62)          // calendar width %, Month
+  const [weekMapH, setWeekMapH] = useState(520)   // map height px, Week
+  useEffect(() => { setSplit(readNum(LS_SPLIT, 62)); setWeekMapH(readNum(LS_WEEKMAP, 520)) }, [])
+  const rowRef = useRef<HTMLDivElement>(null)
+
+  const dragSplit = (e: React.PointerEvent) => {
+    e.preventDefault()
+    const rect = rowRef.current?.getBoundingClientRect()
+    if (!rect) return
+    let v = split
+    const move = (ev: PointerEvent) => { v = Math.min(85, Math.max(25, ((ev.clientX - rect.left) / rect.width) * 100)); setSplit(v) }
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); writeNum(LS_SPLIT, v) }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
+  const dragWeekMap = (e: React.PointerEvent) => {
+    e.preventDefault()
+    const y0 = e.clientY, h0 = weekMapH
+    let v = h0
+    const move = (ev: PointerEvent) => { v = Math.min(1600, Math.max(240, h0 + (ev.clientY - y0))); setWeekMapH(v) }
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); writeNum(LS_WEEKMAP, v) }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
 
   const { from, to, cells } = useMemo(() => {
     if (view === 'week') {
@@ -221,8 +248,8 @@ export default function DispatchCalendar({ view, date, team, settings, filters, 
           ))}
         </div>
       ) : (
-        <div className="min-w-[700px] grid grid-cols-7 gap-px bg-gray-800 rounded-lg overflow-hidden">
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(w => <div key={w} className="bg-gray-900 text-[11px] text-gray-500 text-center py-1">{w}</div>)}
+        <div className="min-w-[640px] grid grid-cols-7 gap-px bg-gray-800 rounded-lg overflow-hidden">
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(w => <div key={w} className="bg-gray-900 text-xs font-medium text-gray-400 text-center py-1.5">{w}</div>)}
           {cells.map(d => {
             const list = (days[d] ?? []).filter(s => !dim(s))
               .sort((a, b) => (a.startMin ?? 9999) - (b.startMin ?? 9999))
@@ -231,27 +258,29 @@ export default function DispatchCalendar({ view, date, team, settings, filters, 
             const shown = open ? list : list.slice(0, MONTH_CHIPS)
             return (
               <div key={d} role="button" tabIndex={0} onClick={() => onOpenDay(d)} onKeyDown={e => { if (e.key === 'Enter') onOpenDay(d) }}
-                className={`bg-gray-900 hover:bg-gray-800/70 text-left p-1.5 cursor-pointer ${open ? '' : 'h-[112px] overflow-hidden'} ${inMonth ? '' : 'opacity-40'} ${mapDay === d ? 'ring-1 ring-orange-500 ring-inset' : ''}`}>
-                <div className="flex items-center text-xs mb-0.5">
-                  <span className={d === today ? 'text-orange-400 font-bold' : 'text-gray-400'}>{dayNum(d)}</span>
+                className={`bg-gray-900 hover:bg-gray-800/70 text-left p-1.5 cursor-pointer min-h-[150px] min-w-0 ${inMonth ? '' : 'opacity-40'} ${mapDay === d ? 'ring-1 ring-orange-500 ring-inset' : ''}`}>
+                <div className="flex items-center text-sm mb-1">
+                  <span className={d === today ? 'text-orange-400 font-bold' : 'text-gray-300 font-medium'}>{dayNum(d)}</span>
                   {list.length > 0 && mapBtn(d)}
                   <span className="ml-auto flex gap-1">
                     {team.map(t => {
                       const n = list.filter(s => s.techIds.includes(t)).length
                       return n ? (
-                        <span key={t} className="text-[10px] px-1 rounded text-[#fff]" style={{ background: laneColor(t) }} title={userName(t)}>{n}</span>
+                        <span key={t} className="text-[11px] px-1.5 rounded text-[#fff]" style={{ background: laneColor(t) }} title={userName(t)}>{n}</span>
                       ) : null
                     })}
                   </span>
                 </div>
                 {shown.map(s => (
-                  <div key={s.id} className="text-[10px] truncate mt-0.5 px-1 rounded text-[#fff]" style={{ background: stopColor(s, settings.color_rules, s.locked) }}
-                    title={`${s.startMin != null ? fmtClock(s.startMin) + ' ' : ''}${s.clientName}${s.locked ? ' · promised' : ''}`}>
-                    {s.startMin != null ? `${fmtClock(s.startMin)} ` : ''}{s.clientName}
+                  // Full visit title, wrapping, like Jobber — Heroes' titles carry
+                  // the client, program, area and any promise.
+                  <div key={s.id} className="text-[12px] leading-snug mt-1 px-1.5 py-0.5 rounded text-[#fff] break-words" style={{ background: stopColor(s, settings.color_rules, s.locked), opacity: s.isComplete ? 0.7 : 1 }}
+                    title={`${s.clientName}${s.locked ? ' · promised' : ''}`}>
+                    {s.isComplete ? '✓ ' : ''}{s.startMin != null && <b>{fmtClock(s.startMin)} </b>}{s.title || s.clientName}{s.locked ? ' 🔒' : ''}
                   </div>
                 ))}
                 {list.length > MONTH_CHIPS && !expandAll && (
-                  <button type="button" onClick={e => { e.stopPropagation(); toggle(d) }} className="text-[10px] text-sky-400 hover:text-sky-300 mt-0.5">
+                  <button type="button" onClick={e => { e.stopPropagation(); toggle(d) }} className="text-xs text-sky-400 hover:text-sky-300 mt-1">
                     {open ? 'Less' : `More (${list.length - MONTH_CHIPS})`}
                   </button>
                 )}
@@ -271,14 +300,27 @@ export default function DispatchCalendar({ view, date, team, settings, filters, 
               <button type="button" onClick={() => setMapDay(null)} className="ml-auto text-gray-400 hover:text-white">Show the whole {view}</button></>
           : <>Map: every visit this {view} · 🗺 on a day shows just that day&apos;s routes</>}
       </div>
-      <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={null} onStopClick={noop} height={mapHeight} />
+      <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={null} onStopClick={noop}
+        height={view === 'week' ? `${weekMapH}px` : 'max(520px, calc(100vh - 140px))'} />
     </div>
   )
 
+  if (view === 'week') {
+    return (
+      <div className="space-y-1">
+        {calendar}
+        <div onPointerDown={dragWeekMap} className="h-2 mx-auto w-24 rounded-full bg-gray-700 hover:bg-orange-500 cursor-row-resize" title="Drag to make the map taller or shorter" />
+        {map}
+      </div>
+    )
+  }
   return (
-    <div className="grid gap-4 min-[1700px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-      {calendar}
-      {map}
+    <div ref={rowRef} className="flex flex-col lg:flex-row gap-4 lg:gap-0 items-stretch" style={{ ['--cal-w' as string]: `${split}%` }}>
+      <div className="w-full lg:w-[var(--cal-w)] min-w-0 lg:pr-2">{calendar}</div>
+      <div onPointerDown={dragSplit} className="hidden lg:block w-2 shrink-0 cursor-col-resize group" title="Drag to resize the calendar and the map">
+        <div className="mx-auto h-full w-1 rounded-full bg-gray-700 group-hover:bg-orange-500" />
+      </div>
+      <div className="flex-1 min-w-0 lg:pl-2"><div className="lg:sticky lg:top-2">{map}</div></div>
     </div>
   )
 }
@@ -290,7 +332,7 @@ function WeekRow({ techId, cells, days, name, color, settings, dim, viewStart, s
 }) {
   return (
     <>
-      <div className="flex items-center gap-1.5 text-xs font-medium py-2 border-t border-gray-800 pr-2">
+      <div className="flex items-center gap-1.5 text-sm font-medium py-2 border-t border-gray-800 pr-2">
         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
         <span className="truncate">{name}</span>
       </div>
@@ -303,7 +345,7 @@ function WeekRow({ techId, cells, days, name, color, settings, dim, viewStart, s
         return (
           <div key={d} role="button" tabIndex={0} onClick={() => onOpenDay(d)} onKeyDown={e => { if (e.key === 'Enter') onOpenDay(d) }}
             className="border-t border-l border-gray-800 p-1 hover:bg-gray-800/60 text-left cursor-pointer min-w-0">
-            <div className="relative h-5 rounded bg-gray-950/60 overflow-hidden">
+            <div className="relative h-6 rounded bg-gray-950/60 overflow-hidden">
               {timed.map(s => (
                 <div key={s.id} className="absolute top-0.5 bottom-0.5 rounded-sm"
                   title={`${fmtClock(s.startMin!)} ${s.clientName}${s.locked ? ' · promised' : ''}`}
@@ -315,7 +357,7 @@ function WeekRow({ techId, cells, days, name, color, settings, dim, viewStart, s
                   }} />
               ))}
             </div>
-            <div className="flex items-center text-[10px] text-gray-400 mt-0.5">
+            <div className="flex items-center text-[11px] text-gray-400 mt-0.5">
               <span>{list.length ? `${list.length} stop${list.length === 1 ? '' : 's'}` : '—'}{anytime ? ` · ${anytime} anytime` : ''}</span>
               {list.length > 0 && (
                 <button type="button" onClick={e => { e.stopPropagation(); toggle(key) }} className="ml-auto text-sky-400 hover:text-sky-300">
@@ -326,8 +368,8 @@ function WeekRow({ techId, cells, days, name, color, settings, dim, viewStart, s
             {open && (
               <div className="mt-1 space-y-0.5">
                 {list.map(s => (
-                  <div key={s.id} className="text-[10px] truncate px-1 rounded text-[#fff]" style={{ background: stopColor(s, settings.color_rules, s.locked), opacity: dim(s) ? 0.35 : 1 }}>
-                    {s.startMin != null ? `${fmtClock(s.startMin)} ` : 'Anytime · '}{s.clientName}{s.locked ? ' 🔒' : ''}
+                  <div key={s.id} className="text-[12px] leading-snug px-1.5 py-0.5 rounded text-[#fff] break-words" style={{ background: stopColor(s, settings.color_rules, s.locked), opacity: dim(s) ? 0.35 : 1 }}>
+                    {s.startMin != null ? <b>{fmtClock(s.startMin)} </b> : 'Anytime · '}{s.title || s.clientName}{s.locked ? ' 🔒' : ''}
                   </div>
                 ))}
               </div>
