@@ -7,6 +7,8 @@ import DispatchCalendar, { type RangeStop } from '@/components/DispatchCalendar'
 import DispatchRoutePanel, { type OptimizeRequest, type PanelLane, TICKS_EVENT, readPanelOff, sendLasso } from '@/components/DispatchRoutePanel'
 import { resolvePinColors, type PinSettings } from '@/lib/pin-colors'
 import DispatchTankPanel, { tankRouteCode } from '@/components/DispatchTankPanel'
+import DispatchAddonStripe from '@/components/DispatchAddonStripe'
+import DispatchLegend from '@/components/DispatchLegend'
 import type { CapacityData } from '@/lib/route-capacity'
 import { fetchLeg, type Leg, type LatLng } from '@/lib/dispatch-legs'
 import { computeDuration } from '@/lib/route-duration'
@@ -58,6 +60,8 @@ interface Placed {
   fromBucket: boolean
   lock: { startMin: number; endMin: number } | null
   color: string
+  /** Add-on program colors (Pin Colors aux) — right-edge stripes / pin halo. */
+  addons: string[]
   dim: boolean               // filtered out — kept on the route so the drive stays true
 }
 
@@ -92,6 +96,7 @@ const LS_VIEW = 'lynxedo-dispatch-view'
 const LS_BUCKET = 'lynxedo-dispatch-bucket'
 const LS_TANKS = 'lynxedo-dispatch-tanks'
 const LS_ACTIVE_VIEW = 'lynxedo-dispatch-active-view'
+const LS_PIN_NUMBERS = 'lynxedo-dispatch-pin-numbers'
 // The map grows with the window (big / ultra-wide screens), never below 520px.
 const MAP_HEIGHT = 'max(520px, calc(100vh - 380px))'
 
@@ -164,6 +169,9 @@ export default function DispatchView() {
   const [pinSettings, setPinSettings] = useState<PinSettings | null>(null)
   // Stops unticked in Route & optimize, per day — faded on the map.
   const [tickOff, setTickOff] = useState<Record<string, string[]>>({})
+  // Days since each stop's last completed visit ("18d") + what map pins number by.
+  const [lastDays, setLastDays] = useState<Record<string, number | null>>({})
+  const [pinNumbers, setPinNumbers] = useState<'route' | 'last'>('route')
   // Tank loadout — hidden until asked for (Ben, Oct 20 2026).
   const [showTanks, setShowTanks] = useState(false)
   const [capacity, setCapacity] = useState<CapacityData | null>(null)
@@ -251,6 +259,7 @@ export default function DispatchView() {
     void loadViews()
     setShowBucket(readLS<boolean>(LS_BUCKET, true))
     setShowTanks(readLS<boolean>(LS_TANKS, false))
+    setPinNumbers(readLS<'route' | 'last'>(LS_PIN_NUMBERS, 'route') === 'last' ? 'last' : 'route')
     const v = readLS<string>(LS_VIEW, 'day')
     if (v === 'week' || v === 'month') setView(v)
     const saved = readLS<string[] | null>(LS_TEAM, null)
@@ -366,6 +375,17 @@ export default function DispatchView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day, bucket])
 
+  // Days since last visit for the day's visits (Hub's copy of Jobber).
+  const dayIdsKey = (day?.stops ?? []).filter(s => s.kind === 'visit').map(s => s.id).join(',')
+  useEffect(() => {
+    if (!dayIdsKey) return
+    let cancelled = false
+    fetch('/api/hub/routing/dispatch/last-visits', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visitIds: dayIdsKey.split(',') }),
+    }).then(r => r.json()).then(d => { if (!cancelled) setLastDays(prev => ({ ...prev, ...(d.days ?? {}) })) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [dayIdsKey])
+
   // ── Draft persistence ─────────────────────────────────────────────────────
   const saveTimer = useRef<number | null>(null)
   const saveDraft = useCallback((next: DraftChange[]) => {
@@ -458,7 +478,8 @@ export default function DispatchView() {
         stop: s, lane, startMin, endMin,
         durationMin: startMin !== null && endMin !== null ? endMin - startMin : estimate(s),
         changed: !!ch, fromBucket, lock,
-        color: stopColor(s, settings.color_rules, !!lock),
+        color: stopColor(s, settings.color_rules, !!lock, resolvePinColors(s.lineItemNames, pinSettings).baseColor),
+        addons: resolvePinColors(s.lineItemNames, pinSettings).auxColors.slice(0, 3),
         dim: filteredOut(s),
       })
     }
@@ -479,7 +500,7 @@ export default function DispatchView() {
       }, !snap)
     }
     return out
-  }, [day, changes, changeById, bucketById, teamList, date, estimate, lockFor, settings.color_rules, filteredOut])
+  }, [day, changes, changeById, bucketById, teamList, date, estimate, lockFor, settings.color_rules, filteredOut, pinSettings])
 
   const startEndFor = useCallback((techId: string): { start: LatLng | null; end: LatLng | null } => {
     const depot = day?.depot ? { lat: day.depot.lat, lng: day.depot.lng } : null
@@ -1155,17 +1176,20 @@ export default function DispatchView() {
       // Every mapped stop in ROUTE order — anytime ones included (Ben, Oct 20 2026).
       l.route.forEach((p, i) => {
         const c = coords[p.stop.address]!
+        const days = lastDays[p.stop.id]
         out.push({
-          id: p.stop.id, lat: c.lat, lng: c.lng, label: String(i + 1), color: laneColor(l.techId),
+          id: p.stop.id, lat: c.lat, lng: c.lng,
+          label: pinNumbers === 'last' ? (days != null ? String(days) : '–') : String(i + 1),
+          color: laneColor(l.techId),
           fill: p.dim ? '#94a3b8' : p.color, locked: !!p.lock, title: p.stop.clientName, subtitle: p.stop.address,
           meta: `${userName(l.techId)} · ${p.startMin != null ? fmtClock(p.startMin) : 'anytime'}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}`,
-          halo: resolvePinColors(p.stop.lineItemNames, pinSettings).auxColors,
+          halo: p.addons,
           faded: (tickOff[date] ?? readPanelOff(date)).includes(p.stop.id),
         })
       })
     }
     return out
-  }, [lanes, coords, laneColor, userName, pinSettings, tickOff, date])
+  }, [lanes, coords, laneColor, userName, tickOff, date, lastDays, pinNumbers])
 
   const mapLegs: DispatchMapLeg[] = useMemo(() => {
     const out: DispatchMapLeg[] = []
@@ -1332,6 +1356,7 @@ export default function DispatchView() {
             title={showTanks ? 'Hide the tank loadout' : 'Show the tank loadout (tank fill, products to mix)'}>
             🧪 Tanks
           </button>
+          <DispatchLegend rules={settings.color_rules} pinSettings={pinSettings} team={teamList} userName={userName} laneColor={laneColor} />
           {loading && <span className="text-xs text-gray-500">Loading from Jobber…</span>}
         </div>
 
@@ -1554,8 +1579,11 @@ export default function DispatchView() {
                           }}
                           title={`${l.num.get(p.stop.id) ?? ''}. ${p.stop.clientName} · ${fmtClock(p.startMin!)}–${fmtClock(p.endMin!)}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}${p.changed ? ' · moved (unsent)' : ''}`}
                         >
-                          <div className="font-bold">{l.num.get(p.stop.id) ?? ''}{p.lock ? ' 🔒' : ''}{p.stop.isComplete ? ' ✓' : ''}</div>
-                          <div className="truncate">{p.stop.clientName}</div>
+                          <div className="font-bold pr-1.5">{l.num.get(p.stop.id) ?? ''}{p.lock ? ' 🔒' : ''}{p.stop.isComplete ? ' ✓' : ''}
+                            {lastDays[p.stop.id] != null && <span className="ml-1 font-normal text-[10px] bg-black/30 rounded px-0.5" title="Days since the last completed visit">{lastDays[p.stop.id]}d</span>}
+                          </div>
+                          <div className="truncate pr-1.5">{p.stop.clientName}</div>
+                          <DispatchAddonStripe colors={p.addons} />
                           {resize?.id === p.stop.id && (
                             <div className="absolute bottom-0.5 right-2 text-[10px] font-semibold bg-black/50 rounded px-1">{resize.endMin - resize.startMin} min · ends {fmtClock(resize.endMin)}</div>
                           )}
@@ -1589,10 +1617,12 @@ export default function DispatchView() {
                               saveOrder(date, l.techId, insertInOrder(l.route.map(x => x.stop.id), d.id, p.stop.id))
                             }}
                             onClick={() => setSelectedId(p.stop.id)}
-                            className={`px-2 py-0.5 rounded-full text-[11px] cursor-grab text-[#fff] ${p.changed ? 'ring-2 ring-orange-400' : ''}`}
-                            style={{ background: p.color, opacity: p.dim ? 0.3 : 1 }}
+                            className={`relative overflow-hidden pl-2 pr-3 py-0.5 rounded-full text-[11px] cursor-grab text-[#fff] ${p.changed ? 'ring-2 ring-orange-400' : ''}`}
+                            style={{ background: p.color, opacity: p.dim ? 0.3 : 1, borderLeft: `3px solid ${laneColor(l.techId)}` }}
                             title={p.stop.routable ? (coords[p.stop.address] === null ? "Couldn't find this address on the map" : 'Drag onto the timeline to give it a time, or onto another anytime stop to put it before that one') : 'No address'}>
                             {l.num.has(p.stop.id) ? <b>{l.num.get(p.stop.id)}. </b> : ''}{p.stop.clientName}{!p.stop.routable ? ' (no address)' : ''}
+                            {lastDays[p.stop.id] != null && <span className="ml-1 text-[10px] opacity-80">{lastDays[p.stop.id]}d</span>}
+                            <DispatchAddonStripe colors={p.addons} width={4} />
                           </div>
                         ))}
                       </div>
@@ -1633,14 +1663,16 @@ export default function DispatchView() {
           : 'grid gap-4'}>
           {view === 'day'
             ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} height={MAP_HEIGHT}
-                onLasso={(ids, mode) => { setShowRoutePanel(true); sendLasso(date, ids, mode) }} />
+                onLasso={(ids, mode) => { setShowRoutePanel(true); sendLasso(date, ids, mode) }}
+                numberMode={pinNumbers} onNumberMode={m => { setPinNumbers(m); writeLS(LS_PIN_NUMBERS, m) }} />
             : <DispatchCalendar view={view} date={date} team={teamList} settings={settings} filters={filters}
                 userName={userName} laneColor={laneColor} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }}
                 changes={changes} orders={orders} onOrdersLoaded={o => setOrders(prev => ({ ...prev, ...o }))}
                 onSaveOrder={saveOrder} onMoveStop={moveFromCalendar} reloadKey={calTick}
                 onOptimizeDay={optimizeFromCalendar} optimizing={optimizing}
                 showTanks={showTanks} capacity={capacity} onLoadCapacity={loadCapacity}
-                pinSettings={pinSettings} tickOff={tickOff} />}
+                pinSettings={pinSettings} tickOff={tickOff}
+                pinNumbers={pinNumbers} onPinNumbers={m => { setPinNumbers(m); writeLS(LS_PIN_NUMBERS, m) }} />}
 
           <div className="space-y-4">
             {view === 'day' && showRoutePanel && (
@@ -1743,7 +1775,7 @@ export default function DispatchView() {
                     <div key={s.id} draggable onDragStart={e => onDragStartStop(e, s.id, 0)} onClick={() => setSelectedId(s.id)}
                       className={`rounded-lg border px-2 py-1.5 cursor-grab text-xs ${selectedId === s.id ? 'border-orange-500' : 'border-gray-800 hover:border-gray-600'}`}>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: stopColor(s, settings.color_rules, false) }} />
+                        <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: stopColor(s, settings.color_rules, false, resolvePinColors(s.lineItemNames, pinSettings).baseColor) }} />
                         <span className="font-medium truncate flex-1">{s.clientName}</span>
                         <span className="text-gray-400">{money(s.totalPrice)}</span>
                       </div>

@@ -394,8 +394,11 @@ export function remindersAlreadySent(date: string, cutoffHHMM: string, now = new
 
 export const DEFAULT_STOP_COLOR = '#64748b'
 
-/** First matching rule wins (Jobber-style ordered list). */
-export function stopColor(stop: DispatchStop, rules: ColorRule[], locked: boolean): string {
+/** First matching rule wins (Jobber-style ordered list). With no match, the
+ *  stop's Pin Colors BASE program color (Admin → Routing → Pin Colors, the
+ *  Advanced optimizer's fill) is used when given — so Weed & Feed stops get the
+ *  colors they have in Advanced without setting them up twice (Oct 20 2026). */
+export function stopColor(stop: DispatchStop, rules: ColorRule[], locked: boolean, fallback?: string | null): string {
   const items = stop.lineItemNames.map(n => n.toLowerCase())
   const title = stop.title.toLowerCase()
   for (const r of rules) {
@@ -405,7 +408,7 @@ export function stopColor(stop: DispatchStop, rules: ColorRule[], locked: boolea
     if (r.type === 'line_item' && m && items.some(n => n.includes(m))) return r.color
     if (r.type === 'title' && m && title.includes(m)) return r.color
   }
-  return DEFAULT_STOP_COLOR
+  return fallback || DEFAULT_STOP_COLOR
 }
 
 export function stopMatchesGroup(stop: DispatchStop, g: FilterGroup): boolean {
