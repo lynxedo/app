@@ -5,6 +5,7 @@ import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/compon
 import DispatchRoutePanel, { type OptimizeRequest, type PanelLane, readPanelOff, sendLasso } from '@/components/DispatchRoutePanel'
 import { resolvePinColors, type PinSettings } from '@/lib/pin-colors'
 import DispatchTankPanel from '@/components/DispatchTankPanel'
+import DispatchAddonStripe from '@/components/DispatchAddonStripe'
 import type { CapacityData } from '@/lib/route-capacity'
 import type { OptCtxStop } from '@/app/dashboard/DispatchView'
 import { fetchLeg, type LatLng } from '@/lib/dispatch-legs'
@@ -56,6 +57,8 @@ interface Props {
   onLoadCapacity: () => void
   pinSettings: PinSettings | null
   tickOff: Record<string, string[]>
+  pinNumbers: 'route' | 'last'
+  onPinNumbers: (m: 'route' | 'last') => void
 }
 
 const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
@@ -73,7 +76,7 @@ const writeNum = (k: string, v: number) => { try { localStorage.setItem(k, Strin
 export default function DispatchCalendar({
   view, date, team, settings, filters, userName, laneColor, onOpenDay,
   changes, orders, onOrdersLoaded, onSaveOrder, onMoveStop, reloadKey, onOptimizeDay, optimizing,
-  showTanks, capacity, onLoadCapacity, pinSettings, tickOff,
+  showTanks, capacity, onLoadCapacity, pinSettings, tickOff, pinNumbers, onPinNumbers,
 }: Props) {
   const [days, setDays] = useState<Record<string, RangeStop[]>>({})
   const [depot, setDepot] = useState<LatLng | null>(null)
@@ -180,6 +183,28 @@ export default function DispatchCalendar({
     return out
   }, [days, changes, from, to])
 
+  // Days since last visit for every visit in range ("18d" tags, pin numbers).
+  const [lastDays, setLastDays] = useState<Record<string, number | null>>({})
+  const visitKey = useMemo(() => [...new Set(Object.values(effDays).flat().filter(s => s.kind === 'visit').map(s => s.id))].sort().join(','), [effDays])
+  useEffect(() => {
+    if (!visitKey) return
+    let cancelled = false
+    const ids = visitKey.split(',')
+    ;(async () => {
+      for (let i = 0; i < ids.length; i += 400) {
+        try {
+          const r = await fetch('/api/hub/routing/dispatch/last-visits', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visitIds: ids.slice(i, i + 400) }),
+          })
+          const d = await r.json()
+          if (cancelled) return
+          setLastDays(prev => ({ ...prev, ...(d.days ?? {}) }))
+        } catch {}
+      }
+    })()
+    return () => { cancelled = true }
+  }, [visitKey])
+
   // Geocode every address in range (server geocoder + cache, same as the optimizer).
   useEffect(() => {
     const want = [...new Set(Object.values(effDays).flat().map(s => s.address).filter(a => a && !(a in coords)))]
@@ -208,6 +233,10 @@ export default function DispatchCalendar({
     const active = settings.filter_groups.filter(g => filters.groups.includes(g.id))
     return active.length > 0 && !active.some(g => stopMatchesGroup(s, g))
   }
+  // Color language (Ben, Oct 20 2026): fill = service (stop colors, else the
+  // Pin Colors base program), left edge = tech, right edge = add-on programs.
+  const colorOf = (s: EffStop | RangeStop) => stopColor(s, settings.color_rules, s.locked, resolvePinColors(s.lineItemNames, pinSettings).baseColor)
+  const addonsOf = (s: EffStop | RangeStop) => resolvePinColors(s.lineItemNames, pinSettings).auxColors.slice(0, 3)
   const today = todayLocal()
   const viewStart = hhmmToMinutes(settings.view_start)
   const span = Math.max(60, hhmmToMinutes(settings.view_end) - viewStart)
@@ -267,28 +296,28 @@ export default function DispatchCalendar({
       if (!c) return
       out.push({
         id: `${s.id}|${techId}`, lat: c.lat, lng: c.lng, label: labelText, color: laneColor(techId),
-        fill: dim(s) ? '#94a3b8' : stopColor(s, settings.color_rules, s.locked), locked: s.locked,
+        fill: dim(s) ? '#94a3b8' : colorOf(s), locked: s.locked,
         title: s.clientName, subtitle: s.address, meta,
-        halo: resolvePinColors(s.lineItemNames, pinSettings).auxColors,
+        halo: addonsOf(s),
         faded: !!mapDay && (tickOff[mapDay] ?? readPanelOff(mapDay)).includes(s.id),
       })
     }
     if (mapDay) {
       for (const r of dayRoutes) {
-        r.route.forEach((s, i) => push(s, r.techId, String(i + 1), `${userName(r.techId)} · ${s.startMin != null ? fmtClock(s.startMin) : 'anytime'}`))
+        r.route.forEach((s, i) => push(s, r.techId, pinNumbers === 'last' ? (lastDays[s.id] != null ? String(lastDays[s.id]) : '–') : String(i + 1), `${userName(r.techId)} · ${s.startMin != null ? fmtClock(s.startMin) : 'anytime'}`))
       }
     } else {
       for (const [d, list] of Object.entries(effDays)) {
         if (!inRange(d)) continue
         for (const s of list) {
           const t = techOf(s)
-          push(s, t, '', `${label(d, { weekday: 'short', month: 'short', day: 'numeric' })} · ${userName(t)}${s.startMin != null ? ` · ${fmtClock(s.startMin)}` : ''}`)
+          push(s, t, pinNumbers === 'last' && lastDays[s.id] != null ? String(lastDays[s.id]) : '', `${label(d, { weekday: 'short', month: 'short', day: 'numeric' })} · ${userName(t)}${s.startMin != null ? ` · ${fmtClock(s.startMin)}` : ''}`)
         }
       }
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapDay, dayRoutes, effDays, coords, settings.color_rules, filters, team, pinSettings, tickOff])
+  }, [mapDay, dayRoutes, effDays, coords, settings.color_rules, filters, team, pinSettings, tickOff, pinNumbers, lastDays])
 
   // Road legs for the one day being mapped: shop → every stop in ROUTE order
   // (anytime ones included — Ben, Oct 20 2026) → shop.
@@ -371,11 +400,13 @@ export default function DispatchCalendar({
         onDragOver={e => allowDrop(e, `${d}|${s.id}`)}
         onDrop={e => { e.preventDefault(); e.stopPropagation(); dropAt(d, t, s.id) }}
         onClick={e => e.stopPropagation()}
-        className={`${big ? 'text-[12px] mt-1 py-0.5' : 'text-[12px] py-0.5'} leading-snug px-1.5 rounded text-[#fff] break-words ${s.isComplete ? 'cursor-default' : 'cursor-grab'} ${s.changed ? 'ring-2 ring-orange-400' : ''} ${dropKey === `${d}|${s.id}` ? 'border-t-2 border-white' : ''}`}
-        style={{ background: stopColor(s, settings.color_rules, s.locked), opacity: dim(s) ? 0.35 : s.isComplete ? 0.7 : 1, borderLeft: `3px solid ${laneColor(t)}` }}
+        className={`relative overflow-hidden ${big ? 'text-[12px] mt-1 py-0.5' : 'text-[12px] py-0.5'} leading-snug pl-1.5 pr-2.5 rounded text-[#fff] break-words ${s.isComplete ? 'cursor-default' : 'cursor-grab'} ${s.changed ? 'ring-2 ring-orange-400' : ''} ${dropKey === `${d}|${s.id}` ? 'border-t-2 border-white' : ''}`}
+        style={{ background: colorOf(s), opacity: dim(s) ? 0.35 : s.isComplete ? 0.7 : 1, borderLeft: `3px solid ${laneColor(t)}` }}
         title={`${s.clientName}${s.locked ? ' · promised' : ''}${s.changed ? ' · moved (unsent)' : ''} — drag onto another stop to put it before that one, or onto another day to move it`}>
         {n != null && <span className="inline-block min-w-[1.1rem] text-center mr-1 rounded bg-black/30 text-[10px] font-bold">{n}</span>}
         {s.isComplete ? '✓ ' : ''}{s.startMin != null ? <b>{fmtClock(s.startMin)} </b> : ''}{s.title || s.clientName}{s.locked ? ' 🔒' : ''}
+        {lastDays[s.id] != null && <span className="ml-1 text-[10px] px-0.5 rounded bg-black/25" title="Days since the last completed visit">{lastDays[s.id]}d</span>}
+        <DispatchAddonStripe colors={addonsOf(s)} width={4} />
       </div>
     )
   }
@@ -409,7 +440,7 @@ export default function DispatchCalendar({
           {team.map(t => (
             <WeekRowCells key={t} techId={t} cells={cells} name={userName(t)} color={laneColor(t)}
               routeOf={routeOf} settings={settings} dim={dim} viewStart={viewStart} span={span}
-              isOpen={isOpen} toggle={toggle} chip={chip} allowDrop={allowDrop} dropAt={dropAt} dropKey={dropKey} />
+              isOpen={isOpen} toggle={toggle} chip={chip} allowDrop={allowDrop} dropAt={dropAt} dropKey={dropKey} colorOf={colorOf} />
           ))}
         </div>
       ) : (
@@ -467,6 +498,7 @@ export default function DispatchCalendar({
       </div>
       <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={null} onStopClick={noop}
         onLasso={mapDay ? (ids, mode) => sendLasso(mapDay, ids.map(x => x.split('|')[0]), mode) : undefined}
+        numberMode={pinNumbers} onNumberMode={onPinNumbers}
         height={view === 'week' ? `${weekMapH}px` : mapDay ? 'max(420px, calc(100vh - 420px))' : 'max(520px, calc(100vh - 140px))'} />
       {mapDay && (
         <div className="pt-2">
@@ -505,7 +537,7 @@ export default function DispatchCalendar({
   )
 }
 
-function WeekRowCells({ techId, cells, name, color, routeOf, settings, dim, viewStart, span, isOpen, toggle, chip, allowDrop, dropAt, dropKey }: {
+function WeekRowCells({ techId, cells, name, color, routeOf, dim, viewStart, span, isOpen, toggle, chip, allowDrop, dropAt, dropKey, colorOf }: {
   techId: string; cells: string[]; name: string; color: string
   routeOf: (d: string, techId: string) => EffStop[]
   settings: DispatchSettings; dim: (s: DispatchStop) => boolean; viewStart: number; span: number
@@ -514,6 +546,7 @@ function WeekRowCells({ techId, cells, name, color, routeOf, settings, dim, view
   allowDrop: (e: React.DragEvent, key: string) => void
   dropAt: (d: string, techId: string | null, beforeId: string | null) => void
   dropKey: string | null
+  colorOf: (s: EffStop) => string
 }) {
   return (
     <>
@@ -539,7 +572,7 @@ function WeekRowCells({ techId, cells, name, color, routeOf, settings, dim, view
                   style={{
                     left: `${Math.max(0, ((s.startMin! - viewStart) / span) * 100)}%`,
                     width: `${Math.max(3, (((s.endMin ?? s.startMin! + 30) - s.startMin!) / span) * 100)}%`,
-                    background: stopColor(s, settings.color_rules, s.locked),
+                    background: colorOf(s),
                     opacity: dim(s) ? 0.25 : s.isComplete ? 0.5 : 1,
                   }} />
               ))}

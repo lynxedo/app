@@ -50,6 +50,9 @@ interface Props {
   onStopClick: (id: string) => void
   /** When set, the map offers a Lasso: draw around stops to tick (select) or untick (deselect) them. */
   onLasso?: (ids: string[], mode: 'select' | 'deselect') => void
+  /** What the number in a pin means; with onNumberMode set, the map shows a switch. */
+  numberMode?: 'route' | 'last'
+  onNumberMode?: (m: 'route' | 'last') => void
   /** Pixels or any CSS length, e.g. "max(520px, calc(100vh - 380px))" so it grows with the window. */
   height?: number | string
 }
@@ -122,7 +125,7 @@ function pointInPolygon(pt: { x: number; y: number }, poly: Array<{ x: number; y
   return inside
 }
 
-export default function DispatchMap({ depots, stops, legs, unscheduled, highlightId, onStopClick, onLasso, height = 520 }: Props) {
+export default function DispatchMap({ depots, stops, legs, unscheduled, highlightId, onStopClick, onLasso, numberMode, onNumberMode, height = 520 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapboxMap | null>(null)
   const markersRef = useRef<MapboxMarker[]>([])
@@ -336,6 +339,13 @@ export default function DispatchMap({ depots, stops, legs, unscheduled, highligh
       {/* Inline position on purpose: mapbox-gl.css sets .mapboxgl-map { position: relative },
           which beats an `absolute` class and collapses the map to 0 height (Oct 20 2026). */}
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      {onNumberMode && (
+        <button type="button" onClick={() => onNumberMode(numberMode === 'last' ? 'route' : 'last')}
+          className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-2 py-1 rounded-md border text-xs bg-slate-900/85 border-slate-700 text-[#fff]"
+          title="Switch what the number in each pin means">
+          # {numberMode === 'last' ? 'Days since last visit' : 'Route order'} ⇄
+        </button>
+      )}
       {onLasso && (
         <>
           <div ref={overlayRef} onPointerDown={lassoDown} onPointerMove={lassoMove} onPointerUp={lassoUp}
