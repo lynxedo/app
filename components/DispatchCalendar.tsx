@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
-import DispatchRoutePanel, { type OptimizeRequest, type PanelLane } from '@/components/DispatchRoutePanel'
+import DispatchRoutePanel, { type OptimizeRequest, type PanelLane, readPanelOff, sendLasso } from '@/components/DispatchRoutePanel'
+import { resolvePinColors, type PinSettings } from '@/lib/pin-colors'
 import DispatchTankPanel from '@/components/DispatchTankPanel'
 import type { CapacityData } from '@/lib/route-capacity'
 import type { OptCtxStop } from '@/app/dashboard/DispatchView'
@@ -53,6 +54,8 @@ interface Props {
   showTanks: boolean
   capacity: CapacityData | null
   onLoadCapacity: () => void
+  pinSettings: PinSettings | null
+  tickOff: Record<string, string[]>
 }
 
 const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
@@ -70,7 +73,7 @@ const writeNum = (k: string, v: number) => { try { localStorage.setItem(k, Strin
 export default function DispatchCalendar({
   view, date, team, settings, filters, userName, laneColor, onOpenDay,
   changes, orders, onOrdersLoaded, onSaveOrder, onMoveStop, reloadKey, onOptimizeDay, optimizing,
-  showTanks, capacity, onLoadCapacity,
+  showTanks, capacity, onLoadCapacity, pinSettings, tickOff,
 }: Props) {
   const [days, setDays] = useState<Record<string, RangeStop[]>>({})
   const [depot, setDepot] = useState<LatLng | null>(null)
@@ -265,6 +268,8 @@ export default function DispatchCalendar({
         id: `${s.id}|${techId}`, lat: c.lat, lng: c.lng, label: labelText, color: laneColor(techId),
         fill: dim(s) ? '#94a3b8' : stopColor(s, settings.color_rules, s.locked), locked: s.locked,
         title: s.clientName, subtitle: s.address, meta,
+        halo: resolvePinColors(s.lineItemNames, pinSettings).auxColors,
+        faded: !!mapDay && (tickOff[mapDay] ?? readPanelOff(mapDay)).includes(s.id),
       })
     }
     if (mapDay) {
@@ -282,7 +287,7 @@ export default function DispatchCalendar({
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapDay, dayRoutes, effDays, coords, settings.color_rules, filters, team])
+  }, [mapDay, dayRoutes, effDays, coords, settings.color_rules, filters, team, pinSettings, tickOff])
 
   // Road legs for the one day being mapped: shop → every stop in ROUTE order
   // (anytime ones included — Ben, Oct 20 2026) → shop.
@@ -460,6 +465,7 @@ export default function DispatchCalendar({
           : <>Map: every visit this {view} · 🗺 on a day shows just that day&apos;s routes</>}
       </div>
       <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={null} onStopClick={noop}
+        onLasso={mapDay ? (ids, mode) => sendLasso(mapDay, ids.map(x => x.split('|')[0]), mode) : undefined}
         height={view === 'week' ? `${weekMapH}px` : mapDay ? 'max(420px, calc(100vh - 420px))' : 'max(520px, calc(100vh - 140px))'} />
       {mapDay && (
         <div className="pt-2">

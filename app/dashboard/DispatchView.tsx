@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
 import DispatchCalendar, { type RangeStop } from '@/components/DispatchCalendar'
-import DispatchRoutePanel, { type OptimizeRequest, type PanelLane } from '@/components/DispatchRoutePanel'
+import DispatchRoutePanel, { type OptimizeRequest, type PanelLane, TICKS_EVENT, readPanelOff, sendLasso } from '@/components/DispatchRoutePanel'
+import { resolvePinColors, type PinSettings } from '@/lib/pin-colors'
 import DispatchTankPanel, { tankRouteCode } from '@/components/DispatchTankPanel'
 import type { CapacityData } from '@/lib/route-capacity'
 import { fetchLeg, type Leg, type LatLng } from '@/lib/dispatch-legs'
@@ -157,6 +158,10 @@ export default function DispatchView() {
   const [baseSettings, setBaseSettings] = useState<DispatchSettings | null>(null)
   const [baseTechSettings, setBaseTechSettings] = useState<TechSettingRow[]>([])
   const [showRoutePanel, setShowRoutePanel] = useState(true)
+  // Halo rings = Admin → Routing → Pin Colors add-on programs (same as Advanced).
+  const [pinSettings, setPinSettings] = useState<PinSettings | null>(null)
+  // Stops unticked in Route & optimize, per day — faded on the map.
+  const [tickOff, setTickOff] = useState<Record<string, string[]>>({})
   // Tank loadout — hidden until asked for (Ben, Oct 20 2026).
   const [showTanks, setShowTanks] = useState(false)
   const [capacity, setCapacity] = useState<CapacityData | null>(null)
@@ -250,6 +255,13 @@ export default function DispatchView() {
       })
       .catch(() => { if (!(saved && saved.length)) setTeam([]) })
     void loadDraft()
+    fetch('/api/routing/pin-settings').then(r => r.json()).then(d => { if (d.pin_settings) setPinSettings(d.pin_settings as PinSettings) }).catch(() => {})
+    const onTicks = (e: Event) => {
+      const d = (e as CustomEvent<{ date: string; off: string[] }>).detail
+      if (d) setTickOff(prev => ({ ...prev, [d.date]: d.off }))
+    }
+    window.addEventListener(TICKS_EVENT, onTicks)
+    return () => window.removeEventListener(TICKS_EVENT, onTicks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1136,11 +1148,13 @@ export default function DispatchView() {
           id: p.stop.id, lat: c.lat, lng: c.lng, label: String(i + 1), color: laneColor(l.techId),
           fill: p.dim ? '#94a3b8' : p.color, locked: !!p.lock, title: p.stop.clientName, subtitle: p.stop.address,
           meta: `${userName(l.techId)} · ${p.startMin != null ? fmtClock(p.startMin) : 'anytime'}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}`,
+          halo: resolvePinColors(p.stop.lineItemNames, pinSettings).auxColors,
+          faded: (tickOff[date] ?? readPanelOff(date)).includes(p.stop.id),
         })
       })
     }
     return out
-  }, [lanes, coords, laneColor, userName])
+  }, [lanes, coords, laneColor, userName, pinSettings, tickOff, date])
 
   const mapLegs: DispatchMapLeg[] = useMemo(() => {
     const out: DispatchMapLeg[] = []
@@ -1540,13 +1554,15 @@ export default function DispatchView() {
           ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]'
           : 'grid gap-4'}>
           {view === 'day'
-            ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} height={MAP_HEIGHT} />
+            ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} height={MAP_HEIGHT}
+                onLasso={(ids, mode) => { setShowRoutePanel(true); sendLasso(date, ids, mode) }} />
             : <DispatchCalendar view={view} date={date} team={teamList} settings={settings} filters={filters}
                 userName={userName} laneColor={laneColor} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }}
                 changes={changes} orders={orders} onOrdersLoaded={o => setOrders(prev => ({ ...prev, ...o }))}
                 onSaveOrder={saveOrder} onMoveStop={moveFromCalendar} reloadKey={calTick}
                 onOptimizeDay={optimizeFromCalendar} optimizing={optimizing}
-                showTanks={showTanks} capacity={capacity} onLoadCapacity={loadCapacity} />}
+                showTanks={showTanks} capacity={capacity} onLoadCapacity={loadCapacity}
+                pinSettings={pinSettings} tickOff={tickOff} />}
 
           <div className="space-y-4">
             {view === 'day' && showRoutePanel && (
