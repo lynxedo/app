@@ -14,6 +14,7 @@ import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced
 import type { DurationRulesConfig } from '@/app/api/settings/types'
 import {
   type DispatchSettings, type DispatchStop, type DispatchLock, type DraftChange,
+  type DatePreset, type DispatchFilters, type DispatchViewConfig, DATE_PRESETS, matchesItemFilter, normalizeViewConfig, resolveViewDate,
   DEFAULT_DISPATCH_SETTINGS, LANE_COLORS, addDays, changeDate, fmtClock, hhmmToMinutes, insertInOrder, isoToLocal, orderRoute,
   localStamp, localToIso, parseTitleWindow, remindersAlreadySent, stopColor, stopMatchesGroup, todayLocal,
 } from '@/lib/dispatch'
@@ -90,6 +91,7 @@ const LS_FILTERS = 'lynxedo-dispatch-filters'
 const LS_VIEW = 'lynxedo-dispatch-view'
 const LS_BUCKET = 'lynxedo-dispatch-bucket'
 const LS_TANKS = 'lynxedo-dispatch-tanks'
+const LS_ACTIVE_VIEW = 'lynxedo-dispatch-active-view'
 // The map grows with the window (big / ultra-wide screens), never below 520px.
 const MAP_HEIGHT = 'max(520px, calc(100vh - 380px))'
 
@@ -182,7 +184,12 @@ export default function DispatchView() {
   const [canUndo, setCanUndo] = useState(false)
   const [locks, setLocks] = useState<Record<string, DispatchLock>>({})
 
-  const [filters, setFilters] = useState<{ groups: string[]; hideZero: boolean }>({ groups: [], hideZero: false })
+  const [filters, setFilters] = useState<DispatchFilters>({ groups: [], hideZero: false, items: [] })
+  // Saved views (Ben, Oct 20 2026) + the line-item catalog for the filter.
+  const [views, setViews] = useState<Array<{ id: string; name: string; config: DispatchViewConfig; shared: boolean; mine: boolean }>>([])
+  const [activeViewId, setActiveViewId] = useState<string | null>(null)
+  const [saveViewOpen, setSaveViewOpen] = useState(false)
+  const [catalog, setCatalog] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [windowPrompt, setWindowPrompt] = useState<null | { stopId: string; lane: string; startMin: number; lock: { startMin: number; endMin: number } }>(null)
@@ -239,7 +246,9 @@ export default function DispatchView() {
   // ── Load: users, team, filters ────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/hub/routing/dispatch/users').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
-    setFilters(readLS(LS_FILTERS, { groups: [], hideZero: false }))
+    { const f = readLS<Partial<DispatchFilters>>(LS_FILTERS, {}); setFilters({ groups: f.groups ?? [], hideZero: !!f.hideZero, items: f.items ?? [] }) }
+    setActiveViewId(readLS<string | null>(LS_ACTIVE_VIEW, null))
+    void loadViews()
     setShowBucket(readLS<boolean>(LS_BUCKET, true))
     setShowTanks(readLS<boolean>(LS_TANKS, false))
     const v = readLS<string>(LS_VIEW, 'day')
@@ -250,6 +259,7 @@ export default function DispatchView() {
       .then(d => {
         if (d.settings) setBaseSettings(d.settings as DispatchSettings)
         if (Array.isArray(d.techSettings)) setBaseTechSettings(d.techSettings as TechSettingRow[])
+        if (Array.isArray(d.lineItems)) setCatalog(d.lineItems as string[])
         // No personal choice yet — use the company default from Dispatch settings.
         if (!(saved && saved.length)) setTeam((d.settings?.default_team as string[] | undefined) ?? [])
       })
@@ -408,6 +418,7 @@ export default function DispatchView() {
 
   const filteredOut = useCallback((s: DispatchStop) => {
     if (filters.hideZero && s.kind === 'visit' && Math.abs(s.totalPrice) < 0.005) return true
+    if (!matchesItemFilter(s, filters.items)) return true
     const active = settings.filter_groups.filter(g => filters.groups.includes(g.id))
     if (active.length && !active.some(g => stopMatchesGroup(s, g))) return true
     return false
@@ -1202,13 +1213,76 @@ export default function DispatchView() {
     const next = teamList.includes(id) ? teamList.filter(x => x !== id) : [...teamList, id]
     setTeam(next); writeLS(LS_TEAM, next)
   }
-  const setFilter = (next: { groups: string[]; hideZero: boolean }) => { setFilters(next); writeLS(LS_FILTERS, next) }
+  const setFilter = (next: DispatchFilters) => { setFilters(next); writeLS(LS_FILTERS, next) }
+
+  // ── Saved views ───────────────────────────────────────────────────────────
+  async function loadViews() {
+    try {
+      const r = await fetch('/api/hub/routing/dispatch/views')
+      const d = await r.json()
+      if (r.ok) setViews(d.views ?? [])
+    } catch {}
+  }
+  const currentConfig = (datePreset: DatePreset): DispatchViewConfig => ({
+    team: teamList, view, datePreset, filters, showBucket, showTanks,
+  })
+  const applyView = (id: string | null) => {
+    setActiveViewId(id); writeLS(LS_ACTIVE_VIEW, id)
+    const v = views.find(x => x.id === id)
+    if (!v) return
+    const c = normalizeViewConfig(v.config)
+    if (c.team.length) { setTeam(c.team); writeLS(LS_TEAM, c.team) }
+    setView(c.view); writeLS(LS_VIEW, c.view)
+    setFilter(c.filters)
+    setShowBucket(c.showBucket); writeLS(LS_BUCKET, c.showBucket)
+    setShowTanks(c.showTanks); writeLS(LS_TANKS, c.showTanks)
+    setDate(d => resolveViewDate(c.datePreset, todayLocal(), d))
+  }
+  const saveView = async (name: string, datePreset: DatePreset, shared: boolean, overwriteId: string | null) => {
+    const body = { name, config: currentConfig(datePreset), shared, ...(overwriteId ? { id: overwriteId } : {}) }
+    const r = await fetch('/api/hub/routing/dispatch/views', {
+      method: overwriteId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) { setNotice(d.error || 'Could not save the view'); return }
+    await loadViews()
+    setActiveViewId(d.view.id); writeLS(LS_ACTIVE_VIEW, d.view.id)
+    setSaveViewOpen(false)
+  }
+  const deleteView = async (id: string) => {
+    const v = views.find(x => x.id === id)
+    if (!v || !window.confirm(`Delete the view “${v.name}”?`)) return
+    const r = await fetch(`/api/hub/routing/dispatch/views?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!r.ok) { setNotice('Could not delete the view'); return }
+    setActiveViewId(null); writeLS(LS_ACTIVE_VIEW, null)
+    await loadViews()
+  }
+  const activeView = views.find(v => v.id === activeViewId) ?? null
+  // Line-item options: the Jobber catalog + anything on the stops in front of us.
+  const itemOptions = useMemo(() => {
+    const set = new Set<string>(catalog.map(x => x.trim()).filter(Boolean))
+    for (const st of day?.stops ?? []) for (const n of st.lineItemNames) if (n.trim()) set.add(n.trim())
+    for (const st of bucket) for (const n of st.lineItemNames) if (n.trim()) set.add(n.trim())
+    for (const n of filters.items) set.add(n)
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [catalog, day, bucket, filters.items])
 
   return (
     <div className="space-y-4">
       {/* Top bar */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1">
+            <select value={activeViewId ?? ''} onChange={e => applyView(e.target.value || null)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm max-w-[14rem]" title="Saved views">
+              <option value="">View…</option>
+              {views.map(v => <option key={v.id} value={v.id}>{v.name}{!v.mine ? ' · shared' : v.shared ? ' · shared by you' : ''}</option>)}
+            </select>
+            <button type="button" onClick={() => setSaveViewOpen(true)} className="px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm" title="Save the team, filters, Day/Week/Month and date as a view">💾 Save view</button>
+            {activeView?.mine && (
+              <button type="button" onClick={() => deleteView(activeView.id)} className="px-2 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-gray-400" title="Delete this view">🗑</button>
+            )}
+          </div>
           <div className="inline-flex rounded-lg bg-gray-800 p-0.5">
             {(['day', 'week', 'month'] as const).map(v => (
               <button key={v} type="button" onClick={() => { setView(v); writeLS(LS_VIEW, v) }}
@@ -1277,6 +1351,10 @@ export default function DispatchView() {
             className={`px-2.5 py-1 rounded-full text-xs border ${filters.hideZero ? 'bg-orange-500 border-orange-500 text-[#fff]' : 'border-gray-700 text-gray-300 hover:border-gray-500'}`}>
             Hide $0
           </button>
+          <LineItemPicker options={itemOptions} selected={filters.items} onChange={items => setFilter({ ...filters, items })} />
+          {(filters.groups.length > 0 || filters.items.length > 0 || filters.hideZero) && (
+            <button type="button" onClick={() => setFilter({ groups: [], hideZero: false, items: [] })} className="text-xs text-gray-400 hover:text-white">Clear filters</button>
+          )}
           {settings.filter_groups.length === 0 && <span className="text-xs text-gray-500">Filter chips are set up in Admin → Routing → Dispatch.</span>}
         </div>
       </div>
@@ -1689,6 +1767,15 @@ export default function DispatchView() {
         </div>
       )}
 
+      {saveViewOpen && (
+        <SaveViewModal
+          active={activeView?.mine ? activeView : null}
+          onClose={() => setSaveViewOpen(false)}
+          onSave={saveView}
+          summary={`${teamList.length} tech${teamList.length === 1 ? '' : 's'} · ${view[0].toUpperCase()}${view.slice(1)} view · ${filters.items.length ? `${filters.items.length} line item${filters.items.length === 1 ? '' : 's'}` : 'all line items'}${filters.groups.length ? ` · ${filters.groups.length} chip${filters.groups.length === 1 ? '' : 's'}` : ''}${filters.hideZero ? ' · hide $0' : ''}`}
+        />
+      )}
+
       {/* Reminders preview */}
       {remOpen && rem && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setRemOpen(false)}>
@@ -1943,6 +2030,92 @@ function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestio
           <p className="text-[11px] text-pink-300 mt-1">The title says “{suggestion.label}” — {fmtClock(suggestion.start)} – {fmtClock(suggestion.end)} is filled in above. Click Lock if that was promised.</p>
         )}
         <p className="text-[10px] text-gray-500 mt-1">Locked stops show as PROMISED. A lock is saved right away; it lives in Hub, not Jobber.</p>
+      </div>
+    </div>
+  )
+}
+
+/** Line-item filter (Ben, Oct 20 2026): tick the line items to show. */
+function LineItemPicker({ options, selected, onChange }: { options: string[]; selected: string[]; onChange: (items: string[]) => void }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const sel = new Set(selected)
+  const shown = options.filter(o => o.toLowerCase().includes(q.trim().toLowerCase()))
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className={`px-2.5 py-1 rounded-full text-xs border ${selected.length ? 'bg-orange-500 border-orange-500 text-[#fff]' : 'border-gray-700 text-gray-300 hover:border-gray-500'}`}>
+        Line items{selected.length ? ` (${selected.length})` : ''} ▾
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-80 bg-gray-900 border border-gray-700 rounded-xl shadow-xl p-2">
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search line items"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs mb-1.5" />
+          <div className="flex gap-3 text-[11px] mb-1">
+            <button type="button" onClick={() => onChange([...new Set([...selected, ...shown])])} className="text-gray-400 hover:text-white">Tick all shown</button>
+            <button type="button" onClick={() => onChange(selected.filter(x => !shown.includes(x)))} className="text-gray-400 hover:text-white">Untick all shown</button>
+            <button type="button" onClick={() => onChange([])} className="text-gray-400 hover:text-white">Show everything</button>
+          </div>
+          <div className="max-h-72 overflow-y-auto">
+            {shown.map(o => (
+              <label key={o} className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-gray-800 text-xs cursor-pointer">
+                <input type="checkbox" checked={sel.has(o)} onChange={() => onChange(sel.has(o) ? selected.filter(x => x !== o) : [...selected, o])} />
+                <span className="truncate">{o}</span>
+              </label>
+            ))}
+            {shown.length === 0 && <div className="text-xs text-gray-500 p-1">No line items match. (The list comes from Admin → Routing → Refresh from Jobber, plus the stops on screen.)</div>}
+          </div>
+          <div className="flex items-center mt-1.5">
+            <span className="text-[10px] text-gray-500 flex-1">{selected.length ? 'Only stops with a ticked line item show.' : 'Nothing ticked = every stop shows.'}</span>
+            <button type="button" onClick={() => setOpen(false)} className="text-xs text-gray-300 hover:text-white">Done</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SaveViewModal({ active, onClose, onSave, summary }: {
+  active: { id: string; name: string; config: DispatchViewConfig; shared: boolean } | null
+  onClose: () => void
+  onSave: (name: string, datePreset: DatePreset, shared: boolean, overwriteId: string | null) => void
+  summary: string
+}) {
+  const [name, setName] = useState(active?.name ?? '')
+  const [preset, setPreset] = useState<DatePreset>(active?.config.datePreset ?? 'today')
+  const [shared, setShared] = useState(active?.shared ?? false)
+  const [overwrite, setOverwrite] = useState(!!active)
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="w-full max-w-md bg-gray-900 border border-gray-700 rounded-2xl p-5 space-y-3 text-sm" onClick={e => e.stopPropagation()}>
+        <h3 className="font-semibold">Save view</h3>
+        <p className="text-xs text-gray-400">Saves what&apos;s on screen now: {summary}, plus whether Unscheduled and Tanks are showing.</p>
+        {active && (
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} />
+            Update “{active.name}” (untick to save as a new view)
+          </label>
+        )}
+        <label className="block">
+          <div className="text-xs text-gray-400 mb-1">Name</div>
+          <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Weed & Feed — this week"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5" />
+        </label>
+        <label className="block">
+          <div className="text-xs text-gray-400 mb-1">When I pick this view, go to</div>
+          <select value={preset} onChange={e => setPreset(e.target.value as DatePreset)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5">
+            {DATE_PRESETS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={shared} onChange={e => setShared(e.target.checked)} />
+          Share with the team (everyone with Routing can pick it; only you can change it)
+        </label>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700">Cancel</button>
+          <button type="button" disabled={!name.trim()} onClick={() => onSave(name.trim(), preset, shared, overwrite && active ? active.id : null)}
+            className="px-4 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff] font-medium disabled:opacity-40">Save</button>
+        </div>
       </div>
     </div>
   )
