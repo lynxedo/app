@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { centralDate } from '@/lib/timezone'
+import { myStopsToday } from '@/lib/my-route-today'
 
 // The one stop this person is driving to next.
 //
@@ -12,39 +12,26 @@ import { centralDate } from '@/lib/timezone'
 //
 // ⚠ Today only, in Central, and only entries where this user is the tech or a
 // secondary tech. A widget that showed somebody else's next stop would send a
-// truck to the wrong house.
+// truck to the wrong house. Which stops still count is lib/my-route-today.ts —
+// shared with the car screens so the widget and the dashboard never disagree.
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = createAdminClient()
-  const today = centralDate(new Date())
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+  if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
-  const { data: entries, error } = await admin
-    .from('daily_log_entries')
-    .select('id, log_date, tech_user_id, secondary_tech_user_ids, daily_log_stops(id, ord, client_name, address, scheduled_start_at, status)')
-    .eq('log_date', today)
-    .or(`tech_user_id.eq.${user.id},secondary_tech_user_ids.cs.{${user.id}}`)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  type Stop = {
-    id: string; ord: number; client_name: string | null; address: string | null
-    scheduled_start_at: string | null; status: string | null
-  }
-
-  const stops: Stop[] = (entries ?? []).flatMap(
-    (e) => (e.daily_log_stops as unknown as Stop[] | null) ?? [],
-  )
+  const { open, total, error } = await myStopsToday(createAdminClient(), user.id, profile.company_id)
+  if (error) return NextResponse.json({ error }, { status: 500 })
 
   // In route order, the first one not already finished. in_progress counts as
   // next: it is the one they are standing at.
-  const next = stops
-    .filter((s) => s.status !== 'complete')
-    .sort((a, b) => (a.ord ?? 0) - (b.ord ?? 0))[0] ?? null
-
-  const remaining = stops.filter((s) => s.status !== 'complete').length
+  const next = open[0] ?? null
 
   return NextResponse.json({
     // null with no error means "nothing left today" — the widget says so
@@ -55,7 +42,7 @@ export async function GET() {
       scheduled_start_at: next.scheduled_start_at,
       in_progress: next.status === 'in_progress',
     },
-    remaining,
-    total: stops.length,
+    remaining: open.length,
+    total,
   })
 }
