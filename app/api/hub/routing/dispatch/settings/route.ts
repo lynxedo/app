@@ -23,7 +23,7 @@ export async function GET() {
   if ('error' in auth) return auth.error
   const admin = createAdminClient()
   const [{ data: s }, { data: techs }, { data: hubUsers }, { data: identities }] = await Promise.all([
-    admin.from('company_routing_settings').select('depot_address, dispatch_settings').eq('company_id', auth.companyId).maybeSingle(),
+    admin.from('company_routing_settings').select('depot_address, dispatch_settings, duration_rules').eq('company_id', auth.companyId).maybeSingle(),
     admin.from('dispatch_tech_settings').select('*').eq('company_id', auth.companyId),
     // For "replies go to" on reminders. Bots included on purpose — Amber can own them.
     admin.from('hub_users').select('id, display_name, is_bot').eq('company_id', auth.companyId).order('display_name'),
@@ -34,6 +34,8 @@ export async function GET() {
     depotAddress: (s?.depot_address as string | null) ?? null,
     techSettings: techs ?? [],
     hubUsers: hubUsers ?? [],
+    // The Jobber catalog the routing admin pulled (Admin → Routing → Refresh from Jobber) — for the line-item filter.
+    lineItems: (((s?.duration_rules as { cachedLineItems?: unknown } | null)?.cachedLineItems ?? []) as unknown[]).filter((x): x is string => typeof x === 'string'),
     emailIdentities: identities ?? [],
     canEdit: await canAdminRouting(auth),
   })

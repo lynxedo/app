@@ -10,7 +10,7 @@ import type { OptCtxStop } from '@/app/dashboard/DispatchView'
 import { fetchLeg, type LatLng } from '@/lib/dispatch-legs'
 import {
   type DispatchSettings, type DispatchStop, type DraftChange,
-  addDays, changeDate, fmtClock, hhmmToMinutes, insertInOrder, isoToLocal, orderRoute, stopColor, stopMatchesGroup, todayLocal,
+  addDays, changeDate, fmtClock, hhmmToMinutes, insertInOrder, isoToLocal, matchesItemFilter, orderRoute, stopColor, stopMatchesGroup, todayLocal,
 } from '@/lib/dispatch'
 
 // Dispatch Week + Month views (Reference/PRDs/DISPATCH_ROUTING_PRD.md Phase 3).
@@ -38,7 +38,7 @@ interface Props {
   date: string
   team: string[]
   settings: DispatchSettings
-  filters: { groups: string[]; hideZero: boolean }
+  filters: { groups: string[]; hideZero: boolean; items: string[] }
   userName: (id: string) => string
   laneColor: (id: string) => string
   onOpenDay: (date: string) => void
@@ -204,6 +204,7 @@ export default function DispatchCalendar({
 
   const dim = (s: DispatchStop) => {
     if (filters.hideZero && Math.abs(s.totalPrice) < 0.005) return true
+    if (!matchesItemFilter(s, filters.items)) return true
     const active = settings.filter_groups.filter(g => filters.groups.includes(g.id))
     return active.length > 0 && !active.some(g => stopMatchesGroup(s, g))
   }

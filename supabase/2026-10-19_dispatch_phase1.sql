@@ -141,3 +141,23 @@ revoke all on public.dispatch_route_order from anon;
 drop policy if exists dispatch_route_order_select_company on public.dispatch_route_order;
 create policy dispatch_route_order_select_company on public.dispatch_route_order
   for select using (company_id = get_my_company_id());
+
+-- Saved views (Oct 20 2026): team + filters + Day/Week/Month + a date rule, so
+-- switching between e.g. "Weed & Feed" and "Irrigation" is one pick. Personal by
+-- default; `shared` makes a view visible to the whole company.
+create table if not exists public.dispatch_views (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references public.companies(id) on delete cascade,
+  user_id     uuid not null,
+  name        text not null,
+  config      jsonb not null default '{}'::jsonb,
+  shared      boolean not null default false,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index if not exists dispatch_views_company on public.dispatch_views (company_id);
+alter table public.dispatch_views enable row level security;
+revoke all on public.dispatch_views from anon;
+drop policy if exists dispatch_views_select on public.dispatch_views;
+create policy dispatch_views_select on public.dispatch_views
+  for select using (company_id = get_my_company_id() and (shared or user_id = auth.uid()));

@@ -416,3 +416,69 @@ export function stopMatchesGroup(stop: DispatchStop, g: FilterGroup): boolean {
 
 /** Lane colors, one per technician, in team order. */
 export const LANE_COLORS = ['#2563eb', '#ea580c', '#16a34a', '#9333ea', '#db2777', '#0d9488', '#ca8a04', '#dc2626']
+
+// ── Saved views (Oct 20 2026) ───────────────────────────────────────────────
+// Ben: "I get all the filters the way I want it, and then I hit Save View" —
+// one pick switches team, filters, Day/Week/Month and the date.
+
+export type DatePreset = 'keep' | 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'this_month' | 'next_month'
+
+export const DATE_PRESETS: Array<{ id: DatePreset; label: string }> = [
+  { id: 'keep', label: 'Keep the date I’m on' },
+  { id: 'today', label: 'Today' },
+  { id: 'tomorrow', label: 'Tomorrow' },
+  { id: 'this_week', label: 'This week' },
+  { id: 'next_week', label: 'Next week' },
+  { id: 'this_month', label: 'This month' },
+  { id: 'next_month', label: 'Next month' },
+]
+
+export interface DispatchFilters { groups: string[]; hideZero: boolean; items: string[] }
+
+export interface DispatchViewConfig {
+  team: string[]
+  view: 'day' | 'week' | 'month'
+  datePreset: DatePreset
+  filters: DispatchFilters
+  showBucket: boolean
+  showTanks: boolean
+}
+
+/** The date a saved view opens on. Week presets land on that week's Monday. */
+export function resolveViewDate(preset: DatePreset, today: string, current: string): string {
+  const monday = (d: string) => addDays(d, -((new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7))
+  switch (preset) {
+    case 'today': return today
+    case 'tomorrow': return addDays(today, 1)
+    case 'this_week': return monday(today)
+    case 'next_week': return addDays(monday(today), 7)
+    case 'this_month': return `${today.slice(0, 7)}-01`
+    case 'next_month': {
+      const [y, m] = today.split('-').map(Number)
+      return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10)
+    }
+    default: return current
+  }
+}
+
+/** Line-item filter: with any ticked, a VISIT shows only if one of its line items is ticked.
+ *  Assessments and tasks carry no line items — the Assessments / Tasks chips govern them. */
+export function matchesItemFilter(stop: Pick<DispatchStop, 'lineItemNames' | 'kind'>, items: string[]): boolean {
+  if (items.length === 0 || stop.kind !== 'visit') return true
+  const want = new Set(items.map(i => i.trim().toLowerCase()))
+  return stop.lineItemNames.some(n => want.has(n.trim().toLowerCase()))
+}
+
+export function normalizeViewConfig(raw: unknown): DispatchViewConfig {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const f = (r.filters && typeof r.filters === 'object' ? r.filters : {}) as Record<string, unknown>
+  const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 300) : [])
+  return {
+    team: strs(r.team).slice(0, 8),
+    view: r.view === 'week' || r.view === 'month' ? r.view : 'day',
+    datePreset: DATE_PRESETS.some(p => p.id === r.datePreset) ? (r.datePreset as DatePreset) : 'keep',
+    filters: { groups: strs(f.groups), hideZero: f.hideZero === true, items: strs(f.items) },
+    showBucket: r.showBucket !== false,
+    showTanks: r.showTanks === true,
+  }
+}
