@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DispatchMap, { type DispatchMapLeg, type DispatchMapStop } from '@/components/DispatchMap'
-import DispatchCalendar, { type RangeStop } from '@/components/DispatchCalendar'
+import DispatchCalendar, { type EffStop, type RangeStop } from '@/components/DispatchCalendar'
 import DispatchRoutePanel, { type OptimizeRequest, type PanelLane, TICKS_EVENT, readPanelOff, sendLasso } from '@/components/DispatchRoutePanel'
 import { resolvePinColors, type PinSettings } from '@/lib/pin-colors'
 import DispatchTankPanel, { tankRouteCode } from '@/components/DispatchTankPanel'
@@ -199,6 +199,10 @@ export default function DispatchView() {
   const [saveViewOpen, setSaveViewOpen] = useState(false)
   const [catalog, setCatalog] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Week/Month: the stop whose customer box is open, found in the days as the
+  // calendar draws them so the box follows the stop when the draft moves it.
+  const [calDays, setCalDays] = useState<Record<string, EffStop[]>>({})
+  const [calSelId, setCalSelId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [windowPrompt, setWindowPrompt] = useState<null | { stopId: string; lane: string; startMin: number; lock: { startMin: number; endMin: number } }>(null)
   const [routes, setRoutes] = useState<Record<string, Leg[]>>({})
@@ -706,6 +710,64 @@ export default function DispatchView() {
     commit([...changes.filter(c => c.id !== s.id), ...(backHome ? [] : [change])])
   }, [changeById, changes, commit])
 
+  // ── Week/Month customer box: retime, length (Ben, Oct 22 2026) ────────────
+  // The draft already spans days, so a time set from Month is the same kind of
+  // change Day view makes. What Month can't show is the timeline, so instead of
+  // the drive picture it warns about a clash with the tech's other stops.
+  const calSel = useMemo(() => {
+    if (!calSelId) return null
+    for (const [d, list] of Object.entries(calDays)) { const s = list.find(x => x.id === calSelId); if (s) return { s, day: d } }
+    return null
+  }, [calDays, calSelId])
+  const calLockOf = useCallback((s: EffStop): { startMin: number; endMin: number } | null => {
+    const ch = changeById.get(s.id)
+    const l = ch?.newLock ?? s.lock
+    return l ? { startMin: isoToLocal(l.start).minutes, endMin: isoToLocal(l.end).minutes } : null
+  }, [changeById])
+  const calClash = useCallback((s: EffStop, d: string, lane: string, startMin: number, endMin: number): string | null => {
+    const other = (calDays[d] ?? []).find(x => x.id !== s.id && x.techIds.includes(lane) && x.startMin != null
+      && startMin < (x.endMin ?? x.startMin + 30) && x.startMin < endMin)
+    return other ? `overlaps ${other.clientName} (${fmtClock(other.startMin!)}) for ${userName(lane)}` : null
+  }, [calDays, userName])
+  const retimeFromCalendar = useCallback((s: EffStop, d: string, lane: string, rawStart: number, lengthMin?: number) => {
+    if (s.isComplete) { setNotice('That stop is already completed in Jobber.'); return }
+    const startMin = Math.max(0, Math.min(24 * 60 - SNAP, Math.round(rawStart / 5) * 5))
+    const duration = lengthMin ?? (s.startMin != null && s.endMin != null && s.endMin > s.startMin ? s.endMin - s.startMin : estimate(s))
+    const existing = changeById.get(s.id)
+    const lock = calLockOf(s)
+    let newLock = existing?.newLock ?? null
+    if (lock && (startMin < lock.startMin || startMin >= lock.endMin)) {
+      if (!window.confirm(`${s.clientName} was promised ${fmtClock(lock.startMin)} – ${fmtClock(lock.endMin)}. ${fmtClock(startMin)} is outside it.\n\nMove anyway (the customer agreed)? The promised time frame moves with the stop.`)) return
+      const len = lock.endMin - lock.startMin
+      const ns = s.startMin != null ? lock.startMin + (startMin - s.startMin) : startMin
+      newLock = { start: localStamp(d, ns), end: localStamp(d, ns + len) }
+    }
+    const warnings: string[] = []
+    const arrivalFirst = hhmmToMinutes(settings.arrival_first), arrivalLast = hhmmToMinutes(settings.arrival_last)
+    if (startMin < arrivalFirst || startMin > arrivalLast) warnings.push(`${fmtClock(startMin)} is outside the arrival hours (${fmtClock(arrivalFirst)} – ${fmtClock(arrivalLast)})`)
+    const clash = calClash(s, d, lane, startMin, startMin + duration)
+    if (clash) warnings.push(clash)
+    setNotice(warnings.length ? `Heads up: ${warnings.join('; ')}. It's in the draft anyway — open the day to see the drive.` : null)
+    const change: DraftChange = {
+      id: s.id, kind: s.kind, clientName: s.clientName, phone: s.phone,
+      fromStartAt: existing ? existing.fromStartAt : s.startAt,
+      fromTechIds: existing ? existing.fromTechIds : s.techIds,
+      toStart: localStamp(d, startMin),
+      toEnd: localStamp(d, startMin + Math.max(10, duration)),
+      toTechId: lane,
+      newLock,
+      at: new Date().toISOString(),
+      snapshot: snapOf(s),
+    }
+    // Back to exactly what Jobber has → no change at all.
+    const js = s.startAt && !s.allDay ? isoToLocal(s.startAt) : null
+    const je = s.endAt ? isoToLocal(s.endAt) : null
+    const fromTechs = existing ? existing.fromTechIds : s.techIds
+    const backHome = !!js && js.date === d && js.minutes === startMin && fromTechs.includes(lane) && !newLock
+      && (!je || je.minutes === startMin + Math.max(10, duration))
+    commit([...changes.filter(c => c.id !== s.id), ...(backHome ? [] : [change])])
+  }, [changeById, calLockOf, calClash, estimate, settings.arrival_first, settings.arrival_last, changes, commit])
+
   // ── Optimize day (preview first; Apply puts it in the draft) ─────────────
   /**
    * Optimize one day — Day view or a 🗺 day in Week/Month. `ctx` describes every
@@ -891,22 +953,25 @@ export default function DispatchView() {
   }
 
   // ── Locks (Hub-only, saved immediately) ───────────────────────────────────
-  const saveLock = async (s: DispatchStop, startHHMM: string, endHHMM: string) => {
+  // `onDay` = the stop's own day (Week/Month); Day view locks on the day on screen.
+  const saveLock = async (s: DispatchStop, startHHMM: string, endHHMM: string, onDay: string = date) => {
     const res = await fetch('/api/hub/routing/dispatch/locks', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jobberItemId: s.id, kind: s.kind,
-        windowStart: localToIso(`${date}T${startHHMM}:00`), windowEnd: localToIso(`${date}T${endHHMM}:00`),
+        windowStart: localToIso(`${onDay}T${startHHMM}:00`), windowEnd: localToIso(`${onDay}T${endHHMM}:00`),
       }),
     })
     const d = await res.json().catch(() => ({}))
     if (!res.ok) { setNotice(d.error || 'Could not lock the time frame'); return }
     setLocks(prev => ({ ...prev, [s.id]: d.lock }))
+    if (view !== 'day') setCalTick(t => t + 1)
   }
   const removeLock = async (s: DispatchStop) => {
     const res = await fetch(`/api/hub/routing/dispatch/locks?id=${encodeURIComponent(s.id)}`, { method: 'DELETE' })
     if (!res.ok) { setNotice('Could not unlock'); return }
     setLocks(prev => { const n = { ...prev }; delete n[s.id]; return n })
+    if (view !== 'day') setCalTick(t => t + 1)
   }
 
   // ── Send to Jobber ────────────────────────────────────────────────────────
@@ -1664,7 +1729,7 @@ export default function DispatchView() {
 
       {/* Map + side panel */}
       {teamList.length > 0 && (
-        <div className={showBucket || slots || selected || selectedBucket || (view === 'day' && showRoutePanel)
+        <div className={showBucket || slots || selected || selectedBucket || (view === 'day' && showRoutePanel) || (view !== 'day' && calSel)
           ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]'
           : 'grid gap-4'}>
           {view === 'day'
@@ -1678,9 +1743,36 @@ export default function DispatchView() {
                 onOptimizeDay={optimizeFromCalendar} optimizing={optimizing}
                 showTanks={showTanks} capacity={capacity} onLoadCapacity={loadCapacity}
                 pinSettings={pinSettings} tickOff={tickOff}
-                pinNumbers={pinNumbers} onPinNumbers={m => { setPinNumbers(m); writeLS(LS_PIN_NUMBERS, m) }} />}
+                pinNumbers={pinNumbers} onPinNumbers={m => { setPinNumbers(m); writeLS(LS_PIN_NUMBERS, m) }}
+                selectedId={calSelId} onSelect={id => setCalSelId(cur => (cur === id ? null : id))} onDaysChange={setCalDays} />}
 
           <div className="space-y-4">
+            {view !== 'day' && calSel && (() => {
+              const { s, day: d } = calSel
+              const lock = calLockOf(s)
+              const lane = teamList.find(t => s.techIds.includes(t)) ?? s.techIds[0] ?? ''
+              const dur = s.startMin != null && s.endMin != null && s.endMin > s.startMin ? s.endMin - s.startMin : estimate(s)
+              return (
+                <StopPanel
+                  key={`${s.id}|${d}|${s.startMin ?? ''}|${dur}|${lane}|${lock?.startMin ?? ''}`}
+                  stop={s}
+                  placed={{ stop: s, lane, startMin: s.startMin, endMin: s.startMin != null ? s.startMin + dur : null, durationMin: dur, changed: s.changed, fromBucket: false, lock, color: '', addons: [], dim: false }}
+                  team={teamList}
+                  userName={userName}
+                  lock={lock}
+                  hasSavedLock={!!s.lock || !!locks[s.id]}
+                  suggestion={titleWindow(s)}
+                  dayLabel={new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })}
+                  onOpenDay={() => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day'); setSelectedId(s.id); setCalSelId(null) }}
+                  onClose={() => setCalSelId(null)}
+                  onMove={(ln, hhmm) => retimeFromCalendar(s, d, ln, hhmmToMinutes(hhmm))}
+                  onLock={(a, b) => saveLock(s, a, b, d)}
+                  onUnlock={() => removeLock(s)}
+                  onUndoMove={() => commit(changes.filter(c => c.id !== s.id))}
+                  onLength={s.startMin != null ? (min: number) => retimeFromCalendar(s, d, lane, s.startMin!, min) : undefined}
+                />
+              )
+            })()}
             {/* The customer box sits FIRST — right beside the lanes (Ben, Oct 22 2026). */}
             {(selected || selectedBucket) && (
               <StopPanel
@@ -1985,7 +2077,7 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
   )
 }
 
-function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestion, onFindSlot, onClose, onMove, onLock, onUnlock, onUndoMove, onLength }: {
+function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestion, onFindSlot, onClose, onMove, onLock, onUnlock, onUndoMove, onLength, dayLabel, onOpenDay }: {
   stop: DispatchStop
   placed: Placed | null
   team: string[]
@@ -2000,6 +2092,9 @@ function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestio
   onUnlock: () => void
   onUndoMove: () => void
   onLength?: (minutes: number) => void
+  /** Week/Month: which day the stop is on, and a jump to it in Day view. */
+  dayLabel?: string
+  onOpenDay?: () => void
 }) {
   const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   const [lane, setLane] = useState(placed?.lane && team.includes(placed.lane) ? placed.lane : team[0] ?? '')
@@ -2024,11 +2119,12 @@ function StopPanel({ stop, placed, team, userName, lock, hasSavedLock, suggestio
         {stop.lineItemNames.length > 0 && <div className="truncate" title={stop.lineItemNames.join(', ')}>{stop.lineItemNames.join(', ')}</div>}
         {stop.kind === 'visit' && <div>{money(stop.totalPrice)}</div>}
         <div>
-          {placed?.startMin != null ? `Planned ${fmtClock(placed.startMin)} – ${fmtClock(placed.endMin!)} · ${userName(placed.lane)}` : 'No time set'}
+          {dayLabel ? `${dayLabel} · ` : ''}{placed?.startMin != null ? `Planned ${fmtClock(placed.startMin)} – ${fmtClock(placed.endMin!)} · ${userName(placed.lane)}` : `No time set${dayLabel && placed?.lane ? ` · ${userName(placed.lane)}` : ''}`}
           {placed?.changed && <span className="text-orange-400"> · unsent</span>}
         </div>
         {jobberWindow && <div>Jobber arrival window: {jobberWindow}</div>}
         {stop.instructions && <div className="text-gray-500 line-clamp-3" title={stop.instructions}>{stop.instructions}</div>}
+        {onOpenDay && <button type="button" onClick={onOpenDay} className="text-sky-400 hover:text-sky-300">Open this day →</button>}
       </div>
 
       {!stop.isComplete && (
