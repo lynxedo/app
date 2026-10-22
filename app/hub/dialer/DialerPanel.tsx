@@ -10,6 +10,7 @@ import IncomingCall from '@/components/hub/dialer/IncomingCall'
 import CallWaiting from '@/components/hub/dialer/CallWaiting'
 import { useDialerContext, usePipControls } from '@/components/hub/dialer/DialerProvider'
 import { formatPhone } from '@/lib/format'
+import { isEmbeddedTabFrame } from '@/lib/hub-embed'
 
 export default function DialerPanel({
   initialNumber = null,
@@ -26,7 +27,8 @@ export default function DialerPanel({
   // dialer_global_ring, or this page is rendered outside HubShell), fall back
   // to a local autoRegister instance — original Session 56 behavior.
   const ctxDevice = useDialerContext()
-  const localDevice = useTwilioDevice({ autoRegister: !ctxDevice })
+  // (Never inside a Workspace Tab's frame — that would be a second phone.)
+  const localDevice = useTwilioDevice({ autoRegister: !ctxDevice && !isEmbeddedTabFrame() })
   const device = ctxDevice ?? localDevice
 
   // Session 3: pop the dialer out into a floating Document PiP window. Available

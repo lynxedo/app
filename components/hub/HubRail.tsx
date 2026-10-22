@@ -6,7 +6,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   CatalogIcon,
   CustomUrlIcon,
-  SearchIcon,
   SettingsIcon,
   AdminIcon,
   AppsIcon,
@@ -32,6 +31,7 @@ export type RailId =
   | 'admin'
   | 'settings'
   | 'profile'
+  | 'help'          // a Help tab (no rail icon; nothing lights)
   | CatalogId
 
 // Path → rail. First match wins. Used so the visited section's icon shows the
@@ -79,11 +79,14 @@ export default function HubRail({
   missedCall = false,
   unheardVoicemails = 0,
   isClockedIn,
-  onSearchClick,
+  onSearchClick: _onSearchClick, // search moved to the top bar
   onProfileClick,
   onTimeClockClick,
   onActivityClick,
   onOpenLauncher,
+  onOpenApp,
+  onDialerClick,
+  phoneOpen = false,
   onToggleDnd,
   onToggleHubDnd,
   onToggleDialerDnd,
@@ -125,6 +128,16 @@ export default function HubRail({
   onTimeClockClick: () => void
   onActivityClick: () => void
   onOpenLauncher: () => void
+  /**
+   * Workspace Tabs on: open an app as a tab (or jump to its open tab) instead of
+   * navigating. `id` is the app ('hub', a catalog id, 'settings', 'admin') or
+   * 'link' for a room/DM shortcut. Undefined = navigate as before.
+   */
+  onOpenApp?: (id: string, href: string, newCopy?: boolean) => void
+  /** The Dialer icon: return true if the shell handled it (the pop-up phone). */
+  onDialerClick?: () => boolean
+  /** The pop-up phone is open — light the Dialer icon. */
+  phoneOpen?: boolean
   /** Toggle master DND (sys:dnd — silences everything). */
   onToggleDnd: () => void
   /** Toggle Hub notifications DND (sys:hub-dnd). */
@@ -168,7 +181,7 @@ export default function HubRail({
   const effectiveActive: RailId = (activeManualRail as RailId) ?? active
 
   // The rail never scrolls — it shows as many icons as fit in the available
-  // height; the rest live in the Apps drawer (the expanded-rail view). The fit
+  // height; the rest live in the Menu. The fit
   // count is measured from the container so it adapts to screen size.
   const ITEM_H = 54 // approx height of one rail item (icon + label + padding)
   const railListRef = useRef<HTMLDivElement | null>(null)
@@ -222,6 +235,7 @@ export default function HubRail({
     }
     // Navigating to a different section: always ensure sidebar is visible.
     onOpenSidebar()
+    if (onOpenApp) { onOpenApp('hub', '/hub', e.altKey); return }
     let last: string | null = null
     try {
       last = localStorage.getItem('hub_last_chat_route') || localStorage.getItem('hub_last_route')
@@ -243,7 +257,7 @@ export default function HubRail({
   // items). Same icon clicked while already on it → toggle collapse and stop
   // the navigation. Different section → force the sidebar open and let the
   // Link navigate normally.
-  function handleNavLinkClick(thisRail: RailId) {
+  function handleNavLinkClick(thisRail: RailId, href?: string) {
     return (e: React.MouseEvent) => {
       if (active === thisRail) {
         e.preventDefault()
@@ -251,6 +265,11 @@ export default function HubRail({
         return
       }
       onOpenSidebar()
+      // Tabs on: the app opens as a tab (or comes forward) — no navigation.
+      if (onOpenApp && href) {
+        e.preventDefault()
+        onOpenApp(thisRail, href, e.altKey)
+      }
     }
   }
 
@@ -375,7 +394,7 @@ export default function HubRail({
         <Link
           key={`room-${idx}`}
           href={`/hub/${room.id}`}
-          onClick={() => onOpenSidebar()}
+          onClick={(e) => { onOpenSidebar(); if (onOpenApp) { e.preventDefault(); onOpenApp('link', `/hub/${room.id}`) } }}
           className={railBtnClass(isActive)}
           title={room.name}
         >
@@ -404,7 +423,7 @@ export default function HubRail({
         <Link
           key={`dm-${idx}`}
           href={`/hub/pm/${conv.id}`}
-          onClick={() => onOpenSidebar()}
+          onClick={(e) => { onOpenSidebar(); if (onOpenApp) { e.preventDefault(); onOpenApp('link', `/hub/pm/${conv.id}`) } }}
           className={railBtnClass(isActive)}
           title={label}
         >
@@ -473,7 +492,7 @@ export default function HubRail({
         <Link
           key={`txt2-${idx}`}
           href="/hub/txt"
-          onClick={handleNavLinkClick('txt2')}
+          onClick={handleNavLinkClick('txt2', '/hub/txt')}
           className={railBtnClass(active === 'txt2')}
           aria-current={active === 'txt2' ? 'page' : undefined}
           title="Txt — customer texting"
@@ -496,13 +515,17 @@ export default function HubRail({
         <Link
           key={`dialer-${idx}`}
           href="/hub/dialer"
-          onClick={handleNavLinkClick('dialer')}
-          className={railBtnClass(active === 'dialer')}
+          onClick={(e) => {
+            // Desktop: the pop-up phone over whatever you're doing.
+            if (onDialerClick && onDialerClick()) { e.preventDefault(); return }
+            handleNavLinkClick('dialer', '/hub/dialer')(e)
+          }}
+          className={railBtnClass(active === 'dialer' || phoneOpen)}
           aria-current={active === 'dialer' ? 'page' : undefined}
           title={unheardVoicemails > 0 ? `Dialer — ${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}` : 'Dialer'}
         >
-          <ActiveBar show={active === 'dialer'} />
-          <span className={`relative ${active === 'dialer' ? 'text-sky-300' : ''}`}>
+          <ActiveBar show={active === 'dialer' || phoneOpen} />
+          <span className={`relative ${active === 'dialer' || phoneOpen ? 'text-sky-300' : ''}`}>
             <CatalogIcon id="dialer" />
             {missedCall && active !== 'dialer' && (
               <span className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[var(--t-rail)]" aria-label="Missed call" />
@@ -549,6 +572,7 @@ export default function HubRail({
             // Workspace Tabs: a tabbable app opens as a kept-alive tab instead of
             // navigating (Alt-click forces a second copy). Everything else keeps
             // today's behavior exactly.
+            if (onOpenApp) { handleNavLinkClick(id, entry.href)(e); return }
             if (openAsTab) {
               e.preventDefault()
               tabs.openTab({ catalogId: id, label: entry.label, href: entry.href!, newCopy: e.altKey })
@@ -571,27 +595,18 @@ export default function HubRail({
       className="t-sidebar-surface hidden md:flex flex-col w-16 flex-none"
       style={{ paddingTop: 'env(safe-area-inset-top, 0)', background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label="Hub navigation"
+      data-lx-nav="rail"
     >
-      {/* Search */}
-      <button
-        type="button"
-        onClick={onSearchClick}
-        className="flex flex-col items-center justify-center gap-0.5 py-3 text-[10px] font-medium text-white/60 hover:text-white hover:bg-white/5 transition-colors"
-        title="Search (⌘K)"
-      >
-        <SearchIcon />
-        <span>Search</span>
-      </button>
+      {/* Search lives in the top bar now (and ⌘K). */}
+      <div className="h-2 flex-none" aria-hidden="true" />
 
-      <div className="h-px bg-white/5 mx-3" />
-
-      {/* User-configurable list — shows what fits (no scroll); the rest go to
-          the Apps drawer. */}
+      {/* User-configurable list — shows what fits (no scroll); the rest are in
+          the Menu. */}
       <div ref={railListRef} className="flex-1 min-h-0 overflow-hidden py-1 flex flex-col">
         {visibleItems.map((token, idx) => renderItem(token, idx))}
       </div>
 
-      {/* All Apps launcher + Customize */}
+      {/* Menu (every app) + Customize */}
       <div className="flex-none border-t border-white/5 py-1">
         <button
           type="button"
@@ -599,7 +614,7 @@ export default function HubRail({
           className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium w-full transition-colors ${
             launcherOpen ? 'text-sky-300 bg-white/[0.06]' : 'text-white/55 hover:text-white hover:bg-white/5'
           }`}
-          title={hiddenCount > 0 ? `All Apps — ${hiddenCount} more` : 'All Apps'}
+          title={hiddenCount > 0 ? `Menu — every app (${hiddenCount} more than fit here)` : 'Menu — every app'}
           aria-pressed={launcherOpen}
         >
           {launcherOpen && (
@@ -613,7 +628,7 @@ export default function HubRail({
               </span>
             )}
           </span>
-          <span>Apps</span>
+          <span>Menu</span>
         </button>
         <button
           type="button"
@@ -636,7 +651,7 @@ export default function HubRail({
       <div className="flex-none flex flex-col">
         <Link
           href="/hub/settings"
-          onClick={handleNavLinkClick('settings')}
+          onClick={handleNavLinkClick('settings', '/hub/settings')}
           className={railBtnClass(active === 'settings')}
           aria-current={active === 'settings' ? 'page' : undefined}
           title="Settings"
@@ -648,7 +663,7 @@ export default function HubRail({
         {showAdmin && (
           <Link
             href="/hub/admin"
-            onClick={handleNavLinkClick('admin')}
+            onClick={handleNavLinkClick('admin', '/hub/admin')}
             className={railBtnClass(active === 'admin')}
             aria-current={active === 'admin' ? 'page' : undefined}
             title="Admin"

@@ -12,6 +12,7 @@ import TableView from './leads/TableView'
 import BoardView from './leads/BoardView'
 import NeedsMeView from './leads/NeedsMeView'
 import { chipVars } from '@/lib/themes'
+import { useHubIntent } from '@/lib/hub-intent'
 
 // ── Types ────────────────────────────────────────
 export type Stage = { id: string; key: string; label: string; color: string; sort_order: number; system_role?: string | null }
@@ -1294,6 +1295,8 @@ export default function TrackerPage({
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [notesLeadId, setNotesLeadId] = useState<string | null>(null)
   const [newLeadOpen, setNewLeadOpen] = useState(false)
+  // Top bar → New → New lead.
+  useHubIntent('new-lead', () => setNewLeadOpen(true))
   const [editLeadId, setEditLeadId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkStage, setBulkStage] = useState('')

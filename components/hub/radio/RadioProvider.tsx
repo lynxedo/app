@@ -32,6 +32,7 @@ import { haptic, keepAwake } from '@/lib/native-device'
 import { startRadioAudio, stopRadioAudio, onRadioAudioEvent, RadioAudioRefused, type RadioAudioState } from '@/lib/native-radio-audio'
 import { playRadioTone } from '@/lib/hub-chime'
 import { useToast } from '@/components/ui/Toast'
+import { isEmbeddedTabFrame } from '@/lib/hub-embed'
 
 export type RadioChannel = {
   sessionId: string
@@ -83,7 +84,10 @@ export function useRadio(): RadioApi | null {
 }
 
 export default function RadioProvider({ enabled, currentUserId, children }: { enabled: boolean; currentUserId: string; children: ReactNode }) {
-  if (!enabled) return <>{children}</>
+  // Never inside a Workspace Tab's frame — the window runs the one radio. Sticky
+  // (a server re-render inside the frame can't turn it on there).
+  const [inFrame] = useState(() => isEmbeddedTabFrame())
+  if (!enabled || inFrame) return <>{children}</>
   return <RadioEngine currentUserId={currentUserId}>{children}</RadioEngine>
 }
 

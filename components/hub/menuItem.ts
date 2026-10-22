@@ -1,5 +1,5 @@
 // Shared app-menu-item resolver (audit NAV-menuItem). The token -> {label, accent}
-// mapping was copy-pasted across HubRail, HubMobileBar, AppLauncherPanel, and
+// mapping was copy-pasted across HubRail, HubMobileBar, the old Apps drawer, and
 // HubMobileMore and drifted (e.g. "Dialer" vs "Phone", different DND label
 // wording, missing-token handling). This is the single source for that DATA;
 // each surface keeps its own layout/markup but reads label + accent from here.
