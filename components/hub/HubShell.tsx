@@ -68,6 +68,7 @@ const PricerView = dynamic(() => import('@/app/hub/pricer/PricerView'), { ssr: f
 const ScoreboardsIndexTab = dynamic(() => import('./workspace/ScoreboardsTab').then(m => m.ScoreboardsIndexTab), { ssr: false, loading: TabLoading })
 const ScoreboardBoardTab = dynamic(() => import('./workspace/ScoreboardsTab').then(m => m.ScoreboardBoardTab), { ssr: false, loading: TabLoading })
 const TrackerLeadsTab = dynamic(() => import('./workspace/TrackerLeadsTab'), { ssr: false, loading: TabLoading })
+const RoutingTab = dynamic(() => import('./workspace/RoutingTab'), { ssr: false, loading: TabLoading })
 const BoardTab = dynamic(() => import('./workspace/BoardTab'), { ssr: false, loading: TabLoading })
 const ChatTab = dynamic(() => import('./workspace/ChatTab'), { ssr: false, loading: TabLoading })
 const TxtTab = dynamic(() => import('./workspace/TxtTab'), { ssr: false, loading: TabLoading })
@@ -282,6 +283,27 @@ export default function HubShell({
   useEffect(() => {
     if (!activateTabByHref(pathname)) showRouteTab()
   }, [pathname, activateTabByHref, showRouteTab])
+
+  // A link to the page the URL is ALREADY on doesn't change the pathname, so the
+  // effect above never fires and the tab in front stays in front — clicking
+  // Routing (or any non-tab app) while sitting on its URL behind a tab did
+  // nothing until every tab was closed (Ben, Oct 22 2026). Bubble phase so a
+  // tab-opening click (which preventDefaults) is left alone.
+  const activeTabIdForLinks = tabsApi.activeTabId
+  useEffect(() => {
+    if (!activeTabIdForLinks) return
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+      if (!a || a.target === '_blank') return
+      let url: URL
+      try { url = new URL(a.href, window.location.href) } catch { return }
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return
+      if (!activateTabByHref(url.pathname)) showRouteTab()
+    }
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, [activeTabIdForLinks, activateTabByHref, showRouteTab])
 
   // Is the user in Txt right now? A thread opened as a Workspace Tab doesn't
   // change the URL, and while a tab is active the route isn't rendered at all,
@@ -976,6 +998,8 @@ export default function HubShell({
           canText={!!isAdmin || !!canAccessTxt}
           canQuote={!!canAccessQuotes}
         />
+      case 'routing':
+        return <RoutingTab />
       case 'board':
         return t.instanceKey ? <BoardTab boardId={t.instanceKey} hubUsers={hubUsers} currentUserId={currentUserId} /> : null
       case 'daily-log-v2':
@@ -1381,6 +1405,7 @@ export default function HubShell({
     )}
     {showDesktopLauncher && (
       <AppLauncherPanel
+        onRouteNavigate={tabsApi.showRoute}
         items={liveLayout.items}
         permissions={permissions}
         rooms={rooms}

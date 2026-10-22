@@ -259,7 +259,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'daily-log',    label: 'Daily Log',     href: '/hub/daily-log', prefixMatch: true, pickable: true },
   { id: 'daily-log-v2', label: 'Work Orders',   href: '/hub/daily-log-v2', prefixMatch: true, pickable: true, requires: 'canAccessDailyLogV2', tabbable: true },
   { id: 'tracker',      label: 'Tracker',       href: '/hub/tracker', prefixMatch: true, pickable: true, requires: 'canAccessTracker', tabbable: true },
-  { id: 'routing',      label: 'Routing',       href: '/hub/routing', prefixMatch: true, pickable: true, requires: 'canAccessRouting' },
+  { id: 'routing',      label: 'Routing',       href: '/hub/routing', prefixMatch: true, pickable: true, requires: 'canAccessRouting', tabbable: true },
   { id: 'fleet',        label: 'Fleet',         href: '/hub/fleet', prefixMatch: true, pickable: true, requires: 'canAccessFleet' },
   { id: 'lawn',         label: 'Lawn Sizer',    href: '/hub/lawn', pickable: true, requires: 'canAccessLawn' },
   { id: 'dialer',       label: 'Dialer',        href: '/hub/dialer', prefixMatch: true, pickable: true, requires: 'canAccessDialer' },

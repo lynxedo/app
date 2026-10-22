@@ -39,7 +39,7 @@ interface Props {
   date: string
   team: string[]
   settings: DispatchSettings
-  filters: { groups: string[]; hideZero: boolean; items: string[] }
+  filters: { groups: string[]; hideZero: boolean; items: string[]; hideDone: boolean }
   userName: (id: string) => string
   laneColor: (id: string) => string
   onOpenDay: (date: string) => void
@@ -157,6 +157,7 @@ export default function DispatchCalendar({
       for (const s of list) {
         seen.add(s.id)
         const ch = changeMap.get(s.id)
+        if (filters.hideDone && s.isComplete && !ch) continue
         if (!ch) { (out[d] ??= []).push({ ...s, changed: false, origDate: d }); continue }
         const nd = changeDate(ch)
         ;(out[nd] ??= []).push({
@@ -181,7 +182,7 @@ export default function DispatchCalendar({
       })
     }
     return out
-  }, [days, changes, from, to])
+  }, [days, changes, from, to, filters.hideDone])
 
   // Days since last visit for every visit in range ("18d" tags, pin numbers).
   const [lastDays, setLastDays] = useState<Record<string, number | null>>({})

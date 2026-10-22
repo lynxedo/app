@@ -192,7 +192,7 @@ export default function DispatchView() {
   const [canUndo, setCanUndo] = useState(false)
   const [locks, setLocks] = useState<Record<string, DispatchLock>>({})
 
-  const [filters, setFilters] = useState<DispatchFilters>({ groups: [], hideZero: false, items: [] })
+  const [filters, setFilters] = useState<DispatchFilters>({ groups: [], hideZero: false, items: [], hideDone: false })
   // Saved views (Ben, Oct 20 2026) + the line-item catalog for the filter.
   const [views, setViews] = useState<Array<{ id: string; name: string; config: DispatchViewConfig; shared: boolean; mine: boolean }>>([])
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
@@ -254,7 +254,7 @@ export default function DispatchView() {
   // ── Load: users, team, filters ────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/hub/routing/dispatch/users').then(r => r.json()).then(d => setUsers(d.users ?? [])).catch(() => {})
-    { const f = readLS<Partial<DispatchFilters>>(LS_FILTERS, {}); setFilters({ groups: f.groups ?? [], hideZero: !!f.hideZero, items: f.items ?? [] }) }
+    { const f = readLS<Partial<DispatchFilters>>(LS_FILTERS, {}); setFilters({ groups: f.groups ?? [], hideZero: !!f.hideZero, items: f.items ?? [], hideDone: !!f.hideDone }) }
     setActiveViewId(readLS<string | null>(LS_ACTIVE_VIEW, null))
     void loadViews()
     setShowBucket(readLS<boolean>(LS_BUCKET, true))
@@ -459,6 +459,7 @@ export default function DispatchView() {
     const place = (s: DispatchStop, fromBucket: boolean) => {
       const ch = changeById.get(s.id)
       if (ch && changeDate(ch) !== date) return // moved to another day in the draft
+      if (filters.hideDone && s.isComplete && !ch) return
       const lane = ch ? ch.toTechId : (teamList.find(t => s.techIds.includes(t)) ?? s.techIds[0] ?? '')
       let startMin: number | null = null, endMin: number | null = null
       if (ch && !ch.anytime) { startMin = minutesOf(ch.toStart); endMin = minutesOf(ch.toEnd) }
@@ -500,7 +501,7 @@ export default function DispatchView() {
       }, !snap)
     }
     return out
-  }, [day, changes, changeById, bucketById, teamList, date, estimate, lockFor, settings.color_rules, filteredOut, pinSettings])
+  }, [day, changes, changeById, bucketById, teamList, date, estimate, lockFor, settings.color_rules, filteredOut, pinSettings, filters.hideDone])
 
   const startEndFor = useCallback((techId: string): { start: LatLng | null; end: LatLng | null } => {
     const depot = day?.depot ? { lat: day.depot.lat, lng: day.depot.lng } : null
@@ -1377,8 +1378,13 @@ export default function DispatchView() {
             Hide $0
           </button>
           <LineItemPicker options={itemOptions} selected={filters.items} onChange={items => setFilter({ ...filters, items })} />
-          {(filters.groups.length > 0 || filters.items.length > 0 || filters.hideZero) && (
-            <button type="button" onClick={() => setFilter({ groups: [], hideZero: false, items: [] })} className="text-xs text-gray-400 hover:text-white">Clear filters</button>
+          <button type="button" onClick={() => setFilter({ ...filters, hideDone: !filters.hideDone })}
+            title="Leave stops Jobber already shows as completed off the calendar and map"
+            className={`px-2.5 py-1 rounded-full text-xs border ${filters.hideDone ? 'bg-orange-500 border-orange-500 text-[#fff]' : 'border-gray-700 text-gray-300 hover:border-gray-500'}`}>
+            Hide completed
+          </button>
+          {(filters.groups.length > 0 || filters.items.length > 0 || filters.hideZero || filters.hideDone) && (
+            <button type="button" onClick={() => setFilter({ groups: [], hideZero: false, items: [], hideDone: false })} className="text-xs text-gray-400 hover:text-white">Clear filters</button>
           )}
           {settings.filter_groups.length === 0 && <span className="text-xs text-gray-500">Filter chips are set up in Admin → Routing → Dispatch.</span>}
         </div>
@@ -1675,6 +1681,27 @@ export default function DispatchView() {
                 pinNumbers={pinNumbers} onPinNumbers={m => { setPinNumbers(m); writeLS(LS_PIN_NUMBERS, m) }} />}
 
           <div className="space-y-4">
+            {/* The customer box sits FIRST — right beside the lanes (Ben, Oct 22 2026). */}
+            {(selected || selectedBucket) && (
+              <StopPanel
+                key={`${(selected?.stop ?? selectedBucket)!.id}|${selected?.startMin ?? ""}|${selected?.durationMin ?? ""}|${selected?.lane ?? ""}`}
+                stop={(selected?.stop ?? selectedBucket)!}
+                placed={selected}
+                team={teamList}
+                userName={userName}
+                lock={selected?.lock ?? null}
+                hasSavedLock={!!locks[(selected?.stop ?? selectedBucket)!.id]}
+                suggestion={titleWindow((selected?.stop ?? selectedBucket)!)}
+                onFindSlot={selectedBucket ? () => runSlots(selectedBucket) : undefined}
+                onClose={() => setSelectedId(null)}
+                onMove={(lane, hhmm) => applyMove((selected?.stop ?? selectedBucket)!.id, lane, hhmmToMinutes(hhmm))}
+                onLock={(a, b) => saveLock((selected?.stop ?? selectedBucket)!, a, b)}
+                onUnlock={() => removeLock((selected?.stop ?? selectedBucket)!)}
+                onUndoMove={() => commit(changes.filter(c => c.id !== (selected?.stop ?? selectedBucket)!.id))}
+                onLength={selected?.startMin != null ? (min: number) => applyLength(selected.stop.id, selected.startMin! + min) : undefined}
+              />
+            )}
+
             {view === 'day' && showRoutePanel && (
               <DispatchRoutePanel
                 date={date}
@@ -1724,26 +1751,6 @@ export default function DispatchView() {
                 ))}
                 <p className="text-[10px] text-gray-600">Ranked by extra drive time; nobody else&apos;s time moves. Schedule puts it in the draft — nothing reaches Jobber until you send.</p>
               </div>
-            )}
-
-            {(selected || selectedBucket) && (
-              <StopPanel
-                key={`${(selected?.stop ?? selectedBucket)!.id}|${selected?.startMin ?? ""}|${selected?.durationMin ?? ""}|${selected?.lane ?? ""}`}
-                stop={(selected?.stop ?? selectedBucket)!}
-                placed={selected}
-                team={teamList}
-                userName={userName}
-                lock={selected?.lock ?? null}
-                hasSavedLock={!!locks[(selected?.stop ?? selectedBucket)!.id]}
-                suggestion={titleWindow((selected?.stop ?? selectedBucket)!)}
-                onFindSlot={selectedBucket ? () => runSlots(selectedBucket) : undefined}
-                onClose={() => setSelectedId(null)}
-                onMove={(lane, hhmm) => applyMove((selected?.stop ?? selectedBucket)!.id, lane, hhmmToMinutes(hhmm))}
-                onLock={(a, b) => saveLock((selected?.stop ?? selectedBucket)!, a, b)}
-                onUnlock={() => removeLock((selected?.stop ?? selectedBucket)!)}
-                onUndoMove={() => commit(changes.filter(c => c.id !== (selected?.stop ?? selectedBucket)!.id))}
-                onLength={selected?.startMin != null ? (min: number) => applyLength(selected.stop.id, selected.startMin! + min) : undefined}
-              />
             )}
 
             {/* Unscheduled bucket */}
@@ -1804,7 +1811,7 @@ export default function DispatchView() {
           active={activeView?.mine ? activeView : null}
           onClose={() => setSaveViewOpen(false)}
           onSave={saveView}
-          summary={`${teamList.length} tech${teamList.length === 1 ? '' : 's'} · ${view[0].toUpperCase()}${view.slice(1)} view · ${filters.items.length ? `${filters.items.length} line item${filters.items.length === 1 ? '' : 's'}` : 'all line items'}${filters.groups.length ? ` · ${filters.groups.length} chip${filters.groups.length === 1 ? '' : 's'}` : ''}${filters.hideZero ? ' · hide $0' : ''}`}
+          summary={`${teamList.length} tech${teamList.length === 1 ? '' : 's'} · ${view[0].toUpperCase()}${view.slice(1)} view · ${filters.items.length ? `${filters.items.length} line item${filters.items.length === 1 ? '' : 's'}` : 'all line items'}${filters.groups.length ? ` · ${filters.groups.length} chip${filters.groups.length === 1 ? '' : 's'}` : ''}${filters.hideZero ? ' · hide $0' : ''}${filters.hideDone ? ' · hide completed' : ''}`}
         />
       )}
 

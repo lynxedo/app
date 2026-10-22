@@ -32,6 +32,7 @@ export default function AppLauncherPanel({
   showAdmin,
   onOpenApp,
   openTabIds,
+  onRouteNavigate,
 }: {
   /** The one shared layout list (already permission-filtered). */
   items: string[]
@@ -61,11 +62,14 @@ export default function AppLauncherPanel({
   onOpenApp?: (t: { id: CatalogId; label: string; href: string; newCopy: boolean }) => void
   /** CatalogIds currently open as tabs — drives the "Open" badge on tiles. */
   openTabIds?: string[]
+  /** Workspace Tabs: bring the page itself to the front before a plain navigation. */
+  onRouteNavigate?: () => void
 }) {
   const router = useRouter()
   const [appSearch, setAppSearch] = useState('')
 
-  function navigate(href: string) { onClose(); router.push(href) }
+  // Show the route even when the URL is already this page (a tab in front would otherwise stay put).
+  function navigate(href: string) { onClose(); onRouteNavigate?.(); router.push(href) }
   function openHub() {
     onClose()
     let last: string | null = null
