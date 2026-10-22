@@ -130,7 +130,7 @@ export default function HubMenuPanel({
     <>
       <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} aria-hidden="true" />
       <div
-        className="fixed z-50 left-[76px] bottom-3 w-[min(1000px,calc(100vw-96px))] max-h-[calc(100dvh-24px)] overflow-y-auto rounded-2xl border border-white/10 bg-gray-900 shadow-2xl p-4"
+        className="fixed z-50 left-[76px] bottom-3 w-[min(1000px,calc(100vw-96px))] max-h-[calc(100dvh-24px)] overflow-y-auto rounded-2xl border border-gray-700 bg-gray-950 backdrop-blur-xl shadow-2xl p-4"
         role="dialog"
         aria-label="Menu"
         data-lx-nav="menu"
@@ -138,7 +138,7 @@ export default function HubMenuPanel({
         <button
           type="button"
           onClick={onSearch}
-          className="w-full h-10 mb-4 flex items-center gap-2.5 px-3.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.07] text-white/50 text-[13.5px] text-left [&_svg]:w-4 [&_svg]:h-4"
+          className="w-full h-10 mb-4 flex items-center gap-2.5 px-3.5 rounded-xl border border-gray-700 bg-white/[0.05] hover:bg-white/[0.09] text-white/70 text-[13.5px] text-left [&_svg]:w-4 [&_svg]:h-4"
         >
           <SearchIcon />
           <span className="flex-1">Search apps, customers, people, messages…</span>
@@ -149,7 +149,7 @@ export default function HubMenuPanel({
             <div key={ci} className="flex flex-col gap-3">
               {col.map(g => (
                 <div key={g.label}>
-                  <div className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/40">{g.label}</div>
+                  <div className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/55">{g.label}</div>
                   {g.items.map(item => (
                     <button
                       key={item.id}
@@ -165,13 +165,13 @@ export default function HubMenuPanel({
                         <span className="flex items-center gap-1.5 text-[13px] font-semibold text-white/90 group-hover:text-white">
                           {item.label}
                           {onRail.has(item.id) && (
-                            <span className="text-[9px] font-semibold tracking-wide text-white/40 border border-white/15 rounded px-1 leading-[14px]">ON RAIL</span>
+                            <span className="text-[9px] font-semibold tracking-wide text-white/60 border border-white/25 rounded px-1 leading-[14px]">ON RAIL</span>
                           )}
                           {item.railId && open.has(item.railId) && (
                             <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--brand)' }} title="Open in a tab" />
                           )}
                         </span>
-                        <span className="text-[11.5px] leading-snug text-white/50">{item.desc}</span>
+                        <span className="text-[11.5px] leading-snug text-white/65">{item.desc}</span>
                       </span>
                     </button>
                   ))}
@@ -182,7 +182,7 @@ export default function HubMenuPanel({
         </div>
 
         <div className="mt-3 pt-3 border-t border-white/[0.07] flex items-center gap-3">
-          <span className="flex-1 text-[12px] text-white/40">Everything opens in a tab. A dot means it’s already open. Alt-click opens another copy.</span>
+          <span className="flex-1 text-[12px] text-white/55">Everything opens in a tab. A dot means it’s already open. Alt-click opens another copy.</span>
           <button
             type="button"
             onClick={onEditRail}

@@ -41,20 +41,23 @@ export default function HubTopBar({
   useEffect(() => { setIsMac(/Mac|iPhone|iPad/.test(navigator.userAgent)) }, [])
 
   return (
+    // t-sidebar-surface: the top bar is nav chrome like the rail — hybrid themes
+    // (Sharp, Eclipse, Pine) keep it dark with light text, light themes light.
     <div
-      className="hidden md:flex flex-none h-12 items-center gap-3 px-3 border-b border-white/[0.06]"
+      className="t-sidebar-surface hidden md:flex flex-none h-12 items-center gap-3 px-3 border-b border-white/10"
       style={{ background: 'var(--t-well)' }}
     >
       <div className="flex-1" />
       <button
+        id="hub-topbar-search"
         type="button"
         onClick={onSearch}
-        className="flex-[0_1_440px] min-w-[200px] h-8 flex items-center gap-2 px-3 rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.07] text-white/50 hover:text-white/70 text-[13px] text-left transition-colors [&_svg]:w-4 [&_svg]:h-4"
+        className="flex-[0_1_440px] min-w-[200px] h-8 flex items-center gap-2 px-3 rounded-lg border border-white/20 bg-white/[0.07] hover:bg-white/[0.12] text-white/75 hover:text-white text-[13px] text-left transition-colors [&_svg]:w-4 [&_svg]:h-4"
         title="Search (⌘K)"
       >
         <SearchIcon />
         <span className="flex-1 truncate">Search apps, customers, people, messages…</span>
-        <kbd className="flex-none text-[10.5px] font-sans text-white/45 border border-white/15 rounded px-1.5 py-px">{isMac ? '⌘K' : 'Ctrl K'}</kbd>
+        <kbd className="flex-none text-[10.5px] font-sans text-white/70 border border-white/25 rounded px-1.5 py-px">{isMac ? '⌘K' : 'Ctrl K'}</kbd>
       </button>
       <div className="flex-1" />
 
@@ -72,14 +75,14 @@ export default function HubTopBar({
           New
         </button>
         {newOpen && (
-          <div className="absolute right-0 top-10 z-50 w-56 rounded-xl border border-white/10 bg-gray-900 shadow-2xl p-1.5" role="menu">
+          <div className="absolute right-0 top-10 z-50 w-56 rounded-xl border border-white/15 bg-gray-950 backdrop-blur-xl shadow-2xl p-1.5" role="menu">
             {newItems.map(item => (
               <button
                 key={item.key}
                 type="button"
                 role="menuitem"
                 onClick={() => { setNewOpen(false); item.onClick() }}
-                className="w-full text-left px-3 py-2 rounded-lg text-[13px] text-white/85 hover:bg-white/[0.07] hover:text-white"
+                className="w-full text-left px-3 py-2 rounded-lg text-[13px] text-white/90 hover:bg-white/[0.1] hover:text-white"
               >
                 {item.label}
               </button>
@@ -91,7 +94,7 @@ export default function HubTopBar({
       <button
         type="button"
         onClick={onBell}
-        className="relative flex-none w-9 h-8 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/[0.07]"
+        className="relative flex-none w-9 h-8 flex items-center justify-center rounded-lg text-white/75 hover:text-white hover:bg-white/[0.1]"
         aria-label={unreadActivity > 0 ? `Notifications — ${unreadActivity} new` : 'Notifications'}
         title="Notifications"
       >

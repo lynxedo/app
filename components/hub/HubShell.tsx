@@ -18,7 +18,7 @@ import ProfileSidebar from './sidebars/ProfileSidebar'
 import HubSectionSidebar, { SECTION_SIDEBAR_RAILS, resolveAdminGrants, type RawAdminGrants } from './HubSectionSidebar'
 import EmbeddedHubShell from './EmbeddedHubShell'
 import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
-import HubQuickCompose from './HubQuickCompose'
+import HubQuickCompose, { type SearchAnchor } from './HubQuickCompose'
 import TimesheetClockModal from './TimesheetClockModal'
 import NotifPrefsModal from './NotifPrefsModal'
 import DialerProvider from './dialer/DialerProvider'
@@ -485,6 +485,26 @@ function FullHubShell({
   }, [])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
+  // Desktop search drops down from the top bar's search box (Slack-style); with
+  // no visible box (phones) it's the full-screen palette.
+  const [searchAnchor, setSearchAnchor] = useState<SearchAnchor | null>(null)
+  const openSearch = useCallback(() => {
+    const r = document.getElementById('hub-topbar-search')?.getBoundingClientRect()
+    if (r && r.width > 0) {
+      const width = Math.min(Math.max(r.width, 640), window.innerWidth - 16)
+      const left = Math.max(8, Math.min(r.left + r.width / 2 - width / 2, window.innerWidth - width - 8))
+      setSearchAnchor({ top: r.top, left, width })
+    } else {
+      setSearchAnchor(null)
+    }
+    setShowCompose(true)
+  }, [])
+  const showComposeRef = useRef(showCompose)
+  showComposeRef.current = showCompose
+  const toggleSearch = useCallback(() => {
+    if (showComposeRef.current) setShowCompose(false)
+    else openSearch()
+  }, [openSearch])
   const [showTimeClock, setShowTimeClock] = useState(false)
   const [showNotifPrefs, setShowNotifPrefs] = useState(false)
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
@@ -614,7 +634,7 @@ function FullHubShell({
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        setShowCompose(prev => !prev)
+        toggleSearch()
       }
     }
     document.addEventListener('keydown', onKey)
@@ -1144,12 +1164,12 @@ function FullHubShell({
     onOpenTab: input => { tabsApi.openTab({ ...input, catalogId: input.catalogId as TabCatalogId }) },
     onDial: req => requestDial(req, href => router.push(href)),
     onKey: k => {
-      if (k.key === 'k') { setShowCompose(v => !v); return }
+      if (k.key === 'k') { toggleSearch(); return }
       const n = parseInt(k.key, 10)
       const ordered = tabsInStripOrder(tabsApi.peek().tabs)
       if (Number.isInteger(n) && ordered[n - 1]) tabsApi.activateTab(ordered[n - 1].id)
     },
-    onCompose: () => setShowCompose(true),
+    onCompose: openSearch,
   }
 
   // ── Which sidebar ─────────────────────────────────────────────────────────
@@ -1315,7 +1335,7 @@ function FullHubShell({
 
   // Top bar: New + the menu's "+" both start things.
   const newItems: { key: string; label: string; onClick: () => void }[] = [
-    { key: 'message', label: 'New message', onClick: () => setShowCompose(true) },
+    { key: 'message', label: 'New message', onClick: openSearch },
   ]
   const startNew = (kind: HubIntentKind, id: string, href: string) => {
     openApp(id, href)
@@ -1351,7 +1371,7 @@ function FullHubShell({
         missedCall={missedCall}
         unheardVoicemails={unheardVoicemails}
         isClockedIn={isClockedIn}
-        onSearchClick={() => setShowCompose(true)}
+        onSearchClick={openSearch}
         onProfileClick={() => { setManualRail('profile') }}
         onTimeClockClick={() => setShowTimeClock(true)}
         onActivityClick={() => setShowActivity(true)}
@@ -1386,7 +1406,7 @@ function FullHubShell({
           whole width (desktop), then the sidebar + the screen. */}
       <div className="flex-1 min-w-0 flex flex-col">
         <HubTopBar
-          onSearch={() => setShowCompose(true)}
+          onSearch={openSearch}
           unreadActivity={unreadActivity}
           onBell={() => setShowActivity(true)}
           newItems={newItems}
@@ -1565,6 +1585,8 @@ function FullHubShell({
     {showCompose && (
       <HubQuickCompose
         onClose={() => setShowCompose(false)}
+        anchor={searchAnchor}
+        onNavigate={tabsApi.enabled ? href => openHref(href) : undefined}
         rooms={rooms}
         hubUsers={hubUsers}
         currentUserId={currentUserId}
@@ -1615,7 +1637,7 @@ function FullHubShell({
         railItems={liveLayout.items}
         openCatalogIds={tabsApi.tabs.map(t => tabRail(t))}
         onOpen={(id, href, newCopy) => openApp(id, href, newCopy)}
-        onSearch={() => { setShowMenu(false); setShowCompose(true) }}
+        onSearch={() => { setShowMenu(false); openSearch() }}
         onEditRail={() => { setShowMenu(false); setShowLayoutEditor(true) }}
         onClose={() => setShowMenu(false)}
       />

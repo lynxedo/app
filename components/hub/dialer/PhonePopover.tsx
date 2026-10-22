@@ -52,7 +52,7 @@ export default function PhonePopover({
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
       <div
-        className="fixed z-50 left-[76px] top-24 w-[300px] rounded-2xl border border-white/10 bg-gray-900 shadow-2xl p-4"
+        className="fixed z-50 left-[76px] top-24 w-[300px] rounded-2xl border border-gray-700 bg-gray-950 backdrop-blur-xl shadow-2xl p-4"
         role="dialog"
         aria-label="Phone"
       >
@@ -69,7 +69,7 @@ export default function PhonePopover({
             onClose()
           }}
         />
-        {status && <p className="mt-3 text-center text-[12px] text-white/50">{status}</p>}
+        {status && <p className="mt-3 text-center text-[12px] text-white/65">{status}</p>}
         <button
           type="button"
           onClick={onOpenDialer}

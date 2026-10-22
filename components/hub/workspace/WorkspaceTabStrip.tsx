@@ -118,7 +118,8 @@ export default function WorkspaceTabStrip({ onNewTab }: { onNewTab: () => void }
   ] : []
 
   return (
-    <div className="hidden md:block flex-none border-b border-white/10" style={{ background: 'var(--t-well)' }}>
+    // t-sidebar-surface: nav chrome, so hybrid themes keep it dark with light text.
+    <div className="t-sidebar-surface hidden md:block flex-none border-b border-white/10" style={{ background: 'var(--t-well)' }}>
       <div className="flex items-end gap-1.5 px-2">
         <div role="tablist" aria-label="Open tabs" className="flex items-stretch gap-0.5 pt-1 overflow-x-auto no-scrollbar min-w-0">
           {ordered.map((t, i) => {
@@ -138,10 +139,10 @@ export default function WorkspaceTabStrip({ onNewTab }: { onNewTab: () => void }
                 className={[
                   'group relative flex items-center gap-1.5 py-1.5 rounded-t-lg text-[13px] leading-none cursor-pointer select-none shrink-0 transition-colors',
                   t.pinned ? 'px-2.5' : 'pl-2.5 pr-1 max-w-[210px]',
-                  isActive ? 'bg-white/[0.08] text-white'
-                    : isBeside ? 'bg-white/[0.05] text-white/85'
-                    : asleep ? 'text-white/35 hover:text-white/70 hover:bg-white/[0.04]'
-                    : 'text-white/55 hover:text-white hover:bg-white/[0.04]',
+                  isActive ? 'bg-white/[0.12] text-white'
+                    : isBeside ? 'bg-white/[0.07] text-white/90'
+                    : asleep ? 'text-white/50 hover:text-white/80 hover:bg-white/[0.06]'
+                    : 'text-white/75 hover:text-white hover:bg-white/[0.06]',
                 ].join(' ')}
               >
                 {/* active accent bar — brand color tracks the user's theme */}
@@ -164,7 +165,7 @@ export default function WorkspaceTabStrip({ onNewTab }: { onNewTab: () => void }
                     aria-label={`Close ${t.label}`}
                     onClick={e => { e.stopPropagation(); closeTab(t.id) }}
                     className={[
-                      'ml-0.5 flex-none w-5 h-5 rounded flex items-center justify-center text-white/45 hover:text-white hover:bg-white/10 transition-opacity',
+                      'ml-0.5 flex-none w-5 h-5 rounded flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-opacity',
                       isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
                     ].join(' ')}
                   >
@@ -180,14 +181,14 @@ export default function WorkspaceTabStrip({ onNewTab }: { onNewTab: () => void }
         <button
           type="button"
           onClick={onNewTab}
-          className="flex-none mb-1 w-7 h-7 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.07]"
+          className="flex-none mb-1 w-7 h-7 rounded-md flex items-center justify-center text-white/70 hover:text-white hover:bg-white/[0.1]"
           aria-label="Open something in a new tab"
           title="New tab (opens the Menu)"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" d="M12 5v14M5 12h14" /></svg>
         </button>
         <div className="flex-1" />
-        <span className="flex-none mb-2 text-[11.5px] text-white/35 whitespace-nowrap">
+        <span className="flex-none mb-2 text-[11.5px] text-white/55 whitespace-nowrap">
           {tabs.length} tab{tabs.length === 1 ? '' : 's'}{asleepCount ? ` · ${asleepCount} asleep` : ''}
         </span>
         <button
@@ -201,7 +202,7 @@ export default function WorkspaceTabStrip({ onNewTab }: { onNewTab: () => void }
           title={splitOn ? 'Close split view' : 'Split view — show your last tab beside this one'}
           className={[
             'flex-none mb-1 h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[12px] font-medium disabled:opacity-30',
-            splitOn ? 'bg-white/[0.1] text-white' : 'text-white/55 hover:text-white hover:bg-white/[0.07]',
+            splitOn ? 'bg-white/[0.14] text-white' : 'text-white/75 hover:text-white hover:bg-white/[0.1]',
           ].join(' ')}
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9}><path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18v16H3zM12 4v16" /></svg>
@@ -218,7 +219,7 @@ export default function WorkspaceTabStrip({ onNewTab }: { onNewTab: () => void }
           <div className="fixed inset-0 z-[60]" onClick={() => setMenu(null)} onContextMenu={e => { e.preventDefault(); setMenu(null) }} aria-hidden="true" />
           <div
             role="menu"
-            className="fixed z-[61] w-56 rounded-xl border border-white/10 bg-gray-900 shadow-2xl p-1.5"
+            className="fixed z-[61] w-56 rounded-xl border border-white/15 bg-gray-950 backdrop-blur-xl shadow-2xl p-1.5"
             style={{ left: Math.min(menu.x, window.innerWidth - 232), top: menu.y + 4 }}
           >
             {menuItems.map(item => (

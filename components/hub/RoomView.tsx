@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import MessageFeed, { type HubMessage, type HubUser, type MessageFeedHandle } from './MessageFeed'
 import MessageComposer from './MessageComposer'
 import ThreadPanel from './ThreadPanel'
+import { useMessageJump, type MessageJump } from '@/lib/hub-intent'
 
 type RoomRef = { id: string; name: string }
 
@@ -42,8 +43,12 @@ export default function RoomView({
   //   ?msg=<replyId>&thread=<parentId> → jump to the parent, open its thread,
   //                                      and flash the reply inside the thread
   const searchParams = useSearchParams()
-  const msgParam = searchParams.get('msg')
-  const threadParam = searchParams.get('thread')
+  // …or handed over directly when this conversation is open as a Workspace Tab
+  // (a tab's URL isn't the window's, so ?msg= can't reach it — lib/hub-intent).
+  const [jump, setJump] = useState<MessageJump | null>(null)
+  useMessageJump(roomId ?? conversationId, setJump)
+  const msgParam = jump ? jump.msg : searchParams.get('msg')
+  const threadParam = jump ? jump.thread : searchParams.get('thread')
   // The message that lives in the main feed: the thread parent when the link
   // points at a reply, otherwise the message itself.
   const feedFocusId = threadParam || msgParam || null
