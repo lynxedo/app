@@ -61,7 +61,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
   if (body.unitPrice !== undefined) {
     unitPrice = Number(body.unitPrice)
-    if (!Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 1_000_000) return NextResponse.json({ error: 'Bad price' }, { status: 400 })
+    if (!Number.isFinite(unitPrice) || Math.abs(unitPrice) > 1_000_000) return NextResponse.json({ error: 'Bad price' }, { status: 400 })
     patch.unit_price = unitPrice
   }
   if (typeof body.description === 'string') patch.description = body.description.slice(0, 2000)

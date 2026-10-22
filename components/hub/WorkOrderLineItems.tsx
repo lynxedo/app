@@ -33,7 +33,9 @@ type JobberState = {
 type CatalogProduct = { id: string; name: string; description: string | null; price: number; taxable: boolean | null; category: string | null }
 type CatalogUsage = { productId: string; useCount: number; lastUsedAt: string | null; favorite: boolean }
 
-const fmt = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const fmt = (n: number) => `${n < -0.004 ? '-' : ''}$${(Math.round(Math.abs(n) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+// Phone number pads have no minus key — this button flips a price to a discount and back.
+const flipSign = (s: string) => (s.trim().startsWith('-') ? s.trim().slice(1) : `-${s.trim() || '0'}`)
 const fmtQty = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100))
 const prefixOf = (name: string) => name.match(/^\s*([A-Z]{2,3})\s*-/)?.[1] ?? null
 const isChanged = (li: WoItem) =>
@@ -264,7 +266,7 @@ function ItemEditor({ item, busy, onSave, onCancel, onRemove }: {
   const [price, setPrice] = useState(String(item.unit_price))
   const q = Number(qty)
   const p = Number(price)
-  const valid = Number.isFinite(q) && q >= 0 && Number.isFinite(p) && p >= 0
+  const valid = Number.isFinite(q) && q >= 0 && Number.isFinite(p)
   const inJobber = item.source === 'jobber' || !!item.jobber_line_item_id
   return (
     <div className="px-2.5 py-2.5 border-b border-gray-800 last:border-b-0 bg-white/5 space-y-2">
@@ -284,6 +286,8 @@ function ItemEditor({ item, busy, onSave, onCancel, onRemove }: {
         <label className="flex-1">
           <span className="block text-[10px] uppercase tracking-wide text-gray-500 mb-0.5">Price each</span>
           <div className="flex items-center h-9 bg-gray-900 border border-gray-700 rounded px-2">
+            <button type="button" onClick={() => setPrice(flipSign(price))} title="Make this a discount (negative) or a charge"
+              className="mr-1 px-1.5 rounded bg-white/10 text-gray-300 text-xs">±</button>
             <span className="text-gray-500 text-sm">$</span>
             <input inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)}
               className="w-full bg-transparent text-sm text-white pl-1 outline-none" />
@@ -384,7 +388,7 @@ function CatalogPicker({ deptHint, busy, onClose, onAdd }: {
   function confirmAdd() {
     if (!picked) return
     const q = Number(qty), pr = Number(price)
-    if (!Number.isFinite(q) || q <= 0 || !Number.isFinite(pr) || pr < 0) return
+    if (!Number.isFinite(q) || q <= 0 || !Number.isFinite(pr)) return
     // Count it as a recent pick locally so the list updates without a reload.
     if (catalogCache) {
       const u = usage.get(picked.id)
@@ -425,6 +429,8 @@ function CatalogPicker({ deptHint, busy, onClose, onAdd }: {
               <label className="flex-1">
                 <span className="block text-[10px] uppercase tracking-wide text-gray-500 mb-0.5">Price each</span>
                 <div className="flex items-center h-10 bg-gray-900 border border-gray-700 rounded px-2">
+                  <button type="button" onClick={() => setPrice(flipSign(price))} title="Make this a discount (negative) or a charge"
+                    className="mr-1 px-2 py-1 rounded bg-white/10 text-gray-300 text-sm">±</button>
                   <span className="text-gray-500">$</span>
                   <input inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)} className="w-full bg-transparent text-white pl-1 outline-none" />
                 </div>

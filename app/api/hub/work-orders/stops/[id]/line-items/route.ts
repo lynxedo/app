@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const unitPrice = Number(body.unitPrice ?? 0)
   if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   if (!Number.isFinite(quantity) || quantity < 0 || quantity > 10000) return NextResponse.json({ error: 'Bad quantity' }, { status: 400 })
-  if (!Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 1_000_000) return NextResponse.json({ error: 'Bad price' }, { status: 400 })
+  if (!Number.isFinite(unitPrice) || Math.abs(unitPrice) > 1_000_000) return NextResponse.json({ error: 'Bad price' }, { status: 400 })
   const productId = typeof body.jobberProductId === 'string' && body.jobberProductId ? body.jobberProductId : null
 
   const existing = await loadStopLineItems(admin, companyId, stop)
