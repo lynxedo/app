@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { workOrderAccess } from '@/lib/work-order-access'
 import { myStopsToday } from '@/lib/my-route-today'
+import { isAppReviewer, sampleCarStops } from '@/lib/app-review-demo'
 
 // Today's route for the car screen (CarPlay / Android Auto).
 //
@@ -18,6 +19,10 @@ export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // The store reviewers' account sees a made-up route (lib/app-review-demo.ts) —
+  // never a real Heroes day, and it has no Work Orders grant.
+  if (isAppReviewer(user.id)) return NextResponse.json(sampleCarStops())
 
   const { data: profile } = await supabase
     .from('user_profiles')
