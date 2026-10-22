@@ -4,7 +4,7 @@
 //   • a BASE program sets the pin's center fill color (one per stop — first match wins)
 //   • AUX programs form a halo ring around the pin (one arc per matching aux program)
 //
-// Up to 5 base + 5 aux programs can be defined in Admin → Routing. The halo only
+// Up to 10 base + 7 aux programs can be defined in Admin → Routing. The halo only
 // renders the first MAX_HALO_ARCS (3) matching aux programs, in defined order —
 // everything beyond that is still defined/colored, just not drawn on the ring.
 //
@@ -27,8 +27,8 @@ export interface PinSettings {
 
 export const EMPTY_PIN_SETTINGS: PinSettings = { base_programs: [], aux_programs: [] }
 
-export const MAX_BASE_PROGRAMS = 5
-export const MAX_AUX_PROGRAMS = 5
+export const MAX_BASE_PROGRAMS = 10
+export const MAX_AUX_PROGRAMS = 7
 export const MAX_HALO_ARCS = 3
 
 // Fallback center fill when no base program matches a stop (slate-500).
