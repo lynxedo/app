@@ -436,7 +436,8 @@ export const DATE_PRESETS: Array<{ id: DatePreset; label: string }> = [
   { id: 'next_month', label: 'Next month' },
 ]
 
-export interface DispatchFilters { groups: string[]; hideZero: boolean; items: string[] }
+/** hideDone = leave completed stops off every view (Ben, Oct 22 2026). */
+export interface DispatchFilters { groups: string[]; hideZero: boolean; items: string[]; hideDone: boolean }
 
 export interface DispatchViewConfig {
   team: string[]
@@ -480,7 +481,7 @@ export function normalizeViewConfig(raw: unknown): DispatchViewConfig {
     team: strs(r.team).slice(0, 8),
     view: r.view === 'week' || r.view === 'month' ? r.view : 'day',
     datePreset: DATE_PRESETS.some(p => p.id === r.datePreset) ? (r.datePreset as DatePreset) : 'keep',
-    filters: { groups: strs(f.groups), hideZero: f.hideZero === true, items: strs(f.items) },
+    filters: { groups: strs(f.groups), hideZero: f.hideZero === true, items: strs(f.items), hideDone: f.hideDone === true },
     showBucket: r.showBucket !== false,
     showTanks: r.showTanks === true,
   }
