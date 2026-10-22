@@ -12,8 +12,8 @@ import { fmtClock } from '@/lib/dispatch'
 //  • stops that couldn't be put on the map, listed plainly.
 // Pins and ticks are remembered per day in this browser.
 //
-// The map's Lasso talks to this panel through window events (the panel owns
-// the ticks): 'lynxedo-dispatch-lasso' {date, ids, mode} in, and
+// ⚡ Optimize on a selection (Ctrl/⌘-click or the map's Lasso) talks to this
+// panel through window events (the panel owns the ticks): 'lynxedo-dispatch-lasso' {date, ids, mode} in, and
 // 'lynxedo-dispatch-ticks' {date, off} out so the map can fade unticked stops.
 // The first "tick" loop when everything is ticked means "just these".
 
@@ -24,7 +24,8 @@ export function readPanelOff(date: string): string[] {
   try { const v = localStorage.getItem(`lynxedo-dispatch-route-panel:${date}`); if (v) return (JSON.parse(v).off ?? []) as string[] } catch {}
   return []
 }
-export function sendLasso(date: string, ids: string[], mode: 'select' | 'deselect') {
+/** 'only' = tick exactly these and untick the rest (⚡ Optimize from a selection). */
+export function sendLasso(date: string, ids: string[], mode: 'select' | 'deselect' | 'only') {
   window.dispatchEvent(new CustomEvent(LASSO_EVENT, { detail: { date, ids, mode } }))
 }
 
@@ -77,12 +78,13 @@ export default function DispatchRoutePanel({ date, lanes, busy, onOptimize, onCl
   useEffect(() => { allRef.current = allIds })
   useEffect(() => {
     const onLasso = (e: Event) => {
-      const d = (e as CustomEvent<{ date: string; ids: string[]; mode: 'select' | 'deselect' }>).detail
+      const d = (e as CustomEvent<{ date: string; ids: string[]; mode: 'select' | 'deselect' | 'only' }>).detail
       if (!d || d.date !== date) return
       const cur = savedRef.current
       const hit = new Set(d.ids)
       let off: string[]
       if (d.mode === 'deselect') off = [...new Set([...cur.off, ...d.ids])]
+      else if (d.mode === 'only') off = allRef.current.filter(id => !hit.has(id))
       else if (cur.off.length === 0) off = allRef.current.filter(id => !hit.has(id))   // first loop = just these
       else off = cur.off.filter(id => !hit.has(id))
       const n = { ...cur, off }

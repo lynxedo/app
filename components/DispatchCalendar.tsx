@@ -64,6 +64,13 @@ interface Props {
   onSelect: (id: string) => void
   /** The days as drawn (Hub's copy + the draft), so the customer box can follow a stop as it moves. */
   onDaysChange: (days: Record<string, EffStop[]>) => void
+  /** Multi-select (Ben, Oct 22 2026): Ctrl/⌘-click and the Lasso build it; dragging any picked stop moves them all. */
+  picked: Set<string>
+  onPick: (ids: string[], mode: 'toggle' | 'add' | 'remove') => void
+  /** Drop the whole selection on a day (Week: on a tech's row → that tech too). */
+  onMoveGroup: (toDate: string, toTechId: string | null) => void
+  /** ⚡ Optimize from the selection: map that day and tick exactly these stops. */
+  optimizeRequest: { day: string; ids: string[]; seq: number } | null
 }
 
 const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
@@ -82,7 +89,7 @@ export default function DispatchCalendar({
   view, date, team, settings, filters, userName, laneColor, onOpenDay,
   changes, orders, onOrdersLoaded, onSaveOrder, onMoveStop, reloadKey, onOptimizeDay, optimizing,
   showTanks, capacity, onLoadCapacity, pinSettings, tickOff, pinNumbers, onPinNumbers,
-  selectedId, onSelect, onDaysChange,
+  selectedId, onSelect, onDaysChange, picked, onPick, onMoveGroup, optimizeRequest,
 }: Props) {
   const [days, setDays] = useState<Record<string, RangeStop[]>>({})
   const [depot, setDepot] = useState<LatLng | null>(null)
@@ -92,6 +99,23 @@ export default function DispatchCalendar({
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [expandAll, setExpandAll] = useState(false)
   const [mapDay, setMapDay] = useState<string | null>(null)
+  // ⚡ Optimize from the selection: open that day's route panel, then tick just
+  // the selection. The send waits for the commit that mounts the panel — its
+  // listener is a child effect, so it's registered before this one runs.
+  const pendingTicksRef = useRef<{ day: string; ids: string[] } | null>(null)
+  const [ticksSeq, setTicksSeq] = useState(0)
+  useEffect(() => {
+    if (!optimizeRequest) return
+    pendingTicksRef.current = { day: optimizeRequest.day, ids: optimizeRequest.ids }
+    setMapDay(optimizeRequest.day)
+    setTicksSeq(n => n + 1)
+  }, [optimizeRequest])
+  useEffect(() => {
+    const p = pendingTicksRef.current
+    if (!p || p.day !== mapDay) return
+    pendingTicksRef.current = null
+    sendLasso(p.day, p.ids, 'only')
+  }, [mapDay, ticksSeq])
   const [legs, setLegs] = useState<DispatchMapLeg[]>([])
   const [dropKey, setDropKey] = useState<string | null>(null)
   // Resizable panes (Ben, Oct 2026): Month = calendar | map side by side with a
@@ -273,6 +297,15 @@ export default function DispatchCalendar({
     dragRef.current = { id: s.id }
     e.dataTransfer.effectAllowed = 'move'
     try { e.dataTransfer.setData('text/plain', s.id) } catch {}
+    // Dragging one of several picked stops carries them all — say so on the cursor.
+    if (picked.has(s.id) && picked.size > 1) {
+      const ghost = document.createElement('div')
+      ghost.textContent = `${picked.size} stops`
+      ghost.style.cssText = 'position:absolute;top:-1000px;left:-1000px;padding:4px 10px;border-radius:9999px;background:#0ea5e9;color:#fff;font:600 12px -apple-system,Segoe UI,sans-serif'
+      document.body.appendChild(ghost)
+      try { e.dataTransfer.setDragImage(ghost, 10, 10) } catch {}
+      setTimeout(() => ghost.remove(), 0)
+    }
   }
   const allowDrop = (e: React.DragEvent, key: string) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropKey !== key) setDropKey(key) }
   /** Drop `dragged` on day `d`, tech `techId`, just before `beforeId` (null = at the end). */
@@ -281,6 +314,9 @@ export default function DispatchCalendar({
     const drag = dragRef.current
     dragRef.current = null
     if (!drag || drag.id === beforeId) return
+    // A selection keeps each stop's own tech in Month (dropping on someone's chip
+    // shouldn't hand the lot to them); in Week the row IS a tech, so it's theirs.
+    if (picked.has(drag.id) && picked.size > 1) { onMoveGroup(d, view === 'week' ? techId : null); return }
     const found = findEff(drag.id)
     if (!found) return
     const { s, d: fromDay } = found
@@ -309,6 +345,7 @@ export default function DispatchCalendar({
         title: s.clientName, subtitle: s.address, meta,
         halo: addonsOf(s),
         faded: !!mapDay && (tickOff[mapDay] ?? readPanelOff(mapDay)).includes(s.id),
+        picked: picked.has(s.id),
       })
     }
     if (mapDay) {
@@ -326,7 +363,7 @@ export default function DispatchCalendar({
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapDay, dayRoutes, effDays, coords, settings.color_rules, filters, team, pinSettings, tickOff, pinNumbers, lastDays])
+  }, [mapDay, dayRoutes, effDays, coords, settings.color_rules, filters, team, pinSettings, tickOff, pinNumbers, lastDays, picked])
 
   // Road legs for the one day being mapped: shop → every stop in ROUTE order
   // (anytime ones included — Ben, Oct 20 2026) → shop.
@@ -407,10 +444,10 @@ export default function DispatchCalendar({
         onDragStart={e => startDrag(e, s)}
         onDragOver={e => allowDrop(e, `${d}|${s.id}`)}
         onDrop={e => { e.preventDefault(); e.stopPropagation(); dropAt(d, t, s.id) }}
-        onClick={e => { e.stopPropagation(); onSelect(s.id) }}
-        className={`relative overflow-hidden ${big ? 'text-[12px] mt-1 py-0.5' : 'text-[12px] py-0.5'} leading-snug pl-1.5 pr-2.5 rounded text-[#fff] break-words ${s.isComplete ? 'cursor-pointer' : 'cursor-grab'} ${selectedId === s.id ? 'ring-2 ring-white' : s.changed ? 'ring-2 ring-orange-400' : ''} ${dropKey === `${d}|${s.id}` ? 'border-t-2 border-white' : ''}`}
+        onClick={e => { e.stopPropagation(); if (e.metaKey || e.ctrlKey || e.shiftKey) onPick([s.id], 'toggle'); else onSelect(s.id) }}
+        className={`relative overflow-hidden ${big ? 'text-[12px] mt-1 py-0.5' : 'text-[12px] py-0.5'} leading-snug pl-1.5 pr-2.5 rounded text-[#fff] break-words select-none ${s.isComplete ? 'cursor-pointer' : 'cursor-grab'} ${picked.has(s.id) ? 'ring-2 ring-sky-400 shadow-[0_0_6px_1px_#38bdf8]' : selectedId === s.id ? 'ring-2 ring-white' : s.changed ? 'ring-2 ring-orange-400' : ''} ${dropKey === `${d}|${s.id}` ? 'border-t-2 border-white' : ''}`}
         style={{ background: colorOf(s), opacity: dim(s) ? 0.35 : s.isComplete ? 0.7 : 1, borderLeft: `3px solid ${laneColor(t)}` }}
-        title={`${s.clientName}${s.locked ? ' · promised' : ''}${s.changed ? ' · moved (unsent)' : ''} — drag onto another stop to put it before that one, or onto another day to move it`}>
+        title={`${s.clientName}${s.locked ? ' · promised' : ''}${s.changed ? ' · moved (unsent)' : ''} — click for details, Ctrl/⌘-click to select several; drag onto another stop to put it before that one, or onto another day to move it`}>
         {n != null && <span className="inline-block min-w-[1.1rem] text-center mr-1 rounded bg-black/30 text-[10px] font-bold">{n}</span>}
         {s.isComplete ? '✓ ' : ''}{s.startMin != null ? <b>{fmtClock(s.startMin)} </b> : ''}{s.title || s.clientName}{s.locked ? ' 🔒' : ''}
         {lastDays[s.id] != null && <span className="ml-1 text-[10px] px-0.5 rounded bg-black/25" title="Days since the last completed visit">{lastDays[s.id]}d</span>}
@@ -430,7 +467,7 @@ export default function DispatchCalendar({
         <button type="button" onClick={() => { setExpandAll(x => !x); setExpanded(new Set()) }} className="ml-auto text-xs text-gray-400 hover:text-white">
           {expandAll ? 'Collapse all' : 'Expand all'}
         </button>
-        <span className="text-[11px] text-gray-500">Click a stop for its details · drag stops to reorder or move them · click a day number to open that day</span>
+        <span className="text-[11px] text-gray-500">Click a stop for its details · Ctrl/⌘-click (or Lasso on the map) to select several · drag to reorder or move — a selection moves together · click a day number to open that day</span>
       </div>
 
       {view === 'week' ? (
@@ -449,7 +486,7 @@ export default function DispatchCalendar({
             <WeekRowCells key={t} techId={t} cells={cells} name={userName(t)} color={laneColor(t)}
               routeOf={routeOf} settings={settings} dim={dim} viewStart={viewStart} span={span}
               isOpen={isOpen} toggle={toggle} chip={chip} allowDrop={allowDrop} dropAt={dropAt} dropKey={dropKey} colorOf={colorOf}
-              selectedId={selectedId} onSelect={onSelect} />
+              selectedId={selectedId} onSelect={onSelect} picked={picked} onPick={onPick} />
           ))}
         </div>
       ) : (
@@ -505,8 +542,8 @@ export default function DispatchCalendar({
               <button type="button" onClick={() => setMapDay(null)} className="ml-auto text-gray-400 hover:text-white">Show the whole {view}</button></>
           : <>Map: every visit this {view} · 🗺 on a day shows just that day&apos;s routes</>}
       </div>
-      <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={selectedId ? mapStops.find(m => m.id.startsWith(`${selectedId}|`))?.id ?? null : null} onStopClick={id => onSelect(id.split('|')[0])}
-        onLasso={mapDay ? (ids, mode) => sendLasso(mapDay, ids.map(x => x.split('|')[0]), mode) : undefined}
+      <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={selectedId ? mapStops.find(m => m.id.startsWith(`${selectedId}|`))?.id ?? null : null} onStopClick={(id, multi) => { const sid = id.split('|')[0]; if (multi) onPick([sid], 'toggle'); else onSelect(sid) }}
+        onLasso={(ids, mode) => onPick([...new Set(ids.map(x => x.split('|')[0]))], mode === 'select' ? 'add' : 'remove')}
         numberMode={pinNumbers} onNumberMode={onPinNumbers}
         height={view === 'week' ? `${weekMapH}px` : mapDay ? 'max(420px, calc(100vh - 420px))' : 'max(520px, calc(100vh - 140px))'} />
       {mapDay && (
@@ -546,7 +583,7 @@ export default function DispatchCalendar({
   )
 }
 
-function WeekRowCells({ techId, cells, name, color, routeOf, dim, viewStart, span, isOpen, toggle, chip, allowDrop, dropAt, dropKey, colorOf, selectedId, onSelect }: {
+function WeekRowCells({ techId, cells, name, color, routeOf, dim, viewStart, span, isOpen, toggle, chip, allowDrop, dropAt, dropKey, colorOf, selectedId, onSelect, picked, onPick }: {
   techId: string; cells: string[]; name: string; color: string
   routeOf: (d: string, techId: string) => EffStop[]
   settings: DispatchSettings; dim: (s: DispatchStop) => boolean; viewStart: number; span: number
@@ -558,6 +595,8 @@ function WeekRowCells({ techId, cells, name, color, routeOf, dim, viewStart, spa
   colorOf: (s: EffStop) => string
   selectedId: string | null
   onSelect: (id: string) => void
+  picked: Set<string>
+  onPick: (ids: string[], mode: 'toggle' | 'add' | 'remove') => void
 }) {
   return (
     <>
@@ -579,9 +618,9 @@ function WeekRowCells({ techId, cells, name, color, routeOf, dim, viewStart, spa
             <div className="relative h-7 rounded bg-gray-950/60 overflow-hidden">
               {timed.map(s => (
                 <div key={s.id} role="button" tabIndex={0}
-                  onClick={e => { e.stopPropagation(); onSelect(s.id) }}
+                  onClick={e => { e.stopPropagation(); if (e.metaKey || e.ctrlKey || e.shiftKey) onPick([s.id], 'toggle'); else onSelect(s.id) }}
                   onKeyDown={e => { if (e.key === 'Enter') onSelect(s.id) }}
-                  className={`absolute top-0.5 bottom-0.5 rounded-sm cursor-pointer hover:brightness-125 ${selectedId === s.id ? 'ring-2 ring-white z-10' : ''}`}
+                  className={`absolute top-0.5 bottom-0.5 rounded-sm cursor-pointer hover:brightness-125 ${picked.has(s.id) ? 'ring-2 ring-sky-400 z-10' : selectedId === s.id ? 'ring-2 ring-white z-10' : ''}`}
                   title={`${fmtClock(s.startMin!)} ${s.clientName}${s.locked ? ' · promised' : ''} — click for details`}
                   style={{
                     left: `${Math.max(0, ((s.startMin! - viewStart) / span) * 100)}%`,

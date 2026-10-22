@@ -203,6 +203,15 @@ export default function DispatchView() {
   // calendar draws them so the box follows the stop when the draft moves it.
   const [calDays, setCalDays] = useState<Record<string, EffStop[]>>({})
   const [calSelId, setCalSelId] = useState<string | null>(null)
+  // Multi-select (Ben, Oct 22 2026): Ctrl/⌘-click and the map's Lasso, in every
+  // view. The bar it brings up moves the lot to a day, gives it to a tech, or
+  // optimizes it (one day only — the point of a bigger selection is to
+  // reschedule or reassign a group quickly).
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [moveTo, setMoveTo] = useState('')
+  const [assignTo, setAssignTo] = useState('')
+  const [calOptimize, setCalOptimize] = useState<{ day: string; ids: string[]; seq: number } | null>(null)
+  const pendingDayTicksRef = useRef<string[] | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [windowPrompt, setWindowPrompt] = useState<null | { stopId: string; lane: string; startMin: number; lock: { startMin: number; endMin: number } }>(null)
   const [routes, setRoutes] = useState<Record<string, Leg[]>>({})
@@ -681,9 +690,8 @@ export default function DispatchView() {
   // ── Month/Week drags: move a stop to another day / tech (into the draft) ──
   // An anytime stop moves as anytime (date + tech only); a timed one keeps its
   // clock time. A promised time frame moves with it to the new day.
-  const moveFromCalendar = useCallback((s: RangeStop, fromDate: string | null, toDate: string, toTechId: string) => {
-    if (s.isComplete) { setNotice('That stop is already completed in Jobber.'); return }
-    const existing = changeById.get(s.id)
+  const buildCalendarMove = (base: DraftChange[], s: RangeStop, fromDate: string | null, toDate: string, toTechId: string): DraftChange[] => {
+    const existing = base.find(c => c.id === s.id)
     const anytime = s.startMin == null
     const hhmmL = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`
     let newLock = existing?.newLock ?? null
@@ -707,8 +715,106 @@ export default function DispatchView() {
     const o = orig.startAt ? isoToLocal(orig.startAt) : null
     const backHome = !!o && o.date === toDate && orig.techIds.includes(toTechId) && !change.newLock
       && (anytime ? o.minutes === 0 || existing?.anytime === true : o.minutes === s.startMin)
-    commit([...changes.filter(c => c.id !== s.id), ...(backHome ? [] : [change])])
-  }, [changeById, changes, commit])
+    return [...base.filter(c => c.id !== s.id), ...(backHome ? [] : [change])]
+  }
+  const moveFromCalendar = useCallback((s: RangeStop, fromDate: string | null, toDate: string, toTechId: string) => {
+    if (s.isComplete) { setNotice('That stop is already completed in Jobber.'); return }
+    commit(buildCalendarMove(changes, s, fromDate, toDate, toTechId))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changes, commit])
+
+  // ── Multi-select actions ──────────────────────────────────────────────────
+  const pick = useCallback((ids: string[], mode: 'toggle' | 'add' | 'remove') => {
+    setPicked(prev => {
+      const n = new Set(prev)
+      for (const id of ids) {
+        if (mode === 'add' || (mode === 'toggle' && !n.has(id))) n.add(id)
+        else n.delete(id)
+      }
+      return n
+    })
+  }, [])
+  useEffect(() => { setPicked(new Set()) }, [view])
+  useEffect(() => {
+    if (picked.size === 0) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPicked(new Set()) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [picked.size])
+  /**
+   * Each picked stop as it stands now (the draft included), on the day it's on.
+   * The lock is the one in force — a draft's new promise, else the saved one —
+   * so "assign" keeps it and "move to a day" carries its hours to the new day.
+   */
+  const pickedStops = useMemo((): Array<{ s: RangeStop; day: string }> => {
+    const out: Array<{ s: RangeStop; day: string }> = []
+    if (view === 'day') {
+      for (const p of placed) {
+        if (!picked.has(p.stop.id)) continue
+        const ch = changeById.get(p.stop.id)
+        const saved = locks[p.stop.id]
+        const lock = ch?.newLock ?? (saved ? { start: saved.window_start, end: saved.window_end } : null)
+        out.push({ s: { ...p.stop, techIds: [p.lane], startMin: p.startMin, endMin: p.startMin != null ? p.startMin + p.durationMin : null, locked: !!lock, lock }, day: date })
+      }
+      return out
+    }
+    for (const [d, list] of Object.entries(calDays)) {
+      for (const st of list) {
+        if (!picked.has(st.id)) continue
+        const ch = changeById.get(st.id)
+        out.push({ s: { ...st, lock: ch?.newLock ?? st.lock }, day: d })
+      }
+    }
+    return out
+  }, [view, placed, picked, changeById, locks, date, calDays])
+  const pickedDays = useMemo(() => [...new Set(pickedStops.map(x => x.day))], [pickedStops])
+  const pickedTechs = useMemo(() => [...new Set(pickedStops.map(x => x.s.techIds[0] ?? ''))], [pickedStops])
+  /** Move every picked stop to `toDate` — each keeps its tech unless `toTechId` (and its time, or anytime). */
+  const moveGroup = useCallback((toDate: string, toTechId: string | null) => {
+    if (!toDate) return
+    let next = changes, moved = 0, done = 0
+    for (const { s, day: d } of pickedStops) {
+      if (s.isComplete) { done++; continue }
+      const tech = toTechId ?? s.techIds[0] ?? ''
+      if (!tech) continue
+      next = buildCalendarMove(next, s, d, toDate, tech)
+      moved++
+    }
+    if (moved) commit(next)
+    const when = new Date(`${toDate}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+    setNotice(`${moved} stop${moved === 1 ? '' : 's'} moved to ${when}${toTechId ? ` for ${userName(toTechId)}` : ''} in the draft${done ? ` · ${done} already completed, left alone` : ''}.`)
+    setPicked(new Set())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changes, pickedStops, commit, userName])
+  /** Give every picked stop to `techId` — same day, time, length and promise. */
+  const assignGroup = useCallback((techId: string) => {
+    if (!techId) return
+    let next = changes, moved = 0, done = 0
+    for (const { s, day: d } of pickedStops) {
+      if (s.isComplete) { done++; continue }
+      next = buildCalendarMove(next, s, d, d, techId)
+      moved++
+    }
+    if (moved) commit(next)
+    setNotice(`${moved} stop${moved === 1 ? '' : 's'} given to ${userName(techId)} in the draft${done ? ` · ${done} already completed, left alone` : ''}.`)
+    setPicked(new Set())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changes, pickedStops, commit, userName])
+  /** ⚡ Optimize the selection — one day only: opens that day's route panel with just these ticked. */
+  const optimizePicked = () => {
+    if (pickedDays.length !== 1) return
+    const ids = pickedStops.map(x => x.s.id)
+    if (view === 'day') { pendingDayTicksRef.current = ids; setShowRoutePanel(true); setDayTicksSeq(n => n + 1) }
+    else setCalOptimize({ day: pickedDays[0], ids, seq: Date.now() })
+  }
+  const [dayTicksSeq, setDayTicksSeq] = useState(0)
+  useEffect(() => {
+    const ids = pendingDayTicksRef.current
+    if (!ids || view !== 'day' || !showRoutePanel) return
+    pendingDayTicksRef.current = null
+    sendLasso(date, ids, 'only')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayTicksSeq, showRoutePanel])
 
   // ── Week/Month customer box: retime, length (Ben, Oct 22 2026) ────────────
   // The draft already spans days, so a time set from Month is the same kind of
@@ -1251,11 +1357,12 @@ export default function DispatchView() {
           meta: `${userName(l.techId)} · ${p.startMin != null ? fmtClock(p.startMin) : 'anytime'}${p.lock ? ` · promised ${fmtClock(p.lock.startMin)}–${fmtClock(p.lock.endMin)}` : ''}`,
           halo: p.addons,
           faded: (tickOff[date] ?? readPanelOff(date)).includes(p.stop.id),
+          picked: picked.has(p.stop.id),
         })
       })
     }
     return out
-  }, [lanes, coords, laneColor, userName, tickOff, date, lastDays, pinNumbers])
+  }, [lanes, coords, laneColor, userName, tickOff, date, lastDays, pinNumbers, picked])
 
   const mapLegs: DispatchMapLeg[] = useMemo(() => {
     const out: DispatchMapLeg[] = []
@@ -1476,6 +1583,38 @@ export default function DispatchView() {
         </div>
       )}
 
+      {picked.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-2rem)] bg-gray-900/95 backdrop-blur border border-sky-500/70 rounded-2xl shadow-2xl px-3 py-2 text-sm flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="font-semibold text-sky-300">
+            {picked.size} selected
+            <span className="ml-1 text-xs font-normal text-gray-400">
+              {pickedDays.length > 1 ? `· ${pickedDays.length} days` : ''}{pickedTechs.length > 1 ? ` · ${pickedTechs.length} techs` : ''}
+            </span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <input type="date" value={moveTo} onChange={e => setMoveTo(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-1.5 py-1 text-xs" aria-label="Move to day" />
+            <button type="button" disabled={!moveTo} onClick={() => moveGroup(moveTo, null)}
+              className="px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-[#fff] text-xs"
+              title="Each stop keeps its tech and its time (anytime stays anytime); a promised time frame moves with it">Move to day</button>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <select value={assignTo} onChange={e => setAssignTo(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-1.5 py-1 text-xs" aria-label="Assign to tech">
+              <option value="">Tech…</option>
+              {teamList.map(t => <option key={t} value={t}>{userName(t)}</option>)}
+            </select>
+            <button type="button" disabled={!assignTo} onClick={() => assignGroup(assignTo)}
+              className="px-2.5 py-1 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-xs"
+              title="Only the tech changes — day, time, length and promised time frame stay">Assign</button>
+          </span>
+          <button type="button" disabled={pickedDays.length !== 1} onClick={optimizePicked}
+            className="px-2.5 py-1 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-xs"
+            title={pickedDays.length === 1 ? 'Open this day\'s Route & optimize with just these stops ticked' : 'Optimize works on one day at a time — select stops from a single day'}>⚡ Optimize</button>
+          <button type="button" onClick={() => setPicked(new Set())} className="text-xs text-gray-400 hover:text-white" title="Esc">Clear</button>
+        </div>
+      )}
+
       {notice && (
         <div className="bg-amber-900/30 border border-amber-700 text-amber-200 rounded-xl px-4 py-2 text-sm flex items-start gap-3">
           <span className="flex-1">{notice}</span>
@@ -1640,8 +1779,8 @@ export default function DispatchView() {
                             const laneW = e.currentTarget.parentElement?.getBoundingClientRect().width ?? 1
                             onDragStartStop(e, p.stop.id, ((e.clientX - r.left) / laneW) * span)
                           }}
-                          onClick={() => setSelectedId(p.stop.id)}
-                          className={`absolute top-1.5 h-[46px] rounded-md px-1 overflow-hidden text-[11px] leading-tight cursor-grab select-none ${p.changed ? 'ring-2 ring-orange-400 ring-dashed' : ''} ${selectedId === p.stop.id ? 'outline outline-2 outline-white' : ''}`}
+                          onClick={e => { if (e.metaKey || e.ctrlKey || e.shiftKey) pick([p.stop.id], 'toggle'); else setSelectedId(p.stop.id) }}
+                          className={`absolute top-1.5 h-[46px] rounded-md px-1 overflow-hidden text-[11px] leading-tight cursor-grab select-none ${p.changed ? 'ring-2 ring-orange-400 ring-dashed' : ''} ${picked.has(p.stop.id) ? 'outline outline-2 outline-sky-400' : selectedId === p.stop.id ? 'outline outline-2 outline-white' : ''}`}
                           style={{
                             left: pct(p.startMin!),
                             width: width(Math.max(SNAP, resize?.id === p.stop.id ? resize.endMin - resize.startMin : p.durationMin)),
@@ -1687,8 +1826,8 @@ export default function DispatchView() {
                               if (!l.route.some(x => x.stop.id === d.id)) { setNotice('To move a stop to this tech, drop it on their timeline.'); return }
                               saveOrder(date, l.techId, insertInOrder(l.route.map(x => x.stop.id), d.id, p.stop.id))
                             }}
-                            onClick={() => setSelectedId(p.stop.id)}
-                            className={`relative overflow-hidden pl-2 pr-3 py-0.5 rounded-full text-[11px] cursor-grab text-[#fff] ${p.changed ? 'ring-2 ring-orange-400' : ''}`}
+                            onClick={e => { if (e.metaKey || e.ctrlKey || e.shiftKey) pick([p.stop.id], 'toggle'); else setSelectedId(p.stop.id) }}
+                            className={`relative overflow-hidden pl-2 pr-3 py-0.5 rounded-full text-[11px] cursor-grab text-[#fff] ${picked.has(p.stop.id) ? 'ring-2 ring-sky-400' : p.changed ? 'ring-2 ring-orange-400' : ''}`}
                             style={{ background: p.color, opacity: p.dim ? 0.3 : 1, borderLeft: `3px solid ${laneColor(l.techId)}` }}
                             title={p.stop.routable ? (coords[p.stop.address] === null ? "Couldn't find this address on the map" : 'Drag onto the timeline to give it a time, or onto another anytime stop to put it before that one') : 'No address'}>
                             {l.num.has(p.stop.id) ? <b>{l.num.get(p.stop.id)}. </b> : ''}{p.stop.clientName}{!p.stop.routable ? ' (no address)' : ''}
@@ -1733,8 +1872,8 @@ export default function DispatchView() {
           ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]'
           : 'grid gap-4'}>
           {view === 'day'
-            ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={setSelectedId} height={MAP_HEIGHT}
-                onLasso={(ids, mode) => { setShowRoutePanel(true); sendLasso(date, ids, mode) }}
+            ? <DispatchMap depots={depots} stops={mapStops} legs={mapLegs} unscheduled={mapUnscheduled} highlightId={selectedId} onStopClick={(id, multi) => { if (multi) pick([id], 'toggle'); else setSelectedId(id) }} height={MAP_HEIGHT}
+                onLasso={(ids, mode) => pick(ids, mode === 'select' ? 'add' : 'remove')}
                 numberMode={pinNumbers} onNumberMode={m => { setPinNumbers(m); writeLS(LS_PIN_NUMBERS, m) }} />
             : <DispatchCalendar view={view} date={date} team={teamList} settings={settings} filters={filters}
                 userName={userName} laneColor={laneColor} onOpenDay={d => { setDate(d); setView('day'); writeLS(LS_VIEW, 'day') }}
@@ -1744,7 +1883,8 @@ export default function DispatchView() {
                 showTanks={showTanks} capacity={capacity} onLoadCapacity={loadCapacity}
                 pinSettings={pinSettings} tickOff={tickOff}
                 pinNumbers={pinNumbers} onPinNumbers={m => { setPinNumbers(m); writeLS(LS_PIN_NUMBERS, m) }}
-                selectedId={calSelId} onSelect={id => setCalSelId(cur => (cur === id ? null : id))} onDaysChange={setCalDays} />}
+                selectedId={calSelId} onSelect={id => setCalSelId(cur => (cur === id ? null : id))} onDaysChange={setCalDays}
+                picked={picked} onPick={pick} onMoveGroup={moveGroup} optimizeRequest={calOptimize} />}
 
           <div className="space-y-4">
             {view !== 'day' && calSel && (() => {
