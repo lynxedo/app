@@ -32,7 +32,7 @@ export type RangeStop = DispatchStop & {
   locked: boolean
   lock: { start: string; end: string } | null
 }
-type EffStop = RangeStop & { changed: boolean; origDate: string | null }
+export type EffStop = RangeStop & { changed: boolean; origDate: string | null }
 
 interface Props {
   view: 'week' | 'month'
@@ -59,6 +59,11 @@ interface Props {
   tickOff: Record<string, string[]>
   pinNumbers: 'route' | 'last'
   onPinNumbers: (m: 'route' | 'last') => void
+  /** Click a box (or a pin) → the customer box opens beside the calendar (Ben, Oct 22 2026). */
+  selectedId: string | null
+  onSelect: (id: string) => void
+  /** The days as drawn (Hub's copy + the draft), so the customer box can follow a stop as it moves. */
+  onDaysChange: (days: Record<string, EffStop[]>) => void
 }
 
 const weekday = (d: string) => new Date(`${d}T12:00:00Z`).getUTCDay()
@@ -77,6 +82,7 @@ export default function DispatchCalendar({
   view, date, team, settings, filters, userName, laneColor, onOpenDay,
   changes, orders, onOrdersLoaded, onSaveOrder, onMoveStop, reloadKey, onOptimizeDay, optimizing,
   showTanks, capacity, onLoadCapacity, pinSettings, tickOff, pinNumbers, onPinNumbers,
+  selectedId, onSelect, onDaysChange,
 }: Props) {
   const [days, setDays] = useState<Record<string, RangeStop[]>>({})
   const [depot, setDepot] = useState<LatLng | null>(null)
@@ -183,6 +189,8 @@ export default function DispatchCalendar({
     }
     return out
   }, [days, changes, from, to, filters.hideDone])
+
+  useEffect(() => { onDaysChange(effDays) }, [effDays, onDaysChange])
 
   // Days since last visit for every visit in range ("18d" tags, pin numbers).
   const [lastDays, setLastDays] = useState<Record<string, number | null>>({})
@@ -380,7 +388,6 @@ export default function DispatchCalendar({
   }
 
   const depots = useMemo(() => (depot ? [{ ...depot, label: 'Shop' }] : []), [depot])
-  const noop = () => {}
 
   if (team.length === 0) return null
 
@@ -400,8 +407,8 @@ export default function DispatchCalendar({
         onDragStart={e => startDrag(e, s)}
         onDragOver={e => allowDrop(e, `${d}|${s.id}`)}
         onDrop={e => { e.preventDefault(); e.stopPropagation(); dropAt(d, t, s.id) }}
-        onClick={e => e.stopPropagation()}
-        className={`relative overflow-hidden ${big ? 'text-[12px] mt-1 py-0.5' : 'text-[12px] py-0.5'} leading-snug pl-1.5 pr-2.5 rounded text-[#fff] break-words ${s.isComplete ? 'cursor-default' : 'cursor-grab'} ${s.changed ? 'ring-2 ring-orange-400' : ''} ${dropKey === `${d}|${s.id}` ? 'border-t-2 border-white' : ''}`}
+        onClick={e => { e.stopPropagation(); onSelect(s.id) }}
+        className={`relative overflow-hidden ${big ? 'text-[12px] mt-1 py-0.5' : 'text-[12px] py-0.5'} leading-snug pl-1.5 pr-2.5 rounded text-[#fff] break-words ${s.isComplete ? 'cursor-pointer' : 'cursor-grab'} ${selectedId === s.id ? 'ring-2 ring-white' : s.changed ? 'ring-2 ring-orange-400' : ''} ${dropKey === `${d}|${s.id}` ? 'border-t-2 border-white' : ''}`}
         style={{ background: colorOf(s), opacity: dim(s) ? 0.35 : s.isComplete ? 0.7 : 1, borderLeft: `3px solid ${laneColor(t)}` }}
         title={`${s.clientName}${s.locked ? ' · promised' : ''}${s.changed ? ' · moved (unsent)' : ''} — drag onto another stop to put it before that one, or onto another day to move it`}>
         {n != null && <span className="inline-block min-w-[1.1rem] text-center mr-1 rounded bg-black/30 text-[10px] font-bold">{n}</span>}
@@ -423,7 +430,7 @@ export default function DispatchCalendar({
         <button type="button" onClick={() => { setExpandAll(x => !x); setExpanded(new Set()) }} className="ml-auto text-xs text-gray-400 hover:text-white">
           {expandAll ? 'Collapse all' : 'Expand all'}
         </button>
-        <span className="text-[11px] text-gray-500">Drag stops to reorder or move them · click a day number to open that day</span>
+        <span className="text-[11px] text-gray-500">Click a stop for its details · drag stops to reorder or move them · click a day number to open that day</span>
       </div>
 
       {view === 'week' ? (
@@ -441,7 +448,8 @@ export default function DispatchCalendar({
           {team.map(t => (
             <WeekRowCells key={t} techId={t} cells={cells} name={userName(t)} color={laneColor(t)}
               routeOf={routeOf} settings={settings} dim={dim} viewStart={viewStart} span={span}
-              isOpen={isOpen} toggle={toggle} chip={chip} allowDrop={allowDrop} dropAt={dropAt} dropKey={dropKey} colorOf={colorOf} />
+              isOpen={isOpen} toggle={toggle} chip={chip} allowDrop={allowDrop} dropAt={dropAt} dropKey={dropKey} colorOf={colorOf}
+              selectedId={selectedId} onSelect={onSelect} />
           ))}
         </div>
       ) : (
@@ -497,7 +505,7 @@ export default function DispatchCalendar({
               <button type="button" onClick={() => setMapDay(null)} className="ml-auto text-gray-400 hover:text-white">Show the whole {view}</button></>
           : <>Map: every visit this {view} · 🗺 on a day shows just that day&apos;s routes</>}
       </div>
-      <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={null} onStopClick={noop}
+      <DispatchMap depots={depots} stops={mapStops} legs={mapDay ? legs : []} unscheduled={[]} highlightId={selectedId ? mapStops.find(m => m.id.startsWith(`${selectedId}|`))?.id ?? null : null} onStopClick={id => onSelect(id.split('|')[0])}
         onLasso={mapDay ? (ids, mode) => sendLasso(mapDay, ids.map(x => x.split('|')[0]), mode) : undefined}
         numberMode={pinNumbers} onNumberMode={onPinNumbers}
         height={view === 'week' ? `${weekMapH}px` : mapDay ? 'max(420px, calc(100vh - 420px))' : 'max(520px, calc(100vh - 140px))'} />
@@ -538,7 +546,7 @@ export default function DispatchCalendar({
   )
 }
 
-function WeekRowCells({ techId, cells, name, color, routeOf, dim, viewStart, span, isOpen, toggle, chip, allowDrop, dropAt, dropKey, colorOf }: {
+function WeekRowCells({ techId, cells, name, color, routeOf, dim, viewStart, span, isOpen, toggle, chip, allowDrop, dropAt, dropKey, colorOf, selectedId, onSelect }: {
   techId: string; cells: string[]; name: string; color: string
   routeOf: (d: string, techId: string) => EffStop[]
   settings: DispatchSettings; dim: (s: DispatchStop) => boolean; viewStart: number; span: number
@@ -548,6 +556,8 @@ function WeekRowCells({ techId, cells, name, color, routeOf, dim, viewStart, spa
   dropAt: (d: string, techId: string | null, beforeId: string | null) => void
   dropKey: string | null
   colorOf: (s: EffStop) => string
+  selectedId: string | null
+  onSelect: (id: string) => void
 }) {
   return (
     <>
@@ -566,10 +576,13 @@ function WeekRowCells({ techId, cells, name, color, routeOf, dim, viewStart, spa
             onDragOver={e => allowDrop(e, `wk|${key}`)}
             onDrop={e => { e.preventDefault(); dropAt(d, techId, null) }}
             className={`border-t border-l border-gray-800 p-1 text-left min-w-0 ${dropKey === `wk|${key}` ? 'bg-gray-800' : ''}`}>
-            <div className="relative h-6 rounded bg-gray-950/60 overflow-hidden">
+            <div className="relative h-7 rounded bg-gray-950/60 overflow-hidden">
               {timed.map(s => (
-                <div key={s.id} className="absolute top-0.5 bottom-0.5 rounded-sm"
-                  title={`${fmtClock(s.startMin!)} ${s.clientName}${s.locked ? ' · promised' : ''}`}
+                <div key={s.id} role="button" tabIndex={0}
+                  onClick={e => { e.stopPropagation(); onSelect(s.id) }}
+                  onKeyDown={e => { if (e.key === 'Enter') onSelect(s.id) }}
+                  className={`absolute top-0.5 bottom-0.5 rounded-sm cursor-pointer hover:brightness-125 ${selectedId === s.id ? 'ring-2 ring-white z-10' : ''}`}
+                  title={`${fmtClock(s.startMin!)} ${s.clientName}${s.locked ? ' · promised' : ''} — click for details`}
                   style={{
                     left: `${Math.max(0, ((s.startMin! - viewStart) / span) * 100)}%`,
                     width: `${Math.max(3, (((s.endMin ?? s.startMin! + 30) - s.startMin!) / span) * 100)}%`,
