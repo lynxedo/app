@@ -31,6 +31,8 @@ export interface DispatchMapStop {
   halo?: string[]
   /** Unticked in Route & optimize — drawn faded. */
   faded?: boolean
+  /** In the multi-select (Ctrl/⌘-click, Lasso) — drawn with a sky-blue ring. */
+  picked?: boolean
 }
 
 export interface DispatchMapLeg {
@@ -47,8 +49,9 @@ interface Props {
   legs: DispatchMapLeg[]
   unscheduled: Array<{ id: string; lat: number; lng: number; title: string; subtitle: string }>
   highlightId: string | null
-  onStopClick: (id: string) => void
-  /** When set, the map offers a Lasso: draw around stops to tick (select) or untick (deselect) them. */
+  /** `multi` = Ctrl/⌘/Shift was held — add to the selection instead of opening the stop. */
+  onStopClick: (id: string, multi?: boolean) => void
+  /** When set, the map offers a Lasso: draw around stops to select or unselect them (Ben, Oct 22 2026 — was tick/untick for Optimize). */
   onLasso?: (ids: string[], mode: 'select' | 'deselect') => void
   /** What the number in a pin means; with onNumberMode set, the map shows a switch. */
   numberMode?: 'route' | 'last'
@@ -80,7 +83,7 @@ function stopEl(s: DispatchMapStop, highlighted: boolean): HTMLElement {
   const size = Math.ceil((outerR + 5) * 2)
   const c = size / 2
   const wrap = document.createElement('div')
-  wrap.style.cssText = `width:${size}px;height:${size}px;cursor:pointer;opacity:${s.faded ? 0.4 : 1};${highlighted ? 'transform:scale(1.3);' : ''}`
+  wrap.style.cssText = `width:${size}px;height:${size}px;cursor:pointer;opacity:${s.faded ? 0.4 : 1};${highlighted ? 'transform:scale(1.3);' : ''}${s.picked ? 'border-radius:50%;box-shadow:0 0 0 3px #38bdf8,0 0 8px 2px #38bdf8;' : ''}`
   const svg = document.createElementNS(SVG_NS, 'svg')
   svg.setAttribute('width', `${size}`); svg.setAttribute('height', `${size}`); svg.setAttribute('viewBox', `0 0 ${size} ${size}`)
   svg.style.display = 'block'
@@ -300,7 +303,9 @@ export default function DispatchMap({ depots, stops, legs, unscheduled, highligh
         const el = stopEl(s, s.id === highlightId)
         el.addEventListener('click', ev => {
           ev.stopPropagation()
-          onClickRef.current(s.id)
+          const multi = ev.metaKey || ev.ctrlKey || ev.shiftKey
+          onClickRef.current(s.id, multi)
+          if (multi) return
           popupRef.current?.setLngLat([s.lng, s.lat]).setHTML(
             `<div style="font:12px -apple-system,Segoe UI,sans-serif;color:#0f172a;min-width:150px"><b>${esc(s.title)}</b><br>${esc(s.subtitle)}<br><span style="color:#ea580c">${esc(s.meta)}</span></div>`,
           ).addTo(map)
@@ -360,15 +365,15 @@ export default function DispatchMap({ depots, stops, legs, unscheduled, highligh
           <div className="absolute top-2 left-2 z-20 flex gap-1 text-xs">
             <button type="button" onClick={() => { setLassoOn(v => !v); setLassoPts([]) }}
               className={`px-2 py-1 rounded-md border ${lassoOn ? 'bg-orange-500 border-orange-400 text-[#fff]' : 'bg-slate-900/85 border-slate-700 text-[#fff]'}`}
-              title="Draw around stops on the map to tick or untick them for Optimize">
-              {lassoOn ? (lassoMode === 'select' ? '◌ Lasso: draw to tick' : '◌ Lasso: draw to untick') : '◌ Lasso'}
+              title="Draw around stops on the map to select them — then move them to another day, give them to another tech, or optimize them">
+              {lassoOn ? (lassoMode === 'select' ? '◌ Lasso: draw to select' : '◌ Lasso: draw to unselect') : '◌ Lasso'}
             </button>
             {lassoOn && (
               <>
                 <button type="button" onClick={() => setLassoMode('select')}
-                  className={`px-2 py-1 rounded-md border text-[#fff] ${lassoMode === 'select' ? 'bg-green-600 border-green-500' : 'bg-slate-900/85 border-slate-700'}`}>Tick</button>
+                  className={`px-2 py-1 rounded-md border text-[#fff] ${lassoMode === 'select' ? 'bg-green-600 border-green-500' : 'bg-slate-900/85 border-slate-700'}`}>Select</button>
                 <button type="button" onClick={() => setLassoMode('deselect')}
-                  className={`px-2 py-1 rounded-md border text-[#fff] ${lassoMode === 'deselect' ? 'bg-red-600 border-red-500' : 'bg-slate-900/85 border-slate-700'}`}>Untick</button>
+                  className={`px-2 py-1 rounded-md border text-[#fff] ${lassoMode === 'deselect' ? 'bg-red-600 border-red-500' : 'bg-slate-900/85 border-slate-700'}`}>Unselect</button>
               </>
             )}
           </div>
