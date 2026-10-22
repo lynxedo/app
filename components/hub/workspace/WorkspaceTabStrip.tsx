@@ -7,7 +7,8 @@
  * Interactions: click a tab to bring it forward; the × (or a middle-click) closes
  * it; right-click for Pin / Duplicate / Open beside / Close others; Ctrl/Cmd+1..9
  * jumps to tab N; + opens the Menu; Split shows the most recent other tab beside
- * this one. Pinned tabs sit first as icons and have no ×. A dimmed tab with a
+ * this one, or DRAG a tab down onto the left or right half of the screen to put
+ * it there (the shell draws the two drop zones — TAB_DRAG_EVENT). Pinned tabs sit first as icons and have no ×. A dimmed tab with a
  * moon is ASLEEP (not mounted) and reopens where it was when clicked.
  */
 
@@ -15,6 +16,14 @@ import { useEffect, useState } from 'react'
 import { useWorkspaceTabs, tabsInStripOrder, CONVERSATION_TABS, type TabCatalogId, type WorkspaceTab } from './WorkspaceTabsContext'
 import { CatalogIcon, SettingsIcon, AdminIcon, type CatalogId } from '../railCatalog'
 import { railFromPath } from '../HubRail'
+
+/**
+ * A tab drag started (detail = tab id) or ended (detail = null). HubShell listens
+ * and shows the left / right drop zones over the screen — over the page frames
+ * too, which would otherwise swallow the drop.
+ */
+export const TAB_DRAG_EVENT = 'lx-tab-drag'
+export const TAB_DRAG_MIME = 'text/x-lx-tab'
 
 const CATALOG_GLYPHS = new Set<string>([
   'time-clock', 'hub', 'txt2', 'activity', 'tracker', 'routing', 'fleet', 'lawn', 'dialer', 'call-log', 'time-records',
@@ -134,6 +143,13 @@ export default function WorkspaceTabStrip({ onNewTab }: { onNewTab: () => void }
                 title={asleep ? `${t.label} — asleep, click to wake` : t.pinned ? `${t.label} (pinned)` : t.label}
                 onClick={() => activateTab(t.id)}
                 onContextMenu={e => { e.preventDefault(); setMenu({ tab: t, x: e.clientX, y: e.clientY }) }}
+                draggable={tabs.length > 1}
+                onDragStart={e => {
+                  e.dataTransfer.setData(TAB_DRAG_MIME, t.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                  window.dispatchEvent(new CustomEvent(TAB_DRAG_EVENT, { detail: t.id }))
+                }}
+                onDragEnd={() => window.dispatchEvent(new CustomEvent(TAB_DRAG_EVENT, { detail: null }))}
                 onAuxClick={e => { if (e.button === 1 && !t.pinned) { e.preventDefault(); closeTab(t.id) } }}
                 onMouseDown={e => { if (e.button === 1) e.preventDefault() /* suppress autoscroll */ }}
                 className={[
@@ -199,7 +215,7 @@ export default function WorkspaceTabStrip({ onNewTab }: { onNewTab: () => void }
             return others.length ? others.reduce((a, b) => (b.lastActiveSeq > a.lastActiveSeq ? b : a)).id : null
           })())}
           aria-pressed={splitOn}
-          title={splitOn ? 'Close split view' : 'Split view — show your last tab beside this one'}
+          title={splitOn ? 'Close split view' : 'Split view — show your last tab beside this one (or drag a tab onto the screen)'}
           className={[
             'flex-none mb-1 h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[12px] font-medium disabled:opacity-30',
             splitOn ? 'bg-white/[0.14] text-white' : 'text-white/75 hover:text-white hover:bg-white/[0.1]',

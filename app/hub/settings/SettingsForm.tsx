@@ -837,7 +837,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
 
         <ul className="text-sm text-gray-300 space-y-1.5 mt-5 list-disc pl-5">
           <li><strong className="text-white">No limit</strong> — the six you used last stay ready; older ones sleep (dimmed, 🌙) and reopen when you click them.</li>
-          <li><strong className="text-white">Right-click a tab</strong> to pin it, duplicate it, or open it beside another (<strong className="text-white">Split</strong>).</li>
+          <li><strong className="text-white">Right-click a tab</strong> to pin it, duplicate it, or open it beside another (<strong className="text-white">Split</strong>) — or drag a tab onto the left or right half of the screen.</li>
           <li><strong className="text-white">Cmd/Ctrl + 1…9</strong> jumps straight to a tab; the ✕ (or a middle-click) closes one.</li>
           <li><strong className="text-white">Alt-click</strong> an app to open a second copy of a screen you already have open.</li>
         </ul>
