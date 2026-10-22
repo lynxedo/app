@@ -74,9 +74,11 @@ function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: nu
 // Fill = the stop's Dispatch color; border = the tech's color; optional halo
 // arcs = add-on programs (same drawing as the Advanced optimizer's pins);
 // pink glow = promised; faded = left out of Optimize.
+// One size whether or not the pin carries a number (Ben, Oct 22 2026 — the
+// unnumbered pins were too small to read the colors).
 function stopEl(s: DispatchMapStop, highlighted: boolean): HTMLElement {
   const halo = (s.halo ?? []).slice(0, MAX_HALO)
-  const innerR = (s.label ? 26 : 16) / 2
+  const innerR = 26 / 2
   const ringW = 4, gap = 2
   const ringR = innerR + gap + ringW / 2
   const outerR = halo.length ? innerR + gap + ringW : innerR
@@ -119,6 +121,46 @@ function stopEl(s: DispatchMapStop, highlighted: boolean): HTMLElement {
   return wrap
 }
 
+// Stops closer than this on screen fold into one count bubble (Ben, Oct 22
+// 2026 — two stops on the same street read as one pin). Zooming in splits them;
+// from CLUSTER_MAX_ZOOM on every pin is drawn, so stops at one address still show.
+const CLUSTER_PX = 26
+const CLUSTER_MAX_ZOOM = 16
+
+function clusterStops(map: MapboxMap, stops: DispatchMapStop[], keepId: string | null): DispatchMapStop[][] {
+  if (map.getZoom() >= CLUSTER_MAX_ZOOM) return stops.map(st => [st])
+  const pts = stops.map(st => map.project([st.lng, st.lat]))
+  const used = new Array(stops.length).fill(false)
+  const groups: DispatchMapStop[][] = []
+  for (let i = 0; i < stops.length; i++) {
+    if (used[i]) continue
+    used[i] = true
+    const g = [stops[i]]
+    // The highlighted stop is never folded away — it's the one the office is looking at.
+    if (stops[i].id !== keepId) {
+      for (let j = i + 1; j < stops.length; j++) {
+        if (used[j] || stops[j].id === keepId) continue
+        if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < CLUSTER_PX) { used[j] = true; g.push(stops[j]) }
+      }
+    }
+    groups.push(g)
+  }
+  return groups
+}
+
+// A white bubble with the count — deliberately unlike a stop pin, whose number
+// is a route position or days since the last visit.
+function clusterEl(g: DispatchMapStop[]): HTMLElement {
+  const size = g.length < 10 ? 30 : g.length < 100 ? 36 : 42
+  const el = document.createElement('div')
+  const glow = g.some(st => st.locked) ? ',0 0 6px 2px #ec4899' : ''
+  const pick = g.some(st => st.picked) ? ',0 0 0 3px #38bdf8' : ''
+  el.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:#fff;border:3px solid #0f172a;color:#0f172a;display:flex;align-items:center;justify-content:center;font:800 13px -apple-system,Segoe UI,sans-serif;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.45)${pick}${glow}`
+  el.textContent = String(g.length)
+  el.title = `${g.length} stops here — click to zoom in`
+  return el
+}
+
 function pointInPolygon(pt: { x: number; y: number }, poly: Array<{ x: number; y: number }>): boolean {
   let inside = false
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -135,6 +177,7 @@ export default function DispatchMap({ depots, stops, legs, unscheduled, highligh
   const popupRef = useRef<MapboxPopup | null>(null)
   const hoverRef = useRef<MapboxPopup | null>(null)
   const [ready, setReady] = useState(false)
+  const [zoomTick, setZoomTick] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const onClickRef = useRef(onStopClick)
   useEffect(() => { onClickRef.current = onStopClick }, [onStopClick])
@@ -270,6 +313,15 @@ export default function DispatchMap({ depots, stops, legs, unscheduled, highligh
     })
   }, [legs, ready])
 
+  // Re-group the pins whenever the zoom settles.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const onZoom = () => setZoomTick(t => t + 1)
+    map.on('zoomend', onZoom)
+    return () => { map.off('zoomend', onZoom) }
+  }, [ready])
+
   // Markers
   useEffect(() => {
     const map = mapRef.current
@@ -299,7 +351,20 @@ export default function DispatchMap({ depots, stops, legs, unscheduled, highligh
         })
         markersRef.current.push(new mapboxgl.Marker({ element: el }).setLngLat([u.lng, u.lat]).addTo(map))
       }
-      for (const s of stops) {
+      for (const g of clusterStops(map, stops, highlightId)) {
+        if (g.length > 1) {
+          const el = clusterEl(g)
+          el.addEventListener('click', ev => {
+            ev.stopPropagation()
+            const b = new mapboxgl.LngLatBounds()
+            for (const st of g) b.extend([st.lng, st.lat])
+            map.fitBounds(b, { padding: 80, maxZoom: CLUSTER_MAX_ZOOM + 1, duration: 400 })
+          })
+          const lng = g.reduce((a, st) => a + st.lng, 0) / g.length, lat = g.reduce((a, st) => a + st.lat, 0) / g.length
+          markersRef.current.push(new mapboxgl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map))
+          continue
+        }
+        const s = g[0]
         const el = stopEl(s, s.id === highlightId)
         el.addEventListener('click', ev => {
           ev.stopPropagation()
@@ -314,7 +379,7 @@ export default function DispatchMap({ depots, stops, legs, unscheduled, highligh
       }
     })()
     return () => { cancelled = true }
-  }, [depots, stops, unscheduled, highlightId, ready])
+  }, [depots, stops, unscheduled, highlightId, ready, zoomTick])
 
   // Fit when the set of places changes (not on every hover/highlight).
   const fitKey = useMemo(
