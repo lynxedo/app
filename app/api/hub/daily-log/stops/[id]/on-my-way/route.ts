@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
 import { getBusinessProfile } from '@/lib/business-profile'
 import { workOrderAccess } from '@/lib/work-order-access'
+import { isAppReviewer, isSampleStopId, sampleOnMyWay } from '@/lib/app-review-demo'
 
 // System default — used when daily_log_settings.on_my_way_template is NULL.
 // Configurable per-company under /hub/admin/daily-log. The business name comes
@@ -31,6 +32,19 @@ export async function POST(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // ⚠ The store reviewers' sample stops: answer like a real send, text NOBODY.
+  // Only that one account, only sample ids — every real stop id still falls
+  // through to the Work Orders gate below, which the reviewer account fails.
+  if (isAppReviewer(user.id) && isSampleStopId(id)) {
+    const body = await request.json().catch(() => ({})) as { eta_minutes?: unknown }
+    const eta = Math.round(Number(body.eta_minutes))
+    if (!Number.isFinite(eta) || eta < 1 || eta > 240) {
+      return NextResponse.json({ error: 'eta_minutes must be 1–240' }, { status: 400 })
+    }
+    const sample = sampleOnMyWay(id, eta)
+    return sample ? NextResponse.json(sample) : NextResponse.json({ error: 'Stop not found' }, { status: 404 })
+  }
 
   const { data: profile } = await supabase
     .from('user_profiles')
