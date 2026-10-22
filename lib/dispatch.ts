@@ -41,6 +41,8 @@ export interface DispatchSettings {
   view_end: string
   /** Jobber user ids shown as lanes by default (each person can change theirs). */
   default_team: string[]
+  /** Jobber user id → lane color. A tech not listed gets LANE_COLORS by team order. */
+  tech_colors: Record<string, string>
   color_rules: ColorRule[]
   filter_groups: FilterGroup[]
   /** Days Find a slot may use: 0 = Sunday … 6 = Saturday. */
@@ -144,6 +146,7 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   view_start: '07:00',
   view_end: '17:00',
   default_team: [],
+  tech_colors: {},
   color_rules: [],
   filter_groups: [],
   work_days: [1, 2, 3, 4, 5],
@@ -168,6 +171,10 @@ export function normalizeDispatchSettings(raw: unknown): DispatchSettings {
     view_start: hhmm('view_start'),
     view_end: hhmm('view_end'),
     default_team: Array.isArray(r.default_team) ? (r.default_team as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+    tech_colors: Object.fromEntries(
+      Object.entries(r.tech_colors && typeof r.tech_colors === 'object' ? r.tech_colors as Record<string, unknown> : {})
+        .filter((e): e is [string, string] => typeof e[1] === 'string' && HEX.test(e[1])),
+    ),
     color_rules: rules
       .filter((x): x is ColorRule => !!x && typeof x === 'object'
         && typeof (x as ColorRule).id === 'string'

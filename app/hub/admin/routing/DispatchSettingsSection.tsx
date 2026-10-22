@@ -173,6 +173,27 @@ export default function DispatchSettingsSection() {
         </div>
       </div>
 
+      {/* Tech colors */}
+      <div>
+        <div className="text-sm text-gray-300 mb-1">Tech colors <span className="text-gray-500">— the edge of each stop box, the pin border and the route line on the map</span></div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+          {users.map(u => {
+            const c = s.tech_colors[u.id]
+            return (
+              <div key={u.id} className="flex items-center gap-1.5 text-sm">
+                <input type="color" disabled={dis} value={c ?? '#94a3b8'} title={c ? undefined : 'Automatic — pick a color to set one'}
+                  onChange={e => patch({ tech_colors: { ...s.tech_colors, [u.id]: e.target.value } })}
+                  className={`w-7 h-7 rounded bg-transparent ${c ? '' : 'opacity-50'}`} />
+                <span className="text-gray-300">{u.name}</span>
+                {c
+                  ? <button type="button" disabled={dis} onClick={() => { const t = { ...s.tech_colors }; delete t[u.id]; patch({ tech_colors: t }) }} className="text-gray-500 hover:text-red-400 text-xs" title="Back to automatic">✕</button>
+                  : <span className="text-gray-500 text-xs">auto</span>}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
       {/* Filter chips */}
       <div>
         <div className="text-sm text-gray-300 mb-1">Filter chips <span className="text-gray-500">— match a stop&apos;s line items (never its title)</span></div>

@@ -437,7 +437,8 @@ export default function DispatchView() {
   const changeById = useMemo(() => new Map(changes.map(c => [c.id, c])), [changes])
   const bucketById = useMemo(() => new Map(bucket.map(s => [s.id, s])), [bucket])
   const teamList = useMemo(() => team ?? [], [team])
-  const laneColor = useCallback((techId: string) => LANE_COLORS[Math.max(0, teamList.indexOf(techId)) % LANE_COLORS.length], [teamList])
+  const techColors = settings.tech_colors
+  const laneColor = useCallback((techId: string) => techColors[techId] ?? LANE_COLORS[Math.max(0, teamList.indexOf(techId)) % LANE_COLORS.length], [teamList, techColors])
 
   const snapOf = (s: DispatchStop): DraftChange['snapshot'] => ({
     address: s.address, title: s.title, lineItemNames: s.lineItemNames, totalPrice: s.totalPrice,
