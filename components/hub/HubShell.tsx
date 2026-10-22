@@ -29,7 +29,7 @@ import { BetaFlagsProvider } from './BetaFlagsContext'
 import OnCallPresenceProvider from './OnCallPresenceProvider'
 import HubActivityPinger from './HubActivityPinger'
 import { WorkspaceTabsProvider, useWorkspaceTabsState, tabsInStripOrder, CONVERSATION_TABS, type WorkspaceTab, type TabCatalogId, type OpenTabInput } from './workspace/WorkspaceTabsContext'
-import WorkspaceTabStrip from './workspace/WorkspaceTabStrip'
+import WorkspaceTabStrip, { TAB_DRAG_EVENT, TAB_DRAG_MIME } from './workspace/WorkspaceTabStrip'
 import WorkspaceTabErrorBoundary from './workspace/WorkspaceTabErrorBoundary'
 import { WorkspaceTabInstanceProvider } from './workspace/WorkspaceTabInstance'
 import PageTabFrame, { type PageTabFrameHandlers } from './workspace/PageTabFrame'
@@ -1172,6 +1172,44 @@ function FullHubShell({
     onCompose: openSearch,
   }
 
+  // ── Drag a tab onto the screen to split ──────────────────────────────────
+  // While a tab is being dragged from the strip, two drop zones cover the screen
+  // (above the page frames, which would otherwise swallow the drop): left puts
+  // the tab in front with the one you were on beside it; right puts it beside.
+  const [dragTabId, setDragTabId] = useState<string | null>(null)
+  const [dropSide, setDropSide] = useState<'left' | 'right' | null>(null)
+  useEffect(() => {
+    const onDrag = (e: Event) => {
+      setDragTabId((e as CustomEvent<string | null>).detail ?? null)
+      setDropSide(null)
+    }
+    window.addEventListener(TAB_DRAG_EVENT, onDrag)
+    return () => window.removeEventListener(TAB_DRAG_EVENT, onDrag)
+  }, [])
+  const dropTab = (id: string, side: 'left' | 'right') => {
+    const live = tabsApi.peek()
+    if (!live.tabs.some(t => t.id === id)) return
+    const active = live.activeTabId
+    const split = live.splitTabId && live.splitTabId !== active ? live.splitTabId : null
+    if (side === 'right') {
+      // Dragging the tab you're on to the right moves it there and brings your
+      // last tab in on the left (setSplit handles that case).
+      if (id !== split) tabsApi.setSplit(id)
+      return
+    }
+    if (id === active) return
+    if (id === split) { tabsApi.activateTab(id); return } // swap sides
+    tabsApi.activateTab(id)
+    if (active) tabsApi.setSplit(active)
+  }
+  const onDropZone = (side: 'left' | 'right') => (e: React.DragEvent) => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData(TAB_DRAG_MIME) || dragTabId
+    setDragTabId(null)
+    setDropSide(null)
+    if (id) dropTab(id, side)
+  }
+
   // ── Which sidebar ─────────────────────────────────────────────────────────
   // With tabs, a tab shows a sidebar only if its screen has one: the section
   // sidebars (Admin, Reports, Txt, …) and the Hub chat sidebar for rooms / DMs /
@@ -1504,7 +1542,7 @@ function FullHubShell({
             )}
 
             <div
-              className="flex-1 min-h-0 overflow-hidden flex"
+              className="relative flex-1 min-h-0 overflow-hidden flex"
               style={{
                 // Mobile: leave room for the bottom tab bar (~56px + safe area).
                 // Desktop: no bottom bar, no padding — otherwise the composer
@@ -1547,6 +1585,23 @@ function FullHubShell({
                   </div>
                 )
               })}
+              {dragTabId && tabsApi.tabs.length > 1 && (
+                <div className="absolute inset-0 z-40 flex gap-2 p-2 bg-black/20" aria-hidden="true">
+                  {(['left', 'right'] as const).map(side => (
+                    <div
+                      key={side}
+                      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropSide !== side) setDropSide(side) }}
+                      onDragLeave={() => setDropSide(s => (s === side ? null : s))}
+                      onDrop={onDropZone(side)}
+                      className={`flex-1 rounded-xl border-2 border-dashed flex items-center justify-center text-sm font-semibold transition-colors ${
+                        dropSide === side ? 'border-[var(--brand)] bg-[var(--brand)]/20 text-white' : 'border-white/25 bg-gray-950/50 text-white/70'
+                      }`}
+                    >
+                      {side === 'left' ? 'Open on the left' : 'Open on the right'}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
