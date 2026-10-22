@@ -15,6 +15,7 @@ import { contactDisplayName, isPlaceholderName, nameIsAiGuessed } from '@/lib/co
 import { lsaThreadLabel } from '@/lib/lsa-relay'
 import { useWorkspaceTabs } from '../workspace/WorkspaceTabsContext'
 import { useOutsideClose } from '@/hooks/use-outside-close'
+import { useHubIntent } from '@/lib/hub-intent'
 
 type Conversation = {
   id: string
@@ -175,6 +176,8 @@ export default function TxtV2Sidebar({
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [newOpen, setNewOpen] = useState(false)
+  // Top bar → New → New text.
+  useHubIntent('new-text', () => setNewOpen(true))
   const [newInitialQuery, setNewInitialQuery] = useState('')
   const [addContactOpen, setAddContactOpen] = useState(false)
   const [groupOpen, setGroupOpen] = useState(false)

@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LockIcon, CatalogIcon, catalogEntriesFor, type RailPermissions } from './railCatalog'
 import type { HubUser } from './MessageFeed'
+import { requestMessageJump } from '@/lib/hub-intent'
+
+/** Where the desktop dropdown sits — the top bar's search box (Slack-style). */
+export type SearchAnchor = { top: number; left: number; width: number }
 
 type Room = { id: string; name: string; is_private: boolean }
 type Conversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
@@ -83,6 +87,8 @@ export default function HubQuickCompose({
   onConversationCreated,
   permissions,
   showAdmin = false,
+  anchor = null,
+  onNavigate,
 }: {
   onClose: () => void
   rooms: Room[]
@@ -93,12 +99,26 @@ export default function HubQuickCompose({
   /** Turns on the Apps + Contacts sections (only what this person can open). */
   permissions?: RailPermissions
   showAdmin?: boolean
+  /**
+   * Desktop: open as a dropdown over the top bar's search box instead of
+   * covering the screen — you type, results appear right under it (Slack-style).
+   * Null = the full-screen palette (phones).
+   */
+  anchor?: SearchAnchor | null
+  /**
+   * Where a result goes. With Workspace Tabs it opens (or jumps to) a tab
+   * instead of navigating the window. Default: router.push.
+   */
+  onNavigate?: (href: string) => void
 }) {
   const router = useRouter()
+  const navigate = (href: string) => { if (onNavigate) onNavigate(href); else router.push(href) }
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
+  // Highlighted result for ↑ ↓ Enter (index into `options` below).
+  const [active, setActive] = useState(0)
   const [messageResults, setMessageResults] = useState<MessageResult[]>([])
   const [searchingMessages, setSearchingMessages] = useState(false)
   const [searchedMessages, setSearchedMessages] = useState(false)
@@ -109,6 +129,9 @@ export default function HubQuickCompose({
   const debounced = useDebounce(query.trim(), 300)
 
   useEffect(() => { inputRef.current?.focus() }, [])
+  useEffect(() => {
+    document.querySelector('[data-qc-active="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [active, query])
 
   // Keyword search across all rooms + DMs the user is a member of
   // (the API is RLS-scoped, so it only ever returns messages they can read).
@@ -184,7 +207,7 @@ export default function HubQuickCompose({
       const data = await res.json()
       if (data.id) {
         onConversationCreated?.()
-        router.push(`/hub/pm/${data.id}`)
+        navigate(`/hub/pm/${data.id}`)
         onClose()
       }
     } finally {
@@ -209,24 +232,70 @@ export default function HubQuickCompose({
     // Deep-link to the actual message so the conversation opens scrolled to it
     // (and flashes it). Thread replies also carry the parent so the thread opens.
     const qs = r.parent_id ? `?msg=${r.id}&thread=${r.parent_id}` : `?msg=${r.id}`
-    if (r.room_id) router.push(`/hub/${r.room_id}${qs}`)
-    else if (r.conversation_id) router.push(`/hub/pm/${r.conversation_id}${qs}`)
+    const path = r.room_id ? `/hub/${r.room_id}` : r.conversation_id ? `/hub/pm/${r.conversation_id}` : null
+    const target = r.room_id ?? r.conversation_id
+    if (!path || !target) return
+    if (onNavigate) {
+      // A conversation open as a tab can't read ?msg= from the window's URL —
+      // hand the target over directly (RoomView picks it up).
+      requestMessageJump({ target, msg: r.id, thread: r.parent_id })
+      onNavigate(path)
+    } else {
+      router.push(`${path}${qs}`)
+    }
     onClose()
   }
 
-  return (
-    <div className="fixed inset-0 z-[200] flex flex-col bg-gray-950/95 backdrop-blur-sm">
-      {/* Header — pad the top past the iOS status bar / notch */}
-      <div className="flex-none border-b border-gray-800 px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}>
+  // ── Keyboard: ↑ ↓ move through every result in the order shown, Enter opens ──
+  type Opt = { key: string; run: () => void }
+  const options: Opt[] = [
+    ...filteredApps.map(a => ({ key: `app:${a.key}`, run: () => { navigate(a.href); onClose() } })),
+    ...filteredRooms.map(r => ({ key: `room:${r.id}`, run: () => { navigate(`/hub/${r.id}`); onClose() } })),
+    ...filteredUsers.map(u => ({ key: `user:${u.id}`, run: () => { void openDM(u.id) } })),
+    ...contactResultsShown.map(c => ({ key: `contact:${c.id}`, run: () => { navigate(`/hub/contacts/${c.id}`); onClose() } })),
+    ...messageResults.map(m => ({ key: `msg:${m.id}`, run: () => openMessageResult(m) })),
+  ]
+  const indexOf = new Map(options.map((o, i) => [o.key, i] as const))
+  const activeKey = options.length ? options[Math.min(active, options.length - 1)].key : null
+  const activeProps = (key: string) => ({
+    'data-qc-active': activeKey === key ? 'true' : undefined,
+    onMouseMove: () => { const i = indexOf.get(key); if (i !== undefined && i !== active) setActive(i) },
+  })
+  const activeBg = (key: string) => (activeKey === key ? 'bg-white/[0.08]' : '')
+
+  function onInputKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(a + 1, Math.max(0, options.length - 1))) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(0, a - 1)) }
+    else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (selectedIds.length >= 2) { void openDM(); return }
+      const o = activeKey ? options[indexOf.get(activeKey)!] : null
+      o?.run()
+    }
+  }
+
+  const dropdown = !!anchor
+
+  const panel = (
+    <>
+      {/* Header — pad the top past the iOS status bar / notch (full-screen only) */}
+      <div
+        className={`flex-none border-b border-gray-800 flex items-center gap-3 ${dropdown ? 'px-3 py-2.5' : 'px-4 py-3'}`}
+        style={dropdown ? undefined : { paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
+      >
         <svg className="w-5 h-5 text-gray-400 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          {dropdown
+            ? <path strokeLinecap="round" strokeLinejoin="round" d="M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4" />
+            : <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
         </svg>
         <input
           ref={inputRef}
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={e => { setQuery(e.target.value); setActive(0) }}
+          onKeyDown={onInputKey}
           placeholder={permissions ? 'Search apps, rooms, people, contacts, messages…' : 'Search rooms, people, and messages…'}
           className="flex-1 bg-transparent text-white text-base outline-none placeholder-gray-500"
+          aria-label="Search"
         />
         {(searchingMessages || contactsLoading) && (
           <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin flex-none" />
@@ -256,7 +325,7 @@ export default function HubQuickCompose({
       )}
 
       {/* Results */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
 
         {/* Apps — only the ones this person can open */}
         {filteredApps.length > 0 && (
@@ -267,8 +336,9 @@ export default function HubQuickCompose({
             {filteredApps.map(app => (
               <button
                 key={app.key}
-                onClick={() => { router.push(app.href); onClose() }}
-                className="w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3"
+                {...activeProps(`app:${app.key}`)}
+                onClick={() => { navigate(app.href); onClose() }}
+                className={`w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3 ${activeBg(`app:${app.key}`)}`}
               >
                 <div className="flex-none w-8 h-8 rounded-lg bg-[var(--t-sidebar)] flex items-center justify-center text-white/70">
                   {app.icon}
@@ -288,8 +358,9 @@ export default function HubQuickCompose({
             {filteredRooms.map(room => (
               <button
                 key={room.id}
-                onClick={() => { router.push(`/hub/${room.id}`); onClose() }}
-                className="w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3"
+                {...activeProps(`room:${room.id}`)}
+                onClick={() => { navigate(`/hub/${room.id}`); onClose() }}
+                className={`w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3 ${activeBg(`room:${room.id}`)}`}
               >
                 <div className="flex-none w-8 h-8 rounded-lg bg-[var(--t-sidebar)] flex items-center justify-center text-sm text-white/60 font-medium">
                   {room.is_private ? <LockIcon className="w-4 h-4" /> : '#'}
@@ -316,7 +387,8 @@ export default function HubQuickCompose({
               return (
                 <div
                   key={user.id}
-                  className={`flex items-center gap-3 px-4 py-2.5 transition-colors group ${isSelected ? 'bg-brand/10' : 'hover:bg-gray-800/60'}`}
+                  {...activeProps(`user:${user.id}`)}
+                  className={`flex items-center gap-3 px-4 py-2.5 transition-colors group ${isSelected ? 'bg-brand/10' : `hover:bg-gray-800/60 ${activeBg(`user:${user.id}`)}`}`}
                 >
                   {/* Avatar */}
                   <div className="flex-none w-8 h-8 rounded-full bg-[var(--t-sidebar)] flex items-center justify-center text-sm font-bold text-white">
@@ -366,8 +438,9 @@ export default function HubQuickCompose({
               return (
                 <button
                   key={c.id}
-                  onClick={() => { router.push(`/hub/contacts/${c.id}`); onClose() }}
-                  className="w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3"
+                  {...activeProps(`contact:${c.id}`)}
+                  onClick={() => { navigate(`/hub/contacts/${c.id}`); onClose() }}
+                  className={`w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3 ${activeBg(`contact:${c.id}`)}`}
                 >
                   <div className="flex-none w-8 h-8 rounded-full bg-emerald-800/60 flex items-center justify-center text-sm font-bold text-white">
                     {name.slice(0, 1).toUpperCase()}
@@ -398,8 +471,9 @@ export default function HubQuickCompose({
                 return (
                   <button
                     key={r.id}
+                    {...activeProps(`msg:${r.id}`)}
                     onClick={() => openMessageResult(r)}
-                    className="w-full text-left px-4 py-3 hover:bg-gray-800/60 transition-colors flex items-start gap-3"
+                    className={`w-full text-left px-4 py-3 hover:bg-gray-800/60 transition-colors flex items-start gap-3 ${activeBg(`msg:${r.id}`)}`}
                   >
                     <div className="flex-none w-8 h-8 rounded-full bg-[var(--t-sidebar)] flex items-center justify-center text-xs font-bold text-white mt-0.5">
                       {r.sender ? r.sender.display_name.slice(0, 1).toUpperCase() : '?'}
@@ -448,6 +522,35 @@ export default function HubQuickCompose({
           </p>
         )}
       </div>
+      {dropdown && (
+        <div className="flex-none border-t border-gray-800 px-3 py-1.5 flex items-center gap-3 text-[11px] text-gray-500">
+          <span><kbd className="px-1 rounded border border-gray-700">↑</kbd> <kbd className="px-1 rounded border border-gray-700">↓</kbd> to move</span>
+          <span><kbd className="px-1 rounded border border-gray-700">Enter</kbd> to open</span>
+          <span><kbd className="px-1 rounded border border-gray-700">Esc</kbd> to close</span>
+        </div>
+      )}
+    </>
+  )
+
+  // Desktop: a dropdown over the top bar's search box; the screen stays put.
+  if (anchor) {
+    return (
+      <div className="fixed inset-0 z-[200]" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+        <div
+          role="dialog"
+          aria-label="Search"
+          className="absolute flex flex-col rounded-xl border border-gray-700 bg-gray-950 shadow-2xl overflow-hidden backdrop-blur-xl"
+          style={{ top: anchor.top, left: anchor.left, width: anchor.width, maxHeight: 'min(72vh, 640px)' }}
+        >
+          {panel}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col bg-gray-950/95 backdrop-blur-sm">
+      {panel}
     </div>
   )
 }

@@ -16,6 +16,7 @@ import { getDailyLog, saveDailyLog } from '@/lib/hub-cache'
 import { isNativeApp } from '@/lib/hub-idle'
 import { useOutsideClose } from '@/hooks/use-outside-close'
 import { mergeOrder } from '@/lib/work-order-reorder'
+import { requestDial } from '@/lib/hub-dial'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1862,7 +1863,7 @@ function StopSheet({
   // the Dialer; Text find-or-creates the customer's Txt thread and opens it.
   function call() {
     if (!stop.client_phone) return
-    router.push(`/hub/dialer?number=${encodeURIComponent(stop.client_phone)}`)
+    requestDial({ number: stop.client_phone }, h => router.push(h))
   }
   async function text() {
     if (!stop.client_phone || texting) return

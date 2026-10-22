@@ -24,6 +24,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatPhone } from '@/lib/format'
 import { useTwilioDevice, type UseTwilioDevice } from '@/hooks/use-twilio-device'
+import { isEmbeddedTabFrame } from '@/lib/hub-embed'
 import { useDocumentPip } from '@/hooks/use-document-pip'
 import {
   showIncomingCallNotification,
@@ -61,7 +62,10 @@ export default function DialerProvider({ children }: { children: ReactNode }) {
   // autoRegister so the user's Voice Device comes online on the first Hub
   // route load — needed for incoming calls to surface without visiting
   // /hub/dialer first.
-  const device = useTwilioDevice({ autoRegister: true })
+  // Never register a phone inside a Workspace Tab's frame — the window has the
+  // one Device (every registered Device is another phone that rings).
+  const [inFrame] = useState(() => isEmbeddedTabFrame())
+  const device = useTwilioDevice({ autoRegister: !inFrame })
   const pip = useDocumentPip()
   const showIncoming = device.state === 'incoming'
 

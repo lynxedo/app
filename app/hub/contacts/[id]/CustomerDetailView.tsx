@@ -12,6 +12,7 @@ import AfterServiceSection from './AfterServiceSection'
 import BackToStopBar from './BackToStopBar'
 import WorkOrdersCard from './WorkOrdersCard'
 import type { CustomerDetailAccount, CustomerDetailProperty, AccountProgram, AccountVisit } from './types'
+import { requestDial } from '@/lib/hub-dial'
 
 type Tag = { id: string; label: string; color: string }
 
@@ -95,6 +96,14 @@ export default function CustomerDetailView({
 }) {
   const router = useRouter()
   const [contact, setContact] = useState<Contact>(initialContact)
+  // Name the page after the customer — a Workspace Tab showing this file takes
+  // its label from the title (it would otherwise just say "Customer").
+  const titleName = contactDisplayName(contact.name, contact.phone)
+  useEffect(() => {
+    const prev = document.title
+    document.title = titleName
+    return () => { document.title = prev }
+  }, [titleName])
   const [texting, setTexting] = useState(false)
   const [showMerge, setShowMerge] = useState(false)
   const [archiving, setArchiving] = useState(false)
@@ -168,7 +177,7 @@ export default function CustomerDetailView({
           )}
           <div className="mt-2 flex items-start justify-around gap-1">
             <HeaderIcon icon="📞" label="Call" tone="emerald" disabled={!(canAccessDialer && contact.phone)}
-              onClick={() => router.push(`/hub/dialer?number=${encodeURIComponent(contact.phone!)}`)} />
+              onClick={() => requestDial({ number: contact.phone! }, h => router.push(h))} />
             <HeaderIcon icon="💬" label={texting ? 'Opening…' : 'Text'} tone="sky" disabled={!contact.phone || texting} onClick={textContact} />
             <HeaderIcon icon="✉️" label="Email" tone="gray" disabled={!contact.email} href={contact.email ? `mailto:${contact.email}` : null} external />
             {canQuote && (
@@ -214,7 +223,7 @@ export default function CustomerDetailView({
               scroll (Ben, Oct 12 2026 — "Jobber ↗" and the rest were cut off). */}
           <div className="flex flex-wrap items-center justify-end gap-1.5 [&>*]:whitespace-nowrap">
             {canAccessDialer && contact.phone && (
-              <button type="button" onClick={() => router.push(`/hub/dialer?number=${encodeURIComponent(contact.phone!)}`)}
+              <button type="button" onClick={() => requestDial({ number: contact.phone! }, h => router.push(h))}
                 className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">📞 Call</button>
             )}
             {contact.phone && (

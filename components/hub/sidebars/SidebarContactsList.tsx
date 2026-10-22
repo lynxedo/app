@@ -7,6 +7,7 @@ import ContactModal from '@/components/hub/txt/ContactModal'
 import { Spinner, EmptyState, useToast } from '@/components/ui'
 import { formatPhone } from '@/lib/format'
 import { contactDisplayName, nameIsAiGuessed } from '@/lib/contact-name'
+import { requestDial } from '@/lib/hub-dial'
 
 type Tag = { id: string; label: string; color: string }
 
@@ -71,7 +72,7 @@ export default function SidebarContactsList({
 
   function call(phone: string) {
     if (!phone) return
-    router.push(`/hub/dialer?number=${encodeURIComponent(phone)}`)
+    requestDial({ number: phone }, h => router.push(h))
     onClose?.()
   }
 

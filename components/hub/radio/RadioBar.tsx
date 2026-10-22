@@ -15,7 +15,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { useOnScreenPath } from '../workspace/WorkspaceTabsContext'
 import { useRadio, type RadioApi, type RadioChannel } from './RadioProvider'
 import { useDialerContext } from '../dialer/DialerProvider'
 import { MicIcon, RadioIcon } from './RadioIcons'
@@ -25,7 +26,7 @@ const AMBER_AT_MS = 45_000
 
 export default function RadioBar() {
   const radio = useRadio()
-  const pathname = usePathname() ?? ''
+  const pathname = useOnScreenPath()
   const router = useRouter()
   const barRef = useRef<HTMLDivElement>(null)
   const [confirmEnd, setConfirmEnd] = useState(false)

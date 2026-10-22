@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { quoteAccess } from '@/lib/quote-access'
 import { workOrderAccess, workOrderViewPerms } from '@/lib/work-order-access'
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import fs from 'fs'
 import path from 'path'
 import { createClient } from '@/lib/supabase/server'
@@ -10,6 +11,7 @@ import { getCurrentUser, getCurrentProfile } from '@/lib/supabase/current-user'
 import { getCompanyEntitlements } from '@/lib/billing/entitlements'
 import { getBillingMode } from '@/lib/billing/catalog'
 import HubShell from '@/components/hub/HubShell'
+import HubWindowOnly from '@/components/hub/HubWindowOnly'
 import RadioInviteListener from '@/components/hub/radio/RadioInviteListener'
 import RadioProvider from '@/components/hub/radio/RadioProvider'
 import { HubMessagesProvider } from '@/components/hub/HubMessagesProvider'
@@ -418,6 +420,13 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     reactions: Array.isArray(a.reactions) ? a.reactions : [],
   }))
 
+  // A page opened as a Workspace Tab loads in a same-origin frame (see
+  // lib/hub-embed.ts). Everything that must exist once per WINDOW — notifiers,
+  // chimes, push registration, radio, the idle redirect, the update banner — is
+  // left out of the frame: the window around it already runs them, and a second
+  // copy would chime twice or redirect the tab out from under you.
+  const embedded = (await headers()).get('sec-fetch-dest') === 'iframe'
+
   let buildId = 'unknown'
   try {
     buildId = fs.readFileSync(path.join(process.cwd(), '.next', 'BUILD_ID'), 'utf8').trim()
@@ -429,7 +438,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       <HubMessagesProvider>
       <IosSplashScreens />
       {/* Radio's talking + listening, above every page so a channel follows you round the Hub. */}
-      <RadioProvider enabled={canAccessRadio} currentUserId={user.id}>
+      <RadioProvider enabled={canAccessRadio && !embedded} currentUserId={user.id}>
       <HubShell
         rooms={rooms}
         userEmail={user.email ?? ''}
@@ -487,10 +496,12 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         initialDialerDndEnabled={initialDialerDndEnabled}
         betaFlags={betaFlags}
         canAccessBeta={canAccessBeta}
+        embedded={embedded}
       >
         {children}
       </HubShell>
       </RadioProvider>
+      <HubWindowOnly embedded={embedded}>
       <PushInit />
       <OfflineShell />
       <ElectronNotifier
@@ -511,6 +522,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       />
       <HubWarmResume />
       <UpdateNotifier loadedBuildId={buildId} />
+      </HubWindowOnly>
       </HubMessagesProvider>
       </ConfirmProvider>
     </ToastProvider>

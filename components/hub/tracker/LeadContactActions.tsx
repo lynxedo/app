@@ -14,6 +14,7 @@
 
 import { createContext, useCallback, useContext, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { requestDial } from '@/lib/hub-dial'
 
 export type LeadContactPerms = { canCall: boolean; canText: boolean }
 
@@ -42,7 +43,7 @@ export default function LeadContactActions({
 
   const call = useCallback(() => {
     if (!phone) return
-    router.push(`/hub/dialer?number=${encodeURIComponent(phone)}`)
+    requestDial({ number: phone }, h => router.push(h))
   }, [phone, router])
 
   const text = useCallback(async () => {

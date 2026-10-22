@@ -16,6 +16,7 @@ import { formatPhone, initials } from '@/lib/format'
 import { useOutsideClose } from '@/hooks/use-outside-close'
 import { contactDisplayName, isPlaceholderName, nameIsAiGuessed } from '@/lib/contact-name'
 import { lsaThreadLabel } from '@/lib/lsa-relay'
+import { requestDial } from '@/lib/hub-dial'
 
 type Message = {
   id: string
@@ -1157,12 +1158,9 @@ export default function TxtConversationView({
   function startCall() {
     const phone = conversation.contact?.phone
     if (!phone) return
-    const qs = new URLSearchParams({
-      number: phone,
-      conversation_id: conversation.id,
-    })
-    if (conversation.contact?.id) qs.set('contact_id', conversation.contact.id)
-    router.push(`/hub/dialer?${qs.toString()}`)
+    // Desktop: the pop-up phone, pre-filled (you stay in the thread); elsewhere
+    // the Dialer page, pre-filled, as before. The ids ride through to the call row.
+    requestDial({ number: phone, conversationId: conversation.id, contactId: conversation.contact?.id ?? null }, h => router.push(h))
   }
 
   async function toggleArchive() {

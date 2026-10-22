@@ -811,9 +811,9 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <h2 className="font-semibold text-lg mb-1">Workspace Tabs</h2>
         <p className="text-gray-400 text-sm mb-5">
-          Open screens as tabs across the top of the Hub — like a browser. Each tab stays
-          exactly where you left it: your scroll position, your filters, a half-typed
-          message. Switch away and back and nothing is lost.
+          Everything opens as a tab across the top of the Hub — like a browser. Each tab
+          stays where you left it: your scroll position, your filters, a half-typed
+          message. Your tabs come back after a refresh.
         </p>
 
         <label className="flex items-start gap-3 cursor-pointer">
@@ -836,8 +836,9 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
         </label>
 
         <ul className="text-sm text-gray-300 space-y-1.5 mt-5 list-disc pl-5">
-          <li><strong className="text-white">Up to 8 tabs</strong> — opening a 9th closes whichever you used least recently.</li>
-          <li><strong className="text-white">Cmd/Ctrl + 1…8</strong> jumps straight to a tab; the ✕ (or a middle-click) closes one.</li>
+          <li><strong className="text-white">No limit</strong> — the six you used last stay ready; older ones sleep (dimmed, 🌙) and reopen when you click them.</li>
+          <li><strong className="text-white">Right-click a tab</strong> to pin it, duplicate it, or open it beside another (<strong className="text-white">Split</strong>).</li>
+          <li><strong className="text-white">Cmd/Ctrl + 1…9</strong> jumps straight to a tab; the ✕ (or a middle-click) closes one.</li>
           <li><strong className="text-white">Alt-click</strong> an app to open a second copy of a screen you already have open.</li>
         </ul>
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatPhone } from '@/lib/format'
 import { contactDisplayName, nameIsAiGuessed } from '@/lib/contact-name'
+import { useHubIntent } from '@/lib/hub-intent'
 
 const PAGE_SIZE = 100
 
@@ -59,6 +60,8 @@ export default function ContactsPanel({
   const [archivedOnly, setArchivedOnly] = useState(false) // "Archived" view (hidden from default list)
   const [showTags, setShowTags] = useState(false) // tag filter collapsed by default (lots of tags)
   const [adding, setAdding] = useState(false)
+  // Top bar → New → New contact.
+  useHubIntent('new-contact', () => setAdding(true))
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [total, setTotal] = useState<number | null>(null)

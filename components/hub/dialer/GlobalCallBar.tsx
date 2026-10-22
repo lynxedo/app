@@ -19,7 +19,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { formatPhone, formatDurationMs } from '@/lib/format'
 import { friendlyCallError } from '@/lib/dialer-errors'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { useOnScreenPath } from '../workspace/WorkspaceTabsContext'
 import { useDialerContext, usePipControls } from './DialerProvider'
 import ActiveCall from './ActiveCall'
 
@@ -27,7 +28,9 @@ import ActiveCall from './ActiveCall'
 export default function GlobalCallBar() {
   const device = useDialerContext()
   const pip = usePipControls()
-  const pathname = usePathname() ?? ''
+  // The screen in front, not the URL — with tabs the URL can still say /hub/dialer
+  // while you're working in another tab, and the bar must show there.
+  const pathname = useOnScreenPath()
   const router = useRouter()
   const [expanded, setExpanded] = useState(false)
   // When the slim-bar Transfer button is what opened the panel, mount ActiveCall
