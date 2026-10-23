@@ -23,6 +23,7 @@ type Base = {
   notes: Array<{ author: string; content: string; at: string; edited: boolean }>
   photos: Array<{ url: string; type: string | null; name: string | null }>
 }
+type Note = Base & { resolvedAt: string | null; resolvedBy: string | null }
 type Attention = Base & { problem: string; failingItems: Array<{ name: string; error: string | null; gaveUp: boolean }> }
 type Changed = Base & {
   changes: Array<{ name: string; kind: 'added' | 'changed' | 'not_done' | 'suggested'; quantity: number; unitPrice: number; origQuantity: number | null; origUnitPrice: number | null }>
@@ -34,9 +35,13 @@ const fmtTime = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 
 const fmtDate = (d: string | null) => d ? new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : ''
 
 export default function WorkOrdersOffice() {
-  const [data, setData] = useState<{ needsAttention: Attention[]; changed: Changed[]; readyToInvoice: Base[]; notes: Base[] } | null>(null)
+  const [data, setData] = useState<{ needsAttention: Attention[]; changed: Changed[]; readyToInvoice: Base[]; notes: Note[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<'attention' | 'changed' | 'invoice' | 'notes' | 'rules' | 'texts'>('attention')
+  const [showResolved, setShowResolved] = useState(false)
+  // Ready to invoice cards marked Done this visit — kept on screen with Undo
+  // until the next load, so a mis-tap is easy to take back.
+  const [doneHere, setDoneHere] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     try {
@@ -44,6 +49,7 @@ export default function WorkOrdersOffice() {
       const j = await res.json()
       if (!res.ok) throw new Error(j.error ?? 'Could not load')
       setData(j)
+      setDoneHere(new Set())
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load')
@@ -59,11 +65,35 @@ export default function WorkOrdersOffice() {
     }).catch(() => {})
   }
 
+  async function act(stopId: string, action: 'notes_resolved' | 'notes_reopen' | 'invoice_done' | 'invoice_undo') {
+    if (action === 'notes_resolved' || action === 'notes_reopen') {
+      setData(d => d ? { ...d, notes: d.notes.map(n => n.stopId !== stopId ? n
+        : action === 'notes_resolved' ? { ...n, resolvedAt: new Date().toISOString(), resolvedBy: 'You' }
+        : { ...n, resolvedAt: null, resolvedBy: null }) } : d)
+    } else {
+      setDoneHere(s => { const n = new Set(s); if (action === 'invoice_done') n.add(stopId); else n.delete(stopId); return n })
+    }
+    try {
+      const res = await fetch('/api/hub/work-orders/office', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stopId, action }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Could not save')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save')
+      void load()
+    }
+  }
+
+  const openNotes = data?.notes.filter(n => !n.resolvedAt) ?? []
+  const resolvedNotes = data?.notes.filter(n => n.resolvedAt) ?? []
+  const invoiceLeft = (data?.readyToInvoice ?? []).filter(s => !doneHere.has(s.stopId))
+
   const tabs: Array<{ key: typeof tab; label: string; count: number | null }> = [
     { key: 'attention', label: 'Needs attention', count: data?.needsAttention.length ?? 0 },
     { key: 'changed', label: 'Changed by techs', count: data?.changed.length ?? 0 },
-    { key: 'invoice', label: 'Ready to invoice', count: data?.readyToInvoice.length ?? 0 },
-    { key: 'notes', label: 'Tech notes', count: data?.notes.length ?? 0 },
+    { key: 'invoice', label: 'Ready to invoice', count: invoiceLeft.length },
+    { key: 'notes', label: 'Tech notes', count: openNotes.length },
     { key: 'rules', label: 'Inspection rules', count: null },
     { key: 'texts', label: 'Report text', count: null },
   ]
@@ -131,16 +161,48 @@ export default function WorkOrdersOffice() {
       {tab === 'texts' && <WorkOrderReportTexts />}
 
       {data && tab === 'notes' && (
-        <List empty="No tech notes or photos in the last 30 days."
-          help="Every stop where a tech left a note or a photo in the last 30 days, newest first — finished or not. Tap a customer to open their file, or Open stop to see it on the day.">
-          {data.notes.map(s => <Card key={s.stopId} s={s} notesOpen />)}
-        </List>
+        <>
+          <List empty={resolvedNotes.length ? 'All caught up — every tech note is resolved.' : 'No tech notes or photos in the last 30 days.'}
+            help="Stops where a tech left a note or a photo in the last 30 days, newest first — finished or not. Read it, then press Resolved to clear it. If the tech adds another note later, the stop comes back.">
+            {openNotes.map(s => (
+              <Card key={s.stopId} s={s} notesOpen
+                action={<button type="button" onClick={() => void act(s.stopId, 'notes_resolved')} className="shrink-0 px-2.5 py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-xs text-white">Resolved</button>} />
+            ))}
+          </List>
+          {resolvedNotes.length > 0 && (
+            <div className="mt-4">
+              <button type="button" onClick={() => setShowResolved(v => !v)} className="text-xs text-gray-400 hover:text-gray-200">
+                {showResolved ? '▾' : '▸'} Show resolved · {resolvedNotes.length}
+              </button>
+              {showResolved && (
+                <div className="space-y-2 mt-2 opacity-75">
+                  {resolvedNotes.map(s => (
+                    <Card key={s.stopId} s={s}
+                      action={<button type="button" onClick={() => void act(s.stopId, 'notes_reopen')} className="shrink-0 px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-xs text-gray-200">Reopen</button>}>
+                      <div className="text-[11px] text-emerald-300/80 mt-1">✓ Resolved{s.resolvedBy ? ` by ${s.resolvedBy}` : ''}{s.resolvedAt ? ` · ${fmtTime(s.resolvedAt)}` : ''}</div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {data && tab === 'invoice' && (
         <List empty="Nothing waiting to be invoiced."
-          help="Visits completed through Work Orders that aren't on autopay and have no invoice in Jobber yet. Open the job in Jobber and invoice as usual — autopay customers invoice themselves.">
-          {data.readyToInvoice.map(s => <Card key={s.stopId} s={s} />)}
+          help="Visits completed through Work Orders that aren't on autopay and have no invoice in Jobber yet. Invoice in Jobber as usual — the visit drops off this list on its own within a minute. Press Done for a visit you settled another way (no charge, billed with another visit). Autopay customers invoice themselves.">
+          {data.readyToInvoice.map(s => doneHere.has(s.stopId)
+            ? (
+              <div key={s.stopId} className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2 text-sm text-gray-400">
+                <span className="flex-1 truncate">✓ {s.client} — marked done</span>
+                <button type="button" onClick={() => void act(s.stopId, 'invoice_undo')} className="text-xs text-sky-300 hover:text-sky-200">Undo</button>
+              </div>
+            )
+            : (
+              <Card key={s.stopId} s={s}
+                action={<button type="button" onClick={() => void act(s.stopId, 'invoice_done')} className="shrink-0 px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-xs text-gray-200">Done</button>} />
+            ))}
         </List>
       )}
     </div>

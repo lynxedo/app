@@ -11,13 +11,16 @@ import { isEditedByTech, MAX_SYNC_ATTEMPTS, type WorkOrderLineItem } from '@/lib
 //        changed        — completed stops where a tech changed, added or
 //                         accepted line items, until someone marks them seen
 //        readyToInvoice — completed in Jobber through Work Orders, not on
-//                         autopay, and the visit has no invoice yet
+//                         autopay, no invoice on the job since the visit's day,
+//                         and nobody pressed Done
 //        notes          — every stop with tech notes/photos in the window,
 //                         newest note first (Ben, Oct 5: "add the notes/updates
 //                         that the tech put in") — and every card in every list
-//                         carries its stop's notes + photos
-// POST /api/hub/work-orders/office { stopId, action: 'reviewed' } — "Got it" on
-//      a Changed row.
+//                         carries its stop's notes + photos. Each carries
+//                         resolvedAt/resolvedBy (null while unresolved).
+// POST /api/hub/work-orders/office { stopId, action } — 'reviewed' ("Got it" on
+//      a Changed row), 'notes_resolved' / 'notes_reopen' (Tech notes),
+//      'invoice_done' / 'invoice_undo' (Ready to invoice).
 // Work Orders admins only — workOrderAccess().isAdmin (lib/work-order-access.ts).
 
 const LOOKBACK_DAYS = 30
@@ -48,6 +51,9 @@ type StopRow = {
   jobber_complete_error: string | null
   jobber_autopay: boolean | null
   line_items_reviewed_at: string | null
+  notes_resolved_at: string | null
+  notes_resolved_by: string | null
+  invoice_done_at: string | null
   contact_id: string | null
   daily_log_entries: { company_id: string; log_date: string; tech_user_id: string } | Array<{ company_id: string; log_date: string; tech_user_id: string }>
 }
@@ -60,7 +66,7 @@ export async function GET() {
 
   const { data: stopsRaw } = await admin
     .from('daily_log_stops')
-    .select('id, status, client_name, address, jobber_visit_id, jobber_job_id, completed_at, jobber_complete_pending, jobber_completed_at, jobber_complete_error, jobber_autopay, line_items_reviewed_at, contact_id, daily_log_entries!inner(company_id, log_date, tech_user_id)')
+    .select('id, status, client_name, address, jobber_visit_id, jobber_job_id, completed_at, jobber_complete_pending, jobber_completed_at, jobber_complete_error, jobber_autopay, line_items_reviewed_at, notes_resolved_at, notes_resolved_by, invoice_done_at, contact_id, daily_log_entries!inner(company_id, log_date, tech_user_id)')
     .eq('daily_log_entries.company_id', g.companyId)
     .eq('status', 'complete')
     .gte('completed_at', since)
@@ -101,13 +107,53 @@ export async function GET() {
     for (const j of data ?? []) jobLink.set(j.external_id as string, (j.jobber_web_uri as string | null) ?? null)
   }
 
-  const readyCandidates = stops.filter(s => s.jobber_completed_at && s.jobber_autopay !== true && s.jobber_visit_id)
+  // "Done" on a Ready to invoice card takes it off for good.
+  const readyCandidates = stops.filter(s => s.jobber_completed_at && s.jobber_autopay !== true && s.jobber_visit_id && !s.invoice_done_at)
   const invoiced = new Set<string>()
   const visitIds = readyCandidates.map(s => s.jobber_visit_id as string)
   for (let i = 0; i < visitIds.length; i += 100) {
     const { data } = await admin.from('visits').select('external_id, invoice_external_id, deleted_at')
       .eq('company_id', g.companyId).in('external_id', visitIds.slice(i, i + 100))
     for (const v of data ?? []) if (v.invoice_external_id || v.deleted_at) invoiced.add(v.external_id as string)
+  }
+  // visits.invoice_external_id stopped being filled on Aug 11 2026, so also
+  // match on the job's invoices: each invoice created on or after a visit's
+  // day settles one visit on that job, oldest visit first. (jobs.uninvoiced_total
+  // can't be used — on a recurring job it counts the future visits too.)
+  const logDateOf = (s: StopRow) => (Array.isArray(s.daily_log_entries) ? s.daily_log_entries[0] : s.daily_log_entries)?.log_date ?? ''
+  const openByJob = new Map<string, StopRow[]>()
+  for (const s of readyCandidates) {
+    if (!s.jobber_job_id || invoiced.has(s.jobber_visit_id as string)) continue
+    const arr = openByJob.get(s.jobber_job_id) ?? []
+    arr.push(s)
+    openByJob.set(s.jobber_job_id, arr)
+  }
+  const openJobIds = [...openByJob.keys()]
+  if (openJobIds.length) {
+    const earliestDay = readyCandidates.map(logDateOf).filter(Boolean).sort()[0]
+    // A day early so the Chicago-vs-UTC edge never drops an invoice; the
+    // per-invoice day check below is exact.
+    const from = new Date(new Date(`${earliestDay}T00:00:00Z`).getTime() - 24 * 60 * 60 * 1000).toISOString()
+    const invoicesByJob = new Map<string, string[]>()
+    for (let i = 0; i < openJobIds.length; i += 100) {
+      const { data } = await admin.from('invoices').select('job_external_id, external_created_at')
+        .eq('company_id', g.companyId).is('deleted_at', null)
+        .in('job_external_id', openJobIds.slice(i, i + 100))
+        .gte('external_created_at', from)
+      for (const inv of data ?? []) {
+        if (!inv.external_created_at) continue
+        const arr = invoicesByJob.get(inv.job_external_id as string) ?? []
+        arr.push(new Date(inv.external_created_at as string).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }))
+        invoicesByJob.set(inv.job_external_id as string, arr)
+      }
+    }
+    for (const [jobId, invDays] of invoicesByJob) {
+      const open = (openByJob.get(jobId) ?? []).slice().sort((a, b) => logDateOf(a).localeCompare(logDateOf(b)))
+      for (const day of invDays.sort()) {
+        const s = open.find(x => !invoiced.has(x.jobber_visit_id as string) && logDateOf(x) <= day)
+        if (s) invoiced.add(s.jobber_visit_id as string)
+      }
+    }
   }
 
   // Tech notes + photos. The Notes list covers stops in any state (a note on a
@@ -137,7 +183,7 @@ export async function GET() {
   for (let i = 0; i < missing.length; i += 100) {
     const { data } = await admin
       .from('daily_log_stops')
-      .select('id, status, client_name, address, jobber_visit_id, jobber_job_id, completed_at, jobber_complete_pending, jobber_completed_at, jobber_complete_error, jobber_autopay, line_items_reviewed_at, contact_id, daily_log_entries!inner(company_id, log_date, tech_user_id)')
+      .select('id, status, client_name, address, jobber_visit_id, jobber_job_id, completed_at, jobber_complete_pending, jobber_completed_at, jobber_complete_error, jobber_autopay, line_items_reviewed_at, notes_resolved_at, notes_resolved_by, invoice_done_at, contact_id, daily_log_entries!inner(company_id, log_date, tech_user_id)')
       .eq('daily_log_entries.company_id', g.companyId)
       .in('id', missing.slice(i, i + 100))
     stops.push(...((data ?? []) as unknown as StopRow[]))
@@ -169,8 +215,12 @@ export async function GET() {
       photosBy.set(a.stop_id as string, arr)
     }
   }
-  // Tech names for stops that only came in through their notes.
-  const extraTechs = [...new Set(stops.map(s => (Array.isArray(s.daily_log_entries) ? s.daily_log_entries[0] : s.daily_log_entries)?.tech_user_id).filter((t): t is string => !!t && !techName.has(t)))]
+  // Tech names for stops that only came in through their notes, and whoever
+  // resolved a stop's notes.
+  const extraTechs = [...new Set([
+    ...stops.map(s => (Array.isArray(s.daily_log_entries) ? s.daily_log_entries[0] : s.daily_log_entries)?.tech_user_id),
+    ...stops.map(s => s.notes_resolved_by),
+  ].filter((t): t is string => !!t && !techName.has(t)))]
   if (extraTechs.length) {
     const { data: more } = await admin.from('hub_users').select('id, display_name').in('id', extraTechs)
     for (const t of more ?? []) techName.set(t.id as string, (t.display_name as string | null) ?? '')
@@ -231,10 +281,21 @@ export async function GET() {
     .filter(s => !invoiced.has(s.jobber_visit_id as string))
     .map(s => shape(s))
 
+  // Resolved = the office pressed Resolved after the newest note/photo. A note
+  // added later brings the card back. Resolved cards still come back so the
+  // page can show them under "Show resolved".
   const notes = stops
     .filter(s => latestNoteAt.has(s.id))
     .sort((a, b) => (latestNoteAt.get(b.id) ?? '').localeCompare(latestNoteAt.get(a.id) ?? ''))
-    .map(s => shape(s, { lastNoteAt: latestNoteAt.get(s.id) }))
+    .map(s => {
+      const last = latestNoteAt.get(s.id) ?? ''
+      const resolved = !!s.notes_resolved_at && Date.parse(s.notes_resolved_at) >= Date.parse(last)
+      return shape(s, {
+        lastNoteAt: last,
+        resolvedAt: resolved ? s.notes_resolved_at : null,
+        resolvedBy: resolved && s.notes_resolved_by ? techName.get(s.notes_resolved_by) ?? '' : null,
+      })
+    })
 
   return NextResponse.json({ needsAttention, changed, readyToInvoice, notes })
 }
@@ -244,7 +305,16 @@ export async function POST(req: NextRequest) {
   if ('error' in g) return g.error
   let body: { stopId?: unknown; action?: unknown } = {}
   try { body = await req.json() } catch { /* empty */ }
-  if (typeof body.stopId !== 'string' || body.action !== 'reviewed') {
+  const now = new Date().toISOString()
+  const updates: Record<string, Record<string, string | null>> = {
+    reviewed: { line_items_reviewed_at: now, line_items_reviewed_by: g.userId },
+    notes_resolved: { notes_resolved_at: now, notes_resolved_by: g.userId },
+    notes_reopen: { notes_resolved_at: null, notes_resolved_by: null },
+    invoice_done: { invoice_done_at: now, invoice_done_by: g.userId },
+    invoice_undo: { invoice_done_at: null, invoice_done_by: null },
+  }
+  const update = typeof body.action === 'string' ? updates[body.action] : undefined
+  if (typeof body.stopId !== 'string' || !update) {
     return NextResponse.json({ error: 'stopId and action are required' }, { status: 400 })
   }
   const admin = createAdminClient()
@@ -252,8 +322,7 @@ export async function POST(req: NextRequest) {
     .from('daily_log_stops').select('id, daily_log_entries!inner(company_id)')
     .eq('id', body.stopId).eq('daily_log_entries.company_id', g.companyId).maybeSingle()
   if (!stop) return NextResponse.json({ error: 'Stop not found' }, { status: 404 })
-  await admin.from('daily_log_stops')
-    .update({ line_items_reviewed_at: new Date().toISOString(), line_items_reviewed_by: g.userId })
-    .eq('id', body.stopId)
+  const { error } = await admin.from('daily_log_stops').update(update).eq('id', body.stopId)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }
