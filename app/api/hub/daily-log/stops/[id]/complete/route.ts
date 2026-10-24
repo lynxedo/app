@@ -2,7 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
-import { loadStopLineItems, asStopLineItems, completeStopInJobber } from '@/lib/work-order-line-items'
+import { loadStopLineItems, asStopLineItems, completeStopInJobber, checkFinalVisit, type CloseChoice } from '@/lib/work-order-line-items'
 import { evaluateEventAutomations } from '@/lib/automations'
 import type { WeatherSnapshot } from '@/lib/nws-weather'
 import { matchChemicalsForLineItems } from '@/lib/pesticide'
@@ -18,6 +18,20 @@ interface VisitMutationResponse {
   }
   errors?: Array<{ message: string }>
 }
+
+interface JobReopenResponse {
+  data?: { jobReopen?: { job: { id: string } | null; userErrors: Array<{ message: string }> } }
+  errors?: Array<{ message: string }>
+}
+
+const JOB_REOPEN_MUTATION = `
+  mutation JobReopen($jobId: EncodedId!) {
+    jobReopen(jobId: $jobId) {
+      job { id }
+      userErrors { message path }
+    }
+  }
+`
 
 const VISIT_UNCOMPLETE_MUTATION = `
   mutation VisitUncomplete($visitId: EncodedId!) {
@@ -43,6 +57,7 @@ type StopRow = {
   jobber_complete_pending: boolean
   jobber_completed_at: string | null
   jobber_autopay: boolean | null
+  jobber_job_closed_at: string | null
   client_name: string
   client_phone: string | null
   address: string
@@ -87,7 +102,7 @@ async function resolveStopOrError(stopId: string, userId: string) {
   const admin = createAdminClient()
   const { data: stop } = await admin
     .from('daily_log_stops')
-    .select('id, entry_id, jobber_visit_id, jobber_job_id, jobber_complete_pending, jobber_completed_at, jobber_autopay, client_name, client_phone, address, lat, lng, line_items, status, arrived_at, pesticide_record_id, pesticide_tech_notes, weather, daily_log_entries!inner(company_id, log_date, tech_user_id)')
+    .select('id, entry_id, jobber_visit_id, jobber_job_id, jobber_complete_pending, jobber_completed_at, jobber_autopay, jobber_job_closed_at, client_name, client_phone, address, lat, lng, line_items, status, arrived_at, pesticide_record_id, pesticide_tech_notes, weather, daily_log_entries!inner(company_id, log_date, tech_user_id)')
     .eq('id', stopId)
     .single<StopRow>()
 
@@ -207,12 +222,41 @@ async function upsertPesticideRecord(args: {
   return inserted.id
 }
 
-// ── Mark stop complete + push to Jobber ─────────────────────────────────────
-export async function POST(
+// ── Before Complete: is this the last visit on its Jobber job? ─────────────
+// The screen asks this when the tech taps Complete; when it is, the tech picks
+// close-job-&-invoice-later or leave-job-open, as in Jobber mobile.
+export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const resolved = await resolveStopOrError(id, user.id)
+  if ('error' in resolved) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status })
+  }
+  const { stop, companyId, userId } = resolved
+  if (!stop.jobber_visit_id || stop.status === 'complete') {
+    return NextResponse.json({ final_visit: false, invoice_later: false })
+  }
+  const check = await checkFinalVisit(companyId, stop.jobber_visit_id, userId)
+  return NextResponse.json({ final_visit: check.finalVisit, invoice_later: check.invoiceLater, error: check.error })
+}
+
+// ── Mark stop complete + push to Jobber ─────────────────────────────────────
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const { id } = await context.params
+  // The tech's answer on a last visit (absent on every other visit).
+  const body = await request.json().catch(() => ({})) as { jobber_close?: unknown }
+  const closeChoice: CloseChoice | null =
+    body.jobber_close === 'close' || body.jobber_close === 'leave_open' ? body.jobber_close : null
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -235,6 +279,7 @@ export async function POST(
       status: 'complete',
       completed_at: nowIso,
       completed_by: userId,
+      jobber_close_choice: closeChoice,
     })
     .eq('id', stop.id)
     .select('id, ord, status, arrived_at, completed_at, completed_by')
@@ -418,6 +463,8 @@ export async function DELETE(
       jobber_complete_pending: false,
       jobber_completed_at: null,
       jobber_complete_error: null,
+      jobber_close_choice: null,
+      jobber_job_closed_at: null,
     })
     .eq('id', stop.id)
     .select('id, ord, status, arrived_at, completed_at, completed_by')
@@ -440,6 +487,13 @@ export async function DELETE(
     try {
       const jobberUserId = await companyJobberUserId(companyId, userId)
       if (!jobberUserId) throw new Error('No connected Jobber account for this company')
+      // Hub closed the job on this visit — reopen it first; Jobber won't
+      // uncomplete a visit on a closed job.
+      if (stop.jobber_job_closed_at && stop.jobber_job_id) {
+        const reopen = await jobberGraphQLAdmin<JobReopenResponse>(jobberUserId, JOB_REOPEN_MUTATION, { jobId: stop.jobber_job_id })
+        const errs = [...(reopen.data?.jobReopen?.userErrors ?? []), ...(reopen.errors ?? [])]
+        if (errs.length > 0) throw new Error(`the job didn't reopen (${errs.map(e => e.message).join('; ')})`)
+      }
       const result = await jobberGraphQLAdmin<VisitMutationResponse>(
         jobberUserId,
         VISIT_UNCOMPLETE_MUTATION,

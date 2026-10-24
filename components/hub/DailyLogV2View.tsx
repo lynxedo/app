@@ -49,6 +49,9 @@ type StopInspection = { id: string; status: 'draft' | 'final'; share_url: string
 // Work Orders Phase 3 — the after-service report for this stop's visit (WF / MO).
 type StopReport = { id: string; status: 'draft' | 'final'; sent_at: string | null }
 
+/** The tech's answer on a job's last visit (lib/work-order-line-items CloseChoice). */
+type CloseChoice = 'close' | 'leave_open'
+
 type Stop = {
   id: string
   ord: number
@@ -341,11 +344,12 @@ export default function DailyLogV2View({
     )
   }, [])
 
-  const handleComplete = useCallback(async (stopId: string, undo: boolean, entryId: string) => {
+  const handleComplete = useCallback(async (stopId: string, undo: boolean, entryId: string, closeChoice?: CloseChoice) => {
     setPendingActionStopId(stopId)
     try {
       const res = await fetch(`/api/hub/daily-log/stops/${stopId}/complete`, {
         method: undo ? 'DELETE' : 'POST',
+        ...(closeChoice ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobber_close: closeChoice }) } : {}),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
@@ -755,7 +759,7 @@ export default function DailyLogV2View({
           skipReasons={skipReasons}
           onClose={closeStop}
           onArrive={handleArrive}
-          onComplete={(stopId, undo) => handleComplete(stopId, undo, openStopCtx.entry.id)}
+          onComplete={(stopId, undo, closeChoice) => handleComplete(stopId, undo, openStopCtx.entry.id, closeChoice)}
           onSkip={handleSkip}
           onOnMyWay={handleOnMyWay}
           onPestNotesSave={handlePestNotesSave}
@@ -1709,7 +1713,7 @@ function StopSheet({
   skipReasons: SkipReason[]
   onClose: () => void
   onArrive: (stopId: string, undo: boolean) => void | Promise<void>
-  onComplete: (stopId: string, undo: boolean) => void | Promise<void>
+  onComplete: (stopId: string, undo: boolean, closeChoice?: CloseChoice) => void | Promise<void>
   onSkip: (stopId: string, undo: boolean, reasonId?: string, reasonLabel?: string) => void | Promise<void>
   onOnMyWay: (stopId: string, etaMinutes: number) => Promise<{ ok: true } | { ok: false }>
   onPestNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
@@ -1732,6 +1736,11 @@ function StopSheet({
   const [omwCustom, setOmwCustom] = useState<string>('')
 
   const [skipPickerOpen, setSkipPickerOpen] = useState(false)
+  // Last visit on its Jobber job: ask what Jobber mobile asks ("Complete final
+  // visit and…"). invoiceLater = one-off wording; a recurring job's last visit
+  // just says "Close job".
+  const [finalVisitPrompt, setFinalVisitPrompt] = useState<{ invoiceLater: boolean } | null>(null)
+  const [checkingFinalVisit, setCheckingFinalVisit] = useState(false)
   const [selectedReasonId, setSelectedReasonId] = useState<string | null>(null)
   const [selectedReasonLabel, setSelectedReasonLabel] = useState<string | null>(null)
 
@@ -1886,7 +1895,27 @@ function StopSheet({
     setTexting(false)
   }
 
-  const openSkip = () => { setSkipPickerOpen(v => !v); setSelectedReasonId(null); setSelectedReasonLabel(null) }
+  const startComplete = async () => {
+    if (!stop.jobber_visit_id) { onComplete(stop.id, false); return }
+    setCheckingFinalVisit(true)
+    try {
+      const res = await fetch(`/api/hub/daily-log/stops/${stop.id}/complete`)
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.final_visit) {
+        setSkipPickerOpen(false)
+        setFinalVisitPrompt({ invoiceLater: !!data.invoice_later })
+        return
+      }
+    } catch { /* can't ask Jobber — complete the visit, leave the job as it is */ }
+    finally { setCheckingFinalVisit(false) }
+    onComplete(stop.id, false)
+  }
+  const finishFinalVisit = (choice: CloseChoice) => {
+    setFinalVisitPrompt(null)
+    onComplete(stop.id, false, choice)
+  }
+
+  const openSkip = () => { setFinalVisitPrompt(null); setSkipPickerOpen(v => !v); setSelectedReasonId(null); setSelectedReasonLabel(null) }
 
   return (
     <>
@@ -2257,6 +2286,32 @@ function StopSheet({
 
         {/* Bottom action bar */}
         <div className="flex-none border-t border-gray-800 bg-gray-900 px-3 pt-2 pb-2">
+          {finalVisitPrompt && !isComplete && !isSkipped && (
+            <div className="mb-2 bg-gray-950/70 border border-gray-700 rounded p-3 space-y-2">
+              <div className="text-sm font-medium text-white">Complete final visit and…</div>
+              <div className="text-xs text-gray-400">This is the last visit on this job in Jobber.</div>
+              <button
+                onClick={() => finishFinalVisit('close')}
+                disabled={pending}
+                className="w-full text-left px-3 py-2.5 rounded text-sm bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white font-medium transition-colors"
+              >
+                {finalVisitPrompt.invoiceLater ? 'Close job & invoice later' : 'Close job'}
+              </button>
+              <button
+                onClick={() => finishFinalVisit('leave_open')}
+                disabled={pending}
+                className="w-full text-left px-3 py-2.5 rounded text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-200 transition-colors"
+              >
+                Leave job open
+              </button>
+              <button
+                onClick={() => setFinalVisitPrompt(null)}
+                className="w-full px-3 py-2 rounded text-sm text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
           {skipPickerOpen && !isComplete && !isSkipped && (
             <div className="mb-2 max-h-[45vh] overflow-y-auto bg-gray-950/70 border border-gray-700 rounded p-3 space-y-2">
               <div className="text-xs text-gray-400 mb-1.5">Why is this stop being skipped?</div>
@@ -2298,13 +2353,13 @@ function StopSheet({
             {!isComplete && !isInProgress && !isSkipped && (
               <>
                 <ActionIcon icon="▶" label={pending ? 'Starting…' : 'Arrived'} onClick={() => onArrive(stop.id, false)} disabled={pending} tone="amber" title="Arrived at the property — starts the timer" />
-                <ActionIcon icon="✓" label={pending ? 'Saving…' : 'Complete'} onClick={() => onComplete(stop.id, false)} disabled={pending} tone="emerald" title="Mark complete without the timer — also marks the visit done in Jobber" />
+                <ActionIcon icon="✓" label={pending || checkingFinalVisit ? 'Saving…' : 'Complete'} onClick={startComplete} disabled={pending || checkingFinalVisit} tone="emerald" title="Mark complete without the timer — also marks the visit done in Jobber" />
                 <ActionIcon icon="⊘" label="Skip" onClick={openSkip} disabled={pending} title="Skip this stop" />
               </>
             )}
             {isInProgress && (
               <>
-                <ActionIcon icon="✓" label={pending ? 'Saving…' : 'Complete'} onClick={() => onComplete(stop.id, false)} disabled={pending} tone="emerald" title="Mark complete — also marks the visit done in Jobber" />
+                <ActionIcon icon="✓" label={pending || checkingFinalVisit ? 'Saving…' : 'Complete'} onClick={startComplete} disabled={pending || checkingFinalVisit} tone="emerald" title="Mark complete — also marks the visit done in Jobber" />
                 <ActionIcon icon="⊘" label="Skip" onClick={openSkip} disabled={pending} title="Skip this stop" />
                 <ActionIcon icon="↺" label="Reset time" onClick={() => onArrive(stop.id, true)} disabled={pending} title="Reset the arrival time" />
               </>
