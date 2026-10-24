@@ -12,6 +12,7 @@ import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
 import { useConfirm, useToast } from '@/components/ui'
 import { useTabVisible } from './workspace/WorkspaceTabInstance'
+import { feedDebug, feedDebugEnabled } from '@/lib/feed-debug'
 import {
   saveMessages,
   getMessages,
@@ -939,6 +940,60 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   // Keep latest messages reachable from the stable loadOlder closure.
   const messagesRef = useRef(messages)
   messagesRef.current = messages
+
+  // ⚠ TEMPORARY feed diagnostics (lib/feed-debug.ts) — which feed instance saw
+  // what, and what was on screen at the time. Remove with lib/feed-debug.ts.
+  const [debugInst] = useState(() => Math.random().toString(36).slice(2, 8))
+  const dbg = useCallback((event: string, data: Record<string, unknown> = {}) => {
+    if (!feedDebugEnabled(currentUserId)) return
+    const el = scrollContainerRef.current
+    const list = messagesRef.current
+    feedDebug(currentUserId, event, {
+      inst: debugInst,
+      scope: (roomId ?? conversationId ?? '').slice(0, 8),
+      n: list.length,
+      last: list[list.length - 1]?.id?.slice(0, 8) ?? null,
+      top: el ? Math.round(el.scrollTop) : null,
+      h: el?.scrollHeight ?? null,
+      ch: el?.clientHeight ?? null,
+      newer: hasMoreNewerRef.current,
+      tv: tabVisibleRef.current,
+      ...data,
+    })
+  }, [currentUserId, roomId, conversationId, debugInst])
+
+  // ⚠ TEMPORARY feed diagnostics — mount/unmount and the app going to the
+  // background and coming back (lib/feed-debug.ts).
+  useEffect(() => {
+    if (!feedDebugEnabled(currentUserId)) return
+    dbg('mount', {
+      initial: initialMessages.length,
+      initialLast: initialMessages[initialMessages.length - 1]?.id?.slice(0, 8) ?? null,
+    })
+    const onVis = () => dbg('visibility')
+    const onShow = (e: PageTransitionEvent) => dbg('pageshow', { persisted: e.persisted })
+    const onHide = (e: PageTransitionEvent) => dbg('pagehide', { persisted: e.persisted })
+    const onOnline = () => dbg('online')
+    const onOffline = () => dbg('offline')
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('pageshow', onShow)
+    window.addEventListener('pagehide', onHide)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      dbg('unmount')
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('pageshow', onShow)
+      window.removeEventListener('pagehide', onHide)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    if (feedDebugEnabled(currentUserId)) dbg('messages')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length])
   const loadingOlderRef = useRef(false)
   // Keep addToBoardMsgId reachable from the stable handleAddToBoard callback.
   const addToBoardMsgIdRef = useRef(addToBoardMsgId)
@@ -1286,6 +1341,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           incrementReplyCount(payload.new.parent_id, payload.new.id)
           return
         }
+        dbg('rt-insert', { id: String(payload.new.id).slice(0, 8) })
         // Only claim "read" if this feed is actually on screen. A room/DM open as
         // a background Workspace Tab is mounted but invisible — marking it read
         // there would clear the unread dot for a message nobody has seen. The tab
@@ -1306,6 +1362,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
             files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)`)
           .eq('id', payload.new.id)
           .single()
+        dbg('rt-fetched', { id: String(payload.new.id).slice(0, 8), ok: !!data })
         if (data) {
           const msg = data as unknown as HubMessage
           if (msg.forwarded_from) {
@@ -1321,12 +1378,14 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           }
           setMessages(prev => {
             const idx = prev.findIndex(m => m.id === msg.id)
-            if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
-            if (hasMoreNewerRef.current) return prev // viewing the past — fetched on the way down
+            if (idx >= 0) { dbg('rt-set', { id: msg.id.slice(0, 8), outcome: 'replaced', prev: prev.length }); const next = [...prev]; next[idx] = msg; return next }
+            if (hasMoreNewerRef.current) { dbg('rt-set', { id: msg.id.slice(0, 8), outcome: 'dropped-viewing-past', prev: prev.length }); return prev } // viewing the past — fetched on the way down
+            dbg('rt-set', { id: msg.id.slice(0, 8), outcome: 'appended', prev: prev.length })
             return [...prev, msg]
           })
           setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
           patchMessage(msg)
+          requestAnimationFrame(() => dbg('rt-frame', { id: msg.id.slice(0, 8), inDom: !!scrollContainerRef.current?.querySelector(`[data-msg-id="${cssEscapeId(msg.id)}"]`) }))
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter }, (payload) => {
@@ -1350,6 +1409,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           incrementReplyCount(p.parent_id, p.id)
           return
         }
+        dbg('bc-insert', { id: p.id.slice(0, 8) })
         // Same visibility gate as the postgres_changes path above.
         if (p.sender_id && p.sender_id !== currentUserId && tabVisibleRef.current) {
           fetch('/api/hub/read-receipts', {
@@ -1366,6 +1426,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
             files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)`)
           .eq('id', p.id)
           .single()
+        dbg('bc-fetched', { id: p.id.slice(0, 8), ok: !!data })
         if (!data) return
         const msg = data as unknown as HubMessage
         if (msg.forwarded_from) {
@@ -1381,16 +1442,18 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         }
         setMessages(prev => {
           const idx = prev.findIndex(m => m.id === msg.id)
-          if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
-          if (hasMoreNewerRef.current) return prev // viewing the past — fetched on the way down
+          if (idx >= 0) { dbg('bc-set', { id: msg.id.slice(0, 8), outcome: 'replaced', prev: prev.length }); const next = [...prev]; next[idx] = msg; return next }
+          if (hasMoreNewerRef.current) { dbg('bc-set', { id: msg.id.slice(0, 8), outcome: 'dropped-viewing-past', prev: prev.length }); return prev } // viewing the past — fetched on the way down
+          dbg('bc-set', { id: msg.id.slice(0, 8), outcome: 'appended', prev: prev.length })
           return [...prev, msg]
         })
         setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
         patchMessage(msg)
+        requestAnimationFrame(() => dbg('bc-frame', { id: msg.id.slice(0, 8), inDom: !!scrollContainerRef.current?.querySelector(`[data-msg-id="${cssEscapeId(msg.id)}"]`) }))
       })
-      .subscribe()
+      .subscribe((status, err) => dbg('channel', { status, err: err?.message ?? null }))
 
-    return () => { supabase.removeChannel(channel) }
+    return () => { dbg('channel-remove'); supabase.removeChannel(channel) }
   }, [roomId, conversationId])
 
   useEffect(() => {
