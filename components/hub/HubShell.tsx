@@ -682,6 +682,13 @@ function FullHubShell({
     const id = setInterval(refreshHubUnread, 60_000)
     return () => clearInterval(id)
   }, [refreshHubUnread])
+  // Focus catch-up — a phone drops the realtime socket while it's locked, so a
+  // message sent in that window lit nothing; re-read the moment the app is back.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshHubUnread() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [refreshHubUnread])
 
   // Realtime: light the Hub rail icon dot the instant a new message arrives
   // (instead of waiting up to 60s for the poll). On a qualifying insert we pull

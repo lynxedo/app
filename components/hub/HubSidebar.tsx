@@ -383,7 +383,12 @@ export default function HubSidebar({
     }
     tick()
     const id = setInterval(tick, 60_000)
-    return () => { cancelled = true; clearInterval(id) }
+    // A phone drops the realtime socket while it's locked, so anything sent in
+    // that window never reached the dots — catch up the moment the app is back
+    // instead of waiting out the rest of the minute.
+    const onVisible = () => { if (document.visibilityState === 'visible') tick() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { cancelled = true; clearInterval(id); document.removeEventListener('visibilitychange', onVisible) }
   }, [currentUserId, viewingNow])
 
   // Realtime: mark rooms/convs unread when new messages arrive.
