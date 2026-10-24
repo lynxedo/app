@@ -262,6 +262,8 @@ type LiveItem = {
 type LiveVisit = {
   id: string
   isComplete: boolean
+  /** The choices Jobber mobile would offer on Complete (see FINAL_VISIT_ACTIONS). */
+  actionsUponComplete: string[]
   job: { id: string; willClientBeAutomaticallyCharged: boolean | null } | null
   lineItems: { nodes: LiveItem[] }
 }
@@ -269,7 +271,7 @@ type LiveVisit = {
 const VISIT_QUERY = `
   query WorkOrderVisit($id: EncodedId!) {
     visit(id: $id) {
-      id isComplete
+      id isComplete actionsUponComplete
       job { id willClientBeAutomaticallyCharged }
       lineItems(first: 50) { nodes { id name quantity unitPrice taxable linkedProductOrService { id } } }
     }
@@ -293,6 +295,15 @@ const VISIT_EDIT_ITEMS = `
 const JOB_EDIT_ITEMS = `
   mutation WorkOrderJobEditItems($jobId: EncodedId!, $input: JobEditLineItemsInput!) {
     jobEditLineItems(jobId: $jobId, input: $input) { userErrors { message path } }
+  }
+`
+
+// The job-level close. COMPLETE_PAST_DESTROY_FUTURE, never DESTROY_ALL: on a
+// last visit there is nothing left to resolve, and if the office added a visit
+// we re-check FINAL_VISIT_ACTIONS first and don't close at all.
+const JOB_CLOSE = `
+  mutation WorkOrderJobClose($jobId: EncodedId!) {
+    jobClose(jobId: $jobId, input: { modifyIncompleteVisitsBy: COMPLETE_PAST_DESTROY_FUTURE }) { job { id } userErrors { message path } }
   }
 `
 
@@ -449,6 +460,48 @@ async function pushItems(admin: Admin, jobberUserId: string, stop: LineItemStop,
   return { pushed, failed, live: { ...live, lineItems: { nodes: current } }, error: null }
 }
 
+// ── Last visit on the job: Jobber mobile's "Complete final visit and…" ───────
+
+/**
+ * Jobber's `Visit.actionsUponComplete` is exactly the menu Jobber mobile shows
+ * on Complete: one-off last visit → CLOSE_JOB_INVOICE_NOW / _LATER +
+ * LEAVE_JOB_OPEN; a recurring job's last visit → CLOSE_JOB + LEAVE_JOB_OPEN;
+ * any other visit → nothing job-level (verified live, Oct 23 2026). Any of
+ * these means "this is the last visit". Invoice-now isn't offered: the office
+ * invoices in Jobber, so close-and-invoice-later is the close we do.
+ */
+const FINAL_VISIT_ACTIONS = ['CLOSE_JOB', 'CLOSE_JOB_INVOICE_LATER', 'CLOSE_JOB_INVOICE_NOW', 'LEAVE_JOB_OPEN']
+const isFinalVisit = (actions: string[] | undefined) => (actions ?? []).some(a => FINAL_VISIT_ACTIONS.includes(a))
+
+export type CloseChoice = 'close' | 'leave_open'
+export type FinalVisitCheck = { finalVisit: boolean; invoiceLater: boolean; error: string | null }
+
+/**
+ * Asked when the tech taps Complete: is this the job's last visit? A failed
+ * read answers "no" (the visit just completes, the job stays open — the
+ * office can close it in Jobber), so a Jobber hiccup never blocks a tech.
+ */
+export async function checkFinalVisit(companyId: string, visitId: string, actorUserId: string): Promise<FinalVisitCheck> {
+  try {
+    const jobberUserId = await companyJobberUserId(companyId, actorUserId)
+    if (!jobberUserId) return { finalVisit: false, invoiceLater: false, error: 'No connected Jobber account' }
+    const res = await jobberGraphQLPatient<{ data?: { visit: { isComplete: boolean; actionsUponComplete: string[] } | null } }>(
+      jobberUserId,
+      `query WorkOrderFinalVisit($id: EncodedId!) { visit(id: $id) { isComplete actionsUponComplete } }`,
+      { id: visitId },
+      [1500],
+    )
+    const actions = res.data?.visit?.actionsUponComplete
+    return {
+      finalVisit: isFinalVisit(actions),
+      invoiceLater: (actions ?? []).includes('CLOSE_JOB_INVOICE_LATER'),
+      error: res.data?.visit ? null : 'The visit was not found in Jobber',
+    }
+  } catch (e) {
+    return { finalVisit: false, invoiceLater: false, error: e instanceof Error ? e.message : 'Jobber unavailable' }
+  }
+}
+
 export type CompleteInJobberResult = {
   jobberPushed: boolean          // the visit is complete in Jobber
   warning: string | null
@@ -465,8 +518,8 @@ export type CompleteInJobberResult = {
 export async function completeStopInJobber(admin: Admin, companyId: string, stopId: string, actorUserId: string): Promise<CompleteInJobberResult> {
   const none: CompleteInJobberResult = { jobberPushed: false, warning: null, autopay: null, itemsPushed: 0, itemsFailed: 0 }
   const { data: stop } = await admin
-    .from('daily_log_stops').select('id, status, jobber_visit_id, jobber_job_id, line_items')
-    .eq('id', stopId).maybeSingle<LineItemStop>()
+    .from('daily_log_stops').select('id, status, jobber_visit_id, jobber_job_id, line_items, jobber_close_choice, jobber_job_closed_at')
+    .eq('id', stopId).maybeSingle<LineItemStop & { jobber_close_choice: CloseChoice | null; jobber_job_closed_at: string | null }>()
   if (!stop?.jobber_visit_id) return none
 
   await admin.from('daily_log_stops').update({ jobber_complete_pending: true }).eq('id', stopId)
@@ -496,11 +549,37 @@ export async function completeStopInJobber(admin: Admin, companyId: string, stop
       const ue = errText(out.data?.visitComplete?.userErrors)
       if (ue) throw new Error(ue)
     }
+
+    // The tech chose "close job & invoice later" on the last visit. Only after
+    // the visit is complete (never close a job around an open visit), and only
+    // if Jobber still calls it the last one — read before completing, so an
+    // office edit since the tech's tap leaves the job open rather than letting
+    // the close delete a newly added visit. A failed close is not retried: the
+    // visit is done, the office closes the job in Jobber.
+    let closeWarning: string | null = null
+    let closedAt: string | null = null
+    if (stop.jobber_close_choice === 'close' && !stop.jobber_job_closed_at) {
+      const jobId = push.live.job?.id ?? stop.jobber_job_id
+      if (!jobId || !isFinalVisit(push.live.actionsUponComplete)) {
+        closeWarning = 'Visit is complete in Jobber, but Jobber no longer sees it as the last visit on the job, so the job was left open.'
+      } else {
+        try {
+          const out = await jobberGraphQLPatient<{ data?: { jobClose?: { userErrors: UserErrors } } }>(jobberUserId, JOB_CLOSE, { jobId })
+          const ue = errText(out.data?.jobClose?.userErrors)
+          if (ue) throw new Error(ue)
+          closedAt = new Date().toISOString()
+        } catch (e) {
+          closeWarning = `Visit is complete in Jobber, but the job didn't close (${e instanceof Error ? e.message : 'Jobber error'}). The office can close it in Jobber.`
+        }
+      }
+    }
+
     await admin.from('daily_log_stops').update({
       jobber_complete_pending: false, jobber_completed_at: new Date().toISOString(),
-      jobber_complete_error: null, jobber_autopay: autopay,
+      jobber_complete_error: closeWarning, jobber_autopay: autopay,
+      ...(closedAt ? { jobber_job_closed_at: closedAt } : {}),
     }).eq('id', stopId)
-    return { jobberPushed: true, warning: null, autopay, itemsPushed: push.pushed, itemsFailed: 0 }
+    return { jobberPushed: true, warning: closeWarning, autopay, itemsPushed: push.pushed, itemsFailed: 0 }
   } catch (e) {
     const msg = `Jobber: ${e instanceof Error ? e.message : 'push failed'} — retrying automatically.`
     await admin.from('daily_log_stops').update({ jobber_complete_error: msg }).eq('id', stopId)
