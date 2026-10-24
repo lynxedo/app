@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { localDateOf } from '@/lib/tz'
 import { syncWorkOrdersForVisit, syncWorkOrdersForJob } from '@/lib/work-orders-sync'
 import { writeCustomerLinkForClient } from '@/lib/jobber-customer-link'
 import { writeReportLinksForJob } from '@/lib/jobber-report-links'
@@ -1204,7 +1205,7 @@ async function syncVisits(
       client_id: visitClientIds.get(v.client?.id ?? '') ?? null,
       client_external_id: v.client?.id ?? null,
       title: v.title ?? null,
-      scheduled_date: v.startAt ? v.startAt.split('T')[0] : null,
+      scheduled_date: v.startAt ? localDateOf(v.startAt) : null,
       start_at: v.startAt ?? null,
       end_at: v.endAt ?? null,
       completed_at: v.completedAt ?? null,
