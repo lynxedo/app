@@ -13,6 +13,16 @@
 export const COMPANY_TZ = 'America/Chicago'
 
 /**
+ * The local calendar date (YYYY-MM-DD) of an instant. Jobber's startAt is UTC,
+ * so slicing its date makes anything after 7 PM Central (6 PM in winter) the
+ * NEXT day — which filed evening visits under tomorrow and let the Work Orders
+ * live check delete them as ghosts (Oct 23 2026).
+ */
+export function localDateOf(iso: string, timeZone: string = COMPANY_TZ): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso))
+}
+
+/**
  * The real UTC offset for a calendar date in a timezone, DST included,
  * as "+HH:MM" / "-HH:MM".
  */

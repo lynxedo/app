@@ -46,7 +46,7 @@ import { refreshVisitsByExternalIds } from '@/lib/jobber-sync'
 
 type Admin = ReturnType<typeof createAdminClient>
 
-/** Heroes' account timezone; the mirror's `scheduled_date` is already this local date. */
+/** Heroes' account timezone; the mirror's `scheduled_date` is this local date (lib/tz localDateOf). */
 const COMPANY_TZ = 'America/Chicago'
 /** Today + this many further days are kept in step by the sweep. */
 export const WORK_ORDER_HORIZON_DAYS = 8
