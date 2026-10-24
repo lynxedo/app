@@ -823,11 +823,17 @@ export default function TxtConversationView({
 
     // Safety-net reconcile (much slower than the old 8s churn).
     const t = setInterval(refresh, 30000)
+    // A phone drops the realtime socket while it's locked, so an inbound text in
+    // that window missed the broadcast — reconcile the moment the app is back
+    // instead of waiting out the rest of the 30s.
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh() }
+    document.addEventListener('visibilitychange', onVisible)
 
     return () => {
       cancelled = true
       clearInterval(t)
       off()
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [conversation.id, companyId])
 

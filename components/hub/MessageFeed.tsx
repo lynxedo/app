@@ -1215,6 +1215,79 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     }
   }, [scopedQuery, enrichRows])
 
+  // Catch up on what the live channel missed. Realtime only delivers what
+  // happens while the socket is open, and a phone drops it the moment the screen
+  // locks — a message sent in that window never reached this feed, so the open
+  // conversation showed it only after you backed out and went back in (Ben, Josh,
+  // Mike, Oct 23 2026, proven with [feed-debug]). So whenever the app comes back,
+  // the network returns or the channel (re)subscribes, fetch whatever is newer
+  // than the last message held. Skipped while viewing the past (Jump to date):
+  // the newer pages load on the way down.
+  const catchingUpRef = useRef(false)
+  const catchUp = useCallback(async (reason: string) => {
+    if (catchingUpRef.current || hasMoreNewerRef.current) return
+    catchingUpRef.current = true
+    try {
+      const current = messagesRef.current
+      const newest = current[current.length - 1]
+      let q = scopedQuery()
+      if (newest?.created_at) q = q.gt('created_at', newest.created_at)
+      const { data } = await q.order('created_at', { ascending: true }).limit(MESSAGE_PAGE_SIZE)
+      const rows = (data ?? []) as unknown as HubMessage[]
+      dbg('catch-up', { reason, found: rows.length })
+      if (rows.length === 0) return
+      // A whole page or more was missed — reload the latest page rather than
+      // append a slice with a gap after it.
+      if (rows.length >= MESSAGE_PAGE_SIZE) { await jumpToLatest(); return }
+      const counts = await enrichRows(rows)
+      setMessages(prev => {
+        const have = new Set(prev.map(m => m.id))
+        const fresh = rows.filter(m => !have.has(m.id))
+        if (fresh.length === 0) return prev
+        // A live message can land while this fetch is in flight — keep time order.
+        return [...prev, ...fresh].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))
+      })
+      setRxMap(prev => {
+        const next = { ...prev }
+        for (const m of rows) next[m.id] = normReactions(m.reactions)
+        return next
+      })
+      setReplyCounts(prev => {
+        const next = { ...prev }
+        for (const m of rows) next[m.id] = counts[m.id] ?? 0
+        return next
+      })
+      for (const m of rows) patchMessage(m)
+      // Same rule as the live path: claim "read" only when this feed is on screen.
+      const fromOthers = rows.some(m => normSender(m.sender)?.id !== currentUserId)
+      if (fromOthers && tabVisibleRef.current && document.visibilityState === 'visible') {
+        fetch('/api/hub/read-receipts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(roomId ? { room_id: roomId } : { conversation_id: conversationId }),
+        }).catch(() => {})
+      }
+    } finally {
+      catchingUpRef.current = false
+    }
+  }, [scopedQuery, enrichRows, jumpToLatest, dbg, currentUserId, roomId, conversationId])
+  // The realtime handlers are bound once, so they reach the latest catchUp here.
+  const catchUpRef = useRef(catchUp)
+  useEffect(() => { catchUpRef.current = catchUp }, [catchUp])
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') void catchUpRef.current('visible') }
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) void catchUpRef.current('pageshow') }
+    const onOnline = () => { void catchUpRef.current('online') }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('pageshow', onShow)
+    window.addEventListener('online', onOnline)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('pageshow', onShow)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [])
+
   useEffect(() => {
     if (!feedReady || !hasMoreNewer) return
     const root = scrollContainerRef.current
@@ -1451,7 +1524,13 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         patchMessage(msg)
         requestAnimationFrame(() => dbg('bc-frame', { id: msg.id.slice(0, 8), inDom: !!scrollContainerRef.current?.querySelector(`[data-msg-id="${cssEscapeId(msg.id)}"]`) }))
       })
-      .subscribe((status, err) => dbg('channel', { status, err: err?.message ?? null }))
+      .subscribe((status, err) => {
+        dbg('channel', { status, err: err?.message ?? null })
+        // Every (re)join is a moment we may have missed something: the gap
+        // between the page render and the first join, or a socket that died
+        // while the phone was locked and has just come back.
+        if (status === 'SUBSCRIBED') void catchUpRef.current('subscribed')
+      })
 
     return () => { dbg('channel-remove'); supabase.removeChannel(channel) }
   }, [roomId, conversationId])
