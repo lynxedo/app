@@ -1840,6 +1840,7 @@ function DialerTab() {
           <li><strong className="text-white">End &amp; answer</strong> — hangs up your current caller and picks up the new one.</li>
           <li><strong className="text-white">Dismiss</strong> — sends the new caller on to voicemail / the next person.</li>
         </ul>
+        <p><strong className="text-white">Two calls ringing at once.</strong> If two customers call within a few seconds of each other, the incoming screen shows the newest one. If that caller hangs up, the screen switches to the other call that&apos;s still ringing instead of going blank. If you answer one, the other moves to the &quot;Another call waiting&quot; banner so you can still pick it up.</p>
         <p className="text-xs text-white/40">Hold &amp; answer needs the current call to support hold, so it&apos;s only offered on a normal in-progress call (and while you only have two calls going). Call waiting is a computer/desktop feature — on the phone app, your phone&apos;s own call-waiting handles it.</p>
         <p>To turn off cross-page ringing — for example, if you don&apos;t want your browser holding an open phone connection while you&apos;re heads-down on something else — open <strong className="text-white">Settings → Account → Communications</strong> and uncheck <em>Ring me on every Hub page</em>. With the toggle off, calls only ring you while you&apos;re on the Dialer page itself.</p>
       </Section>
