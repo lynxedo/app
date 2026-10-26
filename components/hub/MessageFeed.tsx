@@ -1274,10 +1274,29 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   // The realtime handlers are bound once, so they reach the latest catchUp here.
   const catchUpRef = useRef(catchUp)
   useEffect(() => { catchUpRef.current = catchUp }, [catchUp])
+
+  // A channel the server CLOSES is gone for good — realtime-js only rejoins on
+  // errors, and a closed channel leaves the client's list. On the Mac app a
+  // conversation left in the background had its channel closed after ~18 min;
+  // on return catchUp found nothing (nothing had been sent yet) but the channel
+  // was never rebuilt, so Kathryn's next three DMs never appeared until Ben
+  // reloaded (Oct 26 2026, proven with [feed-debug]). Bumping this rebuilds the
+  // channel, and its SUBSCRIBED runs catchUp.
+  const [feedChannelGen, setFeedChannelGen] = useState(0)
+  const feedChannelDeadRef = useRef(false)
+  const reviveFeedChannel = useCallback(() => {
+    if (!feedChannelDeadRef.current) return
+    feedChannelDeadRef.current = false
+    setFeedChannelGen(g => g + 1)
+  }, [])
   useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === 'visible') void catchUpRef.current('visible') }
-    const onShow = (e: PageTransitionEvent) => { if (e.persisted) void catchUpRef.current('pageshow') }
-    const onOnline = () => { void catchUpRef.current('online') }
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      reviveFeedChannel()
+      void catchUpRef.current('visible')
+    }
+    const onShow = (e: PageTransitionEvent) => { reviveFeedChannel(); if (e.persisted) void catchUpRef.current('pageshow') }
+    const onOnline = () => { reviveFeedChannel(); void catchUpRef.current('online') }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('pageshow', onShow)
     window.addEventListener('online', onOnline)
@@ -1286,7 +1305,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       window.removeEventListener('pageshow', onShow)
       window.removeEventListener('online', onOnline)
     }
-  }, [])
+  }, [reviveFeedChannel])
 
   useEffect(() => {
     if (!feedReady || !hasMoreNewer) return
@@ -1402,10 +1421,13 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, conversationId])
 
+  const feedRetriesRef = useRef(0)
   useEffect(() => {
     const filter = roomId
       ? `room_id=eq.${roomId}`
       : `conversation_id=eq.${conversationId}`
+    let disposed = false
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
 
     const channel = supabase
       .channel(`feed:${roomId ?? conversationId}`)
@@ -1529,11 +1551,31 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         // Every (re)join is a moment we may have missed something: the gap
         // between the page render and the first join, or a socket that died
         // while the phone was locked and has just come back.
-        if (status === 'SUBSCRIBED') void catchUpRef.current('subscribed')
+        if (status === 'SUBSCRIBED') {
+          feedChannelDeadRef.current = false
+          feedRetriesRef.current = 0
+          void catchUpRef.current('subscribed')
+          return
+        }
+        // Our own cleanup also reports CLOSED — only a close we didn't ask for counts.
+        if (disposed || status !== 'CLOSED') return
+        feedChannelDeadRef.current = true
+        // Closed while on screen: rebuild after a backoff. While hidden, wait for
+        // the visible/online/pageshow listeners to revive it.
+        if (document.visibilityState === 'visible') {
+          const wait = Math.min(3000 * 2 ** feedRetriesRef.current, 60000)
+          feedRetriesRef.current += 1
+          retryTimer = setTimeout(reviveFeedChannel, wait)
+        }
       })
 
-    return () => { dbg('channel-remove'); supabase.removeChannel(channel) }
-  }, [roomId, conversationId])
+    return () => {
+      disposed = true
+      if (retryTimer) clearTimeout(retryTimer)
+      dbg('channel-remove')
+      supabase.removeChannel(channel)
+    }
+  }, [roomId, conversationId, feedChannelGen, reviveFeedChannel])
 
   useEffect(() => {
     const id = roomId ?? conversationId
