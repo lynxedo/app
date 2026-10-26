@@ -281,6 +281,16 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
 
   const deviceRef = useRef<DeviceType | null>(null)
   const incomingCallRef = useRef<Call | null>(null)
+  // Every unanswered inbound call currently ringing on this device, oldest
+  // first. Two customers can call seconds apart; the incoming screen shows the
+  // newest, and when one rings off the screen falls back to the other.
+  // ⚠ Oct 26 2026: before this, ANY ringing call's cancel cleared the incoming
+  // screen — the first caller hanging up blanked the Hub while the second call
+  // was still ringing, so it rang out unseen and went to Amber.
+  const ringingCallsRef = useRef<Call[]>([])
+  // Ringing calls moved to the "call waiting" notice after another call was
+  // answered — their original incoming handlers stand down from then on.
+  const handedToWaitingRef = useRef<WeakSet<Call>>(new WeakSet())
   const activeCallRef = useRef<Call | null>(null)
   // ⚠ Assign the active call through `setActiveCall`, NEVER by writing
   // activeCallRef.current directly — the incoming ringtone has to stay disabled
@@ -711,29 +721,33 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           setErrorMessage(err instanceof Error ? err.message : 'token_refresh_failed')
         }
       })
+      // Present a call as the SILENT "call waiting" notice: mute the ringtone
+      // and DON'T touch `state` (setting it to 'incoming' would blow away the
+      // active-call UI). The user sees a banner and can finish the current call,
+      // answer this one, or dismiss it.
+      const presentWaiting = (call: Call, from: string) => {
+        device.audio?.incoming(false) // silence ONLY the incoming ringtone
+        waitingCallRef.current = call
+        setWaitingFrom(from)
+        const clearWaiting = () => {
+          if (waitingCallRef.current === call) {
+            waitingCallRef.current = null
+            setWaitingFrom(null)
+          }
+          // Restore the ring for the NEXT call once we're no longer busy.
+          device.audio?.incoming(!activeCallRef.current)
+        }
+        call.on('accept', clearWaiting)
+        call.on('disconnect', clearWaiting)
+        call.on('cancel', clearWaiting)
+        call.on('reject', clearWaiting)
+      }
       device.on('incoming', (call: Call) => {
         const from = call.parameters?.From || 'Unknown'
         // ── Call waiting ──────────────────────────────────────────────────────
-        // Already on a call → present the second call as a SILENT notice: mute
-        // the ringtone and DON'T touch `state` (setting it to 'incoming' would
-        // blow away the active-call UI). The user sees a "call waiting" banner
-        // and can finish the current call or dismiss it.
+        // Already on a call → present the second call as a silent notice.
         if (activeCallRef.current) {
-          device.audio?.incoming(false) // silence ONLY the incoming ringtone
-          waitingCallRef.current = call
-          setWaitingFrom(from)
-          const clearWaiting = () => {
-            if (waitingCallRef.current === call) {
-              waitingCallRef.current = null
-              setWaitingFrom(null)
-            }
-            // Restore the ring for the NEXT call once we're no longer busy.
-            device.audio?.incoming(!activeCallRef.current)
-          }
-          call.on('accept', clearWaiting)
-          call.on('disconnect', clearWaiting)
-          call.on('cancel', clearWaiting)
-          call.on('reject', clearWaiting)
+          presentWaiting(call, from)
           return
         }
         // Another TAB of ours is on the call → this tab has no call of its own, so
@@ -748,10 +762,32 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         // Not busy → normal audible incoming. Ensure the ring is on (self-heals
         // if a prior waiting call left it muted).
         device.audio?.incoming(true)
+        ringingCallsRef.current.push(call)
         incomingCallRef.current = call
         setIncomingFrom(from)
         setState('incoming')
+        // This call stopped ringing without being answered (caller hung up,
+        // ring timed out, or it was declined). Only touch the incoming screen if
+        // it is the call ON that screen; if another call is still ringing, show
+        // that one instead of going back to idle.
+        const dropRinging = () => {
+          ringingCallsRef.current = ringingCallsRef.current.filter((c) => c !== call)
+          if (handedToWaitingRef.current.has(call)) return
+          if (incomingCallRef.current !== call) return
+          const next = ringingCallsRef.current[ringingCallsRef.current.length - 1]
+          if (next) {
+            incomingCallRef.current = next
+            setIncomingFrom(next.parameters?.From || 'Unknown')
+            return
+          }
+          incomingCallRef.current = null
+          setIncomingFrom(null)
+          setState('ready')
+        }
         call.on('accept', () => {
+          // Answered from the call-waiting banner — its own handlers own it now.
+          if (handedToWaitingRef.current.has(call)) return
+          ringingCallsRef.current = ringingCallsRef.current.filter((c) => c !== call)
           setActiveCall(call)
           incomingCallRef.current = null
           setInCallWith(from)
@@ -761,8 +797,17 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           // Inbound: discover the server-generated conference room so the
           // in-call Transfer / Hold controls light up.
           fetchActiveConferenceRoomResilient().then((r) => { if (r) setConferenceRoom(r) })
+          // Another call was ringing alongside this one → it becomes the call-
+          // waiting notice instead of ringing on unseen until it rolls to Amber.
+          const other = ringingCallsRef.current[ringingCallsRef.current.length - 1]
+          ringingCallsRef.current = []
+          if (other && !waitingCallRef.current) {
+            handedToWaitingRef.current.add(other)
+            presentWaiting(other, other.parameters?.From || 'Unknown')
+          }
         })
         call.on('disconnect', () => {
+          if (handedToWaitingRef.current.has(call)) return
           // Call-waiting: if this call is a held/background line or has already
           // been superseded, interceptCallEnd handles it (and returns true) so
           // we don't reset a still-live foreground. Normal single call → false.
@@ -779,16 +824,8 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           deviceRef.current?.audio?.unsetInputDevice().catch(() => {})
           setState('ready')
         })
-        call.on('cancel', () => {
-          incomingCallRef.current = null
-          setIncomingFrom(null)
-          setState('ready')
-        })
-        call.on('reject', () => {
-          incomingCallRef.current = null
-          setIncomingFrom(null)
-          setState('ready')
-        })
+        call.on('cancel', dropRinging)
+        call.on('reject', dropRinging)
       })
 
       // ── Web audio device selection ───────────────────────────────────────
