@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { companyForCall } from '@/lib/call-company'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
@@ -17,9 +18,6 @@ import {
 } from '@/lib/txt-inbound-queue'
 import { formatPhone } from '@/lib/format'
 
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 function twimlResponse(body: string, status = 200) {
   return new NextResponse(body, {
     status,
@@ -34,6 +32,7 @@ function twimlResponse(body: string, status = 200) {
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
+  const companyId = await companyForCall(params)
   const paramObj: Record<string, string> = {}
   for (const [k, v] of params.entries()) paramObj[k] = v
 
@@ -89,7 +88,7 @@ export async function POST(request: NextRequest) {
     const { data: contact } = await admin
       .from('txt_contacts')
       .select('id')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .eq('phone', fromNumber)
       .maybeSingle()
     contactId = contact?.id ?? null
@@ -102,7 +101,7 @@ export async function POST(request: NextRequest) {
     return twimlResponse(EMPTY_VOICE_TWIML)
   }
 
-  const storageKey = `dialer/${HEROES_COMPANY_ID}/voicemail/${recordingSid}.mp3`
+  const storageKey = `dialer/${companyId}/voicemail/${recordingSid}.mp3`
   const r2 = new S3Client({
     region: 'auto',
     endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -128,7 +127,7 @@ export async function POST(request: NextRequest) {
   const { data: voicemail, error: insertErr } = await admin
     .from('voicemails')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       call_id: callId,
       owner_user_id: ownerUserId,
       from_number: fromNumber || null,
@@ -177,7 +176,7 @@ export async function POST(request: NextRequest) {
     if (!queueContactId && fromNumber) {
       queueContactId = await findOrCreateContactByPhone(
         admin,
-        HEROES_COMPANY_ID,
+        companyId,
         fromNumber
       )
     }
@@ -186,7 +185,7 @@ export async function POST(request: NextRequest) {
         ? `${Math.floor(durationSec / 60)}:${String(durationSec % 60).padStart(2, '0')}`
         : ''
       await ensureInboundQueueConversation(admin, {
-        companyId: HEROES_COMPANY_ID,
+        companyId: companyId,
         contactId: queueContactId,
         preview: mmss ? `🎙 Voicemail (${mmss})` : '🎙 Voicemail',
       })
@@ -205,7 +204,7 @@ export async function POST(request: NextRequest) {
     const { data: settings } = await admin
       .from('dialer_settings')
       .select('voicemail_recipient_user_ids')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .single()
     recipients = settings?.voicemail_recipient_user_ids ?? []
   }
@@ -216,7 +215,7 @@ export async function POST(request: NextRequest) {
     // Also persists the resolved name onto a placeholder-named txt_contacts row.
     let contactName: string | null = null
     if (fromNumber) {
-      contactName = await enrichTxtContactName(HEROES_COMPANY_ID, fromNumber)
+      contactName = await enrichTxtContactName(companyId, fromNumber)
     }
     const caller = contactName || formatPhone(fromNumber) || 'Unknown caller'
     const duration = durationSec ? `${durationSec}s` : ''

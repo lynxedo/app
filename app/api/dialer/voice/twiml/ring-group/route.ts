@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { companyForCall } from '@/lib/call-company'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   EMPTY_VOICE_TWIML,
@@ -7,9 +8,6 @@ import {
 } from '@/lib/twilio-voice'
 import { conferenceRoomName } from '@/lib/twilio-conference'
 import { connectInboundToRingGroupViaConference } from '@/lib/dialer-conference-connect'
-
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 function twimlResponse(body: string, status = 200) {
   return new NextResponse(body, {
@@ -34,6 +32,7 @@ function twimlResponse(body: string, status = 200) {
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
+  const companyId = await companyForCall(params)
   const paramObj: Record<string, string> = {}
   for (const [k, v] of params.entries()) paramObj[k] = v
 
@@ -69,11 +68,12 @@ export async function POST(request: NextRequest) {
   const { data: dialerSettings } = await createAdminClient()
     .from('dialer_settings')
     .select('recording_enabled')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .maybeSingle()
 
   const room = conferenceRoomName()
   const twiml = await connectInboundToRingGroupViaConference({
+    companyId,
     baseUrl,
     room,
     callerCallSid: callSid,

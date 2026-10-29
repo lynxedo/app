@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { companyForCall } from '@/lib/call-company'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   BusinessHoursSchedule,
@@ -10,9 +11,6 @@ import {
 } from '@/lib/twilio-voice'
 import { buildConversationRelayTwiml } from '@/lib/voice-receptionist'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
-
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 function twimlResponse(body: string, status = 200) {
   return new NextResponse(body, {
@@ -48,6 +46,7 @@ function twimlResponse(body: string, status = 200) {
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
+  const companyId = await companyForCall(params)
   const paramObj: Record<string, string> = {}
   for (const [k, v] of params.entries()) paramObj[k] = v
 
@@ -102,7 +101,7 @@ export async function POST(request: NextRequest) {
     process.env.AI_RECEPTIONIST_ENABLED === 'true' &&
     process.env.VOICE_WSS_URL
   ) {
-    const vr = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+    const vr = await getEffectiveVoiceReceptionistSettings(admin, companyId)
     if (vr.enabled) {
       // Pick the greeting by context, mirroring /api/voice/twiml (the 888): during
       // business hours the team is "helping other customers" (this is a missed
@@ -112,7 +111,7 @@ export async function POST(request: NextRequest) {
       const { data: ds } = await admin
         .from('dialer_settings')
         .select('business_hours')
-        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('company_id', companyId)
         .maybeSingle()
       const inHours = isWithinBusinessHours((ds?.business_hours as BusinessHoursSchedule | null) ?? null)
       const greeting = inHours ? vr.greetingBusinessHours : vr.greetingAfterHours
@@ -159,7 +158,7 @@ export async function POST(request: NextRequest) {
     const { data: settings } = await admin
       .from('dialer_settings')
       .select('fallback_voicemail_url, fallback_voicemail_tts')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .single()
     greetingUrl = settings?.fallback_voicemail_url || null
     greetingTts = settings?.fallback_voicemail_tts || null
