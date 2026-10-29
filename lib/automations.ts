@@ -297,7 +297,7 @@ export async function deliver(args: {
       const e164 = toE164(job.phone)
       if (!e164) continue
       if (await isDoNotText(admin, companyId, e164)) continue
-      await sendSms({ to: e164, body: job.body, fromNumber })
+      await sendSms({ to: e164, body: job.body, fromNumber, companyId })
     }
   }
 

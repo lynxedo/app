@@ -2,9 +2,6 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 // GET  /api/txt/broadcasts        — list recent broadcasts for the company
 // POST /api/txt/broadcasts        — create + enqueue recipients
 
@@ -57,16 +54,17 @@ export async function POST(request: Request) {
   // Manager-only: broadcasts can hit hundreds of customers; not a one-tap action.
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_txt, can_assign_txt_threads')
+    .select('role, company_id, can_admin_txt, can_assign_txt_threads')
     .eq('id', user.id)
     .single()
   const isManager =
     profile?.role === 'admin' ||
     profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
-  if (!isManager) {
+  if (!isManager || !profile?.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+  const companyId: string = profile.company_id
 
   const admin = createAdminClient()
 
@@ -76,7 +74,7 @@ export async function POST(request: Request) {
     const { data: pn } = await admin
       .from('txt_phone_numbers')
       .select('id')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .eq('id', phoneNumberId)
       .maybeSingle()
     if (!pn) {
@@ -89,7 +87,7 @@ export async function POST(request: Request) {
   const { data: contacts, error: cErr } = await admin
     .from('txt_contacts')
     .select('id, do_not_text')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .in('id', contactIds)
   if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 })
   if (!contacts || contacts.length === 0) {
@@ -102,7 +100,7 @@ export async function POST(request: Request) {
   const { data: broadcast, error: bErr } = await admin
     .from('txt_broadcasts')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       created_by: user.id,
       body: text,
       apply_signature: applySignature,

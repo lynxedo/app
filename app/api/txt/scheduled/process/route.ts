@@ -165,6 +165,7 @@ export async function POST(request: Request) {
           mediaUrls: publicMediaUrls.length ? publicMediaUrls : undefined,
           statusCallback,
           fromNumber: fromNumber || undefined,
+          companyId: sm.company_id,
         })
       }
 

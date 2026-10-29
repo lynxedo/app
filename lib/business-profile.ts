@@ -45,6 +45,31 @@ export const HEROES_BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
   website: 'heroeslawncare.com',
 }
 
+// The company whose details HEROES_BUSINESS_PROFILE_FALLBACK are.
+const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+
+/** Fallback for a non-Heroes company with no business_profiles row: its own
+ *  company name, everything else blank. */
+async function neutralProfile(admin: SupabaseClient, companyId: string): Promise<BusinessProfile> {
+  let name = ''
+  try {
+    const { data } = await admin.from('companies').select('name').eq('id', companyId).maybeSingle()
+    name = ((data?.name as string | undefined) ?? '').trim()
+  } catch {
+    name = ''
+  }
+  return {
+    businessName: name,
+    shortName: name,
+    city: '',
+    region: '',
+    serviceArea: '',
+    phone: '',
+    signatureName: name,
+    website: '',
+  }
+}
+
 type BusinessProfileRow = {
   company_id: string
   business_name: string | null
@@ -65,16 +90,22 @@ const COLUMNS =
  *
  * Pass an admin (service-role) client — the callers that need this (SMS/voice
  * send paths, server pages) already create one, and it bypasses RLS so the
- * lookup never depends on the caller's session. Any missing row / missing field
- * / query error resolves to the Heroes fallback, so this can never throw and can
- * never change Heroes' current output.
+ * lookup never depends on the caller's session. For Heroes, any missing row /
+ * missing field / query error resolves to the Heroes fallback, so this can never
+ * throw and can never change Heroes' current output; any other company falls
+ * back to its own name and blanks.
  */
 export async function getBusinessProfile(
   admin: SupabaseClient,
   companyId: string | null | undefined,
 ): Promise<BusinessProfile> {
-  const fb = HEROES_BUSINESS_PROFILE_FALLBACK
-  if (!companyId) return { ...fb }
+  if (!companyId) return { ...HEROES_BUSINESS_PROFILE_FALLBACK }
+  // Heroes' own details are the fallback ONLY for Heroes (it has no row yet).
+  // Any other company without a row gets its own name and blanks — never Heroes'
+  // name, city, phone or website (SaaS Launch Gate Session 3).
+  const fb = companyId === HEROES_COMPANY_ID
+    ? HEROES_BUSINESS_PROFILE_FALLBACK
+    : await neutralProfile(admin, companyId)
 
   let row: BusinessProfileRow | null = null
   try {

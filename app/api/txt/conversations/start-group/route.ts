@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { companyIdForUser } from '@/lib/company-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   twilioConvCreate,
@@ -9,9 +10,6 @@ import {
   twilioConvDelete,
   twilioConfigured,
 } from '@/lib/twilio'
-
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // Toll-free prefixes can't exchange group texts (Twilio: Group MMS is +1 LONG
 // CODES only). Used to pick which of our numbers a group runs on.
@@ -41,6 +39,8 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const companyId = await companyIdForUser(supabase, user.id)
+  if (!companyId) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
   const { data: contacts, error: cErr } = await admin
     .from('txt_contacts')
     .select('id, name, phone, do_not_text')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .in('id', contactIds)
   if (cErr) {
     return NextResponse.json({ error: cErr.message }, { status: 500 })
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
   const { data: numbers } = await admin
     .from('txt_phone_numbers')
     .select('id, twilio_number, label, is_default')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .order('is_default', { ascending: false })
     .order('label', { ascending: true })
   const groupNumber = (numbers ?? []).find(
@@ -184,7 +184,7 @@ export async function POST(request: Request) {
   const { data: createdConv, error: convErr } = await admin
     .from('txt_conversations')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       contact_id: null,
       assigned_to: user.id,
       status: 'assigned',

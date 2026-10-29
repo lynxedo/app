@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { companyIdForUser } from '@/lib/company-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { renderTemplate } from '@/lib/txt-templates'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
-
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // GET — list this conversation's pending scheduled messages (composer drawer).
 export async function GET(
@@ -41,6 +39,8 @@ export async function POST(
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const companyId = await companyIdForUser(supabase, user.id)
+  if (!companyId) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
   const { id: conversationId } = await params
   const body = await request.json().catch(() => ({}))
@@ -87,7 +87,7 @@ export async function POST(
   if (templateId && text) {
     const [{ data: sender }, { data: company }] = await Promise.all([
       admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
-      admin.from('companies').select('name').eq('id', HEROES_COMPANY_ID).maybeSingle(),
+      admin.from('companies').select('name').eq('id', companyId).maybeSingle(),
     ])
     text = renderTemplate(text, {
       contactName: contact?.name || null,
@@ -99,7 +99,7 @@ export async function POST(
   const { data: inserted, error } = await admin
     .from('txt_scheduled_messages')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       conversation_id: conversationId,
       sender_id: user.id,
       body: text || null,

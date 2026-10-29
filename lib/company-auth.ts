@@ -80,6 +80,23 @@ export async function requireCompany(opts?: { grant?: FeatureGrant }): Promise<C
 }
 
 /**
+ * For routes that already authenticated with their own session client: the
+ * caller's company_id, or null when the profile has none. Callers answer 403 on
+ * null — never fall back to a default company (SaaS Launch Gate Session 3).
+ */
+export async function companyIdForUser(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+): Promise<string | null> {
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', userId)
+    .single()
+  return (profile?.company_id as string | undefined) ?? null
+}
+
+/**
  * Lenient company resolver for surfaces that already run under the Hub session
  * but must NOT hard-fail if the session lookup hiccups — specifically the
  * PIN-gated Books / QuickBooks dashboard (which sits inside /hub, so the session

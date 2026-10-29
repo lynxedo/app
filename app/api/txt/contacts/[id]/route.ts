@@ -2,10 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/twilio'
-import { denyUnlessTxtUser } from '@/lib/txt-permissions'
-
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+import { requireTxtUser } from '@/lib/txt-permissions'
 
 // PATCH /api/txt/contacts/[id]
 // Body: { name?, phone?, email?, notes?, do_not_text? }
@@ -19,8 +16,9 @@ export async function PATCH(
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const denied = await denyUnlessTxtUser(supabase, user.id, HEROES_COMPANY_ID)
-  if (denied) return denied
+  const txtAuth = await requireTxtUser(supabase, user.id)
+  if ('error' in txtAuth) return txtAuth.error
+  const companyId = txtAuth.companyId
 
   const { id } = await params
   const body = await request.json().catch(() => ({}))
@@ -31,7 +29,7 @@ export async function PATCH(
     .from('txt_contacts')
     .select('id, phone')
     .eq('id', id)
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .maybeSingle()
   if (existingErr || !existing) {
     return NextResponse.json({ error: 'Contact not found' }, { status: 404 })

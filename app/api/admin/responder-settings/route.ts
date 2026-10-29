@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { RESPONDER_REPLY_SYSTEM_DEFAULT } from '@/lib/responder-ai-prompt'
+import { responderReplySystemDefaultFor } from '@/lib/responder-ai-prompt'
+import { getBusinessProfile } from '@/lib/business-profile'
 
 export async function GET() {
   const auth = await requireAdminArea('ai')
@@ -18,7 +19,10 @@ export async function GET() {
   // pre-fill the textarea when no custom prompt has been saved yet.
   return NextResponse.json({
     ...(data ?? {}),
-    ai_reply_prompt_default: RESPONDER_REPLY_SYSTEM_DEFAULT,
+    ai_reply_prompt_default: responderReplySystemDefaultFor(
+      auth.company_id!,
+      (await getBusinessProfile(admin, auth.company_id)).businessName,
+    ),
   })
 }
 

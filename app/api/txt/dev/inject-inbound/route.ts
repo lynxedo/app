@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { companyIdForUser } from '@/lib/company-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/twilio'
 import { buildMessagePreview } from '@/lib/txt-preview'
-
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // POST /api/txt/dev/inject-inbound
 // Admin-only. Simulates an inbound Twilio SMS so the assignment + reply flow
@@ -16,6 +14,8 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const companyId = await companyIdForUser(supabase, user.id)
+  if (!companyId) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   const { data: existingContact } = await admin
     .from('txt_contacts')
     .select('id')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .eq('phone', phoneE164)
     .maybeSingle()
 
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
   } else {
     const { data: created, error: createErr } = await admin
       .from('txt_contacts')
-      .insert({ company_id: HEROES_COMPANY_ID, phone: phoneE164, name })
+      .insert({ company_id: companyId, phone: phoneE164, name })
       .select('id')
       .single()
     if (createErr || !created) {
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
   const { data: existingConv } = await admin
     .from('txt_conversations')
     .select('id, status')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .eq('contact_id', contactId!)
     .maybeSingle()
 
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     const { data: createdConv, error: convErr } = await admin
       .from('txt_conversations')
       .insert({
-        company_id: HEROES_COMPANY_ID,
+        company_id: companyId,
         contact_id: contactId!,
         status: 'unassigned',
       })
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
 
   const now = new Date().toISOString()
   const { error: insertErr } = await admin.from('txt_messages').insert({
-    company_id: HEROES_COMPANY_ID,
+    company_id: companyId,
     conversation_id: conversationId,
     contact_id: contactId,
     direction: 'inbound',

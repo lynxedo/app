@@ -12,7 +12,8 @@
 
 import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { sendSms } from '@/lib/twilio'
-import { RESPONDER_REPLY_SYSTEM_DEFAULT } from '@/lib/responder-ai-prompt'
+import { responderReplySystemDefaultFor } from '@/lib/responder-ai-prompt'
+import { getBusinessProfile } from '@/lib/business-profile'
 import { buildGuardianSystem, type SystemBlock } from '@/lib/guardian-persona'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildMessagePreview } from '@/lib/txt-preview'
@@ -78,7 +79,9 @@ export async function generateAndSendResponderReply(opts: {
   systemPrompt?: string | null
 }): Promise<ResponderReplyResult> {
   const { transcript, summary, callerPhone, callerFirstName, fromNumber, companyId } = opts
-  const basePrompt = opts.systemPrompt?.trim() || RESPONDER_REPLY_SYSTEM_DEFAULT
+  const basePrompt =
+    opts.systemPrompt?.trim() ||
+    responderReplySystemDefaultFor(companyId, (await getBusinessProfile(createAdminClient(), companyId)).businessName)
   const start = Date.now()
 
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -167,7 +170,7 @@ Write the personalized SMS reply.`
     }
 
     // Send via Twilio (fromNumber = optional override; falls back to TWILIO_PHONE_NUMBER)
-    const smsResult = await sendSms({ to: callerPhone, fromNumber, body: smsBody })
+    const smsResult = await sendSms({ to: callerPhone, fromNumber, body: smsBody, companyId })
 
     console.log(`[responder-ai] reply sent to ${callerPhone} (${Date.now() - start}ms): ${smsBody.slice(0, 80)}…`)
 

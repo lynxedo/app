@@ -55,6 +55,28 @@ export const RESPONDER_DEFAULTS: Omit<ResponderSettings, 'id' | 'company_id'> = 
   forwarded_line_ring_sec: 0,
 }
 
+// The company RESPONDER_DEFAULTS' wording was written for.
+const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+
+/** Starting templates for a company with no responder_settings row: Heroes keeps
+ *  RESPONDER_DEFAULTS exactly; any other company gets them with its own name
+ *  (SaaS Launch Gate Session 3). */
+export function responderDefaultsFor(
+  companyId: string,
+  businessName: string,
+): Omit<ResponderSettings, 'id' | 'company_id'> {
+  if (companyId === HEROES_COMPANY_ID) return RESPONDER_DEFAULTS
+  const name = businessName.trim() || 'us'
+  const swap = (t: string) => t.replaceAll('Heroes Lawn Care', name)
+  return {
+    ...RESPONDER_DEFAULTS,
+    business_hours_template: swap(RESPONDER_DEFAULTS.business_hours_template),
+    business_hours_no_message_template: swap(RESPONDER_DEFAULTS.business_hours_no_message_template),
+    afterhours_template: swap(RESPONDER_DEFAULTS.afterhours_template),
+    afterhours_no_message_template: swap(RESPONDER_DEFAULTS.afterhours_no_message_template),
+  }
+}
+
 export function isInBusinessHours(settings: {
   business_days: number[]
   business_hours_start: string
@@ -287,6 +309,7 @@ export async function sendResponderText(
     to: fromNumber,
     body: finalBody,
     fromNumber: fromResolved || ourNumber || undefined,
+    companyId: companyId,
   })
 
   const now = new Date().toISOString()

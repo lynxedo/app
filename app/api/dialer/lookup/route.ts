@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     .select('can_access_dialer, company_id')
     .eq('id', user.id)
     .single()
-  if (!profile?.can_access_dialer) {
+  if (!profile?.can_access_dialer || !profile.company_id) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 

@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { callHeroesTool } from '@/lib/hub-claude'
-import { denyUnlessTxtUser } from '@/lib/txt-permissions'
+import { requireTxtUser } from '@/lib/txt-permissions'
+
+// The company the legacy Heroes MCP (callHeroesTool) belongs to.
+const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
 
 // Search Jobber via Heroes MCP. Returns parsed clients.
 function parseJobberClients(
@@ -27,9 +30,12 @@ export async function GET(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  // Searches Heroes' Jobber client list — Txt users of that company only.
-  const denied = await denyUnlessTxtUser(supabase, user.id, process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002')
-  if (denied) return denied
+  const txtAuth = await requireTxtUser(supabase, user.id)
+  if ('error' in txtAuth) return txtAuth.error
+  // Searches through the legacy Heroes-only Jobber MCP — so only Heroes' own Txt
+  // users may reach it. Every other company gets no Jobber results (never Heroes'
+  // clients) until a per-tenant Jobber search exists.
+  if (txtAuth.companyId !== HEROES_COMPANY_ID) return NextResponse.json({ results: [] })
 
   const url = new URL(request.url)
   const q = (url.searchParams.get('q') || '').trim()

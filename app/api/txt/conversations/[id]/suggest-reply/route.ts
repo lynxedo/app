@@ -10,6 +10,9 @@ import { capabilityFromRole } from '@/lib/guardian-permissions'
 import { writeAuditLog } from '@/lib/guardian-audit'
 import { callHeroesTool } from '@/lib/hub-claude'
 
+// The company the legacy Heroes MCP (callHeroesTool) belongs to.
+const HEROES_MCP_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+
 type Tone = 'professional' | 'friendly' | 'brief'
 const ALLOWED_TONES: Tone[] = ['professional', 'friendly', 'brief']
 
@@ -184,7 +187,10 @@ export async function POST(
     : null
   const jobberClientId = contact?.jobber_client_id || null
 
-  const jobberSummary = jobberClientId
+  // The Jobber lookup goes through the legacy Heroes-only MCP, so only Heroes'
+  // own conversations may use it — never look another company's contact up in
+  // Heroes' Jobber.
+  const jobberSummary = jobberClientId && companyId === HEROES_MCP_COMPANY_ID
     ? await fetchJobberSummary(jobberClientId)
     : null
 
