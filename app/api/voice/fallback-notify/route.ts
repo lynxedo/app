@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { companyForVoiceRequest } from '@/lib/call-company'
 import crypto from 'crypto'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -41,8 +42,6 @@ export const dynamic = 'force-dynamic'
 //
 // Auth: same Bearer VOICE_SERVICE_SECRET as /api/voice/brain + /api/voice/lookup.
 
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com'
 
 function bearerAuthorized(request: Request): boolean {
@@ -75,6 +74,7 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
+  const companyId = await companyForVoiceRequest(body)
 
   const recordingUrl = typeof body.recordingUrl === 'string' ? body.recordingUrl : ''
   if (!recordingUrl.startsWith('https://api.twilio.com/')) {
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
       const { data: contact } = await admin
         .from('txt_contacts')
         .select('id')
-        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('phone', fromNumber)
         .maybeSingle()
       contactId = contact?.id ?? null
@@ -126,7 +126,7 @@ export async function POST(request: Request) {
     if (recordingSid && process.env.CF_R2_ACCESS_KEY_ID && process.env.CF_R2_BUCKET_NAME) {
       const media = await downloadTwilioRecording(recordingUrl)
       if (media) {
-        const storageKey = `dialer/${HEROES_COMPANY_ID}/voicemail/${recordingSid}.mp3`
+        const storageKey = `dialer/${companyId}/voicemail/${recordingSid}.mp3`
         const r2 = new S3Client({
           region: 'auto',
           endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -146,7 +146,7 @@ export async function POST(request: Request) {
         const { data: voicemail } = await admin
           .from('voicemails')
           .insert({
-            company_id: HEROES_COMPANY_ID,
+            company_id: companyId,
             call_id: callId,
             owner_user_id: null,
             from_number: fromNumber || null,
@@ -173,7 +173,7 @@ export async function POST(request: Request) {
   const { data: settings } = await admin
     .from('dialer_settings')
     .select('fallback_notify_method, fallback_notify_user_ids, fallback_notify_sms_numbers, voicemail_recipient_user_ids')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .maybeSingle()
 
   const method = settings?.fallback_notify_method === 'sms' || settings?.fallback_notify_method === 'both'
@@ -199,7 +199,7 @@ export async function POST(request: Request) {
 
   if (method !== 'sms' && hubUserIds.length > 0) {
     const res = await fanoutGuardianNotification({
-      companyId: HEROES_COMPANY_ID,
+      companyId: companyId,
       userIds: hubUserIds,
       roomIds: [],
       body: message,
@@ -231,10 +231,10 @@ export async function POST(request: Request) {
   try {
     if (fromNumber) {
       const queueContactId =
-        contactId ?? (await findOrCreateContactByPhone(admin, HEROES_COMPANY_ID, fromNumber))
+        contactId ?? (await findOrCreateContactByPhone(admin, companyId, fromNumber))
       if (queueContactId) {
         await ensureInboundQueueConversation(admin, {
-          companyId: HEROES_COMPANY_ID,
+          companyId: companyId,
           contactId: queueContactId,
           preview: '🛟 Emergency fallback voicemail',
         })

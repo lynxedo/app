@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { companyForCall } from '@/lib/call-company'
 import {
   EMPTY_VOICE_TWIML,
   twimlDialCellStep,
@@ -13,9 +14,6 @@ import { filterNonDndUserIds } from '@/lib/dialer-conference-connect'
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { getCompanyVoicemailGreeting, getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 import { applyCoverageToTransfer } from '@/lib/voice-notes'
-
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // AI Voice Receptionist — ConversationRelay <Connect action=...> fallback.
 //
@@ -36,6 +34,7 @@ function twimlResponse(body: string, status = 200) {
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
+  const companyId = await companyForCall(params)
   const paramObj: Record<string, string> = {}
   for (const [k, v] of params.entries()) paramObj[k] = v
 
@@ -65,7 +64,7 @@ export async function POST(request: NextRequest) {
   // Voicemail using the company's NORMAL recorded greeting (the same one a
   // missed call hears); only falls back to the spoken line if no greeting is set.
   const voicemail = async (spokenFallback: string): Promise<string> => {
-    const g = await getCompanyVoicemailGreeting(createAdminClient(), HEROES_COMPANY_ID)
+    const g = await getCompanyVoicemailGreeting(createAdminClient(), companyId)
     return twimlRecordVoicemail({
       action: `${baseUrl}/api/dialer/voice/voicemail/complete`,
       greetingUrl: g.url,
@@ -85,11 +84,11 @@ export async function POST(request: NextRequest) {
   // implemented below; a method with no reachable recipients falls to voicemail.
   if (endReason === 'transfer_requested') {
     const admin = createAdminClient()
-    const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+    const settings = await getEffectiveVoiceReceptionistSettings(admin, companyId)
     // This is the route that actually DIALS. A coverage note ("Kathryn is off today,
     // transfer calls to me") has to land here, not just in Amber's prompt — otherwise
     // she says "let me get Ben" and this rings Kathryn.
-    const coveredTransfer = await applyCoverageToTransfer(admin, HEROES_COMPANY_ID, settings)
+    const coveredTransfer = await applyCoverageToTransfer(admin, companyId, settings)
     const callerFrom = lower.from || ''
     const callSid = lower.callsid || ''
 
@@ -155,7 +154,7 @@ export async function POST(request: NextRequest) {
           return twimlResponse(await voicemail(unavailableVm))
         }
         if (kind === 'extension' && value) {
-          const ctx = await buildIvrContext(admin, HEROES_COMPANY_ID)
+          const ctx = await buildIvrContext(admin, companyId)
           const resolved = ctx.extensionResolver(value)
           if (resolved) {
             const notDnd = await filterNonDndUserIds(admin, [resolved.ownerUserId])
@@ -217,7 +216,7 @@ export async function POST(request: NextRequest) {
         const { data: attempt } = await admin
           .from('voice_transfer_attempts')
           .insert({
-            company_id: HEROES_COMPANY_ID,
+            company_id: companyId,
             queue_name: `cell_${callSid || Date.now()}`,
             caller_call_sid: callSid || null,
             caller_from: callerFrom || null,

@@ -23,6 +23,7 @@
 // Auth: same Bearer VOICE_SERVICE_SECRET as the other /api/voice endpoints.
 
 import { NextResponse } from 'next/server'
+import { companyForVoiceRequest } from '@/lib/call-company'
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { lookupByPhone } from '@/lib/dialer-lookup'
@@ -52,8 +53,6 @@ import {
 } from '@/lib/voice-jobs'
 
 export const dynamic = 'force-dynamic'
-
-const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
 const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -168,7 +167,7 @@ export async function POST(request: Request) {
             ? `Caller asked for a ${hourRange(startHHMM, endHHMM)} arrival window.`
             : 'Caller is flexible on timing (no time promised).'
 
-  const companyId = HEROES_COMPANY_ID
+  const companyId = await companyForVoiceRequest(body)
   const admin = createAdminClient()
 
   if (!(await getSchedulingEnabled(admin, companyId))) {
