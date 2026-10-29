@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { companyForCall } from '@/lib/call-company'
 import {
   EMPTY_VOICE_TWIML,
   twimlRecordVoicemail,
@@ -7,9 +8,6 @@ import {
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getCompanyVoicemailGreeting } from '@/lib/voice-receptionist-settings'
-
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // AI Voice Receptionist — transfer <Dial action> result.
 //
@@ -28,6 +26,7 @@ function twimlResponse(body: string, status = 200) {
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
+  const companyId = await companyForCall(params)
   const paramObj: Record<string, string> = {}
   for (const [k, v] of params.entries()) paramObj[k] = v
 
@@ -62,7 +61,7 @@ export async function POST(request: NextRequest) {
     return twimlResponse('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>')
   }
 
-  const g = await getCompanyVoicemailGreeting(createAdminClient(), HEROES_COMPANY_ID)
+  const g = await getCompanyVoicemailGreeting(createAdminClient(), companyId)
   return twimlResponse(
     twimlRecordVoicemail({
       action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,

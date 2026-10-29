@@ -23,6 +23,7 @@
 // Auth: same Bearer VOICE_SERVICE_SECRET as /api/voice/brain + /api/voice/wrapup.
 
 import { NextResponse } from 'next/server'
+import { companyForVoiceRequest } from '@/lib/call-company'
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { findClientByNameAndAddress, lookupByPhone } from '@/lib/dialer-lookup'
@@ -32,8 +33,6 @@ import { decodeServiceFromTitle, decodeServiceFromLineItems } from '@/lib/voice-
 import { addDaysYmd } from '@/lib/voice-scheduling'
 
 export const dynamic = 'force-dynamic'
-
-const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 function bearerAuthorized(request: Request): boolean {
   const secret = process.env.VOICE_SERVICE_SECRET || ''
@@ -165,7 +164,7 @@ export async function POST(request: Request) {
     // no/invalid body — handled below
   }
 
-  const companyId = HEROES_COMPANY_ID
+  const companyId = await companyForVoiceRequest(body)
   const admin = createAdminClient()
   const name = typeof body.name === 'string' ? body.name.trim() : ''
   const address = typeof body.address === 'string' ? body.address.trim() : ''

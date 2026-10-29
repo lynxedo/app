@@ -26,9 +26,6 @@ import { applyCoverageToTransfer } from '@/lib/voice-notes'
 
 export const runtime = 'nodejs'
 
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 function xml(body: string) {
   return new NextResponse(body, { status: 200, headers: { 'Content-Type': 'text/xml' } })
 }
@@ -44,13 +41,14 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   const admin = createAdminClient()
   const { data: a } = await admin
     .from('voice_transfer_attempts')
-    .select('id, status')
+    .select('id, status, company_id')
     .eq('id', attemptId)
     .maybeSingle()
 
   // No such attempt → hang up. This URL is public (no Twilio signature yet), and
   // answering an invented id walked the transfer list's cell numbers (Oct 5 2026 audit).
   if (!a) return xml(HANGUP)
+  const companyId = a.company_id as string
 
   // Someone took it → the caller was bridged and that call has ended. Done.
   if (a && (a.status === 'accepted' || a.status === 'connected')) {
@@ -61,12 +59,12 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   // from settings each step). DND is re-checked per step — same as the ring
   // groups — so a recipient flipping DND mid-sequence is skipped, and the list
   // stays index-consistent with the fallback route's filtered entry list.
-  const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+  const settings = await getEffectiveVoiceReceptionistSettings(admin, companyId)
   // ⚠ MUST apply coverage exactly as the fallback route does. This route re-derives the
   // recipient list from settings on every step and indexes into it (?i=N); if the two
   // lists were built from different rules the index would point at a different person
   // and the next ring would go to whoever happened to land at that position.
-  const coveredTransfer = await applyCoverageToTransfer(admin, HEROES_COMPANY_ID, settings)
+  const coveredTransfer = await applyCoverageToTransfer(admin, companyId, settings)
   const withCell = coveredTransfer.transferUserIds
     .map((uid) => ({ uid, cell: coveredTransfer.transferCellNumbers[uid] }))
     .filter((r) => Boolean(r.cell))
@@ -92,7 +90,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   if (a && a.status === 'pending') {
     await admin.from('voice_transfer_attempts').update({ status: 'timed_out' }).eq('id', attemptId)
   }
-  const g = await getCompanyVoicemailGreeting(admin, HEROES_COMPANY_ID)
+  const g = await getCompanyVoicemailGreeting(admin, companyId)
   return xml(
     twimlRecordVoicemail({
       action: `${baseUrl}/api/dialer/voice/voicemail/complete`,

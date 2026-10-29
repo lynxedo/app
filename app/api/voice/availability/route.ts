@@ -19,6 +19,7 @@
 // Auth: same Bearer VOICE_SERVICE_SECRET as the other /api/voice endpoints.
 
 import { NextResponse } from 'next/server'
+import { companyForVoiceRequest } from '@/lib/call-company'
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { companyJobberUserId } from '@/lib/jobber'
@@ -42,7 +43,6 @@ import { nearbyStopsByDay, resolveCallerLocale, type DayStops } from '@/lib/voic
 
 export const dynamic = 'force-dynamic'
 
-const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -98,7 +98,7 @@ export async function POST(request: Request) {
   const spokenZip = typeof body.zip === 'string' ? body.zip.trim() : ''
   const preferred = typeof body.preferred_date === 'string' && YMD_RE.test(body.preferred_date.trim()) ? body.preferred_date.trim() : ''
 
-  const companyId = HEROES_COMPANY_ID
+  const companyId = await companyForVoiceRequest(body)
   const admin = createAdminClient()
 
   // Master switch — if scheduling is off, don't offer to book.

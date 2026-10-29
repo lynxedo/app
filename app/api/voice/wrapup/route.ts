@@ -1,4 +1,5 @@
 import { NextResponse, after } from 'next/server'
+import { companyForVoiceRequest } from '@/lib/call-company'
 import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
@@ -35,8 +36,6 @@ import { isWithinBusinessHours, type BusinessHoursSchedule } from '@/lib/twilio-
 
 export const runtime = 'nodejs'
 
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 // Ben's Hub user id (matches the feedback route's notify default). The alerts
 // room is no longer pinned here — lib/office-alerts.ts resolves it per company.
 const DEFAULT_NOTIFY_USER_ID = '6939b706-5135-448d-a28a-7674ba17974e' // Ben
@@ -256,7 +255,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'bad_json' }, { status: 400 })
   }
 
-  const companyId = body.companyId?.trim() || HEROES_COMPANY_ID
+  const companyId = await companyForVoiceRequest(body)
   const fromNumber = body.from?.trim() || null
   const turns = Array.isArray(body.transcript) ? body.transcript : []
   const transcriptText = renderTranscript(turns)

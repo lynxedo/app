@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { ENV_PHONE_COMPANY_ID } from '@/lib/phone-company'
 import {
   BusinessHoursSchedule,
   EMPTY_VOICE_TWIML,
@@ -15,9 +16,6 @@ import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
 // Env-pinned fallback company (single-tenant default). Multi-tenant Track 3
 // resolves the real company per inbound `To` below; this only applies when the
 // destination number isn't in txt_phone_numbers — preserving today's behavior.
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 // AI Voice Receptionist — standalone inbound voice webhook (Phase 1a).
 //
 // This is a DIRECT entry point: point a Twilio number's Voice webhook here to
@@ -66,7 +64,7 @@ export async function POST(request: NextRequest) {
   if (toNumber && !resolvedCompany) {
     console.warn('[voice:twiml] no company mapping for To — using env default', { toNumber })
   }
-  const companyId = resolvedCompany?.companyId || HEROES_COMPANY_ID
+  const companyId = resolvedCompany?.companyId || ENV_PHONE_COMPANY_ID
 
   // Load the company's editable receptionist settings (Admin -> Dialer -> AI
   // Receptionist). When the admin has turned the receptionist OFF, do NOT hand

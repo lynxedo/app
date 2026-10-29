@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { companyForVoiceRequest } from '@/lib/call-company'
 import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getRoutingDirectory, matchRoutingEntry } from '@/lib/voice-routing'
@@ -18,9 +19,6 @@ import { getActiveVoiceNotes, coverageMap, applyCoverageToRoutingEntries } from 
 export const runtime = 'nodejs'
 
 // TODO: phone -> company map for multi-tenant (resolve companyId from `to`).
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 function bearerAuthorized(request: Request): boolean {
   const secret = process.env.VOICE_SERVICE_SECRET
   if (!secret) return false
@@ -44,7 +42,7 @@ export async function POST(request: Request) {
     // fall through — no entry → graceful "couldn't route" answer
   }
 
-  const companyId = HEROES_COMPANY_ID
+  const companyId = await companyForVoiceRequest(body)
   const admin = createAdminClient()
 
   const query = (body.entry || '').trim()

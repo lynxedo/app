@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { companyForVoiceRequest } from '@/lib/call-company'
 import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildGuardianSystem } from '@/lib/guardian-persona'
@@ -48,9 +49,6 @@ export const runtime = 'nodejs'
 // Phase 1a is single-tenant (Heroes). Reuses the same company-id constant the
 // dialer routes use.
 // TODO: phone -> company map for multi-tenant (resolve companyId from `to`).
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 function bearerAuthorized(request: Request): boolean {
   const secret = process.env.VOICE_SERVICE_SECRET
   if (!secret) return false
@@ -75,7 +73,7 @@ export async function POST(request: Request) {
     // no/invalid body — fine, Phase 1a resolves a fixed tenant anyway
   }
 
-  const companyId = HEROES_COMPANY_ID
+  const companyId = await companyForVoiceRequest(body)
   const admin = createAdminClient()
 
   // Load the company's editable receptionist settings (Admin -> Dialer -> AI
