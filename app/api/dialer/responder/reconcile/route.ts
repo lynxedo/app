@@ -2,9 +2,6 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isInBusinessHours, sendResponderText, type ResponderMode } from '@/lib/responder'
 
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 // How long after a call ends we wait before texting, so the voicemail webhook
 // (/voice/voicemail/complete) has time to insert the voicemails row — that's
 // what lets us pick the "left a message" vs "no message" template correctly.
@@ -39,19 +36,41 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient()
 
+  // Every company whose responder is on, one after another.
+  const { data: companies } = await admin
+    .from('responder_settings')
+    .select('company_id')
+    .neq('mode', 'off')
+  const results: Record<string, Record<string, unknown>> = {}
+  for (const row of companies ?? []) {
+    const companyId = row.company_id as string
+    try {
+      results[companyId] = await reconcileCompany(admin, companyId)
+    } catch (e) {
+      console.warn('[responder.reconcile] company failed', companyId, e)
+      results[companyId] = { error: String(e) }
+    }
+  }
+  return NextResponse.json({ companies: results })
+}
+
+async function reconcileCompany(
+  admin: ReturnType<typeof createAdminClient>,
+  companyId: string,
+): Promise<Record<string, unknown>> {
   // Load responder config (mode + templates + business hours). If off, no-op.
   const { data: settings } = await admin
     .from('responder_settings')
     .select(
       'mode, ai_reply_enabled, business_days, business_hours_start, business_hours_end, business_hours_template, business_hours_no_message_template, afterhours_template, afterhours_no_message_template'
     )
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .maybeSingle()
 
   const mode = (settings?.mode as ResponderMode | undefined) ?? 'off'
   const aiReplyEnabled = !!settings?.ai_reply_enabled
   if (!settings || mode === 'off') {
-    return NextResponse.json({ processed: 0, reason: 'responder_off' })
+    return { processed: 0, reason: 'responder_off' }
   }
 
   const settleSeconds = aiReplyEnabled ? AI_SETTLE_SECONDS : SETTLE_SECONDS
@@ -62,7 +81,7 @@ export async function POST(request: Request) {
   const { data: pending, error } = await admin
     .from('calls')
     .select('id, twilio_call_sid, from_number, to_number, status, responder_mode, ended_at, answered_at')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .eq('direction', 'inbound')
     .not('responder_mode', 'is', null)
     .is('responder_text_status', null)
@@ -71,8 +90,8 @@ export async function POST(request: Request) {
     .order('ended_at', { ascending: true })
     .limit(50)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!pending || pending.length === 0) return NextResponse.json({ processed: 0 })
+  if (error) return { error: error.message }
+  if (!pending || pending.length === 0) return { processed: 0 }
 
   const inBiz = isInBusinessHours(settings)
   const templates = {
@@ -103,7 +122,7 @@ export async function POST(request: Request) {
       // sets answered_at, so this guard is a no-op when ring=0.
       if (call.responder_mode === 'forwarded_line' && call.answered_at != null) {
         await admin.from('calls').update({ responder_text_status: 'skipped' }).eq('id', call.id)
-        await logResponderCall(admin, call, { hadVoicemail: false, textSent: false, templateUsed: null, error: 'answered' })
+        await logResponderCall(admin, companyId, call, { hadVoicemail: false, textSent: false, templateUsed: null, error: 'answered' })
         skipped++
         continue
       }
@@ -124,7 +143,7 @@ export async function POST(request: Request) {
       // (No-voicemail / hangup calls fall through to the normal template below.)
       if (aiReplyEnabled && hadVoicemail) {
         await admin.from('calls').update({ responder_text_status: 'skipped' }).eq('id', call.id)
-        await logResponderCall(admin, call, { hadVoicemail, textSent: false, templateUsed: 'ai_reply', error: null })
+        await logResponderCall(admin, companyId, call, { hadVoicemail, textSent: false, templateUsed: 'ai_reply', error: null })
         skipped++
         continue
       }
@@ -143,13 +162,13 @@ export async function POST(request: Request) {
 
       if (skipReason) {
         await admin.from('calls').update({ responder_text_status: 'skipped' }).eq('id', call.id)
-        await logResponderCall(admin, call, { hadVoicemail, textSent: false, templateUsed: null, error: skipReason })
+        await logResponderCall(admin, companyId, call, { hadVoicemail, textSent: false, templateUsed: null, error: skipReason })
         skipped++
         continue
       }
 
       const result = await sendResponderText(admin, {
-        companyId: HEROES_COMPANY_ID,
+        companyId: companyId,
         fromNumber: call.from_number || '',
         ourNumber: call.to_number || null,
         inBusinessHours: inBiz,
@@ -161,7 +180,7 @@ export async function POST(request: Request) {
         .from('calls')
         .update({ responder_text_status: result.error === 'do_not_text' ? 'skipped' : 'sent' })
         .eq('id', call.id)
-      await logResponderCall(admin, call, {
+      await logResponderCall(admin, companyId, call, {
         hadVoicemail,
         textSent: result.textSent,
         templateUsed: result.templateUsed,
@@ -176,17 +195,18 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ processed: pending.length, texted, skipped })
+  return { processed: pending.length, texted, skipped }
 }
 
 async function logResponderCall(
   admin: ReturnType<typeof createAdminClient>,
+  companyId: string,
   call: { twilio_call_sid: string | null; from_number: string | null; ended_at: string | null },
   outcome: { hadVoicemail: boolean; textSent: boolean; templateUsed: string | null; error: string | null }
 ) {
   try {
     await admin.from('responder_calls').insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       call_sid: call.twilio_call_sid,
       from_number: call.from_number,
       called_at: call.ended_at || new Date().toISOString(),

@@ -23,18 +23,18 @@ import {
   type DndSchedule,
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { ENV_PHONE_COMPANY_ID } from '@/lib/phone-company'
 
-const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // Resolve the caller's saved contact name for the native call screen (the
 // caller-ID display-name probe). Returns undefined when the probe is disabled
 // (Twilio rejected a name-as-From earlier this process), the number is unknown,
 // or no contact name is found — in which case the agent leg keeps the numeric
 // From and the crew sees the number, exactly as before. Never throws.
-async function resolveCallerDisplayName(callerNumber?: string): Promise<string | undefined> {
+async function resolveCallerDisplayName(callerNumber: string | undefined, companyId: string): Promise<string | undefined> {
   if (!callerNumber || !callerIdNameProbeActive()) return undefined
   try {
-    const match = await lookupByPhone(callerNumber, HEROES_COMPANY_ID)
+    const match = await lookupByPhone(callerNumber, companyId)
     return match?.name || undefined
   } catch {
     return undefined
@@ -53,12 +53,15 @@ export async function connectInboundToAgentViaConference(opts: {
   recordingConsentNotice?: string
   recordingConsentEnabled?: boolean   // false = caller hears no consent notice
   recordingConsentUrl?: string | null // uploaded audio takes priority over TTS
+  /** The call's company (lib/call-company.ts); defaults to the env-default company. */
+  companyId?: string
 }): Promise<string> {
   const {
     baseUrl, room, callerCallSid, callerNumber, agentIdentity,
     voicemailOwnerUserId, ringTimeoutSec, recordingEnabled, recordingConsentNotice,
     recordingConsentEnabled, recordingConsentUrl,
   } = opts
+  const companyId = opts.companyId || ENV_PHONE_COMPANY_ID
 
   const holdMusic = `${baseUrl}/api/dialer/voice/twiml/hold-music`
   const recordingCb = `${baseUrl}/api/dialer/voice/recording`
@@ -76,7 +79,7 @@ export async function connectInboundToAgentViaConference(opts: {
   // This REST add CREATES the conference (it runs before the caller's TwiML leg
   // joins), so it must register the conference status callback — the TwiML
   // statusCallback attr on the caller's <Conference> is ignored by Twilio.
-  const fromDisplayName = await resolveCallerDisplayName(callerNumber)
+  const fromDisplayName = await resolveCallerDisplayName(callerNumber, companyId)
   const add = await addConferenceParticipant({
     room,
     to: `client:${agentIdentity}`,
@@ -102,7 +105,6 @@ export async function connectInboundToAgentViaConference(opts: {
           conference_agent_sid: add.callSid,
           conference_customer_sid: callerCallSid,
         })
-        .eq('company_id', HEROES_COMPANY_ID)
         .eq('twilio_call_sid', callerCallSid)
     } catch {
       // swallow — call still connects
@@ -353,8 +355,11 @@ export async function connectInboundToRingGroupViaConference(opts: {
   callerNumber?: string
   groupId: string
   recordingEnabled: boolean
+  /** The call's company (lib/call-company.ts); defaults to the env-default company. */
+  companyId?: string
 }): Promise<string> {
   const { baseUrl, room, callerCallSid, callerNumber, groupId, recordingEnabled } = opts
+  const companyId = opts.companyId || ENV_PHONE_COMPANY_ID
   const admin = createAdminClient()
 
   const { group, available } = await resolveRingGroupAvailableMembers(admin, groupId)
@@ -366,7 +371,7 @@ export async function connectInboundToRingGroupViaConference(opts: {
   const recordingCb = `${baseUrl}/api/dialer/voice/recording`
   const confStatusCb = `${baseUrl}/api/dialer/voice/conference/status`
   const from = callerNumber || voiceCallerId() || ''
-  const fromDisplayName = await resolveCallerDisplayName(callerNumber)
+  const fromDisplayName = await resolveCallerDisplayName(callerNumber, companyId)
   const simultaneous = group.ring_mode === 'simultaneous'
 
   const pending: RingPendingEntry[] = []
@@ -451,7 +456,6 @@ export async function connectInboundToRingGroupViaConference(opts: {
         handled_by: simultaneous ? null : pending[0].user_id,
         ring_pending: pending,
       })
-      .eq('company_id', HEROES_COMPANY_ID)
       .eq('twilio_call_sid', callerCallSid)
   } catch {
     // swallow — call still connects
@@ -487,8 +491,7 @@ export async function advanceRingGroup(opts: {
   const admin = createAdminClient()
   const { data: row } = await admin
     .from('calls')
-    .select('id, answered_at, ring_pending, from_number')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .select('id, company_id, answered_at, ring_pending, from_number')
     .eq('twilio_call_sid', opts.callerCallSid)
     .maybeSingle()
 
@@ -515,7 +518,7 @@ export async function advanceRingGroup(opts: {
 
   if (opts.mode === 'seq') {
     const { available } = await resolveRingGroupAvailableMembers(admin, opts.groupId)
-    const fromDisplayName = await resolveCallerDisplayName(row?.from_number || undefined)
+    const fromDisplayName = await resolveCallerDisplayName(row?.from_number || undefined, (row?.company_id as string | undefined) || ENV_PHONE_COMPANY_ID)
     // Ring the next available member (skipping past failed adds like the entry
     // loop does).
     for (let i = opts.nextIndex; i < available.length; i++) {

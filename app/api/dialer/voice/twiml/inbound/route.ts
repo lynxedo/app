@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { ENV_PHONE_COMPANY_ID } from '@/lib/phone-company'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   BusinessHoursSchedule,
@@ -28,9 +29,6 @@ import type { ResponderMode } from '@/lib/responder'
 // Env-pinned fallback company (single-tenant default). Multi-tenant Track 3
 // resolves the real company per inbound `To` below; this only applies when the
 // destination number isn't in txt_phone_numbers — preserving today's behavior.
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 function twimlResponse(body: string, status = 200) {
   return new NextResponse(body, {
     status,
@@ -78,7 +76,7 @@ export async function POST(request: NextRequest) {
   if (toNumber && !resolvedCompany) {
     console.warn('[dialer:inbound] no company mapping for To — using env default', { toNumber })
   }
-  const companyId = resolvedCompany?.companyId || HEROES_COMPANY_ID
+  const companyId = resolvedCompany?.companyId || ENV_PHONE_COMPANY_ID
 
   // Blocked caller → refuse before anything else routes, rings, or wakes Amber.
   // isNumberBlocked FAILS OPEN (see lib/blocked-numbers.ts): any error here lets
@@ -240,6 +238,7 @@ export async function POST(request: NextRequest) {
     // the auto-text (a human picked up — no need to text back).
     if (forwardedLineRingSec > 0 && routeToUserId && !(await isAgentDndNow(admin, routeToUserId))) {
       const callerTwiml = await connectInboundToAgentViaConference({
+        companyId,
         baseUrl,
         room,
         callerCallSid: callSid,
@@ -359,6 +358,7 @@ export async function POST(request: NextRequest) {
     // user as the 'agent' participant. No-answer falls to voicemail via the
     // agent participant's status callback. (Recording + consent handled inside.)
     const callerTwiml = await connectInboundToAgentViaConference({
+      companyId,
       baseUrl,
       room,
       callerCallSid: callSid,

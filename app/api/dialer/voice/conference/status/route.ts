@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { companyForCall } from '@/lib/call-company'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { EMPTY_VOICE_TWIML, validateTwilioVoiceSignature, voiceConfigured } from '@/lib/twilio-voice'
 import { cancelCall, updateParticipant } from '@/lib/twilio-conference'
 import type { RingPendingEntry } from '@/lib/dialer-conference-connect'
-
-const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 function xml(body: string, status = 200) {
   return new NextResponse(body, { status, headers: { 'Content-Type': 'text/xml' } })
@@ -18,6 +17,7 @@ function xml(body: string, status = 200) {
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
+  const companyId = await companyForCall(params)
   const paramObj: Record<string, string> = {}
   for (const [k, v] of params.entries()) paramObj[k] = v
 
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       let q = admin
         .from('calls')
         .update({ status: 'in-progress', answered_at: new Date().toISOString() })
-        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('conference_name', room)
         .is('answered_at', null)
       if (eventCallSid) q = q.neq('twilio_call_sid', eventCallSid)
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
         const { data: row } = await admin
           .from('calls')
           .select('id, ring_pending, conference_sid')
-          .eq('company_id', HEROES_COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('conference_name', room)
           .not('ring_pending', 'is', null)
           .maybeSingle()
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
       await admin
         .from('calls')
         .update({ status: 'completed', ended_at: new Date().toISOString() })
-        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('conference_name', room)
         .is('ended_at', null)
     }

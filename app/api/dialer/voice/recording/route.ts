@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { ENV_PHONE_COMPANY_ID } from '@/lib/phone-company'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
@@ -17,9 +18,6 @@ import {
 function shouldDeleteTwilioCopy(): boolean {
   return !process.env.TWILIO_VI_SERVICE_SID
 }
-
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 function twimlResponse(body: string = EMPTY_VOICE_TWIML, status = 200) {
   return new NextResponse(body, {
@@ -91,7 +89,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
     callRow = data
   }
-  const companyId = callRow?.company_id || HEROES_COMPANY_ID
+  const companyId = callRow?.company_id || ENV_PHONE_COMPANY_ID
 
   const seconds = recordingDuration ? parseInt(recordingDuration, 10) : NaN
 

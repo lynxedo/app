@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { companyForCall } from '@/lib/call-company'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   DEFAULT_RECORDING_CONSENT_NOTICE,
@@ -9,9 +10,6 @@ import {
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { conferenceRoomName } from '@/lib/twilio-conference'
 import { connectInboundToAgentViaConference, isAgentDndNow } from '@/lib/dialer-conference-connect'
-
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 function twimlResponse(body: string, status = 200) {
   return new NextResponse(body, {
@@ -32,6 +30,7 @@ function escapeXmlAttr(s: string): string {
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
+  const companyId = await companyForCall(params)
   const paramObj: Record<string, string> = {}
   for (const [k, v] of params.entries()) paramObj[k] = v
 
@@ -57,10 +56,10 @@ export async function POST(request: NextRequest) {
   const { data: settings } = await admin
     .from('dialer_settings')
     .select('recording_enabled, recording_consent_notice, ring_timeout_sec')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .single()
 
-  const ctx = await buildIvrContext(admin, HEROES_COMPANY_ID)
+  const ctx = await buildIvrContext(admin, companyId)
   const resolved = digits ? ctx.extensionResolver(digits) : null
 
   if (resolved && callSid) {
@@ -79,9 +78,10 @@ export async function POST(request: NextRequest) {
     await admin
       .from('calls')
       .update({ conference_name: room, handled_by: resolved.ownerUserId })
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .eq('twilio_call_sid', callSid)
     const twiml = await connectInboundToAgentViaConference({
+      companyId,
       baseUrl,
       room,
       callerCallSid: callSid,
