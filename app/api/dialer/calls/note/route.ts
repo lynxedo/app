@@ -4,8 +4,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveRecentCallId } from '@/lib/dialer-active-call'
 import { CENTRAL_TZ } from '@/lib/timezone'
 
-const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 // Notes taken on a call.
 //
 //   GET  /api/dialer/calls/note?room=…  → what's already on this call
@@ -49,10 +47,10 @@ async function gate() {
     .select('can_access_dialer, company_id')
     .eq('id', user.id)
     .single()
-  if (!profile?.can_access_dialer) {
+  if (!profile?.can_access_dialer || !profile.company_id) {
     return { error: 'forbidden', status: 403 as const }
   }
-  return { user, companyId: (profile.company_id as string) || HEROES_COMPANY_ID }
+  return { user, companyId: profile.company_id as string }
 }
 
 // What's already been noted on this call — so the notepad can show it rather

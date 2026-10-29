@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
+import { getBusinessProfile } from '@/lib/business-profile'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdminArea } from '@/lib/admin-auth'
 import {
   GARY_SERVICES,
   GARY_SERVICE_LABEL,
-  GARY_SIGNATURE,
+  garySignatureFor,
   getGaryBot,
   getGarySettings,
   isGaryApprover,
@@ -76,7 +77,7 @@ export async function GET() {
 
     return NextResponse.json({
       bot: bot ? { id: bot.id, name: bot.displayName, hasAvatar: Boolean(bot.avatarUrl) } : null,
-      signature: GARY_SIGNATURE,
+      signature: garySignatureFor((await getBusinessProfile(admin, g.companyId)).signatureName),
       settings: {
         services: settings.services,
         recentTouchDays: settings.recentTouchDays,

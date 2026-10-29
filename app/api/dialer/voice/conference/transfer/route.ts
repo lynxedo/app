@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { toE164, voiceCallerId } from '@/lib/twilio-voice'
+import { toE164 } from '@/lib/twilio-voice'
+import { companyCallerId } from '@/lib/company-caller-id'
 import {
   addConferenceParticipant,
   holdParticipant,
@@ -9,8 +10,6 @@ import {
   updateParticipant,
 } from '@/lib/twilio-conference'
 import { resolveActiveConferenceRoom } from '@/lib/dialer-active-call'
-
-const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // POST /api/dialer/voice/conference/transfer
 // Body: { room?, mode, to? }
@@ -39,7 +38,7 @@ export async function POST(request: Request) {
     .select('can_access_dialer, company_id')
     .eq('id', user.id)
     .single()
-  if (!profile?.can_access_dialer) {
+  if (!profile?.can_access_dialer || !profile.company_id) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
@@ -53,7 +52,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid mode' }, { status: 400 })
   }
 
-  const companyId = profile.company_id || HEROES_COMPANY_ID
+  const companyId = profile.company_id
   const active = await resolveActiveConferenceRoom({ bodyRoom: body.room, userId: user.id, companyId })
   if (!active) return NextResponse.json({ error: 'No active conference call found' }, { status: 404 })
   const { conferenceSid, agentSid, customerSid, transferSid } = active
@@ -63,14 +62,15 @@ export async function POST(request: Request) {
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const holdUrl = `${baseUrl}/api/dialer/voice/twiml/hold-music`
-  const callerId = voiceCallerId() || undefined
   const admin = createAdminClient()
+  const callerId = (await companyCallerId(admin, companyId)) || undefined
 
   // Modes that ADD a target need a resolved dial target.
   let target: string | null = null
   if (mode === 'cold' || mode === 'warm-consult') {
     target = await resolveTarget(body.to, companyId)
     if (!target) return NextResponse.json({ error: 'Invalid or unassigned transfer target' }, { status: 400 })
+    if (!callerId) return NextResponse.json({ error: 'No phone line is set up for your company' }, { status: 400 })
   }
   // Modes that DROP the agent need the agent leg SID.
   if ((mode === 'cold' || mode === 'warm-complete') && !agentSid) {

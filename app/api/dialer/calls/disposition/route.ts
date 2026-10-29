@@ -3,8 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveRecentCallId } from '@/lib/dialer-active-call'
 
-const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 // POST /api/dialer/calls/disposition
 // Body: { disposition: string, room?: string }
 // Logs the after-call outcome onto the most recent call row for this user
@@ -20,7 +18,7 @@ export async function POST(request: Request) {
     .select('can_access_dialer, company_id')
     .eq('id', user.id)
     .single()
-  if (!profile?.can_access_dialer) {
+  if (!profile?.can_access_dialer || !profile.company_id) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
@@ -28,7 +26,7 @@ export async function POST(request: Request) {
   const disposition = typeof body.disposition === 'string' ? body.disposition.trim().slice(0, 60) : ''
   if (!disposition) return NextResponse.json({ error: 'disposition required' }, { status: 400 })
 
-  const companyId = profile.company_id || HEROES_COMPANY_ID
+  const companyId = profile.company_id
   const callId = await resolveRecentCallId({
     bodyRoom: typeof body.room === 'string' ? body.room : undefined,
     userId: user.id,

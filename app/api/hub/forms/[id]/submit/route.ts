@@ -157,7 +157,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         smsError = 'do_not_text'
       } else {
         const fromNumber = (await resolveFromNumber(admin, { userId: user.id, companyId: profile.company_id })) ?? undefined
-        const result = await sendSms({ to: toPhone, body: smsBody, fromNumber })
+        const result = await sendSms({ to: toPhone, body: smsBody, fromNumber, companyId: profile.company_id })
         if (result.ok) smsSent = true
         else smsError = result.error ?? 'send_failed'
       }

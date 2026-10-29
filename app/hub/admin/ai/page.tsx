@@ -1,3 +1,5 @@
+import { responderDefaultsFor } from '@/lib/responder'
+import { getBusinessProfile } from '@/lib/business-profile'
 import { redirect } from 'next/navigation'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -161,7 +163,7 @@ export default async function AdminAiPage() {
       initialRooms={rooms}
       initialDocs={docs}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      initialResponder={responderRow as any ?? null}
+      initialResponder={responderRow as any ?? responderDefaultsFor(companyId, (await getBusinessProfile(admin, companyId)).businessName)}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       initialResponderCalls={(responderCalls ?? []) as any}
       initialVoiceReceptionist={initialVoiceReceptionist}

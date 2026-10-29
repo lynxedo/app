@@ -199,6 +199,7 @@ export async function sendDirectTxtMessage(opts: {
     mediaUrls: publicMediaUrls.length ? publicMediaUrls : undefined,
     statusCallback,
     fromNumber: fromNumber || undefined,
+    companyId: companyId,
   })
 
   if (!result.ok) {

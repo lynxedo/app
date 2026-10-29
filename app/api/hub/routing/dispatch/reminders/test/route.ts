@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     const to = toE164((me?.phone as string | null) ?? '')
     if (!to) results.push('Text: add your phone in Settings → Profile to get a sample.')
     else {
-      const r = await sendSms({ to, body: `[Sample — would go to ${item.clientName}]\n${item.sms.body}` })
+      const r = await sendSms({ to, companyId, body: `[Sample — would go to ${item.clientName}]\n${item.sms.body}` })
       results.push(r.ok ? `Text sent to your phone.` : `Text failed: ${r.error}`)
     }
   }

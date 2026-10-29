@@ -2,11 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/twilio'
-import { denyUnlessTxtUser } from '@/lib/txt-permissions'
+import { requireTxtUser } from '@/lib/txt-permissions'
 import { ilikeSearchPattern } from '@/lib/search'
-
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // GET /api/txt/contacts?search=...&limit=200&include_do_not_text=0
 //
@@ -20,8 +17,9 @@ export async function GET(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const denied = await denyUnlessTxtUser(supabase, user.id, HEROES_COMPANY_ID)
-  if (denied) return denied
+  const txtAuth = await requireTxtUser(supabase, user.id)
+  if ('error' in txtAuth) return txtAuth.error
+  const companyId = txtAuth.companyId
 
   const url = new URL(request.url)
   const search = (url.searchParams.get('search') || '').trim()
@@ -31,7 +29,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from('txt_contacts')
     .select('id, name, name_source, phone, email, do_not_text, notes, jobber_client_id')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     // This is the texting view (broadcast/group composers + new-conversation
     // search). The unified contacts directory now holds email-only contacts with
     // a null phone — they can't be texted, so exclude them. Leaving them in
@@ -68,8 +66,9 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const denied = await denyUnlessTxtUser(supabase, user.id, HEROES_COMPANY_ID)
-  if (denied) return denied
+  const txtAuth = await requireTxtUser(supabase, user.id)
+  if ('error' in txtAuth) return txtAuth.error
+  const companyId = txtAuth.companyId
 
   const body = await request.json().catch(() => ({}))
   const name: string = (body.name || '').trim()
@@ -85,7 +84,7 @@ export async function POST(request: Request) {
   const { data: existing } = await admin
     .from('txt_contacts')
     .select('id, sources')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .eq('phone', phoneE164)
     .maybeSingle()
 
@@ -120,7 +119,7 @@ export async function POST(request: Request) {
   const { data: created, error: createErr } = await admin
     .from('txt_contacts')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       phone: phoneE164,
       phone_digits: phoneE164.replace(/\D/g, '').slice(-10),
       name,

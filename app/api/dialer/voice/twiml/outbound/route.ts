@@ -8,9 +8,10 @@ import {
   twimlDialPstn,
   twimlSayAndHangup,
   validateTwilioVoiceSignature,
-  voiceCallerId,
   voiceConfigured,
 } from '@/lib/twilio-voice'
+import { companyCallerId } from '@/lib/company-caller-id'
+import { ENV_PHONE_COMPANY_ID } from '@/lib/phone-company'
 import {
   addConferenceParticipant,
   sanitizeRoomName,
@@ -29,7 +30,7 @@ async function resolveOutboundCallerId(
   actorUserId: string | null,
   requested: string
 ): Promise<string> {
-  const fallback = voiceCallerId()
+  const fallback = (await companyCallerId(admin, companyId)) ?? ''
   const e164 = toE164(requested)
   if (!e164) return fallback
   const { data: num } = await admin
@@ -52,9 +53,6 @@ async function resolveOutboundCallerId(
   }
   return e164
 }
-
-const HEROES_COMPANY_ID =
-  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 function twimlResponse(body: string, status = 200) {
   return new NextResponse(body, {
@@ -116,13 +114,31 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient()
 
+  // The caller's company decides which lines, extensions and settings this call
+  // uses and where its row is filed. A browser/app softphone always identifies
+  // as "client:<hub user id>"; only an unidentified caller (not expected) keeps
+  // the env-default company — un-pinning that edge is Part 2 of the SaaS sweep.
+  let companyId = ENV_PHONE_COMPANY_ID
+  if (actorUserId) {
+    const { data: actorProfile } = await admin
+      .from('user_profiles')
+      .select('company_id')
+      .eq('id', actorUserId)
+      .maybeSingle()
+    if (!actorProfile?.company_id) {
+      return twimlResponse(twimlSayAndHangup('This account is not set up to make calls. Goodbye.'), 200)
+    }
+    companyId = actorProfile.company_id as string
+  }
+  const companyDefaultCallerId = (await companyCallerId(admin, companyId)) ?? ''
+
   // Recording is opt-in per company (default OFF).
   let recordCalls = false
   try {
     const { data: recSettings } = await admin
       .from('dialer_settings')
       .select('recording_enabled')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .single()
     recordCalls = recSettings?.recording_enabled === true
   } catch {
@@ -133,8 +149,8 @@ export async function POST(request: NextRequest) {
   // against their access) or the company default. Used for PSTN dials + the
   // stored calls row.
   const chosenCallerId = callerIdReq
-    ? await resolveOutboundCallerId(admin, HEROES_COMPANY_ID, actorUserId, callerIdReq)
-    : voiceCallerId()
+    ? await resolveOutboundCallerId(admin, companyId, actorUserId, callerIdReq)
+    : companyDefaultCallerId
 
   // Resolve the dialed party. Two kinds:
   //   3-digit extension → an internal Hub user (Client identity)
@@ -148,20 +164,24 @@ export async function POST(request: NextRequest) {
     const { data: owner } = await admin
       .from('user_profiles')
       .select('id')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .eq('dialer_extension', toRaw)
       .maybeSingle()
     if (!owner) {
       return twimlResponse(twimlSayAndHangup(`Extension ${toRaw} is not assigned. Goodbye.`), 200)
     }
     customerTo = `client:${owner.id}`
-    customerFrom = identity || voiceCallerId() // internal: show the caller
+    customerFrom = identity || companyDefaultCallerId // internal: show the caller
     toNumberStored = toRaw
     internalOwnerUserId = owner.id
   } else {
     const e164 = toE164(toRaw)
     if (!e164) {
       return twimlResponse(twimlSayAndHangup('Invalid number. Goodbye.'), 200)
+    }
+    if (!chosenCallerId) {
+      // No line of its own → never dial a customer from another company's number.
+      return twimlResponse(twimlSayAndHangup('No phone line is set up for your company yet. Goodbye.'), 200)
     }
     customerTo = e164
     customerFrom = chosenCallerId // PSTN: the user's chosen (validated) caller ID
@@ -171,7 +191,7 @@ export async function POST(request: NextRequest) {
   // Best-effort calls-row insert. Failure never blocks the call.
   try {
     await admin.from('calls').insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       twilio_call_sid: callSid || null,
       direction: 'outbound',
       from_number: chosenCallerId || 'app',
@@ -236,7 +256,7 @@ export async function POST(request: NextRequest) {
           conference_agent_sid: callSid || null,
           conference_customer_sid: add.callSid,
         })
-        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('twilio_call_sid', callSid)
     } catch {
       // swallow — call still connects; transfer/hold would just fall back to lookup
@@ -249,7 +269,7 @@ export async function POST(request: NextRequest) {
         record: recordCalls,
         recordingStatusCallback: recordingCb,
         statusCallback: confStatusCb,
-        callerId: voiceCallerId() || undefined,
+        callerId: companyDefaultCallerId || undefined,
       })
     )
   }

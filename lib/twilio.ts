@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { mayUseEnvPhoneLines } from '@/lib/phone-company'
 
 const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
 const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
@@ -34,9 +35,16 @@ export async function sendSms(opts: {
   statusCallback?: string
   fromNumber?: string
   messagingServiceSid?: string
+  /** The sending company. When given, only the env-default company may fall
+   *  back to the env number — any other company with no fromNumber is refused
+   *  rather than texting a customer from Heroes' line. */
+  companyId?: string
 }): Promise<TwilioSendResult> {
   if (!twilioConfigured()) {
     return { ok: false, error: 'twilio_not_configured' }
+  }
+  if (opts.companyId && !opts.fromNumber && !opts.messagingServiceSid && !mayUseEnvPhoneLines(opts.companyId)) {
+    return { ok: false, error: 'No sending number is set up for your company' }
   }
 
   const from = opts.fromNumber || FROM_NUMBER

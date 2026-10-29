@@ -408,6 +408,7 @@ async function sendOneRecipient(opts: {
     body: outBody,
     statusCallback,
     fromNumber: fromNumber || undefined,
+    companyId: companyId,
   })
 
   if (!result.ok) {

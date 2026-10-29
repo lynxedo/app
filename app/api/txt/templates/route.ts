@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { companyIdForUser } from '@/lib/company-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
-
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 const MAX_TITLE = 80
 const MAX_BODY = 1500
@@ -66,6 +64,8 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const companyId = await companyIdForUser(supabase, user.id)
+  if (!companyId) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
   const body = await request.json().catch(() => ({}))
   const title = String(body.title || '').trim()
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
   const { data: inserted, error } = await admin
     .from('txt_templates')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       scope: 'personal',
       owner_user_id: user.id,
       title,

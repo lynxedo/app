@@ -64,3 +64,20 @@ Company facts — who we are, our services, service area, what we do NOT do (wit
 
 ## Output format
 Return ONLY the SMS message text — no labels, no JSON, no quotes around it. Just the message itself. It must be ≤320 characters.`
+
+// The company whose live prompt RESPONDER_REPLY_SYSTEM_DEFAULT mirrors.
+const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+
+/**
+ * The default reply prompt for one company. Heroes keeps the exact text above;
+ * any other company gets the same prompt with its own name and without Heroes'
+ * staff reference (SaaS Launch Gate Session 3).
+ */
+export function responderReplySystemDefaultFor(companyId: string, businessName: string): string {
+  if (companyId === HEROES_COMPANY_ID) return RESPONDER_REPLY_SYSTEM_DEFAULT
+  const name = businessName.trim() || 'our company'
+  return RESPONDER_REPLY_SYSTEM_DEFAULT
+    .replace(' — like Kathryn, the office manager who has talked to hundreds of neighbors', '')
+    .replace('on the Heroes business line', 'on our business line')
+    .replaceAll('Heroes Lawn Care', name)
+}

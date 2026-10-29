@@ -4,8 +4,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
 const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
-const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 const API = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}`
 
 type Rec = { sid: string; status: string; call_sid?: string | null; conference_sid?: string | null }
@@ -30,7 +28,7 @@ export async function POST(request: Request) {
     .select('can_access_dialer, company_id')
     .eq('id', user.id)
     .single()
-  if (!profile?.can_access_dialer) {
+  if (!profile?.can_access_dialer || !profile.company_id) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
@@ -48,7 +46,7 @@ export async function POST(request: Request) {
   const { data: activeCall } = await admin
     .from('calls')
     .select('id, twilio_call_sid, conference_sid, conference_name, recording_paused')
-    .eq('company_id', profile.company_id || HEROES_COMPANY_ID)
+    .eq('company_id', profile.company_id)
     .is('ended_at', null)
     .or(`handled_by.eq.${user.id},initiated_by.eq.${user.id}`)
     .order('created_at', { ascending: false })

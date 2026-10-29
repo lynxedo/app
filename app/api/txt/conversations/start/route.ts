@@ -2,10 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/twilio'
-import { denyUnlessTxtUser } from '@/lib/txt-permissions'
-
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+import { requireTxtUser } from '@/lib/txt-permissions'
 
 // POST /api/txt/conversations/start
 // Body: { phone, name?, email?, jobber_client_id? }
@@ -16,8 +13,9 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const denied = await denyUnlessTxtUser(supabase, user.id, HEROES_COMPANY_ID)
-  if (denied) return denied
+  const txtAuth = await requireTxtUser(supabase, user.id)
+  if ('error' in txtAuth) return txtAuth.error
+  const companyId = txtAuth.companyId
 
   const body = await request.json().catch(() => ({}))
   const phoneE164 = toE164(body.phone || '')
@@ -37,7 +35,7 @@ export async function POST(request: Request) {
   const { data: existingContact } = await admin
     .from('txt_contacts')
     .select('id')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .eq('phone', phoneE164)
     .maybeSingle()
 
@@ -46,7 +44,7 @@ export async function POST(request: Request) {
     const { data: created, error: createErr } = await admin
       .from('txt_contacts')
       .insert({
-        company_id: HEROES_COMPANY_ID,
+        company_id: companyId,
         phone: phoneE164,
         phone_digits: phoneE164.replace(/\D/g, '').slice(-10),
         name: name || '',   // '' = no name yet → "Unknown" (name is NOT NULL)
@@ -81,7 +79,7 @@ export async function POST(request: Request) {
   const { data: existingConv } = await admin
     .from('txt_conversations')
     .select('id, status')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .eq('contact_id', contactId)
     .eq('kind', 'direct')
     .maybeSingle()
@@ -111,7 +109,7 @@ export async function POST(request: Request) {
   const { data: createdConv, error: convErr } = await admin
     .from('txt_conversations')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       contact_id: contactId,
       assigned_to: user.id,
       status: 'assigned',

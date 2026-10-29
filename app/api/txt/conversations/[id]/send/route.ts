@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { companyIdForUser } from '@/lib/company-auth'
+import { mayUseEnvPhoneLines } from '@/lib/phone-company'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   sendSms,
@@ -13,9 +15,6 @@ import { buildMessagePreview } from '@/lib/txt-preview'
 import { twilioMediaUrls } from '@/lib/txt-media-sign'
 import { seizeAmberThreadForHuman } from '@/lib/amber-text'
 
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -25,6 +24,8 @@ export async function POST(
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const companyId = await companyIdForUser(supabase, user.id)
+  if (!companyId) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
   const { id: conversationId } = await params
   const body = await request.json().catch(() => ({}))
@@ -107,14 +108,14 @@ export async function POST(
     const [{ data: sender }, { data: company }, { data: profile }, { data: txtSettings }] =
       await Promise.all([
         admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
-        admin.from('companies').select('name').eq('id', HEROES_COMPANY_ID).maybeSingle(),
+        admin.from('companies').select('name').eq('id', companyId).maybeSingle(),
         supabase.from('user_profiles').select('txt_signature').eq('id', user.id).maybeSingle(),
         admin
           .from('txt_settings')
           .select(
             'company_default_signature, allow_user_signatures, opt_out_message, opt_out_on_first_message'
           )
-          .eq('company_id', HEROES_COMPANY_ID)
+          .eq('company_id', companyId)
           .maybeSingle(),
       ])
 
@@ -193,7 +194,7 @@ export async function POST(
   const { data: inserted, error: insertErr } = await admin
     .from('txt_messages')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       conversation_id: conversationId,
       contact_id: directContact?.id ?? null,
       direction: 'outbound',
@@ -287,7 +288,7 @@ export async function POST(
     // as a chat identity with no projected address and the send would fail.
     const projectedNumber = await resolveFromNumber(admin, {
       conversationId,
-      companyId: HEROES_COMPANY_ID,
+      companyId: companyId,
     })
     if (!projectedNumber) {
       await admin
@@ -339,7 +340,7 @@ export async function POST(
   const fromNumber = await resolveFromNumber(admin, {
     conversationId,
     userId: user.id,
-    companyId: HEROES_COMPANY_ID,
+    companyId: companyId,
   })
   // Stamp which of our numbers this send used (powers per-message line labels +
   // the reroute check in the status webhook). Look up the resolved From's id.
@@ -348,7 +349,7 @@ export async function POST(
     const { data: pn } = await admin
       .from('txt_phone_numbers')
       .select('id')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .eq('twilio_number', fromNumber)
       .maybeSingle()
     fromNumberId = pn?.id ?? null
@@ -359,6 +360,13 @@ export async function POST(
   // fetcher on our own domain (403 → Twilio error 11200 "HTTP retrieval
   // failure"). In-app rendering still uses the session-gated route. See
   // lib/txt-media-sign.ts. Already-absolute http(s) URLs pass through unchanged.
+  // No line of its own → only the env-default company may fall back to the env
+  // number inside sendSms; anyone else fails here instead of texting as Heroes.
+  if (!fromNumber && !mayUseEnvPhoneLines(companyId)) {
+    const error = 'No sending number is set up for your company'
+    await admin.from('txt_messages').update({ status: 'failed', error_message: error }).eq('id', inserted.id)
+    return NextResponse.json({ ok: false, message_id: inserted.id, error })
+  }
   const publicMediaUrls = await twilioMediaUrls(mediaUrls)
   const result = await sendSms({
     to: directContact!.phone,

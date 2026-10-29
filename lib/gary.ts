@@ -38,6 +38,12 @@ export const GARY_SERVICE_DEPT: Record<GaryService, string> = {
 
 export const GARY_SIGNATURE = 'Gary, Heroes Lawn Care'
 
+/** Gary's sign-off for a company — its own signature name (Heroes' is exactly
+ *  GARY_SIGNATURE). */
+export function garySignatureFor(signatureName: string): string {
+  return signatureName.trim() ? `Gary, ${signatureName.trim()}` : 'Gary'
+}
+
 export type GarySettings = {
   botUserId: string | null
   services: GaryService[]
