@@ -20,18 +20,20 @@ import { getGoogleAccessToken } from '@/lib/google-oauth'
 //
 // No new dependency — we call the REST search endpoint directly with fetch.
 //
-// ⚠ The API version + the exact GAQL field paths below are validated at the
-// first live run (gated on the developer token). If Google renames a field or
-// the pinned version is retired, the API returns a 400 naming the offending
-// field — adjust the SELECT constant / GOOGLE_ADS_API_VERSION and re-run.
+// ⚠ Google retires each API version about a year after release (v22 went dark
+// for us ~Oct 21 2026: every poll 400'd UNSUPPORTED_VERSION and LSA leads
+// silently stopped). Check https://developers.google.com/google-ads/api/docs/sunset-dates
+// and bump the pin below before its sunset. If Google renames a field, the API
+// returns a 400 naming it — adjust the SELECT constant / GOOGLE_ADS_API_VERSION.
+// v26 pinned Oct 29 2026 (released Oct 14 2026).
 
 type Admin = ReturnType<typeof createAdminClient>
 
-const API_VERSION = process.env.GOOGLE_ADS_API_VERSION || 'v22'
+const API_VERSION = process.env.GOOGLE_ADS_API_VERSION || 'v26'
 const searchEndpoint = (customerId: string) =>
   `https://googleads.googleapis.com/${API_VERSION}/customers/${customerId}/googleAds:search`
-// Verified against the v22 service proto's google.api.http annotation:
-//   post: "/v22/customers/{customer_id=*}/localServices:appendLeadConversation"
+// Per the service proto's google.api.http annotation (unchanged v22 → v26):
+//   post: "/v26/customers/{customer_id=*}/localServices:appendLeadConversation"
 const appendConversationEndpoint = (customerId: string) =>
   `https://googleads.googleapis.com/${API_VERSION}/customers/${customerId}/localServices:appendLeadConversation`
 
@@ -68,7 +70,8 @@ type GoogleConn = {
 // NOTE: contact_details is selected as the whole MESSAGE (verified against the v22
 // google_ads_field schema) — its consumer_name / phone_number / email are NOT
 // individually selectable via dotted paths. Google returns them nested under
-// contactDetails in the response (some leads are phone-only, some email-only).
+// contactDetails in the response. Since v25 Google no longer returns the
+// consumer's email at all (ContactDetails.email removed), so `email` is null.
 const LSA_FIELDS = [
   'local_services_lead.id',
   'local_services_lead.lead_type',
