@@ -11,9 +11,6 @@ import { mintToken } from '@/lib/extension-auth'
 //   POST   → mint a new token (returns the raw value ONCE), body { label? }
 //   DELETE ?id=… → revoke a token (sets revoked_at)
 
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -39,14 +36,14 @@ export async function POST(request: Request) {
     typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 80) : null
 
   // Resolve the caller's company (tenant-generic — never hardcode Heroes here so
-  // the token surface works for any future subscriber). Fall back to the env
-  // default only if the profile has no company set.
+  // the token surface works for any future subscriber). No company → refused.
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('company_id')
     .eq('id', user.id)
     .maybeSingle()
-  const companyId = (profile?.company_id as string | null) || HEROES_COMPANY_ID
+  const companyId = (profile?.company_id as string | null) ?? null
+  if (!companyId) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
   const { raw, hash, prefix } = mintToken()
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { encrypt, exchangeAuthCode, QBO_FALLBACK_COMPANY_ID } from '@/lib/qbo'
+import { encrypt, exchangeAuthCode } from '@/lib/qbo'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 
@@ -21,9 +21,12 @@ export async function GET(request: NextRequest) {
   // Which tenant initiated this connect? The company_id was encoded into `state`
   // at kickoff as `${random}.${companyId}` and is integrity-protected by the
   // exact-equality check against the cookie above (a tampered value would fail
-  // that check). Fall back to Heroes for any legacy/malformed state so we still
-  // write a company_id on the row.
-  const companyId = state.split('.').slice(1).join('.') || QBO_FALLBACK_COMPANY_ID
+  // that check). A state with no company is refused — never written to a default
+  // company.
+  const companyId = state.split('.').slice(1).join('.')
+  if (!companyId) {
+    return NextResponse.json({ error: 'Invalid state parameter' }, { status: 400 })
+  }
 
   let tokens: { access_token: string; refresh_token: string; expires_in: number }
   try {

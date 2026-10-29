@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { decrypt, revokeToken, QBO_FALLBACK_COMPANY_ID } from '@/lib/qbo'
+import { decrypt, revokeToken } from '@/lib/qbo'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { checkPinCookie } from '@/lib/check-pin-cookie'
-import { resolveSessionCompanyId } from '@/lib/company-auth'
+import { requireCompany } from '@/lib/company-auth'
 
 export async function POST(request: NextRequest) {
   const denied = await checkPinCookie(request)
@@ -14,7 +14,9 @@ export async function POST(request: NextRequest) {
   }
 
   // Only ever revoke/delete the caller's OWN company token.
-  const companyId = await resolveSessionCompanyId(QBO_FALLBACK_COMPANY_ID)
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const companyId = auth.companyId
 
   const supabase = createAdminClient()
   const { data, error } = await supabase

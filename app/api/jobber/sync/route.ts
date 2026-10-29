@@ -4,11 +4,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { runInitialJobberSync, runDeltaJobberSync } from '@/lib/jobber-sync'
 import { checkCustomerLinkHealth } from '@/lib/jobber-customer-link'
 
-// Fallback company for a cron call that names none — keeps the existing nightly
-// delta cron working untouched. ⚠ It is a FALLBACK, not a pin: a signed-in admin
-// now always syncs their OWN company (see below), so a second tenant is no longer
-// locked out of triggering a sync the way the old env-pinned version locked them out.
-const FALLBACK_COMPANY_ID = process.env.JOBBER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+// A cron call syncs EVERY company with a Jobber connection (one after another);
+// a signed-in admin syncs only their own (see below).
+const ALL_CONNECTED = 'all-connected'
 
 /**
  * Resolve WHICH company this sync is for, alongside whether the caller may run it.
@@ -16,14 +14,13 @@ const FALLBACK_COMPANY_ID = process.env.JOBBER_COMPANY_ID || '00000000-0000-0000
  * Previously the company came from an env var, so only one tenant could ever be
  * synced — a hard blocker for onboarding a second subscriber. A signed-in admin now
  * syncs their own company, taken from their profile and never from the request, so
- * this route can't be aimed at another tenant. Cron keeps the env fallback so the
- * existing nightly delta cron is untouched.
+ * this route can't be aimed at another tenant. Cron syncs every connected company.
  */
 async function resolveSyncTarget(req: NextRequest): Promise<string | null> {
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret) {
-    if (req.headers.get('x-cron-secret') === cronSecret) return FALLBACK_COMPANY_ID
-    if (req.headers.get('Authorization') === `Bearer ${cronSecret}`) return FALLBACK_COMPANY_ID
+    if (req.headers.get('x-cron-secret') === cronSecret) return ALL_CONNECTED
+    if (req.headers.get('Authorization') === `Bearer ${cronSecret}`) return ALL_CONNECTED
   }
 
   const supabase = await createClient()
@@ -58,6 +55,28 @@ export async function POST(req: NextRequest) {
   // initial pull here has to finish inside one process, so a multi-hour first pull
   // dies with any timeout or deploy and starts over. The backfill route persists a
   // cursor after every page and resumes.
+  if (companyId === ALL_CONNECTED) {
+    // Cron: a delta for every company with a Jobber connection, one after another
+    // (never in parallel — Jobber throttles per app). A first pull is never
+    // started this way; it goes through POST /api/jobber/backfill per company.
+    if (type === 'initial') {
+      return NextResponse.json({ error: 'Name a company for an initial sync' }, { status: 400 })
+    }
+    const { data: tokens } = await createAdminClient().from('jobber_tokens').select('company_id')
+    const companyIds = [...new Set((tokens ?? []).map(t => t.company_id as string).filter(Boolean))]
+    after(async () => {
+      for (const id of companyIds) {
+        await runDeltaJobberSync(id).catch(err =>
+          console.error('[jobber-sync] Unhandled error in delta sync for', id, err)
+        )
+        await checkCustomerLinkHealth(id).catch(err =>
+          console.error('[jobber-sync] customer-link health check failed for', id, err)
+        )
+      }
+    })
+    return NextResponse.json({ status: 'started', type, companyIds })
+  }
+
   if (type === 'initial') {
     after(() => runInitialJobberSync(companyId).catch(err =>
       console.error('[jobber-sync] Unhandled error in initial sync:', err)

@@ -20,6 +20,10 @@ import { claimLeadText, sendLeadFirstText } from '@/lib/amber-lead-text'
 
 export const runtime = 'nodejs'
 
+// The managed Angi webhook (one ANGI_WEBHOOK_KEY) belongs to Heroes' Angi account,
+// so every lead it receives is Heroes'. Per-tenant Angi (a key/URL per company)
+// is not built yet; until then Admin → Integrations shows Angi as connected for
+// this company only (ANGI_COMPANY_ID in app/hub/admin/integrations/page.tsx).
 const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
 // The company's Hub bot posts the lead alert into the "Office Alerts" room
 // (resolved per company by lib/office-alerts.ts).

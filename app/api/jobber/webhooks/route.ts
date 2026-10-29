@@ -58,23 +58,19 @@ export async function POST(req: NextRequest) {
     return new NextResponse('ok', { status: 200 })
   }
 
-  // Route the event to the right tenant by its Jobber accountId. If the account
-  // is mapped, use its company; otherwise (unmapped account, or accountId absent)
-  // fall back to the Heroes default and warn loudly. The fallback keeps Heroes
-  // safe during the single-tenant phase and while account mapping is backfilled.
-  // ⚠ Once all tenants are mapped, an unknown/absent accountId should be rejected
-  // (ack-and-drop) instead of attributed to Heroes — see HEROES_FALLBACK_COMPANY_ID.
+  // Route the event to the right tenant by its Jobber accountId. An account no
+  // company is mapped to is acked and DROPPED — it is some other Jobber account,
+  // never Heroes' data (Heroes' account_id is mapped; its last unmapped events
+  // predate that backfill). Only an event with NO accountId at all keeps the Heroes
+  // default: every tenant's events carry one, so that path can't misroute anyone.
   let companyId = HEROES_FALLBACK_COMPANY_ID
   if (evt.accountId) {
     const mapped = await resolveCompanyByJobberAccountId(evt.accountId)
-    if (mapped) {
-      companyId = mapped
-    } else {
-      console.warn(
-        '[jobber-webhook] no company mapped for accountId, falling back to Heroes default:',
-        evt.accountId
-      )
+    if (!mapped) {
+      console.warn('[jobber-webhook] no company mapped for accountId, dropping:', evt.accountId)
+      return new NextResponse('ok', { status: 200 })
     }
+    companyId = mapped
   } else {
     console.warn('[jobber-webhook] event has no accountId, falling back to Heroes default')
   }

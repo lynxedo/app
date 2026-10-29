@@ -2,10 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-// Env-overridable but defaults to Heroes Lawn Care so the single-tenant path
-// stays unchanged. Mirrors app/api/jobber/sync/route.ts.
-const COMPANY_ID = process.env.JOBBER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -13,15 +9,15 @@ export async function GET(req: NextRequest) {
 
   const admin = createAdminClient()
   const { data: profile } = await admin
-    .from('user_profiles').select('role').eq('id', user.id).single()
-  if (profile?.role !== 'admin') {
+    .from('user_profiles').select('role, company_id').eq('id', user.id).single()
+  if (profile?.role !== 'admin' || !profile.company_id) {
     return NextResponse.json({ error: 'Admin only' }, { status: 403 })
   }
 
   const { data: logs } = await admin
     .from('sync_log')
     .select('*')
-    .eq('company_id', COMPANY_ID)
+    .eq('company_id', profile.company_id)
     .order('started_at', { ascending: false })
     .limit(20)
 

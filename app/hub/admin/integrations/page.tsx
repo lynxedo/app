@@ -44,7 +44,10 @@ export default async function AdminIntegrationsPage() {
   ])
 
   const gustoConfigured = !!(process.env.GUSTO_CLIENT_ID && process.env.GUSTO_CLIENT_SECRET)
-  const angiConfigured = !!process.env.ANGI_WEBHOOK_KEY
+  // The managed Angi webhook files every lead under Heroes (app/api/webhooks/angi)
+  // — it only feeds that company until per-tenant Angi exists.
+  const ANGI_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+  const angiConfigured = !!process.env.ANGI_WEBHOOK_KEY && companyId === ANGI_COMPANY_ID
   // Google (Ads + Local Services): one connection per company drives both. The
   // platform OAuth client must be wired (env) before the Connect button works.
   const googleConfigured = !!(process.env.GOOGLE_ADS_CLIENT_ID && process.env.GOOGLE_ADS_CLIENT_SECRET)
