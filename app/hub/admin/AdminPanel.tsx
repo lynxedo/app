@@ -632,7 +632,7 @@ export default function AdminPanel({
               type="email"
               value={inviteEmail}
               onChange={e => setInviteEmail(e.target.value)}
-              placeholder="colleague@heroeslawntx.com"
+              placeholder="colleague@yourcompany.com"
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
             />
             <div className="flex gap-3 flex-col sm:flex-row">
@@ -1297,15 +1297,15 @@ function EmployeeRow({
             <div className="space-y-2">
               <p className="text-xs text-gray-400">
                 Send a Lynxedo invite to <span className="text-white">{name}</span>.
-                A <span className="text-white">@heroeslawntx.com</span> address can use &ldquo;Sign in with Google&rdquo;;
-                any other email signs in with an emailed 6-digit code.
+                A Gmail or Google Workspace address can use &ldquo;Sign in with Google&rdquo;;
+                any email can sign in with an emailed 6-digit code.
               </p>
               <div className="flex gap-2">
                 <input
                   type="email"
                   value={workEmail}
                   onChange={e => setWorkEmail(e.target.value)}
-                  placeholder="name@heroeslawntx.com"
+                  placeholder="name@yourcompany.com"
                   className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
                 />
                 <button
