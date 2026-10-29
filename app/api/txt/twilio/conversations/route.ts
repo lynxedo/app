@@ -4,9 +4,6 @@ import { validateTwilioSignature, toE164, twilioConfigured } from '@/lib/twilio'
 import { sendHubPush } from '@/lib/hub-push'
 import { buildMessagePreview } from '@/lib/txt-preview'
 
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 const STOP_KEYWORDS = new Set(['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'QUIT', 'END'])
 const START_KEYWORDS = new Set(['START', 'UNSTOP', 'YES'])
 
@@ -63,8 +60,7 @@ export async function POST(req: NextRequest) {
   // Match the group conversation by its Twilio Conversations SID.
   const { data: conv } = await supabase
     .from('txt_conversations')
-    .select('id, assigned_to, status')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .select('id, company_id, assigned_to, status')
     .eq('twilio_conversation_sid', conversationSid)
     .eq('kind', 'group')
     .maybeSingle()
@@ -73,6 +69,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: 'unknown conversation' })
   }
   const conversationId = conv.id
+  // Everything below belongs to the group conversation's own company.
+  const companyId: string = conv.company_id as string
 
   // Resolve which contact replied (match by phone within the company directory).
   let contactId: string | null = null
@@ -80,7 +78,7 @@ export async function POST(req: NextRequest) {
     const { data: contact } = await supabase
       .from('txt_contacts')
       .select('id')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .eq('phone', author)
       .maybeSingle()
     contactId = contact?.id ?? null
@@ -90,7 +88,7 @@ export async function POST(req: NextRequest) {
   const { data: inserted, error: insertErr } = await supabase
     .from('txt_messages')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       conversation_id: conversationId,
       contact_id: contactId,
       direction: 'inbound',
@@ -179,7 +177,7 @@ export async function POST(req: NextRequest) {
 
     // Realtime: same channel + event the direct-inbound path uses, so the open
     // thread reloads and the sidebar/rail dot light for exactly these users.
-    const channel = supabase.channel(`txt:${HEROES_COMPANY_ID}`)
+    const channel = supabase.channel(`txt:${companyId}`)
     await channel.subscribe()
     await channel.send({
       type: 'broadcast',

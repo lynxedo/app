@@ -5,6 +5,7 @@ import { extractContactName } from '@/lib/contact-name-ai'
 
 export const maxDuration = 300
 
+// A cron-secret call (no signed-in user) runs for the env-default company (Heroes).
 const HEROES_COMPANY_ID = process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // POST /api/txt/contacts/suggest-names
@@ -28,8 +29,8 @@ export async function POST(request: Request) {
       .eq('id', user.id)
       .single()
     const isAdmin = profile?.role === 'admin' || profile?.can_admin_txt === true
-    if (!isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    companyId = profile?.company_id || HEROES_COMPANY_ID
+    if (!isAdmin || !profile?.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    companyId = profile.company_id
   }
 
   const body = await request.json().catch(() => ({}))

@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { ENV_PHONE_COMPANY_ID, mayUseEnvPhoneLines } from '@/lib/phone-company'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { validateTwilioSignature, twilioConfigured, sendSms } from '@/lib/twilio'
 import { twilioMediaUrls } from '@/lib/txt-media-sign'
-
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // When set, an outbound that a carrier rejects with 30003 ("unreachable" — the
 // signature of AT&T blocking our long code) is automatically resent from this
@@ -74,7 +72,7 @@ export async function POST(req: NextRequest) {
     .from('txt_messages')
     .update(update)
     .eq('twilio_sid', sid)
-    .select('id, conversation_id, direction, body, media_urls, contact_id, phone_number_id, rerouted')
+    .select('id, company_id, conversation_id, direction, body, media_urls, contact_id, phone_number_id, rerouted')
     .maybeSingle()
 
   if (error) {
@@ -82,6 +80,9 @@ export async function POST(req: NextRequest) {
   }
 
   let finalStatus = update.status
+  // The message's own company (the env-default company for an unmatched sid,
+  // which only ever updates nothing).
+  const companyId: string = (row?.company_id as string | undefined) ?? ENV_PHONE_COMPANY_ID
 
   // Reactive fallback: a 30003 "unreachable" on an outbound from our A2P long
   // code is the signature of AT&T blocking the number. Auto-resend via the
@@ -92,6 +93,9 @@ export async function POST(req: NextRequest) {
   // contact, and not if the original already went out on the fallback line.
   if (
     row &&
+    // The fallback line is Heroes' toll-free number — only that company's texts
+    // may be re-sent from it.
+    mayUseEnvPhoneLines(companyId) &&
     FALLBACK_NUMBER &&
     twilioConfigured() &&
     finalStatus === 'failed' &&
@@ -103,7 +107,7 @@ export async function POST(req: NextRequest) {
       const { data: fb } = await supabase
         .from('txt_phone_numbers')
         .select('id')
-        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('twilio_number', FALLBACK_NUMBER)
         .maybeSingle()
       const fallbackId = fb?.id ?? null
@@ -126,7 +130,7 @@ export async function POST(req: NextRequest) {
         const { data: company } = await supabase
           .from('companies')
           .select('name')
-          .eq('id', HEROES_COMPANY_ID)
+          .eq('id', companyId)
           .maybeSingle()
         const companyName = company?.name || ''
         if (companyName && body && !body.toLowerCase().includes(companyName.toLowerCase())) {
@@ -175,7 +179,7 @@ export async function POST(req: NextRequest) {
   // Broadcast for realtime UI
   if (row?.conversation_id) {
     try {
-      const channel = supabase.channel(`txt:${HEROES_COMPANY_ID}`)
+      const channel = supabase.channel(`txt:${companyId}`)
       await channel.subscribe()
       await channel.send({
         type: 'broadcast',
