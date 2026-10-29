@@ -5,6 +5,7 @@ import { parseLsaRelay } from '@/lib/lsa-relay'
 
 export const maxDuration = 300
 
+// A cron-secret call (no signed-in user) runs for the env-default company (Heroes).
 const HEROES_COMPANY_ID = process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 const RELAY_PREFIX = 'You have received a new message from a customer via Google Local Services Ads'
 
@@ -41,8 +42,8 @@ export async function POST(request: Request) {
       .eq('id', user.id)
       .single()
     const isAdmin = profile?.role === 'admin' || profile?.can_admin_txt === true
-    if (!isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    companyId = profile?.company_id || HEROES_COMPANY_ID
+    if (!isAdmin || !profile?.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    companyId = profile.company_id
   }
 
   const payload = await request.json().catch(() => ({}))
