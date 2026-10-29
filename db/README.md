@@ -7,6 +7,14 @@ These files exist so the database's structure **and its access rules are reviewa
 git** instead of living only in the Supabase cloud. They are a **recovery/reference
 blueprint**, not a migration system — the live database is the source of truth.
 
+> **Start here for a rebuild: [`supabase/migrations/0000_baseline.sql`](../supabase/migrations/0000_baseline.sql)**
+> — a real `pg_dump --schema-only --schema=public` of prod taken **Oct 29 2026** (SaaS Launch
+> Gate, Session 1). Unlike `schema.sql` / `rls_policies.sql` below (hand-reconstructed, Aug 2026),
+> it is ordered to replay in one shot and includes **functions, triggers, views and grants**.
+> Matched live at capture: 287 tables, 326 policies, 91 functions, 18 triggers. No data, no secrets.
+> Replay with `psql` 17.6+ (the file uses `\restrict`). Re-take it from the VPS (which has
+> `pg_dump` 17) — see `Reference/VPS_RESTORE_GUIDE.md`.
+
 | File | What it is |
 |------|-----------|
 | `schema.sql` | `CREATE TABLE` (columns + types + defaults), then all PK/FK/UNIQUE/CHECK constraints, then all indexes. Reconstructed from the Postgres catalog. |
