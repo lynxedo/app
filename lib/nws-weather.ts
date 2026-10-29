@@ -10,7 +10,7 @@ const TOTAL_BUDGET_MS = 8000
 
 // NWS asks for a User-Agent identifying the app + contact info so they can
 // reach out if traffic looks abusive.
-const USER_AGENT = 'Lynxedo Daily Log v2 (ben@heroeslawntx.com)'
+const USER_AGENT = 'Lynxedo Daily Log v2 (support@lynxedo.com)'
 
 interface PointsResponse {
   properties?: {

@@ -16,7 +16,7 @@ export async function POST() {
 
   const pubKey = process.env.HUB_VAPID_PUBLIC_KEY ?? process.env.NEXT_PUBLIC_HUB_VAPID_PUBLIC_KEY
   const privKey = process.env.HUB_VAPID_PRIVATE_KEY
-  const email = process.env.HUB_VAPID_EMAIL ?? 'ben@heroeslawntx.com'
+  const email = process.env.HUB_VAPID_EMAIL ?? 'support@lynxedo.com'
 
   const admin = createAdminClient()
   const [subsRes, apnsRes, fcmRes, prefsRes] = await Promise.all([
@@ -98,7 +98,7 @@ export async function GET() {
 
   const pubKey = process.env.HUB_VAPID_PUBLIC_KEY ?? process.env.NEXT_PUBLIC_HUB_VAPID_PUBLIC_KEY ?? null
   const privKey = process.env.HUB_VAPID_PRIVATE_KEY ?? null
-  const email = process.env.HUB_VAPID_EMAIL ?? 'ben@heroeslawntx.com'
+  const email = process.env.HUB_VAPID_EMAIL ?? 'support@lynxedo.com'
 
   const admin = createAdminClient()
   const { data: subs } = await admin

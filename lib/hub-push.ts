@@ -13,7 +13,7 @@ function ensureVapid() {
   const privKey = process.env.HUB_VAPID_PRIVATE_KEY
   if (!pubKey || !privKey) return
   webpush.setVapidDetails(
-    `mailto:${process.env.HUB_VAPID_EMAIL ?? 'ben@heroeslawntx.com'}`,
+    `mailto:${process.env.HUB_VAPID_EMAIL ?? 'support@lynxedo.com'}`,
     pubKey,
     privKey,
   )

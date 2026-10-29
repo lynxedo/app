@@ -46,7 +46,7 @@ export const HEROES_BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
 }
 
 // The company whose details HEROES_BUSINESS_PROFILE_FALLBACK are.
-const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+export const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
 
 /** Fallback for a non-Heroes company with no business_profiles row: its own
  *  company name, everything else blank. */

@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/server'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { getR2Client } from '@/lib/r2'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getBusinessProfile, HEROES_COMPANY_ID, type BusinessProfile } from '@/lib/business-profile'
 
 const SERVICE_TYPES = ['fertilization', 'irrigation', 'doody-duty', 'team', 'general', 'aeration', 'overseeding', 'pest-control'] as const
 type ServiceType = typeof SERVICE_TYPES[number]
@@ -20,7 +22,8 @@ const PILLAR_INSTRUCTIONS: Record<ContentPillar, string> = {
   sell: 'Soft-sell the service with urgency or value. Mention seasonal timing, limited availability, or a clear benefit. End with a CTA: call or visit the website.',
 }
 
-const SERVICE_CONTEXT: Record<ServiceType, string> = {
+// Heroes' own branded program names — used only for Heroes.
+const HEROES_SERVICE_CONTEXT: Record<ServiceType, string> = {
   fertilization: 'Fertilization Force — Heroes\' signature fertilization program using premium nutrients tailored to Texas lawns',
   irrigation: 'Irrigation Army — sprinkler system install, repair, and seasonal adjustment services',
   'doody-duty': 'Heroes Doody Duty — professional pet waste removal service',
@@ -29,6 +32,37 @@ const SERVICE_CONTEXT: Record<ServiceType, string> = {
   'pest-control': 'Pest control and grub treatment for a healthy, protected lawn',
   team: 'The Heroes Lawn Care team — the people behind the work',
   general: 'Heroes Lawn Care — full-service residential lawn care in The Woodlands area',
+}
+
+// Any other company: plain service descriptions, nothing of Heroes'.
+function genericServiceContext(serviceType: ServiceType, bp: BusinessProfile): string {
+  const name = bp.businessName || 'the company'
+  switch (serviceType) {
+    case 'fertilization': return 'Lawn fertilization — a seasonal program of nutrients for a thick, green lawn'
+    case 'irrigation': return 'Irrigation — sprinkler system install, repair, and seasonal adjustment services'
+    case 'doody-duty': return 'Pet waste removal — a clean, safe yard for families and pets'
+    case 'aeration': return 'Core aeration — break up compacted soil, improve drainage, and let nutrients reach the roots'
+    case 'overseeding': return 'Overseeding — thicken thin or bare spots for a lush, full lawn'
+    case 'pest-control': return 'Pest control and grub treatment for a healthy, protected lawn'
+    case 'team': return `The ${name} team — the people behind the work`
+    default: return `${name} — residential lawn care${bp.serviceArea ? ` serving ${bp.serviceArea}` : ''}`
+  }
+}
+
+// Heroes keeps its exact prompt; every other company's prompt is built from its
+// own business profile (SaaS Launch Gate Session 6).
+function systemPromptFor(bp: BusinessProfile): string {
+  const name = bp.businessName || 'a residential lawn care company'
+  const area = bp.serviceArea || [bp.city, bp.region].filter(Boolean).join(', ')
+  const lines = [
+    `You are a social media writer for ${name}, a residential lawn care company${area ? ` serving ${area}` : ''}.`,
+    '',
+    `Brand voice: friendly, professional, confident. Homeowners trust ${bp.shortName || name} to make their lawn the best on the block.`,
+  ]
+  if (bp.phone) lines.push(`Phone: ${bp.phone}`)
+  if (bp.website) lines.push(`Website: ${bp.website}`)
+  if (!bp.phone && !bp.website) lines.push('Do not invent a phone number or website.')
+  return lines.join('\n')
 }
 
 export async function POST(request: Request) {
@@ -62,6 +96,9 @@ export async function POST(request: Request) {
   const contentPillar: ContentPillar = (CONTENT_PILLARS as readonly string[]).includes(body.content_pillar ?? '')
     ? (body.content_pillar as ContentPillar) : 'show-work'
   const month = body.month ?? new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })
+  const isHeroes = profile.company_id === HEROES_COMPANY_ID
+  const bp = isHeroes ? null : await getBusinessProfile(createAdminClient(), profile.company_id)
+  const serviceContext = bp ? genericServiceContext(serviceType, bp) : HEROES_SERVICE_CONTEXT[serviceType]
 
   // Build message content — include photo if provided
   const contentBlocks: Anthropic.ContentBlockParam[] = []
@@ -98,7 +135,7 @@ export async function POST(request: Request) {
     text: `Write a social media caption for the ${month} post.
 
 Platform: ${platform === 'instagram' ? 'Instagram' : 'Facebook'}
-Service: ${SERVICE_CONTEXT[serviceType]}
+Service: ${serviceContext}
 Content pillar: ${contentPillar.replace('-', ' ')} — ${PILLAR_INSTRUCTIONS[contentPillar]}
 ${contentBlocks.length > 1 ? 'The photo above is included in this post — reference what you see.' : ''}
 
@@ -107,7 +144,7 @@ ${platformInstructions}
 Return ONLY the caption text. No labels, no quotes, no commentary.`,
   })
 
-  const systemPrompt = `You are a social media writer for Heroes Lawn Care, a full-service residential lawn care company serving The Woodlands, Spring, Magnolia, Conroe, and Tomball, TX.
+  const systemPrompt = bp ? systemPromptFor(bp) : `You are a social media writer for Heroes Lawn Care, a full-service residential lawn care company serving The Woodlands, Spring, Magnolia, Conroe, and Tomball, TX.
 
 Brand voice: friendly, professional, confident. Homeowners trust Heroes to make their lawn the best on the block.
 Phone: (832) 220-8100
