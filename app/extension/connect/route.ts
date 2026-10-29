@@ -17,8 +17,6 @@ import { mintToken } from '@/lib/extension-auth'
 // in the URL fragment (#token=…), which browsers never send to servers or put
 // in the Referer — so it stays out of logs.
 
-const HEROES_COMPANY_ID =
-  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com'
 
 // Optional pin to specific extension IDs (comma-separated env). The redirect
@@ -63,13 +61,14 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${APP_URL}/login?next=${encodeURIComponent(selfPath)}`)
   }
 
-  // Resolve the caller's company (tenant-generic; env fallback only).
+  // Resolve the caller's company (tenant-generic; no company → refused).
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('company_id')
     .eq('id', user.id)
     .maybeSingle()
-  const companyId = (profile?.company_id as string | null) || HEROES_COMPANY_ID
+  const companyId = (profile?.company_id as string | null) ?? null
+  if (!companyId) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
   const { raw, hash, prefix } = mintToken()
   const admin = createAdminClient()

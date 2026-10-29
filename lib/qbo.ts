@@ -3,13 +3,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 const ALGORITHM = 'aes-256-cbc'
 
-// Multi-tenant fallback for the PIN-gated Books/QBO surface. Callers should pass
-// the caller's real company_id (resolved from the Hub session). This is only the
-// last-resort default when a company genuinely can't be resolved (mirrors the
-// DIALER_COMPANY_ID pattern; Heroes Lawn Care is the only live QBO tenant).
-export const QBO_FALLBACK_COMPANY_ID =
-  process.env.QBO_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
-
 function getKey() {
   return Buffer.from(process.env.QBO_TOKEN_ENCRYPTION_KEY!, 'hex')
 }
