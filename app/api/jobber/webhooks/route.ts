@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import crypto from 'crypto'
 import { resolveCompanyByJobberAccountId } from '@/lib/jobber-sync'
 import { drainJobberWebhookQueue, enqueueJobberWebhookEvent } from '@/lib/jobber-webhook-queue'
+import { configuredJobberApps } from '@/lib/jobber-apps'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -22,15 +23,19 @@ const HEROES_FALLBACK_COMPANY_ID =
  * app's OAuth client secret, delivered base64-encoded in X-Jobber-Hmac-SHA256.
  * (Confirmed against developer.getjobber.com — the signing key is the client
  * secret, NOT a separate webhook secret, and the digest is base64, not hex.)
+ *
+ * Two Jobber apps post here — the original Lynxedo app (Heroes) and the Servanto
+ * Marketplace app (everyone else, lib/jobber-apps.ts) — each signing with its own
+ * secret, so a body is genuine if ANY configured app's secret produces the header.
  */
 function verifyJobberSignature(rawBody: string, signature: string): boolean {
-  const secret = process.env.JOBBER_CLIENT_SECRET
-  if (!secret || !signature) return false
-  const expected = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64')
-  const a = Buffer.from(expected)
+  if (!signature) return false
   const b = Buffer.from(signature)
-  if (a.length !== b.length) return false
-  return crypto.timingSafeEqual(a, b)
+  return configuredJobberApps().some(({ clientSecret }) => {
+    const expected = crypto.createHmac('sha256', clientSecret).update(rawBody, 'utf8').digest('base64')
+    const a = Buffer.from(expected)
+    return a.length === b.length && crypto.timingSafeEqual(a, b)
+  })
 }
 
 export async function POST(req: NextRequest) {
@@ -110,5 +115,5 @@ export async function POST(req: NextRequest) {
 
 // Lightweight liveness check (Jobber never GETs this; handy for deploy verification).
 export async function GET() {
-  return NextResponse.json({ ok: true, configured: Boolean(process.env.JOBBER_CLIENT_SECRET) })
+  return NextResponse.json({ ok: true, configured: configuredJobberApps().length > 0, apps: configuredJobberApps().map(a => a.key) })
 }

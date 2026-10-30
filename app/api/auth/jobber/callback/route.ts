@@ -4,9 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { cookies } from 'next/headers'
 import { jobberGraphQL } from '@/lib/jobber'
 import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
+import { jobberAppCreds, jobberAppForCompany } from '@/lib/jobber-apps'
 
-const JOBBER_CLIENT_ID = process.env.JOBBER_CLIENT_ID!
-const JOBBER_CLIENT_SECRET = process.env.JOBBER_CLIENT_SECRET!
 const JOBBER_TOKEN_URL = 'https://api.getjobber.com/api/oauth/token'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
@@ -35,6 +34,35 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${APP_URL}/login`)
   }
 
+  // Resolve the connecting user's company so the token is owned by the RIGHT tenant
+  // rather than the schema DEFAULT (Heroes). Critical for multi-tenant: webhook
+  // routing keys off jobber_tokens.company_id (via account_id → company), so a new
+  // tenant whose token defaulted to Heroes would have its Jobber events misattributed.
+  const { data: connectingProfile } = await supabase
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  // A Jobber connection belongs to the COMPANY, not the person who clicked
+  // Connect — one row per company, enforced by UNIQUE (company_id). So the
+  // company is required rather than optional: without it there is no key to
+  // upsert on, and the column is NOT NULL regardless.
+  const companyId = connectingProfile?.company_id
+  if (!companyId) {
+    console.error('Jobber callback: connecting user has no company_id, refusing to store token')
+    return NextResponse.redirect(`${APP_URL}/hub/admin/integrations?error=no_company`)
+  }
+
+  // The code was issued to whichever Jobber app the connect route sent this company
+  // to, and only that app's keys can exchange it — same rule, recomputed here.
+  const appKey = await jobberAppForCompany(companyId)
+  const app = jobberAppCreds(appKey)
+  if (!app) {
+    console.error(`Jobber callback: keys for the '${appKey}' Jobber app are not configured`)
+    return NextResponse.redirect(`${APP_URL}/hub/admin/integrations?error=jobber_not_configured`)
+  }
+
   // Exchange code for tokens
   const tokenRes = await fetch(JOBBER_TOKEN_URL, {
     method: 'POST',
@@ -42,8 +70,8 @@ export async function GET(request: Request) {
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code,
-      client_id: JOBBER_CLIENT_ID,
-      client_secret: JOBBER_CLIENT_SECRET,
+      client_id: app.clientId,
+      client_secret: app.clientSecret,
       redirect_uri: `${APP_URL}/api/auth/jobber/callback`,
     }),
   })
@@ -66,26 +94,6 @@ export async function GET(request: Request) {
   const expiresIn = typeof tokens.expires_in === 'number' ? tokens.expires_in : 3600
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
 
-  // Resolve the connecting user's company so the token is owned by the RIGHT tenant
-  // rather than the schema DEFAULT (Heroes). Critical for multi-tenant: webhook
-  // routing keys off jobber_tokens.company_id (via account_id → company), so a new
-  // tenant whose token defaulted to Heroes would have its Jobber events misattributed.
-  const { data: connectingProfile } = await supabase
-    .from('user_profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
-
-  // A Jobber connection belongs to the COMPANY, not the person who clicked
-  // Connect — one row per company, enforced by UNIQUE (company_id). So the
-  // company is required rather than optional: without it there is no key to
-  // upsert on, and the column is NOT NULL regardless.
-  const companyId = connectingProfile?.company_id
-  if (!companyId) {
-    console.error('Jobber callback: connecting user has no company_id, refusing to store token')
-    return NextResponse.redirect(`${APP_URL}/hub/admin/integrations?error=no_company`)
-  }
-
   // Store tokens in Supabase (upsert on company so a reconnect by ANYONE updates
   // the single row instead of adding a second one).
   const tokenRow: Record<string, unknown> = {
@@ -94,6 +102,7 @@ export async function GET(request: Request) {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
     expires_at: expiresAt,
+    jobber_app: appKey, // the refresh + webhook check must use this app's keys
     updated_at: new Date().toISOString(),
   }
 

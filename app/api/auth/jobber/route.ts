@@ -4,8 +4,8 @@ import { requireAdminArea } from '@/lib/admin-auth'
 import { cookies } from 'next/headers'
 import { randomBytes } from 'crypto'
 import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
+import { JOBBER_APP_SCOPES, jobberAppCreds, jobberAppForCompany } from '@/lib/jobber-apps'
 
-const JOBBER_CLIENT_ID = process.env.JOBBER_CLIENT_ID!
 const JOBBER_AUTH_URL = 'https://api.getjobber.com/api/oauth/authorize'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
@@ -28,6 +28,24 @@ export async function GET() {
     return NextResponse.redirect(`${APP_URL}/hub?error=jobber_connect_forbidden`)
   }
 
+  // Which Jobber developer app this company connects through — Heroes stays on the
+  // original Lynxedo app, everyone else uses Servanto (lib/jobber-apps.ts). The
+  // callback recomputes the same answer, so nothing about it travels in the URL.
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+  if (!profile?.company_id) {
+    return NextResponse.redirect(`${APP_URL}/hub/admin/integrations?error=no_company`)
+  }
+  const appKey = await jobberAppForCompany(profile.company_id)
+  const app = jobberAppCreds(appKey)
+  if (!app) {
+    console.error(`[jobber-connect] keys for the '${appKey}' Jobber app are not configured`)
+    return NextResponse.redirect(`${APP_URL}/hub/admin/integrations?error=jobber_not_configured`)
+  }
+
   // Generate CSRF state token
   const state = randomBytes(16).toString('hex')
 
@@ -46,7 +64,7 @@ export async function GET() {
 
   const params = new URLSearchParams({
     response_type: 'code',
-    client_id: JOBBER_CLIENT_ID,
+    client_id: app.clientId,
     redirect_uri: `${APP_URL}/api/auth/jobber/callback`,
     state,
     // ⚠⚠ A SCOPE LIVES IN THE GRANTED TOKEN, SO ADDING ONE IS NOT RETROACTIVE.
@@ -57,7 +75,7 @@ export async function GET() {
     // why `syncQuotesSafe` treats that specific error as an expected state rather
     // than a failure (a quote sync must never abort clients/jobs/visits/invoices).
     // Read-only: we mirror quotes for reporting and never write them from Lynxedo.
-    scope: 'read_clients write_clients read_jobs write_jobs read_visits write_visits read_users read_quotes',
+    scope: JOBBER_APP_SCOPES[appKey],
   })
 
   return NextResponse.redirect(`${JOBBER_AUTH_URL}?${params}`)

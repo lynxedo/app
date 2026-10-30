@@ -6,9 +6,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { jobberAppCreds, normaliseJobberApp, type JobberAppKey } from '@/lib/jobber-apps'
 
-const JOBBER_CLIENT_ID = process.env.JOBBER_CLIENT_ID!
-const JOBBER_CLIENT_SECRET = process.env.JOBBER_CLIENT_SECRET!
 const JOBBER_TOKEN_URL = 'https://api.getjobber.com/api/oauth/token'
 const JOBBER_API_URL = 'https://api.getjobber.com/api/graphql'
 const JOBBER_API_VERSION = '2026-04-22'
@@ -19,7 +18,7 @@ export async function getJobberToken(userId: string): Promise<string | null> {
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('jobber_tokens')
-    .select('access_token, refresh_token, expires_at')
+    .select('access_token, refresh_token, expires_at, jobber_app')
     .eq('user_id', userId)
     .single()
 
@@ -29,7 +28,7 @@ export async function getJobberToken(userId: string): Promise<string | null> {
   const expiresAt = new Date(data.expires_at).getTime()
   const bufferMs = 5 * 60 * 1000
   if (Date.now() + bufferMs >= expiresAt) {
-    return refreshJobberToken(userId, data.refresh_token)
+    return refreshJobberToken(userId, data.refresh_token, normaliseJobberApp(data.jobber_app))
   }
 
   return data.access_token
@@ -59,11 +58,11 @@ export async function getJobberToken(userId: string): Promise<string | null> {
  */
 const inFlightRefreshes = new Map<string, Promise<string | null>>()
 
-function refreshJobberToken(userId: string, refreshToken: string): Promise<string | null> {
+function refreshJobberToken(userId: string, refreshToken: string, appKey: JobberAppKey): Promise<string | null> {
   const existing = inFlightRefreshes.get(userId)
   if (existing) return existing
 
-  const p = performRefresh(userId, refreshToken).finally(() => {
+  const p = performRefresh(userId, refreshToken, appKey).finally(() => {
     inFlightRefreshes.delete(userId)
   })
   inFlightRefreshes.set(userId, p)
@@ -94,16 +93,24 @@ async function reReadRotatedToken(userId: string): Promise<string | null> {
 
 async function performRefresh(
   userId: string,
-  refreshToken: string
+  refreshToken: string,
+  appKey: JobberAppKey
 ): Promise<string | null> {
+  // A refresh token only works with the keys of the Jobber app that issued it
+  // (Heroes = Lynxedo app, everyone else = Servanto — lib/jobber-apps.ts).
+  const app = jobberAppCreds(appKey)
+  if (!app) {
+    console.error(`Jobber token refresh: keys for the '${appKey}' Jobber app are not configured`)
+    return null
+  }
   const res = await fetch(JOBBER_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      client_id: JOBBER_CLIENT_ID,
-      client_secret: JOBBER_CLIENT_SECRET,
+      client_id: app.clientId,
+      client_secret: app.clientSecret,
     }),
     signal: AbortSignal.timeout(10000),
   })
@@ -173,7 +180,7 @@ export async function getJobberTokenAdmin(userId: string): Promise<string | null
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('jobber_tokens')
-    .select('access_token, refresh_token, expires_at')
+    .select('access_token, refresh_token, expires_at, jobber_app')
     .eq('user_id', userId)
     .single()
 
@@ -183,7 +190,7 @@ export async function getJobberTokenAdmin(userId: string): Promise<string | null
   const expiresAt = new Date(data.expires_at).getTime()
   const bufferMs = 5 * 60 * 1000
   if (Date.now() + bufferMs >= expiresAt) {
-    return refreshJobberToken(userId, data.refresh_token)
+    return refreshJobberToken(userId, data.refresh_token, normaliseJobberApp(data.jobber_app))
   }
 
   return data.access_token
