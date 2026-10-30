@@ -284,7 +284,9 @@ function IntegrationCard({
               dead (expired/revoked refresh token) while the row still reads "connected",
               and without this the only button was Disconnect — leaving no way to re-auth. */}
           {!isComingSoon && provider.connectHref && (
-            <a href={provider.connectHref} className={`${btn} ${isConnected ? 'bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700' : 'bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border-blue-600/30'}`}>
+            // target=_top: Admin opens inside a Hub tab frame, and every OAuth provider
+            // (Jobber, Google, QuickBooks) refuses to load its sign-in page in a frame.
+            <a href={provider.connectHref} target="_top" className={`${btn} ${isConnected ? 'bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700' : 'bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border-blue-600/30'}`}>
               {isConnected ? 'Reconnect' : 'Connect'}
             </a>
           )}

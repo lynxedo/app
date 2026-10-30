@@ -29,6 +29,7 @@ export default function RoutingScreen({
               {canConnectJobber && (
                 <a
                   href="/api/auth/jobber"
+                  target="_top"
                   className="text-gray-500 hover:text-orange-400 transition-colors"
                   title="Reconnect Jobber"
                   aria-label="Reconnect Jobber"
@@ -66,6 +67,7 @@ export default function RoutingScreen({
                 <p className="text-gray-400 mb-8">Connect your Jobber account to load visits and optimize routes.</p>
                 <a
                   href="/api/auth/jobber"
+                  target="_top"
                   className="inline-block px-6 py-3 bg-orange-500 hover:bg-orange-400 text-[#fff] rounded-xl text-sm font-medium transition-colors"
                 >
                   Connect Jobber →
