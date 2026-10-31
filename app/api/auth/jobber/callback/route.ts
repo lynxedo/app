@@ -5,6 +5,7 @@ import { cookies } from 'next/headers'
 import { jobberGraphQL } from '@/lib/jobber'
 import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 import { jobberAppCreds, jobberAppForCompany } from '@/lib/jobber-apps'
+import { cancelPendingJobberPurge } from '@/lib/jobber-disconnect'
 
 const JOBBER_TOKEN_URL = 'https://api.getjobber.com/api/oauth/token'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
@@ -120,6 +121,9 @@ export async function GET(request: Request) {
     console.error('Failed to store Jobber tokens:', dbError)
     return NextResponse.redirect(`${APP_URL}/hub/routing?error=db_error`)
   }
+
+  // Reconnected inside the 30-day window → keep their copied Jobber data.
+  await cancelPendingJobberPurge(companyId)
 
   // Multi-tenant Track 3 — capture the Jobber accountId so the webhook route can
   // map incoming events to the right company. Best-effort: a failure here must

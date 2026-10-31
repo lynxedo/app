@@ -2,7 +2,9 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import crypto from 'crypto'
 import { resolveCompanyByJobberAccountId } from '@/lib/jobber-sync'
 import { drainJobberWebhookQueue, enqueueJobberWebhookEvent } from '@/lib/jobber-webhook-queue'
-import { configuredJobberApps } from '@/lib/jobber-apps'
+import { configuredJobberApps, normaliseJobberApp, type JobberAppKey } from '@/lib/jobber-apps'
+import { recordJobberDisconnect } from '@/lib/jobber-disconnect'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -28,21 +30,55 @@ const HEROES_FALLBACK_COMPANY_ID =
  * Marketplace app (everyone else, lib/jobber-apps.ts) — each signing with its own
  * secret, so a body is genuine if ANY configured app's secret produces the header.
  */
-function verifyJobberSignature(rawBody: string, signature: string): boolean {
-  if (!signature) return false
+function verifyJobberSignature(rawBody: string, signature: string): JobberAppKey | null {
+  if (!signature) return null
   const b = Buffer.from(signature)
-  return configuredJobberApps().some(({ clientSecret }) => {
+  const signer = configuredJobberApps().find(({ clientSecret }) => {
     const expected = crypto.createHmac('sha256', clientSecret).update(rawBody, 'utf8').digest('base64')
     const a = Buffer.from(expected)
     return a.length === b.length && crypto.timingSafeEqual(a, b)
   })
+  return signer?.key ?? null
+}
+
+/**
+ * APP_DISCONNECT — the customer removed our app inside Jobber. Delete the
+ * company's tokens now and schedule the 30-day purge (lib/jobber-disconnect.ts).
+ *
+ * Handled here rather than through the queue: it is two quick writes, and once the
+ * tokens are gone a later redelivery can't be mapped to the company, so the queue's
+ * deferred processing would have nothing to resolve against.
+ *
+ * Only the app that SIGNED the notice is disconnected. Each company has one token
+ * row; if it belongs to the other app (say a Servanto test connection and Heroes'
+ * Lynxedo connection shared a Jobber account), the notice isn't about it.
+ */
+async function handleAppDisconnect(companyId: string, signer: JobberAppKey, accountId: string | undefined) {
+  const admin = createAdminClient()
+  const { data: row } = await admin
+    .from('jobber_tokens')
+    .select('jobber_app')
+    .eq('company_id', companyId)
+    .maybeSingle()
+  if (!row) return new NextResponse('ok', { status: 200 }) // already disconnected (redelivery)
+  if (normaliseJobberApp(row.jobber_app) !== signer) {
+    console.warn(`[jobber-webhook] APP_DISCONNECT from '${signer}' but ${companyId} is on '${row.jobber_app}' — ignoring`)
+    return new NextResponse('ok', { status: 200 })
+  }
+  const res = await recordJobberDisconnect({ companyId, app: signer, accountId, source: 'jobber_webhook' })
+  if (!res.ok) {
+    console.error('[jobber-webhook] APP_DISCONNECT failed, asking Jobber to retry:', res.error)
+    return new NextResponse('disconnect failed', { status: 500 })
+  }
+  return new NextResponse('ok', { status: 200 })
 }
 
 export async function POST(req: NextRequest) {
   const raw = await req.text()
   const sig = req.headers.get('X-Jobber-Hmac-SHA256') ?? ''
 
-  if (!verifyJobberSignature(raw, sig)) {
+  const signer = verifyJobberSignature(raw, sig)
+  if (!signer) {
     return new NextResponse('invalid signature', { status: 401 })
   }
 
@@ -58,7 +94,8 @@ export async function POST(req: NextRequest) {
   })?.data?.webHookEvent
 
   // Acknowledge anything we can't parse so Jobber doesn't retry forever.
-  if (!evt?.topic || !evt?.itemId) {
+  // (APP_DISCONNECT is about the account, not an item, so it may carry no itemId.)
+  if (!evt?.topic || (!evt.itemId && evt.topic !== 'APP_DISCONNECT')) {
     console.warn('[jobber-webhook] unrecognized payload shape, acking')
     return new NextResponse('ok', { status: 200 })
   }
@@ -79,6 +116,17 @@ export async function POST(req: NextRequest) {
   } else {
     console.warn('[jobber-webhook] event has no accountId, falling back to Heroes default')
   }
+
+  if (evt.topic === 'APP_DISCONNECT') {
+    // Never fall back to Heroes for a disconnect: without an accountId we can't
+    // tell whose connection this is.
+    if (!evt.accountId) {
+      console.warn('[jobber-webhook] APP_DISCONNECT without accountId, ignoring')
+      return new NextResponse('ok', { status: 200 })
+    }
+    return handleAppDisconnect(companyId, signer, evt.accountId)
+  }
+  if (!evt.itemId) return new NextResponse('ok', { status: 200 })
 
   // `occuredAt` is the legacy spelling on apps created before 2023-12-08.
   const occurredAt = evt.occurredAt ?? evt.occuredAt ?? null

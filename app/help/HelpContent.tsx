@@ -2356,6 +2356,16 @@ function SettingsTab() {
         <p className="mt-2"><strong className="text-white">Gusto: Sync payroll.</strong> The Gusto card has its own <strong className="text-white">Sync payroll</strong> button, which pulls your processed pay runs in so Crew &amp; Labor can price work in real money rather than estimating it. Underneath the card it says how far the import has got — <em>&ldquo;Payroll imported through Sep 13 · up to date&rdquo;</em> — and turns amber with a warning once it falls more than a fortnight behind the timeclock. A short gap is normal, since a week&apos;s pay only exists once you&apos;ve run that week&apos;s payroll. Press the button after each payroll run, or any time the Crew &amp; Labor cards say payroll is behind. It only re-reads the last couple of weeks, so it&apos;s quick and safe to press twice.</p>
       </Section>
 
+      <Section title="Disconnecting Jobber">
+        <p>Click <strong className="text-white">Disconnect</strong> on the Jobber card in <Link href="/hub/admin/integrations" className="text-orange-400 hover:text-orange-300">Admin → Integrations</Link>, or remove the app from inside Jobber — either way the connection ends straight away and Jobber features stop until you reconnect.</p>
+        <p className="mt-2">If your company connected through Servanto, the data copied from Jobber (clients, properties, jobs, visits, invoices and quotes) is <strong className="text-white">deleted 30 days later</strong>. The Jobber card shows the date. <strong className="text-white">Reconnect before then and nothing is deleted.</strong> Your own work here — chat, boards, leads and contacts — is kept; contacts just lose their link to the Jobber client.</p>
+      </Section>
+
+      <Section title="Export your data">
+        <p>Admins see an <strong className="text-white">Export your data</strong> section at the bottom of <Link href="/hub/admin/integrations" className="text-orange-400 hover:text-orange-300">Admin → Integrations</Link>. Each <strong className="text-white">Download</strong> gives you a spreadsheet (CSV) that opens in Excel or Google Sheets: contacts, leads, lead notes, board tasks and chat messages.</p>
+        <Note>Chat covers public rooms only — never DMs or private rooms — and boards skip personal and private boards. Jobber data isn&apos;t included because you already have it in Jobber.</Note>
+      </Section>
+
       <Section title="Inbound automation keys">
         <p>At the bottom of <Link href="/hub/admin/integrations" className="text-orange-400 hover:text-orange-300">Admin → Integrations</Link> is an <strong className="text-white">Inbound automation keys</strong> section. These work the opposite way from the connection cards above them: instead of Lynxedo reaching out to another tool, an inbound key lets an outside service — Zapier, a script, an auto-poster — securely push messages <strong className="text-white">into</strong> your Hub.</p>
         <p className="mt-2">Click <strong className="text-white">Create a key</strong>, give it a name (e.g. &ldquo;Zapier&rdquo;), and copy the key <strong className="text-white">right away</strong> — it&apos;s shown only once. The outside service then sends messages with that key in its <code className="text-green-400">Authorization</code> header. Revoke any key immediately if it&apos;s lost or no longer needed.</p>

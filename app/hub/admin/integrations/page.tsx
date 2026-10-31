@@ -3,8 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import IntegrationsAdminPanel from './IntegrationsAdminPanel'
 import JobberReportLinks from './JobberReportLinks'
+import DataExportSection from './DataExportSection'
 import type { ProviderKey, IntegrationStatus } from '@/lib/integrations-catalog'
 import { nylasConfigured } from '@/lib/inbox/config'
+import { normaliseJobberApp } from '@/lib/jobber-apps'
+import { JOBBER_DATA_RETENTION_DAYS, pendingJobberPurge, purgesOnDisconnect } from '@/lib/jobber-disconnect'
 
 export const metadata = { title: 'Integrations Admin' }
 
@@ -29,7 +32,7 @@ export default async function AdminIntegrationsPage() {
   const admin = createAdminClient()
 
   const [jobber, qbo, gusto, meta, email, onestep, google, voicedrop, hubAssistant, rachio] = await Promise.all([
-    admin.from('jobber_tokens').select('id').eq('company_id', companyId).limit(1).maybeSingle(),
+    admin.from('jobber_tokens').select('id, jobber_app').eq('company_id', companyId).limit(1).maybeSingle(),
     admin.from('qbo_tokens').select('id').eq('company_id', companyId).maybeSingle(), // QBO is now company-scoped (Track 3)
     admin.from('gusto_connections').select('company_id').eq('company_id', companyId).maybeSingle(),
     admin.from('social_accounts').select('id, active').eq('company_id', companyId),
@@ -91,8 +94,25 @@ export default async function AdminIntegrationsPage() {
     .maybeSingle()
   const sharedInboxEmail = (sharedInbox.data as { email_address?: string } | null)?.email_address ?? null
 
-  const statuses: Record<ProviderKey, { status: IntegrationStatus; detail?: string }> = {
-    jobber: jobber.data ? { status: 'connected' } : { status: 'not_connected' },
+  // Servanto Starter Session 2 — a disconnected Servanto company's copied Jobber
+  // data is deleted 30 days later; show when, and warn before disconnecting.
+  const jobberPurgeAt = jobber.data ? null : await pendingJobberPurge(companyId)
+  const jobberPurges = !!jobber.data && purgesOnDisconnect(companyId, normaliseJobberApp(jobber.data.jobber_app))
+
+  const statuses: Record<ProviderKey, { status: IntegrationStatus; detail?: string; disconnectWarning?: string }> = {
+    jobber: jobber.data
+      ? {
+          status: 'connected',
+          ...(jobberPurges
+            ? { disconnectWarning: `The data Servanto copied from Jobber will be deleted ${JOBBER_DATA_RETENTION_DAYS} days after you disconnect, unless you reconnect before then.` }
+            : {}),
+        }
+      : {
+          status: 'not_connected',
+          ...(jobberPurgeAt
+            ? { detail: `Copied Jobber data will be deleted on ${new Date(jobberPurgeAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Chicago' })}. Reconnect before then to keep it.` }
+            : {}),
+        },
     quickbooks: qbo.data ? { status: 'connected' } : { status: 'not_connected' },
     gusto: !gustoConfigured
       ? { status: 'action_needed', detail: 'Server keys not set — contact Lynxedo' }
@@ -177,8 +197,9 @@ export default async function AdminIntegrationsPage() {
       />
       {/* Renders nothing until a report is configured, so tenants without one see
           no change. Kept out of IntegrationsAdminPanel because it self-fetches. */}
-      <div className="mx-auto max-w-5xl px-4 pb-10">
+      <div className="mx-auto max-w-5xl px-4 pb-10 space-y-6">
         <JobberReportLinks />
+        {profile.role === 'admin' && <DataExportSection />}
       </div>
     </>
   )

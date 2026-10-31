@@ -14,7 +14,9 @@ import {
   type ProviderKey,
 } from '@/lib/integrations-catalog'
 
-type StatusInfo = { status: IntegrationStatus; detail?: string }
+// disconnectWarning: extra sentence for the Disconnect confirm (Jobber on Servanto —
+// the copied data is deleted 30 days later; lib/jobber-disconnect.ts).
+type StatusInfo = { status: IntegrationStatus; detail?: string; disconnectWarning?: string }
 
 const STATUS_META: Record<IntegrationStatus, { label: string; cls: string }> = {
   connected: { label: 'Connected', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
@@ -139,7 +141,7 @@ function IntegrationCard({
   async function handleDisconnect() {
     if (!provider.disconnectHref) return
     const ok = await confirmDialog({
-      message: `Disconnect ${provider.name}? Features that rely on it will stop working until you reconnect.`,
+      message: `Disconnect ${provider.name}? Features that rely on it will stop working until you reconnect.${info.disconnectWarning ? ` ${info.disconnectWarning}` : ''}`,
       danger: true,
     })
     if (!ok) return
@@ -147,7 +149,12 @@ function IntegrationCard({
     try {
       const res = await fetch(provider.disconnectHref, { method: 'POST' })
       if (!res.ok) throw new Error()
-      toast.success(`${provider.name} disconnected`)
+      const body = (await res.json().catch(() => ({}))) as { purgeAfter?: string | null }
+      toast.success(
+        body.purgeAfter
+          ? `${provider.name} disconnected. Its copied data will be deleted on ${new Date(body.purgeAfter).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} unless you reconnect.`
+          : `${provider.name} disconnected`,
+      )
       router.refresh()
     } catch {
       toast.error(`Couldn't disconnect ${provider.name}`)

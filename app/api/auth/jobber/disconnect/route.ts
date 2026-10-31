@@ -1,22 +1,22 @@
 import { NextResponse } from 'next/server'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { normaliseJobberApp } from '@/lib/jobber-apps'
+import { recordJobberDisconnect, revokeJobberGrant } from '@/lib/jobber-disconnect'
 
 /**
  * POST /api/auth/jobber/disconnect
- * Disconnects the CALLER'S COMPANY from Jobber by deleting every jobber_tokens
- * row for that company — not just the caller's own row.
+ * Disconnects the CALLER'S COMPANY from Jobber.
  *
- * Jobber is a company-level integration (any admin's token serves the whole
- * company), so the old per-user delete left other admins' rows behind: the
- * Integrations card kept reading "connected" and could never be reset, even
- * after the tokens went dead. Service-role client because we delete rows owned
- * by other users in the company (RLS would block that from a user client).
+ * Jobber is a company-level integration (one jobber_tokens row per company), so
+ * this removes the company's connection, not just the caller's.
  *
- * Gated to integration admins to match the Admin → Integrations page. Jobber
- * exposes no token-revocation endpoint, so deleting our copy is all we can do;
- * the OAuth grant on Jobber's side is unusable without our refresh token, and a
- * Reconnect issues a fresh grant.
+ * Servanto Starter Session 2: it now also tells Jobber to drop the grant
+ * (appDisconnect, best effort) and records the disconnect, which for a
+ * Servanto-app company schedules the deletion of its copied Jobber data in 30
+ * days (lib/jobber-disconnect.ts). Heroes' data is never scheduled for deletion.
+ *
+ * Gated to integration admins to match the Admin → Integrations page.
  */
 export async function POST() {
   const check = await requireAdminArea('integrations')
@@ -24,14 +24,22 @@ export async function POST() {
   if (!check.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
   const admin = createAdminClient()
-  const { error } = await admin
+  const { data: row } = await admin
     .from('jobber_tokens')
-    .delete()
+    .select('jobber_app, account_id')
     .eq('company_id', check.company_id)
+    .maybeSingle()
+  if (!row) return NextResponse.json({ ok: true, purgeAfter: null })
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  await revokeJobberGrant(check.company_id)
 
-  return NextResponse.json({ ok: true })
+  const res = await recordJobberDisconnect({
+    companyId: check.company_id,
+    app: normaliseJobberApp(row.jobber_app),
+    accountId: row.account_id,
+    source: 'servanto_button',
+  })
+  if (!res.ok) return NextResponse.json({ error: res.error }, { status: 500 })
+
+  return NextResponse.json({ ok: true, purgeAfter: res.purgeAfter })
 }

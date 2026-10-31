@@ -24,7 +24,7 @@ export interface JobberAppCreds {
   clientSecret: string
 }
 
-const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+export const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
 
 // Scopes asked for at authorize time. A scope lives in the issued token, so these
 // must match what each app has ticked in the Jobber Developer Center.
